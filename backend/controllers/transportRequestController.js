@@ -1196,11 +1196,14 @@ const getDashboardStats = async (req, res) => {
         let stageBreakdown = [];
         let courseBreakdown = [];
 
+        const resolvedAcademicYear = resolveAcademicYear(req.query);
+        const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
+
         if (mysqlPool) {
-            const parts = getActivePassengerSqlParts(resolveAcademicYear(req.query));
-            const activeFrom = `FROM transport_requests tr ${parts.studentJoins} ${parts.expiryJoins}`;
-            const activeWhere = `tr.status = 'approved' AND ${parts.activeWhere}`;
-            const activeParams = [...parts.expiryParams];
+            const parts = getActivePassengerSqlParts(resolvedAcademicYear);
+            const activeFrom = `FROM transport_requests tr ${parts.studentJoins}`;
+            const activeWhere = `tr.status = 'approved' AND COALESCE(tr.academic_year, ?) = ?`;
+            const activeParams = [fallbackAcademicYear, resolvedAcademicYear];
 
             const [totalRows] = await mysqlPool.query(
                 `SELECT COUNT(*) as total ${activeFrom} WHERE ${activeWhere}`,
@@ -1231,11 +1234,23 @@ const getDashboardStats = async (req, res) => {
         }
 
         // Add MongoDB (Employee) Stats
-        const mongoTotal = await EmployeeTransportRequest.countDocuments({ status: 'approved' });
+        const mongoMatch = { status: 'approved' };
+        if (resolvedAcademicYear === fallbackAcademicYear) {
+            mongoMatch.$or = [
+                { academic_year: resolvedAcademicYear },
+                { academic_year: { $exists: false } },
+                { academic_year: null },
+                { academic_year: '' }
+            ];
+        } else {
+            mongoMatch.academic_year = resolvedAcademicYear;
+        }
+
+        const mongoTotal = await EmployeeTransportRequest.countDocuments(mongoMatch);
         totalPassengers += mongoTotal;
 
         const mongoRouteRows = await EmployeeTransportRequest.aggregate([
-            { $match: { status: 'approved' } },
+            { $match: mongoMatch },
             { $group: { _id: { route_id: '$route_id', route_name: '$route_name' }, count: { $sum: 1 } } }
         ]);
         
@@ -1253,7 +1268,7 @@ const getDashboardStats = async (req, res) => {
         });
 
         const mongoStageRows = await EmployeeTransportRequest.aggregate([
-            { $match: { status: 'approved' } },
+            { $match: mongoMatch },
             { $group: { _id: { route_id: '$route_id', route_name: '$route_name', stage_name: '$stage_name' }, count: { $sum: 1 } } }
         ]);
 

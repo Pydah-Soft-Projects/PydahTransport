@@ -9,6 +9,7 @@ import {
     Zap
 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
+import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 
 const Dashboard = () => {
     const [loading, setLoading] = useState(true);
@@ -22,14 +23,16 @@ const Dashboard = () => {
         courseBreakdown: []
     });
     const [selectedRouteId, setSelectedRouteId] = useState(null);
+    const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear());
 
     useEffect(() => {
         const fetchStats = async () => {
+            setLoading(true);
             try {
                 const [busRes, routeRes, statsRes] = await Promise.all([
                     apiFetch(`${import.meta.env.VITE_API_URL}/buses`),
                     apiFetch(`${import.meta.env.VITE_API_URL}/routes`),
-                    apiFetch(`${import.meta.env.VITE_API_URL}/transport-requests/stats`)
+                    apiFetch(`${import.meta.env.VITE_API_URL}/transport-requests/stats?academicYear=${academicYear}`)
                 ]);
 
                 const buses = await busRes.json();
@@ -55,13 +58,29 @@ const Dashboard = () => {
         };
 
         fetchStats();
-    }, []);
+    }, [academicYear]);
 
     return (
         <Layout>
-            <div className="mb-6">
-                <h2 className="text-2xl font-extrabold  break-words tracking-tight">Dashboard Overview</h2>
-                <p className="text-slate-500 text-sm font-medium">Insights and analytics for transport management.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-slate-100 pb-4">
+                <div>
+                    <h2 className="text-2xl font-extrabold break-words tracking-tight text-slate-900">Dashboard Overview</h2>
+                    <p className="text-slate-500 text-sm font-medium">Insights and analytics for transport management.</p>
+                </div>
+                <div className="flex items-center gap-2.5 self-stretch sm:self-auto">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Academic Year</span>
+                    <select
+                        value={academicYear}
+                        onChange={(e) => setAcademicYear(e.target.value)}
+                        className="bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 pr-8 shadow-sm transition-all cursor-pointer hover:border-slate-300"
+                    >
+                        {getAcademicYearOptions().map((option) => (
+                            <option key={option} value={option}>
+                                {option}
+                            </option>
+                        ))}
+                    </select>
+                </div>
             </div>
 
             {loading ? (

@@ -14,5 +14,5 @@ export const getAcademicYearOptions = () => {
         const start = startYear + offset;
         options.add(`${start}-${start + 1}`);
     }
-    return Array.from(options).sort((a, b) => Number(b.split('-')[0]) - Number(a.split('-')[0]));
+    return Array.from(options).sort((a, b) => Number(a.split('-')[0]) - Number(b.split('-')[0]));
 };

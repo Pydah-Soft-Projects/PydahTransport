@@ -933,18 +933,13 @@ const TransportRequests = () => {
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wider">
-                                    <th className="p-4">Type</th>
-                                    <th className="p-4">ID Number</th>
+                                    <th className="p-4">Pin Number</th>
+                                    <th className="p-4">Admission Number</th>
                                     <th className="p-4">Name</th>
-                                    <th className="p-4">Course</th>
-                                    <th className="p-4 text-center">Year</th>
-                                    <th className="p-4">Academic Year</th>
+                                    <th className="p-4">Academic Info</th>
                                     <th className="p-4">App No.</th>
-                                    <th className="p-4">Route</th>
-                                    <th className="p-4">Stage</th>
                                     <th className="p-4">Fare</th>
                                     <th className="p-4">Status</th>
-                                    <th className="p-4">Date</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50 text-sm text-gray-700">
@@ -954,25 +949,28 @@ const TransportRequests = () => {
                                         onClick={() => openDetailModal(req)}
                                         className="hover:bg-blue-50/60 transition-colors cursor-pointer"
                                     >
-                                        <td className="p-4">
-                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${req.user_type === 'employee' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                {req.user_type || 'student'}
-                                            </span>
+                                        <td className="p-4 font-semibold text-slate-700 text-xs">
+                                            {req.user_type === 'employee' ? '—' : (req.pin_no || '—')}
                                         </td>
                                         <td className="p-4 font-medium text-blue-600">{req.admission_number || req.emp_no}</td>
                                         <td className="p-4 font-medium text-gray-900">{req.student_name || req.employee_name}</td>
-                                        <td className="p-4 text-xs font-semibold uppercase text-gray-500">{req.course || '—'}</td>
-                                        <td className="p-4 text-center">
-                                            {req.user_type === 'employee' ? '—' : (
-                                                <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-md text-[10px] font-bold">
-                                                    Y{req.year_of_study || '—'}
-                                                </span>
+                                        <td className="p-4">
+                                            {req.user_type === 'employee' ? (
+                                                <span className="text-slate-400 font-medium text-xs">Employee</span>
+                                            ) : (
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="text-xs font-semibold uppercase text-slate-700 tracking-wide">{req.course || '—'}</span>
+                                                    <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                                                        <span className="bg-blue-50 text-blue-700 px-1 py-0.5 rounded font-bold">
+                                                            Y{req.year_of_study || '—'}
+                                                        </span>
+                                                        <span>•</span>
+                                                        <span className="font-medium">{req.academic_year || '—'}</span>
+                                                    </div>
+                                                </div>
                                             )}
                                         </td>
-                                        <td className="p-4 text-xs font-medium text-gray-600">{req.academic_year || '—'}</td>
                                         <td className="p-4 text-xs font-bold text-indigo-700">{req.application_number || '—'}</td>
-                                        <td className="p-4">{req.route_name}</td>
-                                        <td className="p-4">{req.stage_name}</td>
                                         <td className="p-4 font-medium text-gray-900">{req.user_type === 'employee' ? 'Free (₹0)' : `₹${req.fare}`}</td>
                                         <td className="p-4">
                                             {isExpiredPass(req) ? (
@@ -993,9 +991,6 @@ const TransportRequests = () => {
                                                     {req.course_expiry_date ? ` (course Y${req.year_of_study || '?'})` : ''}
                                                 </p>
                                             )}
-                                        </td>
-                                        <td className="p-4 text-gray-500">
-                                            {new Date(req.request_date).toLocaleDateString()}
                                         </td>
                                     </tr>
                                 ))}
