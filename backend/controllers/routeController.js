@@ -23,7 +23,16 @@ function serializeRoute(route, academicYear = null) {
 const getRoutes = async (req, res) => {
     try {
         const academicYear = normalizeAcademicYear(req.query.academicYear || req.query.academic_year || '');
-        const routes = await Route.find();
+        
+        let query = {};
+        if (req.user) {
+            const isSuperAdminOrAdmin = req.user.roles && (req.user.roles.includes('superadmin') || req.user.roles.includes('admin'));
+            if (!isSuperAdminOrAdmin && req.user.campuses && req.user.campuses.length > 0) {
+                query.campus = { $in: req.user.campuses };
+            }
+        }
+
+        const routes = await Route.find(query).populate('campus');
         res.json(routes.map((route) => serializeRoute(route, academicYear || null)));
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -47,7 +56,8 @@ const createRoute = async (req, res) => {
 
         const route = new Route(payload);
         const createdRoute = await route.save();
-        res.status(201).json(serializeRoute(createdRoute, editingAcademicYear));
+        const populatedRoute = await Route.findById(createdRoute._id).populate('campus');
+        res.status(201).json(serializeRoute(populatedRoute, editingAcademicYear));
     } catch (error) {
         res.status(400).json({ message: error.message });
     }
@@ -70,13 +80,15 @@ const updateRoute = async (req, res) => {
             route.endPoint = req.body.endPoint || route.endPoint;
             route.totalDistance = req.body.totalDistance || route.totalDistance;
             route.estimatedTime = req.body.estimatedTime || route.estimatedTime;
+            route.campus = req.body.campus !== undefined ? (req.body.campus || null) : route.campus;
             if (req.body.stages) {
                 route.stages = normalizeStagesForSave(req.body.stages, editingAcademicYear);
                 route.markModified('stages');
             }
 
             const updatedRoute = await route.save();
-            res.json(serializeRoute(updatedRoute, editingAcademicYear));
+            const populatedRoute = await Route.findById(updatedRoute._id).populate('campus');
+            res.json(serializeRoute(populatedRoute, editingAcademicYear));
         } else {
             res.status(404).json({ message: 'Route not found' });
         }
@@ -109,3 +121,4 @@ module.exports = {
     updateRoute,
     deleteRoute
 };
+

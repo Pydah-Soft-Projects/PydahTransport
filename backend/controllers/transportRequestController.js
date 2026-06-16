@@ -4,7 +4,7 @@ const Bus = require('../models/Bus');
 const Route = require('../models/Route');
 const mongoose = require('mongoose');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
-const { validateStudentAcademicContext } = require('../utils/studentAcademicValidation');
+const { validateStudentAcademicContext, getExpectedYearForBatch } = require('../utils/studentAcademicValidation');
 const { assignTransportApplicationNumber, peekNextTransportApplicationNumber } = require('../utils/transportApplicationNumber');
 const { resolveApplicationNumberContext } = require('../utils/applicationNumberContext');
 const { resolveRouteStageFare } = require('../utils/stageFare');
@@ -75,7 +75,7 @@ async function getLastSemesterForRequest(mysqlPool, transportRequest) {
     const ayRange = academicYearDateRange(requestAcademicYear);
 
     const [studentRows] = await mysqlPool.query(
-        'SELECT course, current_year FROM students WHERE admission_number = ? OR admission_no = ? LIMIT 1',
+        'SELECT course, batch, current_year FROM students WHERE admission_number = ? OR admission_no = ? LIMIT 1',
         [admissionNumber, admissionNumber]
     );
     const student = studentRows[0];
@@ -85,9 +85,12 @@ async function getLastSemesterForRequest(mysqlPool, transportRequest) {
     const course = courseRows[0];
     if (!course) return null;
 
-    const yearOfStudy = student.current_year != null
-        ? Number(student.current_year)
-        : (transportRequest.year_of_study != null ? Number(transportRequest.year_of_study) : 1);
+    let yearOfStudy = getExpectedYearForBatch(requestAcademicYear, student.batch);
+    if (yearOfStudy == null || isNaN(yearOfStudy)) {
+        yearOfStudy = student.current_year != null
+            ? Number(student.current_year)
+            : (transportRequest.year_of_study != null ? Number(transportRequest.year_of_study) : 1);
+    }
 
     // Prefer course-level expiry configured for this academic year.
     const [cteRows] = await mysqlPool.query(
@@ -409,8 +412,19 @@ const getTransportRequests = async (req, res) => {
         const filterAcademicYear = explicitAcademicYear
             ? resolveAcademicYear(req.query)
             : null;
+
+        const isSuperAdminOrAdmin = req.user && req.user.roles && (req.user.roles.includes('superadmin') || req.user.roles.includes('admin'));
+        const hasCampusRestriction = req.user && !isSuperAdminOrAdmin && req.user.campuses && req.user.campuses.length > 0;
+
+        let allowedRouteIds = [];
+        if (hasCampusRestriction) {
+            const allowedRoutes = await Route.find({ campus: { $in: req.user.campuses } }).select('routeId').lean();
+            allowedRouteIds = allowedRoutes.map(r => r.routeId);
+        }
+
         let sql = `
             SELECT tr.*,
+                   COALESCE(tr.year_of_study, s1.current_year, s2.current_year) as year_of_study,
                    COALESCE(s1.course, s2.course) as course,
                    COALESCE(s1.branch, s2.branch) as branch,
                    COALESCE(s1.pin_no, s2.pin_no) as pin_no,
@@ -446,7 +460,7 @@ const getTransportRequests = async (req, res) => {
             }
         }
         if (course) {
-            sql += ' AND s.course = ?';
+            sql += ' AND COALESCE(s1.course, s2.course) = ?';
             params.push(course);
         }
         if (search) {
@@ -457,6 +471,15 @@ const getTransportRequests = async (req, res) => {
         if (filterAcademicYear) {
             sql += ' AND COALESCE(tr.academic_year, ?) = ?';
             params.push(fallbackAcademicYear, filterAcademicYear);
+        }
+        if (hasCampusRestriction) {
+            if (allowedRouteIds.length > 0) {
+                const routePlaceholders = allowedRouteIds.map(() => '?').join(',');
+                sql += ` AND tr.route_id IN (${routePlaceholders})`;
+                params.push(...allowedRouteIds);
+            } else {
+                sql += ' AND 1=0';
+            }
         }
 
         sql += ' ORDER BY tr.request_date DESC';
@@ -478,6 +501,19 @@ const getTransportRequests = async (req, res) => {
                 { employee_name: { $regex: search, $options: 'i' } },
                 { emp_no: { $regex: search, $options: 'i' } }
             ];
+        }
+        if (hasCampusRestriction) {
+            if (allowedRouteIds.length > 0) {
+                if (mongoQuery.route_id) {
+                    if (!allowedRouteIds.includes(mongoQuery.route_id)) {
+                        mongoQuery.route_id = '__NONE__';
+                    }
+                } else {
+                    mongoQuery.route_id = { $in: allowedRouteIds };
+                }
+            } else {
+                mongoQuery.route_id = '__NONE__';
+            }
         }
 
         let mongoRows = [];
@@ -594,6 +630,7 @@ const getPassengerFullDetails = async (req, res) => {
 
         const [rows] = await mysqlPool.query(
             `SELECT tr.*, 
+                    COALESCE(tr.year_of_study, s1.current_year, s2.current_year) as year_of_study,
                     COALESCE(s1.course, s2.course) as course,
                     COALESCE(s1.branch, s2.branch) as branch,
                     COALESCE(s1.student_photo, s2.student_photo) as student_photo,

@@ -43,6 +43,7 @@ const protect = async (req, res, next) => {
                 const userRole = await UserRole.findOne({ employeeId: req.user._id }).lean();
                 req.user.roles = userRole ? userRole.roles : ['user'];
                 req.user.permissions = userRole ? userRole.permissions : [];
+                req.user.campuses = userRole ? (userRole.campuses || []) : [];
             }
 
             return next();

@@ -13,6 +13,10 @@ const userRoleSchema = new mongoose.Schema({
     }],
     permissions: [{
         type: String
+    }],
+    campuses: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Campus'
     }]
 }, { timestamps: true });
 

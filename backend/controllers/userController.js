@@ -44,7 +44,8 @@ const getUsers = async (req, res) => {
             return {
                 ...emp,
                 roles: roleData.roles || ['user'],
-                permissions: roleData.permissions || []
+                permissions: roleData.permissions || [],
+                campuses: roleData.campuses || []
             };
         });
 
@@ -74,33 +75,35 @@ const getUsers = async (req, res) => {
 // @access  Private/Admin
 const updateUserRole = async (req, res) => {
     const { id } = req.params; // Employee ID (mongoose ObjectId from HRMS)
-    const { roles, permissions } = req.body;
-
+    const { roles, permissions, campuses } = req.body;
+ 
     try {
         console.log(`[Backend] Updating user ${id} role/permissions`);
         console.log(`[Backend] Received roles:`, roles);
-
+        console.log(`[Backend] Received campuses:`, campuses);
+ 
         // Validation: Verify employee exists in HRMS
         const Employee = getEmployeeModel();
         if (!Employee) {
             return res.status(503).json({ message: 'Employee DB connection not available' });
         }
-
+ 
         const employee = await Employee.findById(id);
         if (!employee) {
             return res.status(404).json({ message: 'Employee not found' });
         }
-
+ 
         // Update or Create UserRole in Local DB
         // Ensure roles is an array
         const rolesArray = Array.isArray(roles) ? roles : [roles];
-
+ 
         const updatedRole = await UserRole.findOneAndUpdate(
             { employeeId: id },
             {
                 $set: {
                     roles: rolesArray,
-                    permissions: permissions || []
+                    permissions: permissions || [],
+                    campuses: campuses || []
                 }
             },
             { new: true, upsert: true, setDefaultsOnInsert: true }

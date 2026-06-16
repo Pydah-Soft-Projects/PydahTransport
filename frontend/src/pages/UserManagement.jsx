@@ -13,12 +13,26 @@ const UserManagement = () => {
     // Form state for role/permission editing
     const [selectedRole, setSelectedRole] = useState('user'); // Single role
     const [permissions, setPermissions] = useState([]);
+    const [selectedCampuses, setSelectedCampuses] = useState([]);
+    const [campuses, setCampuses] = useState([]);
 
     // Search state
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
     const [selectedEmployee, setSelectedEmployee] = useState(null); // Employee selected from search
+
+    const fetchCampuses = async () => {
+        try {
+            const response = await apiFetch(`${import.meta.env.VITE_API_URL}/campuses`);
+            const data = await response.json();
+            if (response.ok) {
+                setCampuses(data);
+            }
+        } catch (error) {
+            console.error('Error fetching campuses:', error);
+        }
+    };
 
     const PERMISSION_OPTIONS = [
         { id: 'dashboard', label: 'Dashboard Access' },
@@ -35,6 +49,7 @@ const UserManagement = () => {
 
     useEffect(() => {
         fetchUsers();
+        fetchCampuses();
     }, []);
 
     const fetchUsers = async () => {
@@ -99,6 +114,7 @@ const UserManagement = () => {
         setSelectedEmployee(employee);
         setSelectedRole('admin'); // Default to admin
         setPermissions([]);
+        setSelectedCampuses([]);
         setSearchResults([]);
         setSearchQuery('');
     };
@@ -115,6 +131,7 @@ const UserManagement = () => {
         const currentRole = user.roles && user.roles.length > 0 ? user.roles[0] : 'user';
         setSelectedRole(currentRole);
         setPermissions(user.permissions || []);
+        setSelectedCampuses(user.campuses || []);
         setIsManageModalOpen(true);
     };
 
@@ -163,6 +180,7 @@ const UserManagement = () => {
 
         console.log('[Frontend] Saving Role:', selectedRole);
         console.log('[Frontend] Target ID:', targetId);
+        console.log('[Frontend] Campuses to Save:', selectedCampuses);
 
         try {
             const response = await apiFetch(`${import.meta.env.VITE_API_URL}/users/${targetId}/role`, {
@@ -172,7 +190,7 @@ const UserManagement = () => {
                     'Authorization': `Bearer ${token}`
                 },
                 // Send role as an array for backend compatibility, but UI controls distinct single role
-                body: JSON.stringify({ roles: [selectedRole], permissions }),
+                body: JSON.stringify({ roles: [selectedRole], permissions, campuses: selectedCampuses }),
             });
 
             if (response.ok) {
@@ -180,6 +198,7 @@ const UserManagement = () => {
                 setIsAddAdminModalOpen(false);
                 setSelectedUser(null);
                 setSelectedEmployee(null);
+                setSelectedCampuses([]);
                 fetchUsers(); // Refresh list
             } else {
                 alert('Failed to update role');
@@ -195,6 +214,7 @@ const UserManagement = () => {
         setSelectedEmployee(null);
         setSelectedRole('admin');
         setPermissions([]);
+        setSelectedCampuses([]);
         setSearchQuery('');
         setSearchResults([]);
         setIsAddAdminModalOpen(true);
@@ -250,15 +270,29 @@ const UserManagement = () => {
                                             <div className="font-medium">{user.employee_name}</div>
                                         </td>
                                         <td className="p-4 text-sm">
-                                            <div className="flex flex-wrap gap-1">
-                                                {user.roles && user.roles.map(role => (
-                                                    <span key={role} className={`px-2 py-0.5 rounded-full text-xs font-medium border capitalize ${role === 'superadmin'
-                                                        ? 'bg-purple-100 text-purple-800 border-purple-200'
-                                                        : 'bg-blue-100 text-blue-800 border-blue-200'
-                                                        }`}>
-                                                        {role === 'superadmin' ? 'Super Admin' : role}
-                                                    </span>
-                                                ))}
+                                            <div className="flex flex-col gap-1.5">
+                                                <div className="flex flex-wrap gap-1">
+                                                    {user.roles && user.roles.map(role => (
+                                                        <span key={role} className={`px-2 py-0.5 rounded-full text-xs font-medium border capitalize ${role === 'superadmin'
+                                                            ? 'bg-purple-100 text-purple-800 border-purple-200'
+                                                            : 'bg-blue-100 text-blue-800 border-blue-200'
+                                                            }`}>
+                                                            {role === 'superadmin' ? 'Super Admin' : role}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                                {user.campuses && user.campuses.length > 0 && (
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {user.campuses.map(cId => {
+                                                            const campus = campuses.find(c => c._id === cId || c._id === cId._id || c === cId);
+                                                            return (
+                                                                <span key={cId._id || cId} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-semibold rounded border border-gray-200">
+                                                                    {campus ? campus.name : 'Unknown Campus'}
+                                                                </span>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
                                             </div>
                                         </td>
                                         <td className="p-4 text-sm">
@@ -331,6 +365,34 @@ const UserManagement = () => {
                                 </label>
                             ))}
                         </div>
+                    </div>
+
+                    <div>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3 block">Campus Restriction</h4>
+                        <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto p-1 border border-gray-100 rounded-lg">
+                            {campuses.map(campus => (
+                                <label key={campus._id} className="flex items-center space-x-3 p-2 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                                    <input
+                                        type="checkbox"
+                                        value={campus._id}
+                                        checked={selectedCampuses.includes(campus._id)}
+                                        onChange={(e) => {
+                                            if (e.target.checked) {
+                                                setSelectedCampuses([...selectedCampuses, campus._id]);
+                                            } else {
+                                                setSelectedCampuses(selectedCampuses.filter(id => id !== campus._id));
+                                            }
+                                        }}
+                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"
+                                    />
+                                    <span className="text-gray-700">{campus.name} ({campus.code})</span>
+                                </label>
+                            ))}
+                            {campuses.length === 0 && (
+                                <p className="text-xs text-gray-400 italic p-2">No campuses available. Add them in Route Management first.</p>
+                            )}
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-1">If no campuses are selected, the user will have access to all campuses.</p>
                     </div>
 
                     <div className="pt-4 flex justify-end gap-3 border-t border-gray-100">
@@ -456,6 +518,36 @@ const UserManagement = () => {
                             ))}
                         </div>
                         {!selectedEmployee && <div className="text-xs text-red-500 mt-1">* Select an employee to assign permissions</div>}
+                    </div>
+
+                    {/* Campus Restrictions Section */}
+                    <div>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3 block">Campus Restriction</h4>
+                        <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto p-1 border border-gray-100 rounded-lg">
+                            {campuses.map(campus => (
+                                <label key={campus._id} className="flex items-center space-x-3 p-2 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                                    <input
+                                        type="checkbox"
+                                        value={campus._id}
+                                        checked={selectedCampuses.includes(campus._id)}
+                                        onChange={(e) => {
+                                            if (e.target.checked) {
+                                                setSelectedCampuses([...selectedCampuses, campus._id]);
+                                            } else {
+                                                setSelectedCampuses(selectedCampuses.filter(id => id !== campus._id));
+                                            }
+                                        }}
+                                        disabled={!selectedEmployee}
+                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300 disabled:opacity-50"
+                                    />
+                                    <span className={`text-gray-700 ${!selectedEmployee ? 'opacity-50' : ''}`}>{campus.name} ({campus.code})</span>
+                                </label>
+                            ))}
+                            {campuses.length === 0 && (
+                                <p className="text-xs text-gray-400 italic p-2">No campuses available. Add them in Route Management first.</p>
+                            )}
+                        </div>
+                        <p className={`text-[10px] text-gray-400 mt-1 ${!selectedEmployee ? 'opacity-50' : ''}`}>If no campuses are selected, the user will have access to all campuses.</p>
                     </div>
 
                     <div className="pt-4 flex flex-col items-end border-t border-gray-100">

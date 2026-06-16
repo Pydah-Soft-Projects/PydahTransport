@@ -44,8 +44,26 @@ const RouteManagement = () => {
         endPoint: '',
         totalDistance: '',
         estimatedTime: '',
+        campus: '',
         stages: [] // Start with empty stages
     });
+
+    const [campuses, setCampuses] = useState([]);
+    const [selectedCampusFilter, setSelectedCampusFilter] = useState('');
+    const [isCampusModalOpen, setIsCampusModalOpen] = useState(false);
+    const [campusFormData, setCampusFormData] = useState({ name: '', code: '', location: '' });
+    const [campusMessage, setCampusMessage] = useState({ text: '', type: '' });
+    const [campusLoading, setCampusLoading] = useState(false);
+
+    const fetchCampuses = async () => {
+        try {
+            const response = await apiFetch(`${API}/campuses`);
+            const data = await response.json();
+            setCampuses(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error('Error fetching campuses:', error);
+        }
+    };
 
     const fetchRoutes = async (year = academicYear) => {
         setLoading(true);
@@ -68,11 +86,57 @@ const RouteManagement = () => {
         setEditingId(null);
         setFormData({
             routeId: '', routeName: '', startPoint: '', endPoint: '',
-            totalDistance: '', estimatedTime: '', stages: []
+            totalDistance: '', estimatedTime: '', campus: '', stages: []
         });
         setExpandedRouteId(null);
         fetchRoutes(academicYear);
+        fetchCampuses();
     }, [academicYear]);
+
+    const handleCampusSubmit = async (e) => {
+        e.preventDefault();
+        setCampusLoading(true);
+        setCampusMessage({ text: '', type: '' });
+        try {
+            const response = await apiFetch(`${API}/campuses`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(campusFormData),
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setCampusFormData({ name: '', code: '', location: '' });
+                setCampusMessage({ text: 'Campus created successfully.', type: 'success' });
+                fetchCampuses();
+            } else {
+                setCampusMessage({ text: data.message || 'Failed to create campus.', type: 'error' });
+            }
+        } catch (error) {
+            console.error('Error creating campus:', error);
+            setCampusMessage({ text: 'Error creating campus.', type: 'error' });
+        } finally {
+            setCampusLoading(false);
+        }
+    };
+
+    const handleCampusDelete = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this campus?')) return;
+        try {
+            const response = await apiFetch(`${API}/campuses/${id}`, {
+                method: 'DELETE',
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setCampusMessage({ text: 'Campus deleted successfully.', type: 'success' });
+                fetchCampuses();
+            } else {
+                setCampusMessage({ text: data.message || 'Failed to delete campus.', type: 'error' });
+            }
+        } catch (error) {
+            console.error('Error deleting campus:', error);
+            setCampusMessage({ text: 'Error deleting campus.', type: 'error' });
+        }
+    };
 
     const toggleRoute = (id) => {
         setExpandedRouteId(expandedRouteId === id ? null : id);
@@ -114,6 +178,7 @@ const RouteManagement = () => {
             endPoint: route.endPoint,
             totalDistance: route.totalDistance,
             estimatedTime: route.estimatedTime,
+            campus: route.campus?._id || route.campus || '',
             stages: (route.stages || []).map((stage) => ({
                 stageName: stage.stageName,
                 distanceFromStart: stage.distanceFromStart,
@@ -151,7 +216,7 @@ const RouteManagement = () => {
         setEditingId(null);
         setFormData({
             routeId: '', routeName: '', startPoint: '', endPoint: '',
-            totalDistance: '', estimatedTime: '', stages: []
+            totalDistance: '', estimatedTime: '', campus: '', stages: []
         });
     };
 
@@ -171,6 +236,7 @@ const RouteManagement = () => {
                 endPoint: formData.endPoint,
                 totalDistance: formData.totalDistance,
                 estimatedTime: formData.estimatedTime,
+                campus: formData.campus || null,
                 stages: formData.stages.map((stage) => ({
                     stageName: stage.stageName,
                     distanceFromStart: stage.distanceFromStart,
@@ -210,14 +276,34 @@ const RouteManagement = () => {
         }
     };
 
+    const filteredRoutes = selectedCampusFilter
+        ? routes.filter(route => {
+            const rCampusId = route.campus?._id || route.campus;
+            return rCampusId === selectedCampusFilter;
+        })
+        : routes;
+
     return (
         <Layout>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
                 <div>
-                    <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Route Network ({routes.length})</h2>
+                    <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Route Network ({filteredRoutes.length})</h2>
                     <p className="text-slate-600 mt-1">Design routes, manage stages, and set fares per academic year.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
+                    <div>
+                        <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Campus</label>
+                        <select
+                            value={selectedCampusFilter}
+                            onChange={(e) => setSelectedCampusFilter(e.target.value)}
+                            className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 min-w-[150px]"
+                        >
+                            <option value="">All Campuses</option>
+                            {campuses.map((campus) => (
+                                <option key={campus._id} value={campus._id}>{campus.name} ({campus.code})</option>
+                            ))}
+                        </select>
+                    </div>
                     <div>
                         <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Academic Year</label>
                         <select
@@ -230,6 +316,12 @@ const RouteManagement = () => {
                             ))}
                         </select>
                     </div>
+                    <button
+                        onClick={() => setIsCampusModalOpen(true)}
+                        className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-md active:scale-95 flex items-center group self-end"
+                    >
+                        Manage Campuses
+                    </button>
                     <button
                         onClick={() => setIsModalOpen(true)}
                         className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group self-end"
@@ -249,19 +341,23 @@ const RouteManagement = () => {
                 <div className="flex items-center justify-center py-20">
                     <Loader size={40} text="Loading route data..." />
                 </div>
-            ) : routes.length === 0 ? (
+            ) : filteredRoutes.length === 0 ? (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px] flex flex-col items-center justify-center p-8">
                     <div className="bg-slate-50 p-6 rounded-full mb-4">
                         <Map size={48} className="text-slate-400" />
                     </div>
-                    <h3 className="text-xl font-bold text-slate-800 mb-2 text-center">Route Map Empty</h3>
+                    <h3 className="text-xl font-bold text-slate-800 mb-2 text-center">No Routes Found</h3>
                     <p className="text-slate-500 text-center max-w-md mx-auto">
-                        Define the pickup and drop points for your students. Create your first route to get started.
+                        {selectedCampusFilter 
+                          ? "There are no routes matching the selected campus." 
+                          : "Define the pickup and drop points for your students. Create your first route to get started."}
                     </p>
-                    <button onClick={() => setIsModalOpen(true)} className="mt-6 flex items-center text-blue-600 font-semibold hover:text-blue-800 hover:bg-blue-50 px-4 py-2 rounded-lg transition-all">
-                        <Plus size={20} className="mr-2" />
-                        Create first route
-                    </button>
+                    {!selectedCampusFilter && (
+                        <button onClick={() => setIsModalOpen(true)} className="mt-6 flex items-center text-blue-600 font-semibold hover:text-blue-800 hover:bg-blue-50 px-4 py-2 rounded-lg transition-all">
+                            <Plus size={20} className="mr-2" />
+                            Create first route
+                        </button>
+                    )}
                 </div>
             ) : (
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
@@ -277,7 +373,7 @@ const RouteManagement = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {routes.map((route) => {
+                                {filteredRoutes.map((route) => {
                                     const isExpanded = expandedRouteId === route._id;
                                     return (
                                         <React.Fragment key={route._id}>
@@ -286,11 +382,20 @@ const RouteManagement = () => {
                                                 className={`cursor-pointer transition-colors group ${isExpanded ? 'bg-blue-50/30' : 'hover:bg-slate-50'}`}
                                             >
                                                 <td className="px-6 py-4">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-bold text-slate-800 text-sm">{route.routeName}</span>
-                                                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs font-bold rounded border border-slate-200 font-mono">
-                                                            {route.routeId}
-                                                        </span>
+                                                    <div className="flex flex-col gap-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-bold text-slate-800 text-sm">{route.routeName}</span>
+                                                            <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs font-bold rounded border border-slate-200 font-mono">
+                                                                {route.routeId}
+                                                            </span>
+                                                        </div>
+                                                        {route.campus && (
+                                                            <div>
+                                                                <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-semibold rounded border border-blue-100">
+                                                                    Campus: {route.campus.name || route.campus}
+                                                                </span>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4">
@@ -409,7 +514,7 @@ const RouteManagement = () => {
                             <input type="text" name="endPoint" required value={formData.endPoint} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" />
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-3 gap-4">
                         <div>
                             <label className="block text-sm font-semibold text-slate-700 mb-1.5">Total Distance (km)</label>
                             <input type="number" name="totalDistance" value={formData.totalDistance} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" />
@@ -417,6 +522,22 @@ const RouteManagement = () => {
                         <div>
                             <label className="block text-sm font-semibold text-slate-700 mb-1.5">Est. Time</label>
                             <input type="text" name="estimatedTime" value={formData.estimatedTime} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="e.g. 45 mins" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Campus</label>
+                            <select
+                                name="campus"
+                                value={formData.campus || ''}
+                                onChange={handleChange}
+                                className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-white"
+                            >
+                                <option value="">Select Campus (Optional)</option>
+                                {campuses.map(campus => (
+                                    <option key={campus._id} value={campus._id}>
+                                        {campus.name} ({campus.code})
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                     </div>
 
@@ -462,6 +583,88 @@ const RouteManagement = () => {
                         {editingId ? 'Update Route Structure' : 'Create Route Structure'}
                     </button>
                 </form>
+            </Modal>
+
+            <Modal isOpen={isCampusModalOpen} onClose={() => { setIsCampusModalOpen(false); setCampusMessage({ text: '', type: '' }); }} title="Manage Campuses">
+                <div className="space-y-6">
+                    {/* Add Campus Form */}
+                    <form onSubmit={handleCampusSubmit} className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-4">
+                        <h4 className="font-bold text-slate-800 text-sm">Add New Campus</h4>
+                        {campusMessage.text && (
+                            <div className={`p-2.5 rounded-lg text-xs border ${campusMessage.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                                {campusMessage.text}
+                            </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-600 mb-1">Campus Name</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={campusFormData.name}
+                                    onChange={(e) => setCampusFormData({ ...campusFormData, name: e.target.value })}
+                                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                                    placeholder="e.g. Main Campus"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-600 mb-1">Campus Code</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={campusFormData.code}
+                                    onChange={(e) => setCampusFormData({ ...campusFormData, code: e.target.value })}
+                                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                                    placeholder="e.g. MC"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Location (Optional)</label>
+                            <input
+                                type="text"
+                                value={campusFormData.location}
+                                onChange={(e) => setCampusFormData({ ...campusFormData, location: e.target.value })}
+                                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="e.g. Visakhapatnam"
+                            />
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={campusLoading}
+                            className="w-full bg-blue-900 text-white font-bold py-2 rounded-lg hover:bg-blue-700 transition-colors text-xs disabled:opacity-50"
+                        >
+                            {campusLoading ? 'Creating...' : 'Create Campus'}
+                        </button>
+                    </form>
+
+                    {/* Campus List */}
+                    <div className="space-y-3">
+                        <h4 className="font-bold text-slate-800 text-sm">Existing Campuses</h4>
+                        <div className="max-h-60 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
+                            {campuses.length === 0 ? (
+                                <p className="text-xs text-slate-400 italic text-center py-4">No campuses created yet.</p>
+                            ) : (
+                                campuses.map((campus) => (
+                                    <div key={campus._id} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200 animate-in fade-in duration-200">
+                                        <div>
+                                            <p className="font-bold text-slate-800 text-xs">{campus.name}</p>
+                                            <p className="text-[10px] text-slate-400 font-mono">Code: {campus.code} {campus.location && `| Location: ${campus.location}`}</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCampusDelete(campus._id)}
+                                            className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
+                                            title="Delete Campus"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
             </Modal>
         </Layout>
     );

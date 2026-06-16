@@ -39,6 +39,11 @@ const routeSchema = new mongoose.Schema({
     estimatedTime: {
         type: String // e.g. "45 mins"
     },
+    campus: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Campus',
+        default: null
+    },
     stages: [stageSchema]
 }, {
     timestamps: true
