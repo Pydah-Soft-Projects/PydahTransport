@@ -42,10 +42,11 @@ function getActivePassengerSqlParts(fallbackAcademicYear) {
             LEFT JOIN courses c_act ON c_act.name = COALESCE(s1.course, s2.course)
             LEFT JOIN course_transport_expiry cte ON cte.course_id = c_act.id
               AND cte.academic_year = COALESCE(tr.academic_year, ?)
-              AND cte.year_of_study = COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)`,
-        activeWhere: `(COALESCE(cte.expiry_date, tr.expiry_date) IS NULL OR CURDATE() <= COALESCE(cte.expiry_date, tr.expiry_date))`,
-        effectiveExpiryExpr: `COALESCE(cte.expiry_date, tr.expiry_date)`,
-        isExpiredExpr: `(tr.status = 'approved' AND COALESCE(cte.expiry_date, tr.expiry_date) IS NOT NULL AND CURDATE() > COALESCE(cte.expiry_date, tr.expiry_date))`,
+              AND cte.year_of_study = COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)
+            LEFT JOIN semesters sem ON sem.id = tr.semester_id`,
+        activeWhere: `(COALESCE(cte.expiry_date, sem.end_date, tr.expiry_date) IS NULL OR CURDATE() <= COALESCE(cte.expiry_date, sem.end_date, tr.expiry_date))`,
+        effectiveExpiryExpr: `COALESCE(cte.expiry_date, sem.end_date, tr.expiry_date)`,
+        isExpiredExpr: `(tr.status = 'approved' AND COALESCE(cte.expiry_date, sem.end_date, tr.expiry_date) IS NOT NULL AND CURDATE() > COALESCE(cte.expiry_date, sem.end_date, tr.expiry_date))`,
         expiryParams: [fallback],
     };
 }

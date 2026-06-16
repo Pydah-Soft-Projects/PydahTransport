@@ -127,13 +127,13 @@ const getCourseExpiry = async (req, res) => {
                  COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1) AS year_of_study,
                  COUNT(*) AS passenger_count,
                  SUM(CASE
-                   WHEN COALESCE(cte2.expiry_date, tr.expiry_date) IS NULL
-                     OR CURDATE() <= COALESCE(cte2.expiry_date, tr.expiry_date)
+                   WHEN COALESCE(cte2.expiry_date, sem2.end_date, tr.expiry_date) IS NULL
+                     OR CURDATE() <= COALESCE(cte2.expiry_date, sem2.end_date, tr.expiry_date)
                    THEN 1 ELSE 0
                  END) AS active_passenger_count,
                  SUM(CASE
-                   WHEN COALESCE(cte2.expiry_date, tr.expiry_date) IS NOT NULL
-                     AND CURDATE() > COALESCE(cte2.expiry_date, tr.expiry_date)
+                   WHEN COALESCE(cte2.expiry_date, sem2.end_date, tr.expiry_date) IS NOT NULL
+                     AND CURDATE() > COALESCE(cte2.expiry_date, sem2.end_date, tr.expiry_date)
                    THEN 1 ELSE 0
                  END) AS expired_passenger_count
                FROM transport_requests tr
@@ -144,6 +144,7 @@ const getCourseExpiry = async (req, res) => {
                  ON cte2.course_id = c2.id
                 AND cte2.academic_year = ?
                 AND cte2.year_of_study = COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)
+               LEFT JOIN semesters sem2 ON sem2.id = tr.semester_id
                WHERE tr.status = 'approved'
                  AND COALESCE(tr.academic_year, ?) = ?
                GROUP BY c2.id, COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)
