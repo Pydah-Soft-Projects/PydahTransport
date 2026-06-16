@@ -54,6 +54,8 @@ const BusIdCardFront = ({ passenger, academicYear, isTemplate = false }) => {
     let transportId = EMPTY_CELL;
     let admissionNo = EMPTY_CELL;
     let pinNo = EMPTY_CELL;
+    let routeId = '';
+    let routeName = '';
     let photoSrc = null;
 
     if (!isTemplate && passenger) {
@@ -74,6 +76,8 @@ const BusIdCardFront = ({ passenger, academicYear, isTemplate = false }) => {
         admissionNo = admission_number || admission_no || emp_no || '—';
         pinNo = pin_no ? String(pin_no).trim() : '';
         regNo = pinNo ? `${admissionNo} | PIN ${pinNo}` : admissionNo;
+        routeId = route_id || '';
+        routeName = route_name || '';
         routeLabel = route_id
             ? `Route No ${route_id}${route_name ? ` (${route_name})` : ''}`
             : route_name || '—';
@@ -91,7 +95,7 @@ const BusIdCardFront = ({ passenger, academicYear, isTemplate = false }) => {
                             <img src={LOGO_SRC} alt="Pydah Group" className="id-logo" />
                         </td>
                         <td className="id-title-cell">
-                            Bus ID for AY {shortAy}
+                            Bus ID  {shortAy}
                         </td>
                         <td className="id-number-cell" colSpan={2}>
                             {isTemplate ? 'ID' : `ID ${transportId}`}
@@ -102,7 +106,17 @@ const BusIdCardFront = ({ passenger, academicYear, isTemplate = false }) => {
                     </tr>
                     <tr>
                         <td className="id-value-cell id-reg-cell" colSpan={3}>
-                            {isTemplate ? 'Adm No | PIN' : regNo}
+                            {isTemplate ? (
+                                'Adm No | PIN'
+                            ) : (
+                                <div className="id-reg-container">
+                                    {pinNo ? (
+                                        <span>PIN: {pinNo}</span>
+                                    ) : (
+                                        <span>Adm No: {admissionNo}</span>
+                                    )}
+                                </div>
+                            )}
                         </td>
                         <td className="id-photo-cell" rowSpan={4}>
                             <div className="id-photo-frame">
@@ -115,13 +129,24 @@ const BusIdCardFront = ({ passenger, academicYear, isTemplate = false }) => {
                         </td>
                     </tr>
                     <tr>
-                        <td className="id-value-cell id-route-cell" colSpan={3}>{routeLabel}</td>
+                        <td className="id-value-cell id-route-cell" colSpan={3}>
+                            {isTemplate ? (
+                                'Route No | Name'
+                            ) : routeId ? (
+                                <div className="id-route-container">
+                                    <span className="id-route-number">Route No: {routeId}</span>
+                                    {routeName && <span className="id-route-name-line">{routeName}</span>}
+                                </div>
+                            ) : (
+                                routeName || '—'
+                            )}
+                        </td>
                     </tr>
                     <tr>
                         <td className="id-label-cell" colSpan={3}>Pick Up Location</td>
                     </tr>
                     <tr>
-                        <td className="id-value-cell" colSpan={3}>{stageName}</td>
+                        <td className="id-value-cell id-stage-cell" colSpan={3}>{stageName}</td>
                     </tr>
                     <tr>
                         <td className="id-helpline-cell" colSpan={4}>
@@ -261,16 +286,16 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                     }
                     .bus-id-page--5 {
                         --h-gutter: 3.2mm;
-                        --v-gutter: 7.5mm;
-                        --card-side-inset: 8.5mm;
-                        --card-cut-inset: 2mm;
+                        --v-gutter: 4.5mm;
+                        --card-side-inset: 13.25mm;
+                        --card-cut-inset: 1.0mm;
                         --card-row-height: calc((289mm - 2px - (4 * var(--h-gutter))) / 5);
                     }
                     .bus-id-page--6 {
                         --h-gutter: 2.7mm;
-                        --v-gutter: 6.5mm;
-                        --card-side-inset: 7.5mm;
-                        --card-cut-inset: 1.8mm;
+                        --v-gutter: 4.5mm;
+                        --card-side-inset: 13.25mm;
+                        --card-cut-inset: 1.0mm;
                         --card-row-height: calc((289mm - 2px - (5 * var(--h-gutter))) / 6);
                     }
                     .bus-id-sheet {
@@ -358,10 +383,10 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                         table-layout: fixed;
                     }
                     .bus-id-page--5 .id-card-table {
-                        font-size: 6.5pt;
+                        font-size: 7.5pt;
                     }
                     .bus-id-page--6 .id-card-table {
-                        font-size: 5.5pt;
+                        font-size: 6.5pt;
                     }
                     .id-card-table td {
                         border: 1px solid #000;
@@ -400,10 +425,10 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                         text-align: center;
                     }
                     .bus-id-page--5 .id-title-cell {
-                        font-size: 6.5pt;
+                        font-size: 7.5pt;
                     }
                     .bus-id-page--6 .id-title-cell {
-                        font-size: 5.5pt;
+                        font-size: 6.5pt;
                     }
                     .id-number-cell {
                         width: 40%;
@@ -411,20 +436,21 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                         white-space: nowrap;
                     }
                     .bus-id-page--5 .id-number-cell {
-                        font-size: 6pt;
+                        font-size: 7pt;
                     }
                     .bus-id-page--6 .id-number-cell {
-                        font-size: 5pt;
+                        font-size: 6pt;
                     }
                     .id-name-cell {
                         text-align: center;
                         text-transform: uppercase;
+                        font-weight: 800;
                     }
                     .bus-id-page--5 .id-name-cell {
-                        font-size: 7pt;
+                        font-size: 8.5pt;
                     }
                     .bus-id-page--6 .id-name-cell {
-                        font-size: 6pt;
+                        font-size: 7.5pt;
                     }
                     .id-value-cell,
                     .id-route-cell,
@@ -434,12 +460,63 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                     .bus-id-page--5 .id-value-cell,
                     .bus-id-page--5 .id-route-cell,
                     .bus-id-page--5 .id-label-cell {
-                        font-size: 6pt;
+                        font-size: 7pt;
                     }
                     .bus-id-page--6 .id-value-cell,
                     .bus-id-page--6 .id-route-cell,
                     .bus-id-page--6 .id-label-cell {
-                        font-size: 5pt;
+                        font-size: 6pt;
+                    }
+
+                    /* Custom styles for ID Card elements to make them bold & bigger */
+                    .id-reg-container {
+                        display: flex;
+                        flex-direction: row;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 1.5mm;
+                        font-weight: 800;
+                    }
+                    .bus-id-page--5 .id-reg-container {
+                        font-size: 8.5pt;
+                    }
+                    .bus-id-page--6 .id-reg-container {
+                        font-size: 7.5pt;
+                    }
+                    .id-stage-cell {
+                        text-align: center;
+                        font-weight: 800;
+                    }
+                    .bus-id-page--5 .id-stage-cell {
+                        font-size: 8.5pt;
+                    }
+                    .bus-id-page--6 .id-stage-cell {
+                        font-size: 7.5pt;
+                    }
+                    .id-route-container {
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        line-height: 1.25;
+                    }
+                    .id-route-number {
+                        font-weight: 800;
+                    }
+                    .id-route-name-line {
+                        font-weight: 500;
+                    }
+                    .bus-id-page--5 .id-route-number {
+                        font-size: 8.5pt;
+                    }
+                    .bus-id-page--5 .id-route-name-line {
+                        font-size: 6.5pt;
+                    }
+                    .bus-id-page--6 .id-route-number {
+                        font-size: 7.5pt;
+                    }
+                    .bus-id-page--6 .id-route-name-line {
+                        font-size: 5.5pt;
                     }
                     .id-photo-cell {
                         width: 21%;
