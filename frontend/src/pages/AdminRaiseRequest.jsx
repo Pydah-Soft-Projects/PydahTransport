@@ -353,14 +353,14 @@ const AdminRaiseRequest = () => {
         }
     };
 
-    const closeApproveModal = async () => {
+    const closeApproveModal = async (isApproved = false) => {
         if (actionLoading) return;
 
         const pendingId = raisedPendingRequestId;
         setApproveModal({ open: false, requestId: null, data: null, selectedBusId: '', loading: true, error: null });
         setRaisedPendingRequestId(null);
 
-        if (pendingId) {
+        if (isApproved !== true && pendingId) {
             await discardRaisedPendingRequest(pendingId);
             setMessage({ text: '', type: '' });
         }
@@ -385,14 +385,13 @@ const AdminRaiseRequest = () => {
             });
             const data = await response.json().catch(() => ({}));
             if (response.ok) {
-                setRaisedPendingRequestId(null);
+                await closeApproveModal(true);
                 setMessage({
                     text: data.application_number
                         ? `Approved. Application No: ${data.application_number}`
                         : (data.message || 'Request raised and approved successfully.'),
                     type: 'success',
                 });
-                closeApproveModal();
                 setSearchQuery('');
                 setStudents([]);
                 setApprovedStudents([]);

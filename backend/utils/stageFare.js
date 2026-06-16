@@ -100,7 +100,10 @@ function normalizeStagesForSave(stages, editingAcademicYear = null) {
         const canonicalEntry = academicYearFares.find((entry) => entry.academicYear === canonicalYear);
         const baseFare = editingYear === canonicalYear
             ? editedFare
-            : (canonicalEntry?.fare ?? Number(stage.baseFare) ?? Number(stage.fare) ?? editedFare);
+            : (canonicalEntry?.fare ?? 
+               (stage.baseFare != null && Number.isFinite(Number(stage.baseFare)) ? Number(stage.baseFare) : null) ?? 
+               (stage.fare != null && Number.isFinite(Number(stage.fare)) ? Number(stage.fare) : null) ?? 
+               editedFare);
 
         return {
             stageName: String(stage.stageName || '').trim(),
