@@ -39,7 +39,8 @@ function getActivePassengerSqlParts(fallbackAcademicYear) {
         academicYear: fallback,
         studentJoins: STUDENT_JOINS_SQL,
         expiryJoins: `
-            LEFT JOIN courses c_act ON c_act.name = COALESCE(s1.course, s2.course)
+            LEFT JOIN colleges coll ON coll.name = COALESCE(s1.college, s2.college) COLLATE utf8mb4_unicode_ci
+            LEFT JOIN courses c_act ON c_act.name = COALESCE(s1.course, s2.course) AND c_act.college_id = coll.id
             LEFT JOIN course_transport_expiry cte ON cte.course_id = c_act.id
               AND cte.academic_year = COALESCE(tr.academic_year, ?)
               AND cte.year_of_study = COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)
@@ -1425,7 +1426,8 @@ const getConcessions = async (req, res) => {
                 ORDER BY t.request_date DESC LIMIT 1
             )
             LEFT JOIN students s ON (oc.admission_number = s.admission_number OR oc.admission_number = s.admission_no)
-            LEFT JOIN courses c ON s.course = c.name
+            LEFT JOIN colleges coll ON coll.name = s.college COLLATE utf8mb4_unicode_ci
+            LEFT JOIN courses c ON s.course = c.name AND c.college_id = coll.id
             WHERE JSON_CONTAINS(oc.revised_fees, JSON_OBJECT('feeHeadId', ?))
                OR JSON_CONTAINS(oc.revised_fees, JSON_OBJECT('feeHeadId', '6996aa36e247525e006623ca'))
                OR JSON_CONTAINS(oc.revised_fees, JSON_OBJECT('feeHeadId', '6996aa36e247525e006623b8'))

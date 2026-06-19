@@ -139,7 +139,8 @@ const getCourseExpiry = async (req, res) => {
                FROM transport_requests tr
                LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
                LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
-               INNER JOIN courses c2 ON c2.name = COALESCE(s1.course, s2.course) AND c2.is_active = 1
+               LEFT JOIN colleges coll ON coll.name = COALESCE(s1.college, s2.college) COLLATE utf8mb4_unicode_ci
+               INNER JOIN courses c2 ON c2.name = COALESCE(s1.course, s2.course) AND c2.college_id = coll.id AND c2.is_active = 1
                LEFT JOIN course_transport_expiry cte2
                  ON cte2.course_id = c2.id
                 AND cte2.academic_year = ?
