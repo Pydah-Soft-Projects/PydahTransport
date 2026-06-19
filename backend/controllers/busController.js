@@ -2,6 +2,7 @@ const Bus = require('../models/Bus');
 const Route = require('../models/Route');
 const BusRouteHistory = require('../models/BusRouteHistory');
 const BusStaffHistory = require('../models/BusStaffHistory');
+const BusTaxHistory = require('../models/BusTaxHistory');
 const { mysqlPool } = require('../config/db');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 const { resolveAcademicYear, getDefaultAcademicYear, getActivePassengerSqlParts } = require('./transportRequestController');
@@ -548,14 +549,248 @@ const deleteBus = async (req, res) => {
     }
 };
 
+// @desc    Add a tax to a bus
+// @route   POST /api/buses/:id/taxes
+// @access  Private/Admin
+const addBusTax = async (req, res) => {
+    try {
+        const bus = await Bus.findById(req.params.id);
+        if (!bus) {
+            return res.status(404).json({ message: 'Bus not found' });
+        }
+
+        const { taxHeader, amount, endDate } = req.body;
+
+        if (!taxHeader || amount === undefined || !endDate) {
+            return res.status(400).json({ message: 'Tax header, amount, and end date are required' });
+        }
+
+        // Check if tax header already exists and is active (endDate not passed)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const existingActiveTax = bus.taxes.find(tax => {
+            const taxEndDate = new Date(tax.endDate);
+            taxEndDate.setHours(0, 0, 0, 0);
+            return tax.taxHeader.toLowerCase() === taxHeader.toLowerCase() && taxEndDate >= today;
+        });
+
+        if (existingActiveTax) {
+            return res.status(400).json({ 
+                message: `Tax header '${taxHeader}' is already active on this bus until ${new Date(existingActiveTax.endDate).toLocaleDateString()}. Please wait until the end date or update the existing tax.` 
+            });
+        }
+
+        const newTax = {
+            taxHeader: taxHeader.trim(),
+            amount: parseFloat(amount),
+            endDate: new Date(endDate),
+            createdAt: new Date()
+        };
+
+        bus.taxes.push(newTax);
+        const updatedBus = await bus.save();
+
+        // Record history
+        const endDateNorm = new Date(endDate);
+        endDateNorm.setHours(0, 0, 0, 0);
+        await BusTaxHistory.create({
+            busId: bus._id,
+            busNumber: bus.busNumber,
+            taxHeader: taxHeader.trim(),
+            action: 'added',
+            amount: parseFloat(amount),
+            endDate: new Date(endDate),
+            previousAmount: null,
+            previousEndDate: null,
+            wasExpiredAtAction: endDateNorm < today,
+            changedBy: getChangedByName(req),
+        });
+
+        res.status(201).json(updatedBus);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+// @desc    Update a tax for a bus
+// @route   PUT /api/buses/:id/taxes/:taxId
+// @access  Private/Admin
+const updateBusTax = async (req, res) => {
+    try {
+        const bus = await Bus.findById(req.params.id);
+        if (!bus) {
+            return res.status(404).json({ message: 'Bus not found' });
+        }
+
+        const tax = bus.taxes.id(req.params.taxId);
+        if (!tax) {
+            return res.status(404).json({ message: 'Tax not found' });
+        }
+
+        const { taxHeader, amount, endDate } = req.body;
+
+        // If changing tax header, check for existing active tax with new header
+        if (taxHeader && taxHeader.toLowerCase() !== tax.taxHeader.toLowerCase()) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const existingActiveTax = bus.taxes.find(t => {
+                if (t._id.toString() === req.params.taxId) return false; // Exclude current tax
+                const taxEndDate = new Date(t.endDate);
+                taxEndDate.setHours(0, 0, 0, 0);
+                return t.taxHeader.toLowerCase() === taxHeader.toLowerCase() && taxEndDate >= today;
+            });
+
+            if (existingActiveTax) {
+                return res.status(400).json({ 
+                    message: `Tax header '${taxHeader}' is already active on this bus until ${new Date(existingActiveTax.endDate).toLocaleDateString()}.` 
+                });
+            }
+        }
+
+        // Capture previous values before mutation
+        const prevAmount = tax.amount;
+        const prevEndDate = tax.endDate;
+        const prevHeader = tax.taxHeader;
+
+        if (taxHeader) tax.taxHeader = taxHeader.trim();
+        if (amount !== undefined) tax.amount = parseFloat(amount);
+        if (endDate) tax.endDate = new Date(endDate);
+
+        const updatedBus = await bus.save();
+
+        // Record history
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const newEndDate = endDate ? new Date(endDate) : prevEndDate;
+        const newEndDateNorm = new Date(newEndDate);
+        newEndDateNorm.setHours(0, 0, 0, 0);
+        await BusTaxHistory.create({
+            busId: bus._id,
+            busNumber: bus.busNumber,
+            taxHeader: (taxHeader || prevHeader).trim(),
+            action: 'updated',
+            amount: amount !== undefined ? parseFloat(amount) : prevAmount,
+            endDate: newEndDate,
+            previousAmount: prevAmount,
+            previousEndDate: prevEndDate,
+            wasExpiredAtAction: newEndDateNorm < today,
+            changedBy: getChangedByName(req),
+        });
+
+        res.json(updatedBus);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+// @desc    Delete a tax from a bus
+// @route   DELETE /api/buses/:id/taxes/:taxId
+// @access  Private/Admin
+const deleteBusTax = async (req, res) => {
+    try {
+        const bus = await Bus.findById(req.params.id);
+        if (!bus) {
+            return res.status(404).json({ message: 'Bus not found' });
+        }
+
+        const tax = bus.taxes.id(req.params.taxId);
+        if (!tax) {
+            return res.status(404).json({ message: 'Tax not found' });
+        }
+
+        // Capture snapshot before deleting
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const endDateNorm = new Date(tax.endDate);
+        endDateNorm.setHours(0, 0, 0, 0);
+        const taxSnapshot = {
+            taxHeader: tax.taxHeader,
+            amount: tax.amount,
+            endDate: tax.endDate,
+            wasExpired: endDateNorm < today,
+        };
+
+        tax.deleteOne();
+        const updatedBus = await bus.save();
+
+        // Record history
+        await BusTaxHistory.create({
+            busId: bus._id,
+            busNumber: bus.busNumber,
+            taxHeader: taxSnapshot.taxHeader,
+            action: 'deleted',
+            amount: taxSnapshot.amount,
+            endDate: taxSnapshot.endDate,
+            previousAmount: null,
+            previousEndDate: null,
+            wasExpiredAtAction: taxSnapshot.wasExpired,
+            changedBy: getChangedByName(req),
+        });
+
+        res.json(updatedBus);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+// @desc    Get tax change history for a bus (optionally filtered by taxHeader)
+// @route   GET /api/buses/:id/taxes/history?taxHeader=Insurance
+// @access  Private/Admin
+const getBusTaxHistory = async (req, res) => {
+    try {
+        const bus = await Bus.findById(req.params.id);
+        if (!bus) {
+            return res.status(404).json({ message: 'Bus not found' });
+        }
+
+        const { taxHeader } = req.query;
+        const filter = { busId: bus._id };
+        if (taxHeader) {
+            filter.taxHeader = { $regex: new RegExp(`^${taxHeader.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') };
+        }
+
+        const history = await BusTaxHistory.find(filter)
+            .sort({ actionAt: -1 })
+            .lean();
+
+        // Compute summary stats per taxHeader
+        const statsMap = {};
+        history.forEach(h => {
+            const key = h.taxHeader.toLowerCase();
+            if (!statsMap[key]) {
+                statsMap[key] = { taxHeader: h.taxHeader, totalUpdates: 0, timesExpiredOnSave: 0, timesAdded: 0, timesDeleted: 0 };
+            }
+            if (h.action === 'added') statsMap[key].timesAdded++;
+            if (h.action === 'updated') statsMap[key].totalUpdates++;
+            if (h.action === 'deleted') statsMap[key].timesDeleted++;
+            if (h.wasExpiredAtAction) statsMap[key].timesExpiredOnSave++;
+        });
+
+        res.json({
+            busNumber: bus.busNumber,
+            history,
+            stats: Object.values(statsMap),
+        });
+    } catch (error) {
+        console.error('Error fetching bus tax history:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     getBuses,
     getBusesOverview,
     getBusDetails,
     getBusRouteHistory,
     getBusStaffHistory,
+    getBusTaxHistory,
     autoAllocate,
     createBus,
     updateBus,
-    deleteBus
+    deleteBus,
+    addBusTax,
+    updateBusTax,
+    deleteBusTax
 };

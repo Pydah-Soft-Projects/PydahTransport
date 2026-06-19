@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
@@ -14,15 +14,15 @@ import {
     Plus,
     UserCheck,
     Armchair,
-    LayoutList,
-    LayoutGrid,
-    X
+    X,
+    History,
+    AlertTriangle
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
 
-const TABS = { buses: 'buses', mapping: 'mapping', staffMapping: 'staffMapping', staff: 'staff' };
-const VIEW_MODES = { table: 'table', card: 'card' };
+const TABS = { buses: 'buses', mapping: 'mapping', staffMapping: 'staffMapping', staff: 'staff', taxHeaders: 'taxHeaders' };
+
 
 const todayDateInput = () => new Date().toISOString().slice(0, 10);
 
@@ -41,7 +41,7 @@ const BusManagement = () => {
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState(TABS.buses);
     const [staffSubTab, setStaffSubTab] = useState('drivers');
-    const [viewMode, setViewMode] = useState(VIEW_MODES.table);
+
     const [buses, setBuses] = useState([]);
     const [routes, setRoutes] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -63,12 +63,55 @@ const BusManagement = () => {
         registrationDate: todayDateInput(),
         status: 'Active'
     });
+    const [isTaxesModalOpen, setIsTaxesModalOpen] = useState(false);
+    const [selectedBusForTaxes, setSelectedBusForTaxes] = useState(null);
+    const selectedBusForTaxesRef = useRef(null); // mirrors selectedBusForTaxes for use inside async callbacks
+    const [taxHeaders, setTaxHeaders] = useState([]);
+    const [taxHeadersLoading, setTaxHeadersLoading] = useState(true);
+    const [isTaxHeaderModalOpen, setIsTaxHeaderModalOpen] = useState(false);
+    const [editingTaxHeaderId, setEditingTaxHeaderId] = useState(null);
+    const [newTaxHeader, setNewTaxHeader] = useState({
+        taxName: '',
+        description: '',
+        defaultAmount: '',
+        isActive: true
+    });
+    
+    // Taxes table state - tracks amount and endDate for each tax header on the selected bus
+    const [taxValues, setTaxValues] = useState({}); // { taxHeaderName: { amount: '', endDate: '' } }
+    const [taxToast, setTaxToast] = useState({ text: '', type: '' }); // inline toast for the taxes modal
+
+    // Tax History Modal
+    const [isTaxHistoryModalOpen, setIsTaxHistoryModalOpen] = useState(false);
+    const [taxHistoryData, setTaxHistoryData] = useState(null);        // { taxHeader, history[], stats{} }
+    const [taxHistoryLoading, setTaxHistoryLoading] = useState(false);
 
     const fetchBuses = async () => {
         try {
             const response = await apiFetch(`${API}/buses`);
             const data = await response.json();
             setBuses(data);
+
+            // Sync the open modal's bus + taxValues with fresh data
+            const currentSelected = selectedBusForTaxesRef.current;
+            if (currentSelected) {
+                const fresh = data.find(b => b._id === currentSelected._id);
+                if (fresh) {
+                    setSelectedBusForTaxes(fresh);
+                    selectedBusForTaxesRef.current = fresh;
+                    // Rebuild taxValues from saved data so expired warnings recompute
+                    const updatedValues = {};
+                    (fresh.taxes || []).forEach(tax => {
+                        updatedValues[tax.taxHeader] = {
+                            amount: tax.amount.toString(),
+                            endDate: tax.endDate ? new Date(tax.endDate).toISOString().slice(0, 10) : ''
+                        };
+                    });
+                    setTaxValues(updatedValues);
+                }
+            }
+
+            return data;
         } catch (error) {
             console.error('Error fetching buses:', error);
         } finally {
@@ -145,11 +188,26 @@ const BusManagement = () => {
         }
     };
 
+    const fetchTaxHeaders = async () => {
+        setTaxHeadersLoading(true);
+        try {
+            const response = await apiFetch(`${API}/tax-headers`);
+            const data = await response.json();
+            setTaxHeaders(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error('Error fetching tax headers:', error);
+            setTaxHeaders([]);
+        } finally {
+            setTaxHeadersLoading(false);
+        }
+    };
+
     useEffect(() => {
         fetchBuses();
         fetchRoutes();
         loadDrivers();
         loadCleaners();
+        fetchTaxHeaders();
     }, []);
 
     const buildStaffDraft = (bus) => ({
@@ -449,6 +507,168 @@ const BusManagement = () => {
         }
     };
 
+    const handleOpenTaxesModal = (bus) => {
+        setSelectedBusForTaxes(bus);
+        selectedBusForTaxesRef.current = bus;
+        // Initialize tax values for the selected bus
+        const initialValues = {};
+        bus.taxes.forEach(tax => {
+            initialValues[tax.taxHeader] = {
+                amount: tax.amount.toString(),
+                endDate: tax.endDate ? new Date(tax.endDate).toISOString().slice(0, 10) : ''
+            };
+        });
+        setTaxValues(initialValues);
+        setIsTaxesModalOpen(true);
+    };
+
+    const handleCloseTaxesModal = () => {
+        setIsTaxesModalOpen(false);
+        setSelectedBusForTaxes(null);
+        selectedBusForTaxesRef.current = null;
+        setTaxValues({});
+    };
+
+    // Table-based tax editing
+     const handleUpdateTaxInTable = async (taxId, taxData) => {
+         if (!selectedBusForTaxes) return;
+         
+         try {
+             const response = await apiFetch(`${API}/buses/${selectedBusForTaxes._id}/taxes/${taxId}`, {
+                 method: 'PUT',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({
+                     taxHeader: taxData.taxHeader,
+                     amount: parseFloat(taxData.amount),
+                     endDate: taxData.endDate
+                 })
+             });
+             
+             if (response.ok) {
+                 await fetchBuses(); // refreshes buses list AND selectedBusForTaxes
+             } else {
+                 const errorData = await response.json();
+                 alert(errorData.message || `Failed to update tax: ${errorData.message}`);
+             }
+         } catch (error) {
+             console.error('Error updating tax:', error);
+             alert('Error updating tax');
+         }
+     };
+     
+     const handleAddTaxInTable = async (taxData) => {
+         if (!selectedBusForTaxes) return;
+         
+         try {
+             const response = await apiFetch(`${API}/buses/${selectedBusForTaxes._id}/taxes`, {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({
+                     taxHeader: taxData.taxHeader,
+                     amount: parseFloat(taxData.amount),
+                     endDate: taxData.endDate
+                 })
+             });
+             
+             if (response.ok) {
+                 await fetchBuses(); // refreshes buses list AND selectedBusForTaxes
+             } else {
+                 const errorData = await response.json();
+                 alert(errorData.message || `Failed to add tax: ${errorData.message}`);
+             }
+         } catch (error) {
+             console.error('Error adding tax:', error);
+             alert('Error adding tax');
+          }
+      };
+
+    const handleOpenTaxHeaderModal = (taxHeader = null) => {
+        if (taxHeader) {
+            setEditingTaxHeaderId(taxHeader._id);
+            setNewTaxHeader({
+                taxName: taxHeader.taxName,
+                description: taxHeader.description || '',
+                defaultAmount: taxHeader.defaultAmount || '',
+                isActive: taxHeader.isActive
+            });
+        } else {
+            setEditingTaxHeaderId(null);
+            setNewTaxHeader({
+                taxName: '',
+                description: '',
+                defaultAmount: '',
+                isActive: true
+            });
+        }
+        setIsTaxHeaderModalOpen(true);
+    };
+
+    const handleCloseTaxHeaderModal = () => {
+        setIsTaxHeaderModalOpen(false);
+        setEditingTaxHeaderId(null);
+        setNewTaxHeader({
+            taxName: '',
+            description: '',
+            defaultAmount: '',
+            isActive: true
+        });
+    };
+
+    const handleAddOrUpdateTaxHeader = async () => {
+        if (!newTaxHeader.taxName.trim()) {
+            alert('Please fill in tax name');
+            return;
+        }
+
+        try {
+            const url = editingTaxHeaderId
+                ? `${API}/tax-headers/${editingTaxHeaderId}`
+                : `${API}/tax-headers`;
+
+            const method = editingTaxHeaderId ? 'PUT' : 'POST';
+
+            const response = await apiFetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    taxName: newTaxHeader.taxName.trim(),
+                    description: newTaxHeader.description.trim(),
+                    defaultAmount: newTaxHeader.defaultAmount ? parseFloat(newTaxHeader.defaultAmount) : 0,
+                    isActive: newTaxHeader.isActive
+                })
+            });
+
+            if (response.ok) {
+                fetchTaxHeaders();
+                handleCloseTaxHeaderModal();
+            } else {
+                alert(`Failed to ${editingTaxHeaderId ? 'update' : 'add'} tax header`);
+            }
+        } catch (error) {
+            console.error(`Error ${editingTaxHeaderId ? 'updating' : 'adding'} tax header:`, error);
+            alert(`Error ${editingTaxHeaderId ? 'updating' : 'adding'} tax header`);
+        }
+    };
+
+    const handleDeleteTaxHeader = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this tax header?')) return;
+
+        try {
+            const response = await apiFetch(`${API}/tax-headers/${id}`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                fetchTaxHeaders();
+            } else {
+                alert('Failed to delete tax header');
+            }
+        } catch (error) {
+            console.error('Error deleting tax header:', error);
+            alert('Error deleting tax header');
+        }
+    };
+
     return (
         <Layout>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
@@ -456,33 +676,22 @@ const BusManagement = () => {
                     <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Bus Management</h2>
                     <p className="text-slate-600 mt-1">Manage buses, routes, and staff assignments.</p>
                 </div>
-                {activeTab === TABS.buses && (
-                    <div className="flex items-center gap-3">
-                        <div className="bg-white p-1 rounded-lg border border-slate-200 flex items-center shadow-sm">
-                            <button
-                                onClick={() => setViewMode(VIEW_MODES.table)}
-                                className={`p-2 rounded-md transition-all ${viewMode === VIEW_MODES.table ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                                title="Table View"
-                            >
-                                <LayoutList size={20} />
-                            </button>
-                            <button
-                                onClick={() => setViewMode(VIEW_MODES.card)}
-                                className={`p-2 rounded-md transition-all ${viewMode === VIEW_MODES.card ? 'bg-slate-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                                title="Card View"
-                            >
-                                <LayoutGrid size={20} />
-                            </button>
-                        </div>
-                        <button
-                            onClick={() => setIsModalOpen(true)}
-                            className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
-                        >
-                            <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
-                            Add New Bus
-                        </button>
-                    </div>
-                )}
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => setIsModalOpen(true)}
+                        className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
+                    >
+                        <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
+                        Add New Bus
+                    </button>
+                    <button
+                        onClick={() => handleOpenTaxHeaderModal()}
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
+                    >
+                        <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
+                        Add Tax Header
+                    </button>
+                </div>
             </div>
 
             <div className="flex gap-2 mb-6 border-b border-gray-200">
@@ -517,6 +726,13 @@ const BusManagement = () => {
                 >
                     <Users size={18} className="mr-2" />
                     Staff directory
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab(TABS.taxHeaders)}
+                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center ${activeTab === TABS.taxHeaders ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                >
+                    Tax Headers
                 </button>
             </div>
 
@@ -889,6 +1105,77 @@ const BusManagement = () => {
                 </div>
             )}
 
+            {activeTab === TABS.taxHeaders && (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
+                    <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+                        <h3 className="font-semibold text-slate-800">Tax Headers Management</h3>
+                        <p className="text-sm text-slate-500 mt-0.5">Create and manage reusable tax headers that can be applied to buses.</p>
+                    </div>
+                    {taxHeadersLoading ? (
+                        <div className="py-12">
+                            <Loader text="Loading tax headers..." />
+                        </div>
+                    ) : taxHeaders.length === 0 ? (
+                        <div className="p-12 text-center text-slate-500">
+                            No tax headers created yet. Click "Add Tax Header" to create one.
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
+                                        <th className="px-4 py-3">Tax Name</th>
+                                        <th className="px-4 py-3">Description</th>
+                                        <th className="px-4 py-3">Default Amount</th>
+                                        <th className="px-4 py-3">Status</th>
+                                        <th className="px-4 py-3 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {taxHeaders.map((header) => (
+                                        <tr key={header._id} className="hover:bg-blue-50/30 transition-colors">
+                                            <td className="px-4 py-3">
+                                                <p className="font-bold text-slate-800 text-sm">{header.taxName}</p>
+                                            </td>
+                                            <td className="px-4 py-3 text-sm text-slate-600">
+                                                {header.description || <span className="text-slate-400 italic text-xs">--</span>}
+                                            </td>
+                                            <td className="px-4 py-3 text-sm text-slate-600 font-medium">
+                                                ₹{parseFloat(header.defaultAmount || 0).toFixed(2)}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex w-fit items-center ${header.isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
+                                                    <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${header.isActive ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+                                                    {header.isActive ? 'Active' : 'Inactive'}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-right">
+                                                <div className="flex items-center justify-end gap-1">
+                                                    <button
+                                                        onClick={() => handleOpenTaxHeaderModal(header)}
+                                                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
+                                                        title="Edit Tax Header"
+                                                    >
+                                                        <Edit size={16} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteTaxHeader(header._id)}
+                                                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
+                                                        title="Delete Tax Header"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {activeTab === TABS.buses && (
                 <>
                     {loading ? (
@@ -909,7 +1196,7 @@ const BusManagement = () => {
                                 Add your first bus
                             </button>
                         </div>
-                    ) : viewMode === VIEW_MODES.table ? (
+                    ) : (
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
                             <div className="overflow-x-auto w-full">
                                 <table className="w-full text-left border-collapse">
@@ -923,6 +1210,7 @@ const BusManagement = () => {
                                             <th className="px-4 py-3">Attendant</th>
                                             <th className="px-4 py-3">Route</th>
                                             <th className="px-4 py-3">Status</th>
+                                            <th className="px-4 py-3">Taxes Config</th>
                                             <th className="px-4 py-3 text-right">Actions</th>
                                         </tr>
                                     </thead>
@@ -977,6 +1265,21 @@ const BusManagement = () => {
                                                         {bus.status}
                                                     </span>
                                                 </td>
+                                                <td className="px-4 py-3">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleOpenTaxesModal(bus);
+                                                        }}
+                                                        className="px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-all flex items-center gap-1"
+                                                        title="Manage Taxes"
+                                                    >
+                                                        <span className="bg-purple-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold">
+                                                            {(bus.taxes && bus.taxes.length) || 0}
+                                                        </span>
+                                                        Taxes
+                                                    </button>
+                                                </td>
                                                 <td className="px-4 py-3 text-right">
                                                     <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                                         <button
@@ -1000,79 +1303,6 @@ const BusManagement = () => {
                                     </tbody>
                                 </table>
                             </div>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                            {buses.map((bus) => (
-                                <div
-                                    key={bus._id}
-                                    onClick={() => navigate(`/buses/${bus._id}`)}
-                                    className="bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 group overflow-hidden flex flex-col cursor-pointer"
-                                >
-                                    <div className="p-4 flex-1">
-                                        <div className="flex justify-between items-start mb-3">
-                                            <div>
-                                                <h3 className="text-base font-bold text-slate-900 leading-tight">{bus.busNumber}</h3>
-                                                <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide mt-0.5">{bus.type}</p>
-                                            </div>
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${bus.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                                                bus.status === 'In Maintenance' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-red-50 text-red-700 border-red-100'
-                                                }`}>
-                                                <span className={`inline-block w-1 h-1 rounded-full mr-1 mb-0.5 ${bus.status === 'Active' ? 'bg-emerald-500' : bus.status === 'In Maintenance' ? 'bg-amber-500' : 'bg-red-500'}`}></span>
-                                                {bus.status}
-                                            </span>
-                                        </div>
-
-                                        <div className="space-y-2 py-3 border-t border-b border-slate-50 my-2">
-                                            <div className="flex items-center text-xs text-slate-600">
-                                                <Armchair size={14} className="text-slate-400 mr-2 shrink-0" />
-                                                <span className="font-medium mr-1">Cap:</span>
-                                                {bus.capacity}
-                                            </div>
-                                            <div className="flex items-center text-xs text-slate-600">
-                                                <User size={14} className="text-slate-400 mr-2 shrink-0" />
-                                                <span className="font-medium mr-1">Drvr:</span>
-                                                {bus.driverName || <span className="text-slate-400 italic font-normal text-[10px]">--</span>}
-                                            </div>
-                                            <div className="flex items-center text-xs text-slate-600">
-                                                <UserCheck size={14} className="text-slate-400 mr-2 shrink-0" />
-                                                <span className="font-medium mr-1">Attn:</span>
-                                                {bus.attendantName || <span className="text-slate-400 italic font-normal text-[10px]">--</span>}
-                                            </div>
-                                            <div className="flex items-center text-xs text-slate-600">
-                                                <MapPin size={14} className="text-slate-400 mr-2 shrink-0" />
-                                                <span className="font-medium mr-1">Rt:</span>
-                                                {bus.assignedRouteId ? (
-                                                    <span className="text-blue-600 font-medium bg-blue-50 px-1.5 py-0.5 rounded text-[10px] truncate max-w-[100px]">
-                                                        {routes.find(r => r.routeId === bus.assignedRouteId)?.routeName || bus.assignedRouteId}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-slate-400 italic font-normal text-[10px]">--</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="bg-slate-50 px-4 py-2 border-t border-slate-100 flex justify-between items-center">
-                                        <span className="text-[10px] text-slate-400 font-medium uppercase">Manage</span>
-                                        <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                                            <button
-                                                onClick={(e) => handleEdit(bus, e)}
-                                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
-                                                title="Edit Bus"
-                                            >
-                                                <Edit size={14} />
-                                            </button>
-                                            <button
-                                                onClick={(e) => handleDelete(bus._id, e)}
-                                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
-                                                title="Delete Bus"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
                         </div>
                     )}
                 </>
@@ -1118,6 +1348,367 @@ const BusManagement = () => {
                         {editingId ? 'Update Bus Details' : 'Create Bus'}
                     </button>
                 </form>
+            </Modal>
+
+             <Modal isOpen={isTaxesModalOpen} onClose={handleCloseTaxesModal} title={selectedBusForTaxes ? `Manage Taxes - ${selectedBusForTaxes.busNumber}` : "Manage Taxes"} maxWidth="max-w-4xl">
+                 <div className="space-y-6">
+                     {/* Expired taxes banner — checks both saved data and live input values */}
+                     {(() => {
+                         const today = new Date();
+                         today.setHours(0, 0, 0, 0);
+
+                         const isDateExpired = (dateVal) => {
+                             if (!dateVal) return false;
+                             const d = new Date(dateVal);
+                             d.setHours(0, 0, 0, 0);
+                             return d < today;
+                         };
+
+                         // Collect expired taxes: prefer live taxValues input, fall back to saved endDate
+                         const expiredNames = new Set();
+                         (selectedBusForTaxes?.taxes || []).forEach(tax => {
+                             const liveDate = taxValues[tax.taxHeader]?.endDate;
+                             const checkDate = liveDate || tax.endDate;
+                             if (isDateExpired(checkDate)) expiredNames.add(tax.taxHeader);
+                         });
+
+                         if (expiredNames.size === 0) return null;
+                         const expiredList = [...expiredNames];
+                         return (
+                             <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+                                 <AlertTriangle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+                                 <div>
+                                     <p className="text-sm font-bold text-red-800">
+                                         {expiredList.length} expired tax{expiredList.length > 1 ? 'es' : ''} detected
+                                     </p>
+                                     <p className="text-xs text-red-600 mt-0.5">
+                                         {expiredList.join(', ')} — please update the end date{expiredList.length > 1 ? 's' : ''}.
+                                     </p>
+                                 </div>
+                             </div>
+                         );
+                     })()}
+                     {/* Taxes Table - Direct Edit Format */}
+                     <div className="border-b border-slate-200 pb-6">
+                         <h3 className="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wide">
+                             Edit Taxes for {selectedBusForTaxes?.busNumber || 'Selected Bus'}
+                         </h3>
+                         <div>
+                             <table className="w-full text-left border-collapse">
+                                 <thead>
+                                     <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
+                                         <th className="px-4 py-3">Tax Header</th>
+                                         <th className="px-4 py-3">Amount</th>
+                                         <th className="px-4 py-3">End Date</th>
+                                         <th className="px-4 py-3 text-right">Actions</th>
+                                     </tr>
+                                 </thead>
+                                 <tbody className="divide-y divide-slate-100">
+                                     {taxHeaders.map((header) => {
+                                         const taxHeaderName = header.taxName;
+
+                                         // Check if this tax exists on the bus (for determining update vs add)
+                                         const taxExistsOnBus = selectedBusForTaxes?.taxes.some(tax =>
+                                             tax.taxHeader.toLowerCase() === taxHeaderName.toLowerCase()
+                                         ) || false;
+
+                                         // Find the tax ID if it exists on the bus
+                                         const existingTax = selectedBusForTaxes?.taxes.find(tax =>
+                                             tax.taxHeader.toLowerCase() === taxHeaderName.toLowerCase()
+                                         );
+
+                                         // For saved taxes: use taxValues (live input). For un-added: start empty so user must fill in.
+                                         const currentValues = taxValues[taxHeaderName] || (taxExistsOnBus
+                                             ? {
+                                                 amount: existingTax.amount.toString(),
+                                                 endDate: existingTax.endDate ? new Date(existingTax.endDate).toISOString().slice(0, 10) : ''
+                                               }
+                                             : { amount: '', endDate: '' }
+                                         );
+                                         
+                                         // Check if the current end date is expired
+                                         const isRowExpired = (() => {
+                                             if (!currentValues.endDate) return false;
+                                             const d = new Date(currentValues.endDate);
+                                             d.setHours(0, 0, 0, 0);
+                                             const today = new Date();
+                                             today.setHours(0, 0, 0, 0);
+                                             return d < today;
+                                         })();
+
+                                         return (
+                                             <tr key={taxHeaderName} className={`transition-colors ${isRowExpired ? 'bg-red-50/40 hover:bg-red-50/60' : taxExistsOnBus ? 'hover:bg-blue-50/30' : 'bg-slate-50/30 hover:bg-slate-50/60'}`}>
+                                                 <td className="px-4 py-3 text-sm font-medium text-slate-800">
+                                                     <div className="flex items-center gap-2">
+                                                         {taxHeaderName}
+                                                         {isRowExpired && (
+                                                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700">
+                                                                 EXPIRED
+                                                             </span>
+                                                         )}
+                                                         {!taxExistsOnBus && (
+                                                             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500">
+                                                                 Not added
+                                                             </span>
+                                                         )}
+                                                     </div>
+                                                 </td>
+                                                 <td className="px-4 py-3">
+                                                     <input
+                                                         type="number"
+                                                         step="0.01"
+                                                         value={currentValues.amount || ''}
+                                                         placeholder={taxExistsOnBus ? '' : 'Enter amount'}
+                                                         onChange={(e) => {
+                                                             setTaxValues(prev => ({
+                                                                 ...prev,
+                                                                 [taxHeaderName]: {
+                                                                     ...prev[taxHeaderName],
+                                                                     amount: e.target.value
+                                                                 }
+                                                             }));
+                                                         }}
+                                                         className={`w-full px-3 py-2 rounded-lg border text-sm ${!taxExistsOnBus && !currentValues.amount ? 'border-slate-200 bg-slate-50 placeholder-slate-400' : 'border-slate-300 bg-white'}`}
+                                                     />
+                                                 </td>
+                                                 <td className="px-4 py-3">
+                                                     <input
+                                                         type="date"
+                                                         value={currentValues.endDate || ''}
+                                                         onChange={(e) => {
+                                                             setTaxValues(prev => ({
+                                                                 ...prev,
+                                                                 [taxHeaderName]: {
+                                                                     ...prev[taxHeaderName],
+                                                                     endDate: e.target.value
+                                                                 }
+                                                             }));
+                                                         }}
+                                                         className={`w-full px-3 py-2 rounded-lg border text-sm ${isRowExpired ? 'border-red-300 bg-red-50 text-red-700' : 'border-slate-300 bg-white'}`}
+                                                     />
+                                                     {isRowExpired && (
+                                                         <p className="text-[10px] text-red-600 mt-1 font-medium">Date has expired — please update</p>
+                                                     )}
+                                                 </td>
+                                                 <td className="px-4 py-3 text-right">
+                                                     <div className="flex space-x-2">
+                                                         <button
+                                                             onClick={() => {
+                                                                 // Validate before save
+                                                                 if (!currentValues.amount || currentValues.amount === '' || isNaN(parseFloat(currentValues.amount))) {
+                                                                     alert('Please enter an amount before saving.');
+                                                                     return;
+                                                                 }
+                                                                 if (!currentValues.endDate) {
+                                                                     alert('Please select an end date before saving.');
+                                                                     return;
+                                                                 }
+                                                                 const taxData = {
+                                                                     taxHeader: taxHeaderName,
+                                                                     amount: parseFloat(currentValues.amount),
+                                                                     endDate: currentValues.endDate
+                                                                 };
+                                                                 if (existingTax) {
+                                                                     handleUpdateTaxInTable(existingTax._id, taxData);
+                                                                 } else {
+                                                                     handleAddTaxInTable(taxData);
+                                                                 }
+                                                             }}
+                                                             disabled={!taxExistsOnBus && (!currentValues.amount || !currentValues.endDate)}
+                                                             className="flex-1 px-3 py-1.5 bg-purple-600 text-white text-sm font-semibold rounded-lg hover:bg-purple-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                                         >
+                                                             {taxExistsOnBus ? 'Update' : 'Add'}
+                                                         </button>
+                                                         <button
+                                                             onClick={async () => {
+                                                                 setTaxHistoryData(null);
+                                                                 setIsTaxHistoryModalOpen(true);
+                                                                 setTaxHistoryLoading(true);
+                                                                 try {
+                                                                     const res = await apiFetch(
+                                                                         `${API}/buses/${selectedBusForTaxes._id}/taxes/history?taxHeader=${encodeURIComponent(taxHeaderName)}`
+                                                                     );
+                                                                     const data = await res.json();
+                                                                     setTaxHistoryData(data);
+                                                                 } catch (e) {
+                                                                     console.error('Error fetching tax history', e);
+                                                                 } finally {
+                                                                     setTaxHistoryLoading(false);
+                                                                 }
+                                                             }}
+                                                             className="flex-1 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-300"
+                                                         >
+                                                             History
+                                                         </button>
+                                                     </div>
+                                                 </td>
+                                             </tr>
+                                         );
+                                     })}
+                                 </tbody>
+                             </table>
+                         </div>
+                     </div>
+                 </div>
+             </Modal>
+
+            <Modal isOpen={isTaxHeaderModalOpen} onClose={handleCloseTaxHeaderModal} title={editingTaxHeaderId ? "Edit Tax Header" : "Add New Tax Header"}>
+                <form onSubmit={(e) => { e.preventDefault(); handleAddOrUpdateTaxHeader(); }} className="space-y-5">
+                    <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">Tax Name *</label>
+                        <input
+                            type="text"
+                            value={newTaxHeader.taxName}
+                            onChange={(e) => setNewTaxHeader({ ...newTaxHeader, taxName: e.target.value })}
+                            placeholder="e.g., GST, Vehicle Tax, Insurance, Road Tax"
+                            className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-all"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">Description</label>
+                        <textarea
+                            value={newTaxHeader.description}
+                            onChange={(e) => setNewTaxHeader({ ...newTaxHeader, description: e.target.value })}
+                            placeholder="Optional description for this tax header"
+                            rows="2"
+                            className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-all resize-none"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">Default Amount</label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            value={newTaxHeader.defaultAmount}
+                            onChange={(e) => setNewTaxHeader({ ...newTaxHeader, defaultAmount: e.target.value })}
+                            placeholder="e.g., 150.00"
+                            className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-all"
+                        />
+                    </div>
+                    <div className="flex items-center">
+                        <input
+                            type="checkbox"
+                            id="isActiveHeader"
+                            checked={newTaxHeader.isActive}
+                            onChange={(e) => setNewTaxHeader({ ...newTaxHeader, isActive: e.target.checked })}
+                            className="w-4 h-4 rounded border-slate-300 text-purple-600 focus:ring-2 focus:ring-purple-500"
+                        />
+                        <label htmlFor="isActiveHeader" className="ml-2 text-sm font-medium text-slate-700">
+                            Active
+                        </label>
+                    </div>
+                    <button
+                        type="submit"
+                        className="w-full bg-purple-600 text-white font-bold py-3.5 rounded-xl hover:bg-purple-700 transition-colors shadow-lg shadow-purple-200 mt-4"
+                    >
+                        {editingTaxHeaderId ? 'Update Tax Header' : 'Create Tax Header'}
+                    </button>
+                </form>
+            </Modal>
+            
+            {/* Tax History Modal */}
+            <Modal isOpen={isTaxHistoryModalOpen} onClose={() => {
+                setIsTaxHistoryModalOpen(false);
+                setTaxHistoryData(null);
+            }} title={taxHistoryData ? `Tax History — ${taxHistoryData.history?.[0]?.taxHeader || ''}` : 'Tax History'} maxWidth="max-w-2xl">
+                <div className="space-y-5">
+                    {taxHistoryLoading ? (
+                        <div className="py-10 text-center text-slate-500 text-sm">Loading history...</div>
+                    ) : !taxHistoryData || taxHistoryData.history?.length === 0 ? (
+                        <div className="py-10 text-center text-slate-400 text-sm">No history recorded yet. Changes made from now on will appear here.</div>
+                    ) : (
+                        <>
+                            {/* Stats summary cards */}
+                            {taxHistoryData.stats?.map(stat => (
+                                <div key={stat.taxHeader} className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
+                                        <p className="text-2xl font-extrabold text-blue-700">{stat.timesAdded}</p>
+                                        <p className="text-xs text-blue-600 mt-0.5 font-medium">Times Added</p>
+                                    </div>
+                                    <div className="bg-purple-50 border border-purple-100 rounded-xl p-3 text-center">
+                                        <p className="text-2xl font-extrabold text-purple-700">{stat.totalUpdates}</p>
+                                        <p className="text-xs text-purple-600 mt-0.5 font-medium">Times Updated</p>
+                                    </div>
+                                    <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
+                                        <p className="text-2xl font-extrabold text-red-700">{stat.timesExpiredOnSave}</p>
+                                        <p className="text-xs text-red-600 mt-0.5 font-medium">Saved While Expired</p>
+                                    </div>
+                                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                                        <p className="text-2xl font-extrabold text-slate-700">{stat.timesDeleted}</p>
+                                        <p className="text-xs text-slate-500 mt-0.5 font-medium">Times Deleted</p>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {/* Timeline */}
+                            <div>
+                                <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">Change Timeline</p>
+                                <div className="relative">
+                                    {/* vertical line */}
+                                    <div className="absolute left-4 top-0 bottom-0 w-px bg-slate-200" />
+                                    <div className="space-y-4 pl-10">
+                                        {taxHistoryData.history.map((h, i) => {
+                                            const actionColor = h.action === 'added'
+                                                ? 'bg-green-100 text-green-700 border-green-200'
+                                                : h.action === 'deleted'
+                                                ? 'bg-red-100 text-red-700 border-red-200'
+                                                : 'bg-blue-100 text-blue-700 border-blue-200';
+                                            const dotColor = h.action === 'added'
+                                                ? 'bg-green-500'
+                                                : h.action === 'deleted'
+                                                ? 'bg-red-500'
+                                                : 'bg-blue-500';
+                                            const actionLabel = h.action === 'added' ? 'Added' : h.action === 'deleted' ? 'Deleted' : 'Updated';
+                                            const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+                                            const fmtDateTime = (d) => d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+
+                                            return (
+                                                <div key={h._id || i} className="relative">
+                                                    {/* dot */}
+                                                    <div className={`absolute -left-6 top-2 w-3 h-3 rounded-full border-2 border-white ${dotColor}`} />
+                                                    <div className={`rounded-xl border p-3.5 ${h.wasExpiredAtAction ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
+                                                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${actionColor}`}>
+                                                                {actionLabel}
+                                                            </span>
+                                                            {h.wasExpiredAtAction && (
+                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
+                                                                    Was Expired
+                                                                </span>
+                                                            )}
+                                                            <span className="text-[10px] text-slate-400 ml-auto">{fmtDateTime(h.actionAt)}</span>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600">
+                                                            <div>
+                                                                <span className="font-semibold text-slate-700">Amount: </span>
+                                                                ₹{h.amount?.toFixed(2) ?? '—'}
+                                                                {h.action === 'updated' && h.previousAmount != null && h.previousAmount !== h.amount && (
+                                                                    <span className="text-slate-400 ml-1">(was ₹{h.previousAmount.toFixed(2)})</span>
+                                                                )}
+                                                            </div>
+                                                            <div>
+                                                                <span className="font-semibold text-slate-700">End Date: </span>
+                                                                {fmtDate(h.endDate)}
+                                                                {h.action === 'updated' && h.previousEndDate && fmtDate(h.previousEndDate) !== fmtDate(h.endDate) && (
+                                                                    <span className="text-slate-400 ml-1">(was {fmtDate(h.previousEndDate)})</span>
+                                                                )}
+                                                            </div>
+                                                            {h.changedBy && (
+                                                                <div className="col-span-2">
+                                                                    <span className="font-semibold text-slate-700">By: </span>{h.changedBy}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
             </Modal>
         </Layout>
     );

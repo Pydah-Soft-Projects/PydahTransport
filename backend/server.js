@@ -17,6 +17,7 @@ const routeRoutes = require('./routes/routeRoutes');
 const authRoutes = require('./routes/authRoutes');
 const employeeRoutes = require('./routes/employeeRoutes');
 const campusRoutes = require('./routes/campusRoutes');
+const taxHeaderRoutes = require('./routes/taxHeaderRoutes');
 
 const { verifyTransportPassenger } = require('./controllers/transportRequestController');
 
@@ -25,6 +26,7 @@ app.use('/api/auth', authRoutes);
 app.get('/api/transport-verify/:id', verifyTransportPassenger);
 app.use('/api/buses', protect, busRoutes);
 app.use('/api/routes', protect, routeRoutes);
+app.use('/api/tax-headers', protect, taxHeaderRoutes);
 app.use('/api/campuses', campusRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/transport-requests', protect, require('./routes/transportRequestRoutes'));
