@@ -96,6 +96,26 @@ const AdminRaiseRequest = () => {
     const [profileLoading, setProfileLoading] = useState(false);
     const [formError, setFormError] = useState('');
 
+    const getRevisedAmountForYear = (year) => {
+        if (!selectedStudent?.overallConcession?.revised_fees) return null;
+        const revisedFees = Array.isArray(selectedStudent.overallConcession.revised_fees)
+            ? selectedStudent.overallConcession.revised_fees
+            : (typeof selectedStudent.overallConcession.revised_fees === 'string'
+                ? JSON.parse(selectedStudent.overallConcession.revised_fees)
+                : []);
+        const match = revisedFees.find(f => {
+            const isTransport = 
+                (f.feeHeadCode && String(f.feeHeadCode).toUpperCase() === 'TRN01') ||
+                (f.feeHeadId && (
+                    String(f.feeHeadId) === String(selectedStudent.transportFeeHeadId) || 
+                    String(f.feeHeadId) === '6996aa36e247525e006623ca' ||
+                    String(f.feeHeadId) === '6996aa36e247525e006623b8'
+                ));
+            return isTransport && Number(f.studentYear) === Number(year);
+        });
+        return match ? match.revisedAmount : null;
+    };
+
     // Get logged in admin info
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
     const admin = { 
@@ -845,28 +865,54 @@ const AdminRaiseRequest = () => {
                                     </div>
                                 )}
 
-                                {selectedStage && (
-                                    <div className="p-5 bg-blue-600 rounded-2xl shadow-lg shadow-blue-200/50 border border-blue-500 transform transition-all duration-300 animate-in zoom-in-95">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <span className="text-blue-100 text-xs font-bold uppercase tracking-wider">New Adjusted Fare</span>
-                                            <span className="text-3xl font-black text-white">₹{userType === 'employee' ? 0 : selectedStage.fare}</span>
-                                        </div>
-                                        
-                                        {activeTab === 'change' && (
-                                            <div className="pt-4 border-t border-blue-500/50 flex justify-between items-center">
-                                                <span className="text-blue-100 text-[10px] font-bold uppercase tracking-wider">Due Amount (Excess)</span>
-                                                <div className="flex items-center gap-2">
-                                                    <span className={`text-xl font-black ${selectedStage.fare - selectedStudent.fare > 0 ? 'text-yellow-300' : 'text-blue-200'}`}>
-                                                        ₹{Math.max(0, selectedStage.fare - selectedStudent.fare)}
-                                                    </span>
-                                                    {selectedStage.fare - selectedStudent.fare > 0 && (
-                                                        <span className="bg-yellow-400 text-yellow-900 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase">To Pay</span>
-                                                    )}
-                                                </div>
+                                {selectedStage && (() => {
+                                    const targetYear = activeTab === 'new' 
+                                        ? (academicValidation?.current_year || selectedStudent?.current_year) 
+                                        : (selectedStudent?.year_of_study || selectedStudent?.current_year);
+                                    const revisedAmount = getRevisedAmountForYear(targetYear);
+                                    const displayFare = userType === 'employee' ? 0 : selectedStage.fare;
+                                    const finalFare = revisedAmount !== null ? revisedAmount : displayFare;
+                                    
+                                    console.log('Concessions Debug info:', {
+                                        selectedStudent,
+                                        targetYear,
+                                        revisedAmount,
+                                        overallConcession: selectedStudent?.overallConcession,
+                                        transportFeeHeadId: selectedStudent?.transportFeeHeadId
+                                    });
+                                    
+                                    return (
+                                        <div className="p-5 bg-blue-600 rounded-2xl shadow-lg shadow-blue-200/50 border border-blue-500 transform transition-all duration-300 animate-in zoom-in-95 space-y-4">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-blue-100 text-xs font-bold uppercase tracking-wider">New Adjusted Fare</span>
+                                                <span className={`text-3xl font-black text-white ${revisedAmount !== null ? 'line-through opacity-60 text-2xl' : ''}`}>
+                                                    ₹{displayFare}
+                                                </span>
                                             </div>
-                                        )}
-                                    </div>
-                                )}
+
+                                            {revisedAmount !== null && (
+                                                <div className="flex justify-between items-center pt-2 border-t border-blue-500/30">
+                                                    <span className="text-emerald-200 text-xs font-bold uppercase tracking-wider">Revised Concession Fee (Year {targetYear})</span>
+                                                    <span className="text-3xl font-black text-emerald-300">₹{revisedAmount}</span>
+                                                </div>
+                                            )}
+                                            
+                                            {activeTab === 'change' && (
+                                                <div className="pt-4 border-t border-blue-500/50 flex justify-between items-center">
+                                                    <span className="text-blue-100 text-[10px] font-bold uppercase tracking-wider">Due Amount (Excess)</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`text-xl font-black ${finalFare - selectedStudent.fare > 0 ? 'text-yellow-300' : 'text-blue-200'}`}>
+                                                            ₹{Math.max(0, finalFare - selectedStudent.fare)}
+                                                        </span>
+                                                        {finalFare - selectedStudent.fare > 0 && (
+                                                            <span className="bg-yellow-400 text-yellow-900 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase">To Pay</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
 
                                 {formError && (
                                     <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-800 text-sm leading-relaxed animate-in fade-in slide-in-from-top-1 duration-200">

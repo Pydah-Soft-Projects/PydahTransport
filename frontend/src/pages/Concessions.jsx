@@ -11,12 +11,7 @@ const Concessions = () => {
     const [pagination, setPagination] = useState({ total: 0, pages: 0, currentPage: 1 });
     const [courses, setCourses] = useState([]);
     const [routes, setRoutes] = useState([]);
-    const [updating, setUpdating] = useState(null);
     const [expandedRowId, setExpandedRowId] = useState(null);
-    const [modalConfig, setModalConfig] = useState({ show: false, concession: null, year: null, amount: '' });
-
-    // Mock admin
-    const admin = { name: 'Admin', id: 1 };
 
     useEffect(() => {
         fetchMetadata();
@@ -51,79 +46,6 @@ const Concessions = () => {
             console.error('Error fetching concessions:', error);
         } finally {
             setLoading(false);
-        }
-    };
-
-    const handleOpenModal = (concession, year) => {
-        const currentAmount = (concession.yearConcessions && concession.yearConcessions[year]) 
-            ? concession.yearConcessions[year] 
-            : concession.original_fare;
-        setModalConfig({
-            show: true,
-            concession,
-            year,
-            amount: currentAmount
-        });
-    };
-
-    const handleUpdate = async () => {
-        const { concession, year, amount } = modalConfig;
-        
-        setUpdating(concession.id);
-        try {
-            const response = await apiFetch(`${API_BASE}/transport-requests/${concession.id}/concession`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    revised_amount: Number(amount),
-                    admin_name: admin.name,
-                    admin_id: admin.id,
-                    targetYear: year
-                })
-            });
-
-            if (response.ok) {
-                setMessage({ text: `Fee updated successfully for Year ${year}.`, type: 'success' });
-                fetchConcessions();
-                setModalConfig({ ...modalConfig, show: false });
-            } else {
-                const data = await response.json();
-                setMessage({ text: data.message || 'Failed to update fee.', type: 'error' });
-            }
-        } catch (error) {
-            setMessage({ text: 'An error occurred.', type: 'error' });
-        } finally {
-            setUpdating(null);
-        }
-    };
-
-    const handleDelete = async (concessionId) => {
-        if (!window.confirm('Are you sure you want to delete this concession? This will also remove the current active transport fee for this student.')) {
-            return;
-        }
-
-        setUpdating(concessionId);
-        try {
-            const response = await apiFetch(`${API_BASE}/transport-requests/${concessionId}/concession`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    admin_name: admin.name,
-                    admin_id: admin.id
-                })
-            });
-
-            if (response.ok) {
-                setMessage({ text: 'Concession and fee deleted successfully.', type: 'success' });
-                fetchConcessions();
-            } else {
-                const data = await response.json();
-                setMessage({ text: data.message || 'Failed to delete concession.', type: 'error' });
-            }
-        } catch (error) {
-            setMessage({ text: 'An error occurred.', type: 'error' });
-        } finally {
-            setUpdating(null);
         }
     };
 
@@ -197,21 +119,20 @@ const Concessions = () => {
                                 <th className="p-4">Admission No</th>
                                 <th className="p-4">Current Year</th>
                                 {[1, 2, 3, 4].map(y => (
-                                    <th key={y} className="p-4 text-center">Y{y} Fee</th>
+                                    <th key={y} className="p-4 text-center">Y{y} Concession</th>
                                 ))}
-                                <th className="p-4 text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50 text-sm text-gray-700">
                             {loading ? (
                                 <tr>
-                                    <td colSpan="9" className="p-10">
+                                    <td colSpan="8" className="p-10">
                                         <Loader text="Loading concessions data..." />
                                     </td>
                                 </tr>
                             ) : concessions.length === 0 ? (
                                 <tr>
-                                    <td colSpan="9" className="p-10 text-center text-gray-400">No approved transport requests found.</td>
+                                    <td colSpan="8" className="p-10 text-center text-gray-400">No approved transport requests found.</td>
                                 </tr>
                             ) : (
                                 concessions.map(c => (
@@ -235,27 +156,22 @@ const Concessions = () => {
                                             {[1, 2, 3, 4].map(year => {
                                                 const isAvailable = year <= c.total_course_years;
                                                 const isCurrentYear = Number(year) === Number(c.student_year);
-                                                const amount = (c.yearConcessions && c.yearConcessions[year]) 
-                                                    ? c.yearConcessions[year] 
-                                                    : c.original_fare;
-                                                const isConcession = c.yearConcessions && c.yearConcessions[year] !== undefined;
+                                                const amount = c.yearConcessions ? c.yearConcessions[year] : undefined;
+                                                const isConcession = amount !== undefined && amount !== null;
 
                                                 return (
                                                     <td key={year} className="p-4 text-center relative group">
-                                                        {isAvailable ? (
+                                                        {isAvailable && isConcession ? (
                                                             <>
-                                                                <button 
-                                                                    onClick={(e) => { e.stopPropagation(); handleOpenModal(c, year); }}
-                                                                    className={`w-full py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                                                <span 
+                                                                    className={`inline-block px-3 py-1.5 rounded-lg text-xs font-bold border ${
                                                                         isCurrentYear
                                                                             ? 'ring-2 ring-blue-500 ring-offset-1 border-blue-200 bg-blue-50 text-blue-700'
-                                                                            : isConcession 
-                                                                                ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100' 
-                                                                                : 'bg-gray-50 border-gray-100 text-gray-500 hover:bg-gray-100'
+                                                                            : 'bg-green-50 border-green-200 text-green-700'
                                                                     }`}
                                                                 >
                                                                     ₹{amount}
-                                                                </button>
+                                                                </span>
                                                                 {isCurrentYear && (
                                                                     <div className="absolute top-1 right-1">
                                                                         <span className="flex h-2 w-2">
@@ -266,27 +182,15 @@ const Concessions = () => {
                                                                 )}
                                                             </>
                                                         ) : (
-                                                            <span className="text-gray-200">—</span>
+                                                            <span className="text-gray-300">—</span>
                                                         )}
                                                     </td>
                                                 );
                                             })}
-                                            <td className="p-4 text-center">
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }}
-                                                    disabled={updating === c.id}
-                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-all duration-200 disabled:opacity-50 group/del"
-                                                    title="Delete Concession"
-                                                >
-                                                    <svg className="w-5 h-5 group-hover/del:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                    </svg>
-                                                </button>
-                                            </td>
                                         </tr>
                                         {expandedRowId === c.id && (
                                             <tr className="bg-blue-50/20">
-                                                <td colSpan="9" className="p-6">
+                                                <td colSpan="8" className="p-6">
                                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                                         <div>
                                                             <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Route Details</div>
@@ -313,7 +217,7 @@ const Concessions = () => {
                                         )}
                                     </React.Fragment>
                                 ))
-                            )}
+							)}
                         </tbody>
                     </table>
                 </div>
@@ -372,52 +276,6 @@ const Concessions = () => {
                     </div>
                 </div>
             </div>
-
-            {/* Edit Concession Modal */}
-            {modalConfig.show && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-                        <div className="p-6 border-b border-gray-100 bg-gray-50">
-                            <h3 className="text-xl font-bold text-gray-800">Adjust Fee for Year {modalConfig.year}</h3>
-                            <p className="text-sm text-gray-500 mt-1">Student: <span className="font-semibold text-gray-700">{modalConfig.concession.student_name}</span></p>
-                        </div>
-                        <div className="p-8">
-                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Revised Concession Amount</label>
-                            <div className="relative">
-                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl text-gray-400 font-medium">₹</span>
-                                <input
-                                    type="number"
-                                    value={modalConfig.amount}
-                                    onChange={(e) => setModalConfig({ ...modalConfig, amount: e.target.value })}
-                                    autoFocus
-                                    className="w-full bg-gray-50 border-2 border-transparent focus:border-blue-500 focus:bg-white rounded-xl pl-10 pr-4 py-4 text-2xl font-bold text-gray-800 outline-none transition-all shadow-inner"
-                                    placeholder="Enter amount"
-                                />
-                            </div>
-                            <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                                <p className="text-[11px] text-blue-700 leading-relaxed font-medium">
-                                    Original Fare is ₹{modalConfig.concession.original_fare}. This amount will be applied to all future transport fee generations for Year {modalConfig.year}.
-                                </p>
-                            </div>
-                        </div>
-                        <div className="p-6 flex gap-3 border-t border-gray-100">
-                            <button 
-                                onClick={() => setModalConfig({ ...modalConfig, show: false })}
-                                className="flex-1 px-6 py-3 rounded-xl border border-gray-200 text-gray-600 font-bold hover:bg-gray-50 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                onClick={handleUpdate}
-                                disabled={updating === modalConfig.concession.id}
-                                className="flex-1 px-6 py-3 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 shadow-lg shadow-blue-200"
-                            >
-                                {updating === modalConfig.concession.id ? 'Updating...' : 'Save Change'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </Layout>
     );
 };

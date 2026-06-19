@@ -342,9 +342,49 @@ const getStudentProfile = async (req, res) => {
         }
 
         const row = rows[0];
+
+        // Fetch overall concessions for the student
+        const admNo = row.admission_number || row.admission_no;
+        let overallConcession = null;
+        try {
+            const [concessionRows] = await mysqlPool.query(
+                'SELECT * FROM overall_concessions WHERE admission_number = ? LIMIT 1',
+                [admNo]
+            );
+            if (concessionRows && concessionRows.length > 0) {
+                overallConcession = concessionRows[0];
+            }
+        } catch (err) {
+            console.error('Error fetching overall concession for profile:', err);
+        }
+
+        // Fetch transport fee head ID
+        let transportFeeHeadId = null;
+        try {
+            const { getFeePortalModels } = require('../models/fee-portal-models');
+            const feeModels = getFeePortalModels();
+            if (feeModels) {
+                const { FeeHead } = feeModels;
+                const transportFeeHead = await FeeHead.findOne({
+                    $or: [
+                        { code: 'TRN01' },
+                        { code: 'trn01' },
+                        { name: { $regex: /transport/i } }
+                    ]
+                });
+                if (transportFeeHead) {
+                    transportFeeHeadId = transportFeeHead._id.toString();
+                }
+            }
+        } catch (err) {
+            console.error('Error resolving transport fee head ID for profile:', err);
+        }
+
         res.json({
             ...row,
             student_photo: resolveStudentPhoto(row),
+            overallConcession,
+            transportFeeHeadId
         });
     } catch (error) {
         console.error('Error fetching student profile:', error);
