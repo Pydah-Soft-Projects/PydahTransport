@@ -17,6 +17,12 @@ const userRoleSchema = new mongoose.Schema({
     campuses: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Campus'
+    }],
+    colleges: [{
+        type: String
+    }],
+    courses: [{
+        type: String
     }]
 }, { timestamps: true });
 

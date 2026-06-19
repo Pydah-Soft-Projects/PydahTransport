@@ -3,7 +3,13 @@ export const CANONICAL_ACADEMIC_YEAR = '2025-2026';
 export const getDefaultAcademicYear = () => {
     const envYear = import.meta.env.VITE_CURRENT_ACADEMIC_YEAR;
     if (envYear) return envYear;
-    return CANONICAL_ACADEMIC_YEAR;
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    if (month >= 5) {
+        return `${year}-${year + 1}`;
+    }
+    return `${year - 1}-${year}`;
 };
 
 export const getAcademicYearOptions = () => {

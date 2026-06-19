@@ -120,7 +120,7 @@ const Layout = ({ children }) => {
                                         {adminInfo.name || adminInfo.username || 'User'}
                                     </p>
                                     <p className="text-[9px] uppercase font-black text-slate-400 truncate tracking-tighter">
-                                        {adminInfo.role || 'Guest'}
+                                        {adminInfo.role || (adminInfo.roles && adminInfo.roles.join(', ')) || 'Guest'}
                                     </p>
                                 </div>
                                 <button

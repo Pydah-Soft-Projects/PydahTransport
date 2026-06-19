@@ -11,29 +11,13 @@ import { apiFetch, API_BASE } from '../utils/api';
 import { triggerAdmitCardPrint } from '../utils/printAdmitCard';
 import QRCode from 'qrcode';
 import { getTransportVerifyUrl } from '../utils/siteUrl';
+import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 
 const statusDisplay = (s) => (s || 'pending').charAt(0).toUpperCase() + (s || 'pending').slice(1);
 
 const formatDate = (d) => (d ? new Date(d).toLocaleDateString() : '—');
 
-const getDefaultAcademicYear = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    return now.getMonth() >= 6 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
-};
-
 const courseExpiryKey = (courseId, yearOfStudy) => `${Number(courseId)}-${Number(yearOfStudy)}`;
-
-const getAcademicYearOptions = () => {
-    const defaultYear = getDefaultAcademicYear();
-    const startYear = Number(defaultYear.split('-')[0]);
-    const options = [];
-    for (let offset = -3; offset <= 3; offset += 1) {
-        const start = startYear + offset;
-        options.push(`${start}-${start + 1}`);
-    }
-    return options;
-};
 
 const TransportRequests = () => {
     const [requests, setRequests] = useState([]);

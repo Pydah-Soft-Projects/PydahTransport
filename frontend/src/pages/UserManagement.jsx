@@ -16,6 +16,12 @@ const UserManagement = () => {
     const [selectedCampuses, setSelectedCampuses] = useState([]);
     const [campuses, setCampuses] = useState([]);
 
+    // Colleges and Courses restrictions state
+    const [colleges, setColleges] = useState([]);
+    const [courses, setCourses] = useState([]);
+    const [selectedColleges, setSelectedColleges] = useState([]);
+    const [selectedCourses, setSelectedCourses] = useState([]);
+
     // Search state
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
@@ -31,6 +37,30 @@ const UserManagement = () => {
             }
         } catch (error) {
             console.error('Error fetching campuses:', error);
+        }
+    };
+
+    const fetchColleges = async () => {
+        try {
+            const response = await apiFetch(`${import.meta.env.VITE_API_URL}/students/colleges`);
+            const data = await response.json();
+            if (response.ok) {
+                setColleges(data);
+            }
+        } catch (error) {
+            console.error('Error fetching colleges:', error);
+        }
+    };
+
+    const fetchCourses = async () => {
+        try {
+            const response = await apiFetch(`${import.meta.env.VITE_API_URL}/students/courses`);
+            const data = await response.json();
+            if (response.ok) {
+                setCourses(data);
+            }
+        } catch (error) {
+            console.error('Error fetching courses:', error);
         }
     };
 
@@ -50,6 +80,8 @@ const UserManagement = () => {
     useEffect(() => {
         fetchUsers();
         fetchCampuses();
+        fetchColleges();
+        fetchCourses();
     }, []);
 
     const fetchUsers = async () => {
@@ -115,6 +147,8 @@ const UserManagement = () => {
         setSelectedRole('admin'); // Default to admin
         setPermissions([]);
         setSelectedCampuses([]);
+        setSelectedColleges([]);
+        setSelectedCourses([]);
         setSearchResults([]);
         setSearchQuery('');
     };
@@ -132,6 +166,8 @@ const UserManagement = () => {
         setSelectedRole(currentRole);
         setPermissions(user.permissions || []);
         setSelectedCampuses(user.campuses || []);
+        setSelectedColleges(user.colleges || []);
+        setSelectedCourses(user.courses || []);
         setIsManageModalOpen(true);
     };
 
@@ -181,6 +217,8 @@ const UserManagement = () => {
         console.log('[Frontend] Saving Role:', selectedRole);
         console.log('[Frontend] Target ID:', targetId);
         console.log('[Frontend] Campuses to Save:', selectedCampuses);
+        console.log('[Frontend] Colleges to Save:', selectedColleges);
+        console.log('[Frontend] Courses to Save:', selectedCourses);
 
         try {
             const response = await apiFetch(`${import.meta.env.VITE_API_URL}/users/${targetId}/role`, {
@@ -189,8 +227,13 @@ const UserManagement = () => {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                // Send role as an array for backend compatibility, but UI controls distinct single role
-                body: JSON.stringify({ roles: [selectedRole], permissions, campuses: selectedCampuses }),
+                body: JSON.stringify({ 
+                    roles: [selectedRole], 
+                    permissions, 
+                    campuses: selectedCampuses,
+                    colleges: selectedColleges,
+                    courses: selectedCourses
+                }),
             });
 
             if (response.ok) {
@@ -199,6 +242,8 @@ const UserManagement = () => {
                 setSelectedUser(null);
                 setSelectedEmployee(null);
                 setSelectedCampuses([]);
+                setSelectedColleges([]);
+                setSelectedCourses([]);
                 fetchUsers(); // Refresh list
             } else {
                 alert('Failed to update role');
@@ -215,6 +260,8 @@ const UserManagement = () => {
         setSelectedRole('admin');
         setPermissions([]);
         setSelectedCampuses([]);
+        setSelectedColleges([]);
+        setSelectedCourses([]);
         setSearchQuery('');
         setSearchResults([]);
         setIsAddAdminModalOpen(true);
@@ -228,6 +275,36 @@ const UserManagement = () => {
             setPermissions(permissions.filter(p => p !== perm));
         }
     };
+
+    const handleCollegeChange = (collegeName, isChecked) => {
+        let newSelectedColleges;
+        if (isChecked) {
+            newSelectedColleges = [...selectedColleges, collegeName];
+        } else {
+            newSelectedColleges = selectedColleges.filter(name => name !== collegeName);
+        }
+        setSelectedColleges(newSelectedColleges);
+
+        // Filter selected courses to ensure they only belong to the remaining selected colleges
+        const remainingCollegeIds = colleges
+            .filter(c => newSelectedColleges.includes(c.name))
+            .map(c => c.id);
+
+        const newSelectedCourses = selectedCourses.filter(courseName => {
+            const courseObj = courses.find(c => c.name === courseName);
+            if (!courseObj) return false;
+            return remainingCollegeIds.includes(courseObj.college_id);
+        });
+        setSelectedCourses(newSelectedCourses);
+    };
+
+    const selectedCollegeIds = colleges
+        .filter(c => selectedColleges.includes(c.name))
+        .map(c => c.id);
+
+    const filteredCourses = selectedColleges.length > 0
+        ? courses.filter(course => selectedCollegeIds.includes(course.college_id))
+        : [];
 
     return (
         <Layout title="User Management">
@@ -252,7 +329,7 @@ const UserManagement = () => {
                             <tr>
                                 <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Emp ID</th>
                                 <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
-                                <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Roles</th>
+                                <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Roles & Restrictions</th>
                                 <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                                 <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
                             </tr>
@@ -282,7 +359,8 @@ const UserManagement = () => {
                                                     ))}
                                                 </div>
                                                 {user.campuses && user.campuses.length > 0 && (
-                                                    <div className="flex flex-wrap gap-1">
+                                                    <div className="flex flex-wrap gap-1 items-center">
+                                                        <span className="text-[10px] text-gray-400 font-bold mr-1">CAMPUSES:</span>
                                                         {user.campuses.map(cId => {
                                                             const campus = campuses.find(c => c._id === cId || c._id === cId._id || c === cId);
                                                             return (
@@ -291,6 +369,26 @@ const UserManagement = () => {
                                                                 </span>
                                                             );
                                                         })}
+                                                    </div>
+                                                )}
+                                                {user.colleges && user.colleges.length > 0 && (
+                                                    <div className="flex flex-wrap gap-1 items-center">
+                                                        <span className="text-[10px] text-indigo-400 font-bold mr-1">COLLEGES:</span>
+                                                        {user.colleges.map(cName => (
+                                                            <span key={cName} className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-semibold rounded border border-indigo-200">
+                                                                {cName}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                {user.courses && user.courses.length > 0 && (
+                                                    <div className="flex flex-wrap gap-1 items-center">
+                                                        <span className="text-[10px] text-green-400 font-bold mr-1">COURSES:</span>
+                                                        {user.courses.map(cName => (
+                                                            <span key={cName} className="px-1.5 py-0.5 bg-green-50 text-green-700 text-[10px] font-semibold rounded border border-green-200">
+                                                                {cName}
+                                                            </span>
+                                                        ))}
                                                     </div>
                                                 )}
                                             </div>
@@ -327,72 +425,200 @@ const UserManagement = () => {
             </div>
 
             {/* Manage Roles Modal (For existing users) */}
-            <Modal isOpen={isManageModalOpen} onClose={() => setIsManageModalOpen(false)} title={`Manage Role: ${selectedUser?.employee_name}`}>
+            <Modal isOpen={isManageModalOpen} onClose={() => setIsManageModalOpen(false)} title={`Manage Role: ${selectedUser?.employee_name}`} maxWidth="max-w-5xl">
                 <div className="space-y-6">
-                    <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3 block">Access Role</h4>
-                        <div className="space-y-2">
-                            {/* Single Selection Radio Buttons */}
-                            {['admin', 'manager', 'user'].map(role => (
-                                <label key={role} className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
-                                    <input
-                                        type="radio"
-                                        name="role"
-                                        value={role}
-                                        checked={selectedRole === role}
-                                        onChange={(e) => setSelectedRole(e.target.value)}
-                                        className="w-4 h-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
-                                    />
-                                    <span className="capitalize font-medium text-gray-800">{role}</span>
-                                </label>
-                            ))}
+                    {/* Employee Details (Full Width) */}
+                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                        <h4 className="text-sm font-bold text-gray-800 mb-4 border-b border-gray-200 pb-2">Employee Details</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Full Name</label>
+                                <input
+                                    type="text"
+                                    value={selectedUser?.employee_name || ''}
+                                    readOnly
+                                    placeholder="-"
+                                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-700 text-sm focus:outline-none"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Employee ID</label>
+                                <input
+                                    type="text"
+                                    value={selectedUser?.emp_no || ''}
+                                    readOnly
+                                    placeholder="-"
+                                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-700 text-sm focus:outline-none"
+                                />
+                            </div>
                         </div>
                     </div>
 
-                    <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3 block">Page Permissions</h4>
-                        <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto p-1">
-                            {PERMISSION_OPTIONS.map(perm => (
-                                <label key={perm.id} className="flex items-center space-x-3 p-2 rounded hover:bg-gray-50 cursor-pointer text-sm">
-                                    <input
-                                        type="checkbox"
-                                        value={perm.id}
-                                        checked={permissions.includes(perm.id)}
-                                        onChange={handlePermissionChange}
-                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"
-                                    />
-                                    <span className="text-gray-700">{perm.label}</span>
-                                </label>
-                            ))}
-                        </div>
-                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Column 1 */}
+                        <div className="space-y-6">
+                            <div>
+                                <h4 className="text-sm font-semibold text-gray-700 mb-3 block">Access Role</h4>
+                                <div className="grid grid-cols-3 gap-3">
+                                    {['admin', 'manager', 'user'].map(role => {
+                                        const isActive = selectedRole === role;
+                                        return (
+                                            <label key={role} className={`flex flex-col items-center justify-center p-3 border rounded-xl cursor-pointer transition-all duration-200 ${
+                                                isActive
+                                                    ? 'border-indigo-600 bg-indigo-50/50 text-indigo-700 ring-2 ring-indigo-600/20'
+                                                    : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                                            }`}>
+                                                <input
+                                                    type="radio"
+                                                    name="role"
+                                                    value={role}
+                                                    checked={isActive}
+                                                    onChange={(e) => setSelectedRole(e.target.value)}
+                                                    className="sr-only"
+                                                />
+                                                <span className="capitalize font-semibold text-sm">{role}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
 
-                    <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3 block">Campus Restriction</h4>
-                        <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto p-1 border border-gray-100 rounded-lg">
-                            {campuses.map(campus => (
-                                <label key={campus._id} className="flex items-center space-x-3 p-2 rounded hover:bg-gray-50 cursor-pointer text-sm">
-                                    <input
-                                        type="checkbox"
-                                        value={campus._id}
-                                        checked={selectedCampuses.includes(campus._id)}
-                                        onChange={(e) => {
-                                            if (e.target.checked) {
-                                                setSelectedCampuses([...selectedCampuses, campus._id]);
-                                            } else {
-                                                setSelectedCampuses(selectedCampuses.filter(id => id !== campus._id));
-                                            }
-                                        }}
-                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"
-                                    />
-                                    <span className="text-gray-700">{campus.name} ({campus.code})</span>
-                                </label>
-                            ))}
-                            {campuses.length === 0 && (
-                                <p className="text-xs text-gray-400 italic p-2">No campuses available. Add them in Route Management first.</p>
-                            )}
+                            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                                <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 flex justify-between items-center">
+                                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Page Permissions</span>
+                                    <span className="text-xs bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full font-medium">
+                                        {permissions.length} Selected
+                                    </span>
+                                </div>
+                                <div className="p-3 grid grid-cols-1 gap-1 max-h-64 overflow-y-auto custom-scrollbar">
+                                    {PERMISSION_OPTIONS.map(perm => {
+                                        const isChecked = permissions.includes(perm.id);
+                                        return (
+                                            <label key={perm.id} className={`flex items-center space-x-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                                                isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
+                                            }`}>
+                                                <input
+                                                    type="checkbox"
+                                                    value={perm.id}
+                                                    checked={isChecked}
+                                                    onChange={handlePermissionChange}
+                                                    className="w-4.5 h-4.5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 focus:ring-offset-0"
+                                                />
+                                                <span className={`text-sm font-medium ${isChecked ? 'text-indigo-900' : 'text-gray-700'}`}>{perm.label}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </div>
-                        <p className="text-[10px] text-gray-400 mt-1">If no campuses are selected, the user will have access to all campuses.</p>
+
+                        {/* Column 2 */}
+                        <div className="space-y-6">
+                            {/* Campus Restriction */}
+                            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                                <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 flex justify-between items-center">
+                                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Campus Restriction</span>
+                                    <span className="text-[10px] text-gray-400">({selectedCampuses.length} selected)</span>
+                                </div>
+                                <div className="p-3 grid grid-cols-1 gap-1 max-h-36 overflow-y-auto custom-scrollbar">
+                                    {campuses.map(campus => {
+                                        const isChecked = selectedCampuses.includes(campus._id);
+                                        return (
+                                            <label key={campus._id} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
+                                                isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
+                                            }`}>
+                                                <input
+                                                    type="checkbox"
+                                                    value={campus._id}
+                                                    checked={isChecked}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedCampuses([...selectedCampuses, campus._id]);
+                                                        } else {
+                                                            setSelectedCampuses(selectedCampuses.filter(id => id !== campus._id));
+                                                        }
+                                                    }}
+                                                    className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                                                />
+                                                <span className="text-sm text-gray-700">{campus.name} ({campus.code})</span>
+                                            </label>
+                                        );
+                                    })}
+                                    {campuses.length === 0 && (
+                                        <p className="text-xs text-gray-400 italic p-2">No campuses available. Add them in Route Management first.</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* College Restriction */}
+                            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                                <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 flex justify-between items-center">
+                                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">College Restriction</span>
+                                    <span className="text-[10px] text-gray-400">({selectedColleges.length} selected)</span>
+                                </div>
+                                <div className="p-3 grid grid-cols-1 gap-1 max-h-36 overflow-y-auto custom-scrollbar">
+                                    {colleges.map(college => {
+                                        const isChecked = selectedColleges.includes(college.name);
+                                        return (
+                                            <label key={college.id} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
+                                                isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
+                                            }`}>
+                                                <input
+                                                    type="checkbox"
+                                                    value={college.name}
+                                                    checked={isChecked}
+                                                    onChange={(e) => handleCollegeChange(college.name, e.target.checked)}
+                                                    className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                                                />
+                                                <span className="text-sm text-gray-700">{college.name} ({college.code})</span>
+                                            </label>
+                                        );
+                                    })}
+                                    {colleges.length === 0 && (
+                                        <p className="text-xs text-gray-400 italic p-2">No colleges available.</p>
+                                    )}
+                                </div>
+                            </div>
+ 
+                            {/* Course Restriction */}
+                            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                                <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 flex justify-between items-center">
+                                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Course Restriction</span>
+                                    <span className="text-[10px] text-gray-400">({selectedCourses.length} selected)</span>
+                                </div>
+                                <div className="p-3 grid grid-cols-1 gap-1 max-h-36 overflow-y-auto custom-scrollbar">
+                                    {selectedColleges.length === 0 ? (
+                                        <p className="text-xs text-gray-400 italic p-2">Select at least one college to restrict courses.</p>
+                                    ) : filteredCourses.length === 0 ? (
+                                        <p className="text-xs text-gray-400 italic p-2">No courses available for selected colleges.</p>
+                                    ) : (
+                                        filteredCourses.map(course => {
+                                            const isChecked = selectedCourses.includes(course.name);
+                                            return (
+                                                <label key={course.id || course.name} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
+                                                    isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
+                                                }`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        value={course.name}
+                                                        checked={isChecked}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setSelectedCourses([...selectedCourses, course.name]);
+                                                            } else {
+                                                                setSelectedCourses(selectedCourses.filter(name => name !== course.name));
+                                                            }
+                                                        }}
+                                                        className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                                                    />
+                                                    <span className="text-sm text-gray-700">{course.name}</span>
+                                                </label>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div className="pt-4 flex justify-end gap-3 border-t border-gray-100">
@@ -413,143 +639,252 @@ const UserManagement = () => {
             </Modal>
 
             {/* Add Admin Modal */}
-            <Modal isOpen={isAddAdminModalOpen} onClose={() => setIsAddAdminModalOpen(false)} title="Add New Admin">
+            <Modal isOpen={isAddAdminModalOpen} onClose={() => setIsAddAdminModalOpen(false)} title="Add New Admin" maxWidth="max-w-5xl">
                 <div className="space-y-6">
-                    {/* Search Section */}
-                    <div className="relative">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Search Employee (HRMS)</label>
+                    {/* Search & Details Section (Full Width) */}
+                    <div className="space-y-4">
                         <div className="relative">
-                            <input
-                                type="text"
-                                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                placeholder="Search by name or ID..."
-                                value={searchQuery}
-                                onChange={(e) => handleSearch(e.target.value)}
-                            />
-                            <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
-                        </div>
-
-                        {/* Search Results */}
-                        {searchResults.length > 0 && (
-                            <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto divide-y divide-gray-100">
-                                {searchResults.map(emp => (
-                                    <div
-                                        key={emp.emp_no}
-                                        onClick={() => handleSelectEmployee(emp)}
-                                        className="p-3 hover:bg-indigo-50 cursor-pointer transition-colors"
-                                    >
-                                        <div className="font-medium text-gray-900">{emp.employee_name}</div>
-                                        <div className="text-xs text-gray-500">ID: {emp.emp_no}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                        {searchQuery.length > 3 && searchResults.length === 0 && !isSearching && (
-                            <div className="text-sm text-gray-500 mt-2 absolute">No employees found.</div>
-                        )}
-                    </div>
-
-                    {/* Employee Details Form */}
-                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                        <h4 className="text-sm font-bold text-gray-800 mb-4 border-b border-gray-200 pb-2">Employee Details</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Full Name</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Search Employee (HRMS)</label>
+                            <div className="relative">
                                 <input
                                     type="text"
-                                    value={selectedEmployee?.employee_name || ''}
-                                    readOnly
-                                    placeholder="-"
-                                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded text-gray-700 text-sm focus:outline-none"
+                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    placeholder="Search by name or ID..."
+                                    value={searchQuery}
+                                    onChange={(e) => handleSearch(e.target.value)}
                                 />
+                                <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
                             </div>
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Employee ID</label>
-                                <input
-                                    type="text"
-                                    value={selectedEmployee?.emp_no || ''}
-                                    readOnly
-                                    placeholder="-"
-                                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded text-gray-700 text-sm focus:outline-none"
-                                />
-                            </div>
-                        </div>
-                    </div>
 
-                    {/* Role Selection (Add Mode) */}
-                    <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3 block">Access Role</h4>
-                        <div className="flex gap-4">
-                            {['admin', 'manager', 'user'].map(role => (
-                                <label key={role} className="flex items-center space-x-2 cursor-pointer">
-                                    <input
-                                        type="radio"
-                                        name="add_role"
-                                        value={role}
-                                        checked={selectedRole === role}
-                                        onChange={(e) => setSelectedRole(e.target.value)}
-                                        disabled={!selectedEmployee}
-                                        className="w-4 h-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 disabled:opacity-50"
-                                    />
-                                    <span className={`capitalize font-medium text-sm text-gray-800 ${!selectedEmployee ? 'opacity-50' : ''}`}>{role}</span>
-                                </label>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Permissions Section */}
-                    <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3 block">Page Permissions</h4>
-                        <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto p-1 border border-gray-100 rounded-lg">
-                            {PERMISSION_OPTIONS.map(perm => (
-                                <label key={perm.id} className="flex items-center space-x-3 p-2 rounded hover:bg-gray-50 cursor-pointer text-sm">
-                                    <input
-                                        type="checkbox"
-                                        value={perm.id}
-                                        checked={permissions.includes(perm.id)}
-                                        onChange={handlePermissionChange}
-                                        disabled={!selectedEmployee}
-                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300 disabled:opacity-50"
-                                    />
-                                    <span className={`text-gray-700 ${!selectedEmployee ? 'opacity-50' : ''}`}>{perm.label}</span>
-                                </label>
-                            ))}
-                        </div>
-                        {!selectedEmployee && <div className="text-xs text-red-500 mt-1">* Select an employee to assign permissions</div>}
-                    </div>
-
-                    {/* Campus Restrictions Section */}
-                    <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3 block">Campus Restriction</h4>
-                        <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto p-1 border border-gray-100 rounded-lg">
-                            {campuses.map(campus => (
-                                <label key={campus._id} className="flex items-center space-x-3 p-2 rounded hover:bg-gray-50 cursor-pointer text-sm">
-                                    <input
-                                        type="checkbox"
-                                        value={campus._id}
-                                        checked={selectedCampuses.includes(campus._id)}
-                                        onChange={(e) => {
-                                            if (e.target.checked) {
-                                                setSelectedCampuses([...selectedCampuses, campus._id]);
-                                            } else {
-                                                setSelectedCampuses(selectedCampuses.filter(id => id !== campus._id));
-                                            }
-                                        }}
-                                        disabled={!selectedEmployee}
-                                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300 disabled:opacity-50"
-                                    />
-                                    <span className={`text-gray-700 ${!selectedEmployee ? 'opacity-50' : ''}`}>{campus.name} ({campus.code})</span>
-                                </label>
-                            ))}
-                            {campuses.length === 0 && (
-                                <p className="text-xs text-gray-400 italic p-2">No campuses available. Add them in Route Management first.</p>
+                            {/* Search Results */}
+                            {searchResults.length > 0 && (
+                                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto divide-y divide-gray-100">
+                                    {searchResults.map(emp => (
+                                        <div
+                                            key={emp.emp_no}
+                                            onClick={() => handleSelectEmployee(emp)}
+                                            className="p-3 hover:bg-indigo-50 cursor-pointer transition-colors"
+                                        >
+                                            <div className="font-medium text-gray-900">{emp.employee_name}</div>
+                                            <div className="text-xs text-gray-500">ID: {emp.emp_no}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            {searchQuery.length > 3 && searchResults.length === 0 && !isSearching && (
+                                <div className="text-sm text-gray-500 mt-2 absolute">No employees found.</div>
                             )}
                         </div>
-                        <p className={`text-[10px] text-gray-400 mt-1 ${!selectedEmployee ? 'opacity-50' : ''}`}>If no campuses are selected, the user will have access to all campuses.</p>
+
+                        {/* Employee Details Form */}
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                            <h4 className="text-sm font-bold text-gray-800 mb-4 border-b border-gray-200 pb-2">Employee Details</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Full Name</label>
+                                    <input
+                                        type="text"
+                                        value={selectedEmployee?.employee_name || ''}
+                                        readOnly
+                                        placeholder="-"
+                                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-700 text-sm focus:outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Employee ID</label>
+                                    <input
+                                        type="text"
+                                        value={selectedEmployee?.emp_no || ''}
+                                        readOnly
+                                        placeholder="-"
+                                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-700 text-sm focus:outline-none"
+                                    />
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
+                    {/* Columns Section */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Column 1 */}
+                        <div className="space-y-6">
+                            {/* Role Selection */}
+                            <div>
+                                <h4 className="text-sm font-semibold text-gray-700 mb-3 block">Access Role</h4>
+                                <div className="grid grid-cols-3 gap-3">
+                                    {['admin', 'manager', 'user'].map(role => {
+                                        const isActive = selectedRole === role;
+                                        return (
+                                            <label key={role} className={`flex flex-col items-center justify-center p-3 border rounded-xl cursor-pointer transition-all duration-200 ${
+                                                isActive
+                                                    ? 'border-indigo-600 bg-indigo-50/50 text-indigo-700 ring-2 ring-indigo-600/20'
+                                                    : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                                            } ${!selectedEmployee ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                <input
+                                                    type="radio"
+                                                    name="add_role"
+                                                    value={role}
+                                                    checked={isActive}
+                                                    onChange={(e) => setSelectedRole(e.target.value)}
+                                                    disabled={!selectedEmployee}
+                                                    className="sr-only"
+                                                />
+                                                <span className="capitalize font-semibold text-sm">{role}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Permissions */}
+                            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                                <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 flex justify-between items-center">
+                                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Page Permissions</span>
+                                    <span className="text-xs bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full font-medium">
+                                        {permissions.length} Selected
+                                    </span>
+                                </div>
+                                <div className="p-3 grid grid-cols-1 gap-1 max-h-64 overflow-y-auto custom-scrollbar">
+                                    {PERMISSION_OPTIONS.map(perm => {
+                                        const isChecked = permissions.includes(perm.id);
+                                        return (
+                                            <label key={perm.id} className={`flex items-center space-x-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                                                isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
+                                            } ${!selectedEmployee ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                <input
+                                                    type="checkbox"
+                                                    value={perm.id}
+                                                    checked={isChecked}
+                                                    onChange={handlePermissionChange}
+                                                    disabled={!selectedEmployee}
+                                                    className="w-4.5 h-4.5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 focus:ring-offset-0 disabled:opacity-50"
+                                                />
+                                                <span className={`text-sm font-medium ${isChecked ? 'text-indigo-900' : 'text-gray-700'} ${!selectedEmployee ? 'opacity-50' : ''}`}>{perm.label}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            {!selectedEmployee && <div className="text-xs text-red-500 mt-1 font-medium">* Select an employee to assign permissions</div>}
+                        </div>
+
+                        {/* Column 2 */}
+                        <div className="space-y-6">
+                            {/* Campus Restriction */}
+                            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                                <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 flex justify-between items-center">
+                                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Campus Restriction</span>
+                                    <span className="text-[10px] text-gray-400">({selectedCampuses.length} selected)</span>
+                                </div>
+                                <div className="p-3 grid grid-cols-1 gap-1 max-h-36 overflow-y-auto custom-scrollbar">
+                                    {campuses.map(campus => {
+                                        const isChecked = selectedCampuses.includes(campus._id);
+                                        return (
+                                            <label key={campus._id} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
+                                                isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
+                                            } ${!selectedEmployee ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                <input
+                                                    type="checkbox"
+                                                    value={campus._id}
+                                                    checked={isChecked}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedCampuses([...selectedCampuses, campus._id]);
+                                                        } else {
+                                                            setSelectedCampuses(selectedCampuses.filter(id => id !== campus._id));
+                                                        }
+                                                    }}
+                                                    disabled={!selectedEmployee}
+                                                    className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 disabled:opacity-50"
+                                                />
+                                                <span className={`text-sm text-gray-700 ${!selectedEmployee ? 'opacity-50' : ''}`}>{campus.name} ({campus.code})</span>
+                                            </label>
+                                        );
+                                    })}
+                                    {campuses.length === 0 && (
+                                        <p className="text-xs text-gray-400 italic p-2">No campuses available. Add them in Route Management first.</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* College Restriction */}
+                            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                                <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 flex justify-between items-center">
+                                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">College Restriction</span>
+                                    <span className="text-[10px] text-gray-400">({selectedColleges.length} selected)</span>
+                                </div>
+                                <div className="p-3 grid grid-cols-1 gap-1 max-h-36 overflow-y-auto custom-scrollbar">
+                                    {colleges.map(college => {
+                                        const isChecked = selectedColleges.includes(college.name);
+                                        return (
+                                            <label key={college.id} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
+                                                isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
+                                            } ${!selectedEmployee ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                <input
+                                                    type="checkbox"
+                                                    value={college.name}
+                                                    checked={isChecked}
+                                                    onChange={(e) => handleCollegeChange(college.name, e.target.checked)}
+                                                    disabled={!selectedEmployee}
+                                                    className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 disabled:opacity-50"
+                                                />
+                                                <span className={`text-sm text-gray-700 ${!selectedEmployee ? 'opacity-50' : ''}`}>{college.name} ({college.code})</span>
+                                            </label>
+                                        );
+                                    })}
+                                    {colleges.length === 0 && (
+                                        <p className="text-xs text-gray-400 italic p-2">No colleges available.</p>
+                                    )}
+                                </div>
+                            </div>
+ 
+                            {/* Course Restriction */}
+                            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                                <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 flex justify-between items-center">
+                                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Course Restriction</span>
+                                    <span className="text-[10px] text-gray-400">({selectedCourses.length} selected)</span>
+                                </div>
+                                <div className="p-3 grid grid-cols-1 gap-1 max-h-36 overflow-y-auto custom-scrollbar">
+                                    {!selectedEmployee ? (
+                                        <p className="text-xs text-gray-400 italic p-2 opacity-50">Select an employee first.</p>
+                                    ) : selectedColleges.length === 0 ? (
+                                        <p className="text-xs text-gray-400 italic p-2">Select at least one college to restrict courses.</p>
+                                    ) : filteredCourses.length === 0 ? (
+                                        <p className="text-xs text-gray-400 italic p-2">No courses available for selected colleges.</p>
+                                    ) : (
+                                        filteredCourses.map(course => {
+                                            const isChecked = selectedCourses.includes(course.name);
+                                            return (
+                                                <label key={course.id || course.name} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
+                                                    isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
+                                                } ${!selectedEmployee ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        value={course.name}
+                                                        checked={isChecked}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setSelectedCourses([...selectedCourses, course.name]);
+                                                            } else {
+                                                                setSelectedCourses(selectedCourses.filter(name => name !== course.name));
+                                                            }
+                                                        }}
+                                                        disabled={!selectedEmployee}
+                                                        className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 disabled:opacity-50"
+                                                    />
+                                                    <span className={`text-sm text-gray-700 ${!selectedEmployee ? 'opacity-50' : ''}`}>{course.name}</span>
+                                                </label>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Footer Section */}
                     <div className="pt-4 flex flex-col items-end border-t border-gray-100">
                         <div className="text-xs text-gray-500 mb-3 italic">
                             * User will login with their <strong>Employee ID</strong> and <strong>HRMS Password</strong>

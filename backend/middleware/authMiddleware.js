@@ -44,6 +44,8 @@ const protect = async (req, res, next) => {
                 req.user.roles = userRole ? userRole.roles : ['user'];
                 req.user.permissions = userRole ? userRole.permissions : [];
                 req.user.campuses = userRole ? (userRole.campuses || []) : [];
+                req.user.colleges = userRole ? (userRole.colleges || []) : [];
+                req.user.courses = userRole ? (userRole.courses || []) : [];
             }
 
             return next();

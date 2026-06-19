@@ -57,16 +57,30 @@ const searchStudents = async (req, res) => {
             return res.status(500).json({ message: 'MySQL connection not established' });
         }
 
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
         // Search by name, admission number, or PIN number
-        const sql = `
+        let sql = `
             SELECT id, admission_number, admission_no, pin_no, student_name, course, branch, batch, current_year, current_semester, stud_type
             FROM students
-            WHERE student_name LIKE ? OR admission_number LIKE ? OR admission_no LIKE ? OR pin_no LIKE ?
-            LIMIT 50
+            WHERE (student_name LIKE ? OR admission_number LIKE ? OR admission_no LIKE ? OR pin_no LIKE ?)
         `;
-        const searchTerm = `%${q}%`;
-        const [rows] = await mysqlPool.query(sql, [searchTerm, searchTerm, searchTerm, searchTerm]);
+        const params = [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`];
 
+        if (hasCollegeRestriction) {
+            sql += ' AND college IN (?)';
+            params.push(req.user.colleges);
+        }
+        if (hasCourseRestriction) {
+            sql += ' AND course IN (?)';
+            params.push(req.user.courses);
+        }
+
+        sql += ' LIMIT 50';
+
+        const [rows] = await mysqlPool.query(sql, params);
         res.json(rows);
     } catch (error) {
         console.error('Error searching students:', error);
@@ -83,7 +97,32 @@ const getCourses = async (req, res) => {
             return res.status(500).json({ message: 'MySQL connection not established' });
         }
 
-        const [rows] = await mysqlPool.query('SELECT id, name, code, total_years FROM courses WHERE is_active = 1 ORDER BY name ASC');
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
+        let sql = 'SELECT c.id, c.college_id, c.name, c.code, c.total_years FROM courses c';
+        const params = [];
+
+        if (hasCollegeRestriction) {
+            sql += ' JOIN colleges coll ON c.college_id = coll.id';
+        }
+
+        sql += ' WHERE c.is_active = 1';
+
+        if (hasCollegeRestriction) {
+            sql += ' AND coll.name IN (?)';
+            params.push(req.user.colleges);
+        }
+
+        if (hasCourseRestriction) {
+            sql += ' AND c.name IN (?)';
+            params.push(req.user.courses);
+        }
+
+        sql += ' ORDER BY c.name ASC';
+
+        const [rows] = await mysqlPool.query(sql, params);
         res.json(rows);
     } catch (error) {
         console.error('Error fetching courses:', error);
@@ -344,6 +383,17 @@ const getStudentProfile = async (req, res) => {
 
         const row = rows[0];
 
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
+        if (hasCollegeRestriction && !req.user.colleges.includes(row.college)) {
+            return res.status(403).json({ message: 'Access denied: student belongs to restricted college' });
+        }
+        if (hasCourseRestriction && !req.user.courses.includes(row.course)) {
+            return res.status(403).json({ message: 'Access denied: student belongs to restricted course' });
+        }
+
         // Fetch overall concessions for the student
         const admNo = row.admission_number || row.admission_no;
         let overallConcession = null;
@@ -463,6 +513,33 @@ const getAcademicValidation = async (req, res) => {
     }
 };
 
+const getColleges = async (req, res) => {
+    try {
+        if (!mysqlPool) {
+            return res.status(500).json({ message: 'MySQL connection not established' });
+        }
+
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
+
+        let sql = 'SELECT id, name, code FROM colleges WHERE is_active = 1';
+        const params = [];
+
+        if (hasCollegeRestriction) {
+            sql += ' AND name IN (?)';
+            params.push(req.user.colleges);
+        }
+
+        sql += ' ORDER BY name ASC';
+
+        const [rows] = await mysqlPool.query(sql, params);
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching colleges:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     searchStudents,
     getStudentProfile,
@@ -472,4 +549,5 @@ module.exports = {
     deleteCourseExpiry,
     getAcademicYears,
     getAcademicValidation,
+    getColleges,
 };

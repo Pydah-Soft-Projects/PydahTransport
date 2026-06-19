@@ -1,23 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { apiFetch, API_BASE } from '../utils/api';
-
-function getAcademicYearOptions() {
-    const years = [];
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    for (let y = currentYear; y >= currentYear - 4; y--) {
-        years.push(`${y}-${y + 1}`);
-    }
-    return years;
-}
+import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 
 const TransportDues = () => {
-    const [academicYear, setAcademicYear] = useState(() => {
-        const now = new Date();
-        const y = now.getFullYear();
-        return now.getMonth() >= 6 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
-    });
+    const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');

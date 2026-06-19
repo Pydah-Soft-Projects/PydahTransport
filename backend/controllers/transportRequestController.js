@@ -17,7 +17,7 @@ function getDefaultAcademicYear() {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
-    if (month >= 6) {
+    if (month >= 5) {
         return `${year}-${year + 1}`;
     }
     return `${year - 1}-${year}`;
@@ -481,6 +481,19 @@ const getTransportRequests = async (req, res) => {
             } else {
                 sql += ' AND 1=0';
             }
+        }
+
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
+        if (hasCollegeRestriction) {
+            sql += ' AND COALESCE(s1.college, s2.college) IN (?)';
+            params.push(req.user.colleges);
+        }
+        if (hasCourseRestriction) {
+            sql += ' AND COALESCE(s1.course, s2.course) IN (?)';
+            params.push(req.user.courses);
         }
 
         sql += ' ORDER BY tr.request_date DESC';
@@ -1236,11 +1249,26 @@ const getDashboardStats = async (req, res) => {
         const resolvedAcademicYear = resolveAcademicYear(req.query);
         const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
 
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
+        let restrictedWhere = '';
+        const restrictedParams = [];
+        if (hasCollegeRestriction) {
+            restrictedWhere += ' AND COALESCE(s1.college, s2.college) IN (?)';
+            restrictedParams.push(req.user.colleges);
+        }
+        if (hasCourseRestriction) {
+            restrictedWhere += ' AND COALESCE(s1.course, s2.course) IN (?)';
+            restrictedParams.push(req.user.courses);
+        }
+
         if (mysqlPool) {
             const parts = getActivePassengerSqlParts(resolvedAcademicYear);
             const activeFrom = `FROM transport_requests tr ${parts.studentJoins}`;
-            const activeWhere = `tr.status = 'approved' AND COALESCE(tr.academic_year, ?) = ?`;
-            const activeParams = [fallbackAcademicYear, resolvedAcademicYear];
+            const activeWhere = `tr.status = 'approved' AND COALESCE(tr.academic_year, ?) = ?${restrictedWhere}`;
+            const activeParams = [fallbackAcademicYear, resolvedAcademicYear, ...restrictedParams];
 
             const [totalRows] = await mysqlPool.query(
                 `SELECT COUNT(*) as total ${activeFrom} WHERE ${activeWhere}`,
@@ -1379,6 +1407,9 @@ const getConcessions = async (req, res) => {
 
         const { page = 1, limit = 10 } = req.query;
         const offset = (Number(page) - 1) * Number(limit);
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
 
         // 1. Fetch total count for pagination
         let countSql = `
@@ -1389,11 +1420,13 @@ const getConcessions = async (req, res) => {
                 WHERE t.admission_number = oc.admission_number AND t.status = 'approved'
                 ORDER BY t.request_date DESC LIMIT 1
             )
-            WHERE JSON_CONTAINS(oc.revised_fees, JSON_OBJECT('feeHeadId', ?))
+            LEFT JOIN students s ON (oc.admission_number = s.admission_number OR oc.admission_number = s.admission_no)
+            WHERE (JSON_CONTAINS(oc.revised_fees, JSON_OBJECT('feeHeadId', ?))
                OR JSON_CONTAINS(oc.revised_fees, JSON_OBJECT('feeHeadId', '6996aa36e247525e006623ca'))
                OR JSON_CONTAINS(oc.revised_fees, JSON_OBJECT('feeHeadId', '6996aa36e247525e006623b8'))
                OR JSON_CONTAINS(oc.revised_fees, JSON_OBJECT('feeHeadCode', 'TRN01'))
                OR JSON_CONTAINS(oc.revised_fees, JSON_OBJECT('feeHeadCode', 'trn01'))
+            )
         `;
         const countParams = [transportFeeHeadId];
 
@@ -1410,6 +1443,16 @@ const getConcessions = async (req, res) => {
         if (search) {
             countSql += ` AND (oc.student_name LIKE ? OR oc.admission_number LIKE ? OR oc.pin_no LIKE ?)`;
             countParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+        }
+
+        if (hasCollegeRestriction) {
+            countSql += ` AND s.college IN (?)`;
+            countParams.push(req.user.colleges);
+        }
+
+        if (hasCourseRestriction) {
+            countSql += ` AND oc.course IN (?)`;
+            countParams.push(req.user.courses);
         }
 
         const [[{ total }]] = await mysqlPool.query(countSql, countParams);
@@ -1449,6 +1492,16 @@ const getConcessions = async (req, res) => {
         if (search) {
             sql += ` AND (oc.student_name LIKE ? OR oc.admission_number LIKE ? OR oc.pin_no LIKE ?)`;
             params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+        }
+
+        if (hasCollegeRestriction) {
+            sql += ` AND s.college IN (?)`;
+            params.push(req.user.colleges);
+        }
+
+        if (hasCourseRestriction) {
+            sql += ` AND oc.course IN (?)`;
+            params.push(req.user.courses);
         }
 
         sql += ` ORDER BY oc.created_at DESC LIMIT ? OFFSET ?`;
@@ -1649,6 +1702,19 @@ const getApprovedPassengers = async (req, res) => {
             WHERE tr.status = 'approved' AND ${parts.activeWhere}
         `;
         const params = [...parts.expiryParams];
+
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
+        if (hasCollegeRestriction) {
+            sql += ' AND COALESCE(s1.college, s2.college) IN (?)';
+            params.push(req.user.colleges);
+        }
+        if (hasCourseRestriction) {
+            sql += ' AND COALESCE(s1.course, s2.course) IN (?)';
+            params.push(req.user.courses);
+        }
 
         if (q) {
             sql += ' AND (tr.student_name LIKE ? OR tr.admission_number LIKE ?)';

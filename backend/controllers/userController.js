@@ -45,7 +45,9 @@ const getUsers = async (req, res) => {
                 ...emp,
                 roles: roleData.roles || ['user'],
                 permissions: roleData.permissions || [],
-                campuses: roleData.campuses || []
+                campuses: roleData.campuses || [],
+                colleges: roleData.colleges || [],
+                courses: roleData.courses || []
             };
         });
 
@@ -75,12 +77,14 @@ const getUsers = async (req, res) => {
 // @access  Private/Admin
 const updateUserRole = async (req, res) => {
     const { id } = req.params; // Employee ID (mongoose ObjectId from HRMS)
-    const { roles, permissions, campuses } = req.body;
+    const { roles, permissions, campuses, colleges, courses } = req.body;
  
     try {
         console.log(`[Backend] Updating user ${id} role/permissions`);
         console.log(`[Backend] Received roles:`, roles);
         console.log(`[Backend] Received campuses:`, campuses);
+        console.log(`[Backend] Received colleges:`, colleges);
+        console.log(`[Backend] Received courses:`, courses);
  
         // Validation: Verify employee exists in HRMS
         const Employee = getEmployeeModel();
@@ -103,7 +107,9 @@ const updateUserRole = async (req, res) => {
                 $set: {
                     roles: rolesArray,
                     permissions: permissions || [],
-                    campuses: campuses || []
+                    campuses: campuses || [],
+                    colleges: colleges || [],
+                    courses: courses || []
                 }
             },
             { new: true, upsert: true, setDefaultsOnInsert: true }

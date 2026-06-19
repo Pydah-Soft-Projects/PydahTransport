@@ -5,6 +5,7 @@ import Loader from '../components/Loader';
 import Modal from '../components/Modal';
 import { apiFetch, API_BASE } from '../utils/api';
 import { normalizeStudentPhoto } from '../utils/studentPhoto';
+import { getDefaultAcademicYear } from '../utils/academicYear';
 
 const formatDate = (d) => (d ? new Date(d).toLocaleDateString() : '—');
 
@@ -40,12 +41,6 @@ const getValidationDisplay = (validation) => {
                 className: 'bg-amber-50 border-amber-200 text-amber-900',
             };
     }
-};
-
-const getDefaultAcademicYear = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    return now.getMonth() >= 6 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
 };
 
 const getAcademicYearWindow = (centerLabel = getDefaultAcademicYear(), pastCount = 3, futureCount = 3) => {

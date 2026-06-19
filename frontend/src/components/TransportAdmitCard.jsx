@@ -1,5 +1,6 @@
 import React, { forwardRef } from 'react';
 import { normalizeStudentPhoto } from '../utils/studentPhoto';
+import { getDefaultAcademicYear } from '../utils/academicYear';
 
 const LOGO_SRC = '/PYDAH_LOGO_PHOTO.jpg';
 const BUS_HELPLINE = '8500059344';
@@ -7,9 +8,7 @@ const PHOTO_COL_WIDTH = '48mm';
 
 const getAcademicYearLabel = (passenger) => {
     if (passenger?.academic_year) return passenger.academic_year;
-    const now = new Date();
-    const year = now.getFullYear();
-    return now.getMonth() >= 6 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+    return getDefaultAcademicYear();
 };
 
 const getShortAcademicYearLabel = (passenger) => {
