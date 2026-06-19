@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { useParams, Link } from 'react-router-dom';
 import { useReactToPrint } from 'react-to-print';
-import { Download, FileText, History, Users as UsersIcon, Package, Calendar, Tag, MapPin, UserCheck } from 'lucide-react';
+import { Download, FileText, History, Users as UsersIcon, Package, Calendar, Tag, MapPin, UserCheck, AlertTriangle } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import PassengerReport from '../components/PassengerReport';
@@ -49,6 +49,9 @@ const BusDetails = () => {
     const [staffHistoryLoading, setStaffHistoryLoading] = useState(false);
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
     const academicYearOptions = getAcademicYearOptions();
+    
+    // For expired taxes warning
+    const [expiredTaxesWarning, setExpiredTaxesWarning] = useState([]);
 
     const componentRef = useRef();
     const handlePrint = useReactToPrint({
@@ -172,6 +175,29 @@ const BusDetails = () => {
         };
         fetchDetails();
     }, [id, academicYear]);
+
+    // Check for expired taxes whenever bus data changes
+    useEffect(() => {
+        if (data?.bus?.taxes && data.bus.taxes.length > 0) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const expired = data.bus.taxes
+                .filter(tax => {
+                    const taxEndDate = new Date(tax.endDate);
+                    taxEndDate.setHours(0, 0, 0, 0);
+                    return taxEndDate < today;
+                })
+                .map(tax => ({
+                    ...tax,
+                    formattedEndDate: new Date(tax.endDate).toLocaleDateString()
+                }));
+                
+            setExpiredTaxesWarning(expired);
+        } else {
+            setExpiredTaxesWarning([]);
+        }
+    }, [data]);
 
     const openAssignModal = async () => {
         setAssignModalOpen(true);
@@ -369,24 +395,65 @@ const BusDetails = () => {
                         <p className="text-[10px] text-emerald-600 font-bold mt-1 uppercase">{seatsAvailable} seats available · {academicYear}</p>
                     </div>
 
-                    {/* Breakdown */}
-                    <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Passenger Mix</p>
-                        <div className="flex gap-4">
-                            <div>
-                                <p className="text-xl font-black text-gray-900">{studentCount}</p>
-                                <p className="text-[10px] font-bold text-blue-500 uppercase">Students</p>
-                            </div>
-                            <div className="w-px h-8 bg-gray-200" />
-                            <div>
-                                <p className="text-xl font-black text-gray-900">{employeeCount}</p>
-                                <p className="text-[10px] font-bold text-purple-500 uppercase">Staff</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Compact Seat Map */}
+                 {/* Breakdown */}
+                 <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
+                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Passenger Mix</p>
+                     <div className="flex gap-4">
+                         <div>
+                             <p className="text-xl font-black text-gray-900">{studentCount}</p>
+                             <p className="text-[10px] font-bold text-blue-500 uppercase">Students</p>
+                         </div>
+                         <div className="w-px h-8 bg-gray-200" />
+                         <div>
+                             <p className="text-xl font-black text-gray-900">{employeeCount}</p>
+                             <p className="text-[10px] font-bold text-purple-500 uppercase">Staff</p>
+                         </div>
+                     </div>
+                 </div>
+             </div>
+             
+             {/* Expired Taxes Warning */}
+             {expiredTaxesWarning.length > 0 && (
+                 <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
+                     <div className="flex items-start">
+                         <div className="flex-shrink-0">
+                             <AlertTriangle size={24} className="mr-4 text-red-500" />
+                         </div>
+                         <div className="flex-1">
+                             <h3 className="text-sm font-bold text-red-800 mb-2">
+                                 Warning: Expired Taxes Detected
+                             </h3>
+                             <p className="text-sm text-red-600">
+                                 The following taxes have expired and need attention:
+                             </p>
+                             <div className="mt-3 space-y-2">
+                                 {expiredTaxesWarning.map((tax, index) => (
+                                     <div key={index} className="bg-white rounded-lg p-3 border border-red-100">
+                                         <div className="flex justify-between items-start">
+                                             <div>
+                                                 <p className="font-medium text-slate-800">{tax.taxHeader}</p>
+                                                 <p className="text-xs text-red-600">
+                                                     Expired on: {tax.formattedEndDate}
+                                                 </p>
+                                             </div>
+                                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
+                                                 EXPIRED
+                                             </span>
+                                         </div>
+                                     </div>
+                                 ))}
+                             </div>
+                             {expiredTaxesWarning.length > 0 && (
+                                 <div className="mt-4 text-xs text-red-600 italic">
+                                     Please update or remove these taxes from the Bus Management section.
+                                 </div>
+                             )}
+                         </div>
+                     </div>
+                 </div>
+             )}
+             
+             {/* Compact Seat Map */}
                 <div className="mt-8 pt-8 border-t border-gray-50">
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">Visual Seat Map</h3>

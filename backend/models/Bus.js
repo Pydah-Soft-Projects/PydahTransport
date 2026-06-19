@@ -39,7 +39,25 @@ const busSchema = new mongoose.Schema({
     assignedRouteId: {
         type: String,
         default: null
-    }
+    },
+    taxes: [{
+        taxHeader: {
+            type: String,
+            required: true
+        },
+        amount: {
+            type: Number,
+            required: true
+        },
+        endDate: {
+            type: Date,
+            required: true
+        },
+        createdAt: {
+            type: Date,
+            default: Date.now
+        }
+    }]
 }, {
     timestamps: true
 });
