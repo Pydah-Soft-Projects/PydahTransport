@@ -35,6 +35,11 @@ const getValidationDisplay = (validation) => {
                 title: 'Semester setup pending',
                 className: 'bg-amber-50 border-amber-200 text-amber-900',
             };
+        case 'request_exists':
+            return {
+                title: 'Request already exists',
+                className: 'bg-red-50 border-red-200 text-red-800',
+            };
         default:
             return {
                 title: 'Cannot raise request',

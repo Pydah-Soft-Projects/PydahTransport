@@ -502,6 +502,28 @@ const getAcademicValidation = async (req, res) => {
             return res.status(404).json({ message: 'Student not found' });
         }
 
+        const studentRecord = rows[0];
+        const admNo = studentRecord.admission_number || studentRecord.admission_no || admission_number || admission_no;
+        const fallbackYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
+
+        const [existingRequests] = await mysqlPool.query(
+            `SELECT id, status, route_name, stage_name FROM transport_requests
+             WHERE admission_number = ?
+               AND status IN ('pending', 'approved')
+               AND COALESCE(academic_year, ?) = ?
+             LIMIT 1`,
+            [admNo, fallbackYear, academicYear]
+        );
+
+        if (existingRequests.length > 0) {
+            return res.json({
+                valid: false,
+                reason: 'request_exists',
+                message: 'The request already exists. Once check in the passengers list.',
+                existingRequest: existingRequests[0]
+            });
+        }
+
         const result = await validateStudentAcademicContext(mysqlPool, rows[0], academicYear);
         res.json(result);
     } catch (error) {
