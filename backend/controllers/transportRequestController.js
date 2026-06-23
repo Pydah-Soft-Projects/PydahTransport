@@ -1898,6 +1898,22 @@ const getIdCardApplicationNumbers = async (req, res) => {
         const collegeCode = req.query.collegeCode || req.query.college_code || null;
         const courseCode = req.query.courseCode || req.query.course_code || null;
 
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
+        let allowedCollegeCodes = [];
+        if (hasCollegeRestriction) {
+            const [rows] = await mysqlPool.query('SELECT code FROM colleges WHERE name IN (?)', [req.user.colleges]);
+            allowedCollegeCodes = rows.map(r => formatApplicationCode(r.code));
+        }
+
+        let allowedCourseCodes = [];
+        if (hasCourseRestriction) {
+            const [rows] = await mysqlPool.query('SELECT code FROM courses WHERE name IN (?)', [req.user.courses]);
+            allowedCourseCodes = rows.map(r => formatApplicationCode(r.code));
+        }
+
         const mysqlParams = [fallbackAcademicYear, academicYear];
         let mysqlFilterSql = '';
         if (collegeCode) {
@@ -1909,6 +1925,15 @@ const getIdCardApplicationNumbers = async (req, res) => {
             mysqlParams.push(courseCode);
         }
 
+        if (hasCollegeRestriction) {
+            mysqlFilterSql += ' AND COALESCE(s1.college, s2.college) IN (?)';
+            mysqlParams.push(req.user.colleges);
+        }
+        if (hasCourseRestriction) {
+            mysqlFilterSql += ' AND COALESCE(s1.course, s2.course) IN (?)';
+            mysqlParams.push(req.user.courses);
+        }
+
         const [mysqlRows] = await mysqlPool.query(
             `SELECT tr.id,
                     tr.application_number,
@@ -1918,6 +1943,8 @@ const getIdCardApplicationNumbers = async (req, res) => {
                     tr.student_name,
                     tr.admission_number
              FROM transport_requests tr
+             LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
+             LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
              WHERE tr.status = 'approved'
                AND tr.application_number IS NOT NULL
                AND tr.application_serial IS NOT NULL
@@ -1939,6 +1966,13 @@ const getIdCardApplicationNumbers = async (req, res) => {
         };
         if (collegeCode) mongoQuery.application_college_code = collegeCode;
         if (courseCode) mongoQuery.application_course_code = courseCode;
+
+        if (hasCollegeRestriction) {
+            mongoQuery.application_college_code = { $in: allowedCollegeCodes };
+        }
+        if (hasCourseRestriction) {
+            mongoQuery.application_course_code = { $in: allowedCourseCodes };
+        }
 
         const mongoRows = await EmployeeTransportRequest.find(mongoQuery)
             .sort({ application_college_code: 1, application_course_code: 1, application_serial: 1 })
@@ -2006,6 +2040,22 @@ const getIdCardsForPrint = async (req, res) => {
             return res.status(400).json({ message: 'Valid fromSerial and toSerial are required (fromSerial <= toSerial, both >= 1).' });
         }
 
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
+        let allowedCollegeCodes = [];
+        if (hasCollegeRestriction) {
+            const [rows] = await mysqlPool.query('SELECT code FROM colleges WHERE name IN (?)', [req.user.colleges]);
+            allowedCollegeCodes = rows.map(r => formatApplicationCode(r.code));
+        }
+
+        let allowedCourseCodes = [];
+        if (hasCourseRestriction) {
+            const [rows] = await mysqlPool.query('SELECT code FROM courses WHERE name IN (?)', [req.user.courses]);
+            allowedCourseCodes = rows.map(r => formatApplicationCode(r.code));
+        }
+
         const { resolveStudentPhoto } = require('../utils/studentPhoto');
         const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
 
@@ -2018,6 +2068,15 @@ const getIdCardsForPrint = async (req, res) => {
         if (courseCode) {
             mysqlFilterSql += ' AND tr.application_course_code = ?';
             mysqlParams.push(courseCode);
+        }
+
+        if (hasCollegeRestriction) {
+            mysqlFilterSql += ' AND COALESCE(s1.college, s2.college) IN (?)';
+            mysqlParams.push(req.user.colleges);
+        }
+        if (hasCourseRestriction) {
+            mysqlFilterSql += ' AND COALESCE(s1.course, s2.course) IN (?)';
+            mysqlParams.push(req.user.courses);
         }
 
         const [mysqlRows] = await mysqlPool.query(
@@ -2056,6 +2115,13 @@ const getIdCardsForPrint = async (req, res) => {
         };
         if (collegeCode) mongoQuery.application_college_code = collegeCode;
         if (courseCode) mongoQuery.application_course_code = courseCode;
+
+        if (hasCollegeRestriction) {
+            mongoQuery.application_college_code = { $in: allowedCollegeCodes };
+        }
+        if (hasCourseRestriction) {
+            mongoQuery.application_course_code = { $in: allowedCourseCodes };
+        }
 
         const mongoRows = await EmployeeTransportRequest.find(mongoQuery)
             .sort({ application_college_code: 1, application_course_code: 1, application_serial: 1 })

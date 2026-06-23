@@ -53,7 +53,7 @@ const TransportRequests = () => {
     const [idCardApplicationsLoading, setIdCardApplicationsLoading] = useState(false);
     const [idCardFromSerial, setIdCardFromSerial] = useState('');
     const [idCardToSerial, setIdCardToSerial] = useState('');
-    const [idCardPerPage, setIdCardPerPage] = useState(5);
+    const [idCardPerPage, setIdCardPerPage] = useState(6);
     const [idCardPassengers, setIdCardPassengers] = useState([]);
     const [idCardPadToFullPage, setIdCardPadToFullPage] = useState(true);
     const [idCardPrintLoading, setIdCardPrintLoading] = useState(false);
@@ -131,7 +131,7 @@ const TransportRequests = () => {
             flushSync(() => {
                 setIdCardPassengers([passengerWithQr]);
                 setIdCardAcademicYear(year);
-                setIdCardPerPage(5);
+                setIdCardPerPage(6);
                 setIdCardPadToFullPage(false);
             });
             await triggerAdmitCardPrint(handlePrintIdCards, idCardSheetRef);
@@ -1458,12 +1458,12 @@ const TransportRequests = () => {
                 isOpen={idCardModalOpen}
                 onClose={closeIdCardModal}
                 title="Print Bus ID Cards"
-                maxWidth="max-w-lg"
+                maxWidth="max-w-2xl"
             >
-                <p className="text-sm text-slate-500 mb-5">
+                {/* <p className="text-sm text-slate-500 mb-5">
                     Select academic year, transport application number range, and how many ID cards to print per A4 page
                     (front + back layout as per the official template).
-                </p>
+                </p> */}
 
                 {idCardApplicationsLoading ? (
                     <Loader text="Loading transport application numbers..." />
@@ -1571,26 +1571,9 @@ const TransportRequests = () => {
                     </div>
                     )}
 
-                    <div>
-                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                            Cards Per Page
-                        </label>
-                        <div className="flex gap-3">
-                            {[5, 6].map((count) => (
-                                <button
-                                    key={count}
-                                    type="button"
-                                    onClick={() => setIdCardPerPage(count)}
-                                    className={`flex-1 py-2.5 rounded-xl border text-sm font-semibold transition-colors ${
-                                        idCardPerPage === count
-                                            ? 'border-blue-600 bg-blue-50 text-blue-700'
-                                            : 'border-gray-200 bg-white text-slate-600 hover:bg-slate-50'
-                                    }`}
-                                >
-                                    {count} per page
-                                </button>
-                            ))}
-                        </div>
+                    <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
+                        {/* <span className="font-semibold text-slate-700 block mb-0.5">Layout Note:</span> */}
+                        ID cards will be printed in a 6 cards per A4 page layout (front + back layout) to match the official template.
                     </div>
 
                     {idCardPreviewCount != null && (
@@ -1613,14 +1596,6 @@ const TransportRequests = () => {
                     >
                         <Printer size={18} />
                         {idCardPrintLoading ? 'Preparing…' : 'Print ID Cards'}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={handlePreviewIdCardCount}
-                        disabled={idCardPrintLoading || idCardApplicationsLoading || !idCardApplications.length}
-                        className="px-4 py-3 rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                    >
-                        Preview Count
                     </button>
                     <button
                         type="button"
