@@ -566,7 +566,16 @@ const getTransportRequests = async (req, res) => {
             user_type: 'student',
             is_expired: Boolean(r.is_expired),
         })), ...mongoRows];
-        combined.sort((a, b) => new Date(b.request_date) - new Date(a.request_date));
+        combined.sort((a, b) => {
+            const appA = a.application_number;
+            const appB = b.application_number;
+            if (appA && appB) {
+                return appB.localeCompare(appA, undefined, { numeric: true, sensitivity: 'base' });
+            }
+            if (appA) return -1;
+            if (appB) return 1;
+            return new Date(b.request_date) - new Date(a.request_date);
+        });
 
         res.json(combined);
     } catch (error) {

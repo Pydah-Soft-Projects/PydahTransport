@@ -29,7 +29,9 @@ const argv = process.argv.slice(2);
 
 const dryRun = argv.includes('--dry-run');
 
-const args = argv.filter((a) => a !== '--dry-run');
+const sync = argv.includes('--sync');
+
+const args = argv.filter((a) => a !== '--dry-run' && a !== '--sync');
 
 const academicYear = args[0] || process.env.CURRENT_ACADEMIC_YEAR;
 
@@ -163,6 +165,208 @@ async function resetCounters(pool, year, college, course) {
 
 
 
+async function getUniqueCombinations(pool, year, college, course) {
+
+    const combinations = new Set();
+
+    const addCombo = (col, crs) => {
+
+        const cCode = String(col || 'UNK').trim().toUpperCase();
+
+        const crsCode = String(crs || 'GEN').trim().toUpperCase();
+
+        combinations.add(`${cCode}|||${crsCode}`);
+
+    };
+
+
+
+    if (college && course) {
+
+        addCombo(college, course);
+
+        return [{ collegeCode: college, courseCode: course }];
+
+    }
+
+
+
+    // 1. From counters
+
+    const counters = await getCounters(pool, year, college, course);
+
+    counters.forEach((row) => addCombo(row.college_code, row.course_code));
+
+
+
+    // 2. From student requests
+
+    const params = [year, year];
+
+    let studentSql = `SELECT DISTINCT application_college_code, application_course_code
+
+                      FROM transport_requests
+
+                      WHERE COALESCE(academic_year, ?) = ?
+
+                        AND application_serial IS NOT NULL`;
+
+    if (college) {
+
+        studentSql += ' AND application_college_code = ?';
+
+        params.push(college);
+
+    }
+
+    if (course) {
+
+        studentSql += ' AND application_course_code = ?';
+
+        params.push(course);
+
+    }
+
+    const [studentRows] = await pool.query(studentSql, params);
+
+    studentRows.forEach((r) => addCombo(r.application_college_code, r.application_course_code));
+
+
+
+    // 3. From employee requests
+
+    const query = { application_serial: { $ne: null } };
+
+    if (college) query.application_college_code = college;
+
+    if (course) query.application_course_code = course;
+
+    const empDocs = await EmployeeTransportRequest.find(query)
+
+        .select('academic_year application_college_code application_course_code')
+
+        .lean();
+
+    empDocs
+
+        .filter((d) => (d.academic_year || year) === year)
+
+        .forEach((d) => addCombo(d.application_college_code, d.application_course_code));
+
+
+
+    return Array.from(combinations).map((str) => {
+
+        const [col, crs] = str.split('|||');
+
+        return { collegeCode: col, courseCode: crs };
+
+    });
+
+}
+
+
+
+async function getCombinationStats(pool, year, college, course) {
+
+    // Current counter
+
+    const [counterRows] = await pool.query(
+
+        `SELECT last_serial FROM ${COUNTERS_TABLE}
+
+         WHERE academic_year = ? AND college_code = ? AND course_code = ?`,
+
+        [year, college, course]
+
+    );
+
+    const currentCounter = counterRows[0] ? Number(counterRows[0].last_serial) : null;
+
+
+
+    // Max student serial
+
+    const [studentRows] = await pool.query(
+
+        `SELECT MAX(application_serial) AS max_serial
+
+         FROM transport_requests
+
+         WHERE COALESCE(academic_year, ?) = ?
+
+           AND application_college_code = ?
+
+           AND application_course_code = ?
+
+           AND application_serial IS NOT NULL`,
+
+        [year, year, college, course]
+
+    );
+
+    const maxStudent = studentRows[0]?.max_serial ? Number(studentRows[0].max_serial) : 0;
+
+
+
+    // Max employee serial
+
+    const empDocs = await EmployeeTransportRequest.find({
+
+        application_college_code: college,
+
+        application_course_code: course,
+
+        application_serial: { $ne: null }
+
+    })
+
+    .select('academic_year application_serial')
+
+    .lean();
+
+    const filteredEmp = empDocs.filter((d) => (d.academic_year || year) === year);
+
+    const maxEmployee = filteredEmp.reduce((max, d) => Math.max(max, d.application_serial || 0), 0);
+
+
+
+    return {
+
+        currentCounter,
+
+        maxStudent,
+
+        maxEmployee,
+
+        maxAssigned: Math.max(maxStudent, maxEmployee)
+
+    };
+
+}
+
+
+
+async function updateCounter(pool, year, college, course, value) {
+
+    const [result] = await pool.query(
+
+        `INSERT INTO ${COUNTERS_TABLE} (academic_year, college_code, course_code, last_serial)
+
+         VALUES (?, ?, ?, ?)
+
+         ON DUPLICATE KEY UPDATE last_serial = ?`,
+
+        [year, college, course, value, value]
+
+    );
+
+    return result.affectedRows;
+
+}
+
+
+
 async function main() {
 
     if (!academicYear) {
@@ -199,11 +403,87 @@ async function main() {
 
     console.log(`Scope: ${scopeLabel}`);
 
+    if (sync) {
+
+        console.log('Mode: sync (align counters to maximum assigned serials)');
+
+    } else {
+
+        console.log('Mode: reset (clear counters to 0)');
+
+    }
+
     if (dryRun) console.log('Mode: dry-run (no changes will be made)\n');
 
 
 
     await connectDB();
+
+
+
+    if (sync) {
+
+        const combinations = await getUniqueCombinations(mysqlPool, academicYear, collegeCode, courseCode);
+
+        console.log(`\nFound ${combinations.length} combination(s) to synchronize:\n`);
+
+
+
+        let updatedCount = 0;
+
+        for (const combo of combinations) {
+
+            const stats = await getCombinationStats(mysqlPool, academicYear, combo.collegeCode, combo.courseCode);
+
+            const comboLabel = `${combo.collegeCode}-${combo.courseCode}`;
+
+            const currentStr = stats.currentCounter !== null ? stats.currentCounter : 'none';
+
+
+
+            console.log(`  ${comboLabel}: current counter = ${currentStr}, max assigned = ${stats.maxAssigned}`);
+
+
+
+            if (stats.currentCounter !== stats.maxAssigned) {
+
+                if (dryRun) {
+
+                    console.log(`    -> [Dry-Run] Would set counter to ${stats.maxAssigned}`);
+
+                } else {
+
+                    await updateCounter(mysqlPool, academicYear, combo.collegeCode, combo.courseCode, stats.maxAssigned);
+
+                    console.log(`    -> Updated counter to ${stats.maxAssigned}`);
+
+                }
+
+                updatedCount++;
+
+            } else {
+
+                console.log(`    -> Already in sync.`);
+
+            }
+
+        }
+
+
+
+        if (dryRun) {
+
+            console.log(`\n[Dry-Run] Synchronization completed. Would update ${updatedCount} counter(s).`);
+
+        } else {
+
+            console.log(`\nSynchronization completed. Updated ${updatedCount} counter(s).`);
+
+        }
+
+        process.exit(0);
+
+    }
 
 
 

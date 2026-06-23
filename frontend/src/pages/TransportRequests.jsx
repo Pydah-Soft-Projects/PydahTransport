@@ -333,6 +333,16 @@ const TransportRequests = () => {
             const response = await apiFetch(url);
             if (response.ok) {
                 const data = await response.json();
+                data.sort((a, b) => {
+                    const appA = a.application_number;
+                    const appB = b.application_number;
+                    if (appA && appB) {
+                        return appB.localeCompare(appA, undefined, { numeric: true, sensitivity: 'base' });
+                    }
+                    if (appA) return -1;
+                    if (appB) return 1;
+                    return new Date(b.request_date) - new Date(a.request_date);
+                });
                 setRequests(data);
             } else {
                 console.error('Failed to fetch requests');
@@ -918,10 +928,10 @@ const TransportRequests = () => {
                             <thead>
                                 <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wider">
                                     <th className="p-4">Pin Number</th>
-                                    <th className="p-4">Admission Number</th>
+                                    <th className="p-4">Adm Number</th>
+                                    <th className="p-4">App No.</th>
                                     <th className="p-4">Name</th>
                                     <th className="p-4">Academic Info</th>
-                                    <th className="p-4">App No.</th>
                                     <th className="p-4">Fare</th>
                                     <th className="p-4">Status</th>
                                 </tr>
@@ -937,6 +947,7 @@ const TransportRequests = () => {
                                             {req.user_type === 'employee' ? '—' : (req.pin_no || '—')}
                                         </td>
                                         <td className="p-4 font-medium text-blue-600">{req.admission_number || req.emp_no}</td>
+                                        <td className="p-4 text-xs font-bold text-indigo-700">{req.application_number || '—'}</td>
                                         <td className="p-4 font-medium text-gray-900">{req.student_name || req.employee_name}</td>
                                         <td className="p-4">
                                             {req.user_type === 'employee' ? (
@@ -954,7 +965,6 @@ const TransportRequests = () => {
                                                 </div>
                                             )}
                                         </td>
-                                        <td className="p-4 text-xs font-bold text-indigo-700">{req.application_number || '—'}</td>
                                         <td className="p-4 font-medium text-gray-900">{req.user_type === 'employee' ? 'Free (₹0)' : `₹${req.fare}`}</td>
                                         <td className="p-4">
                                             {isExpiredPass(req) ? (
