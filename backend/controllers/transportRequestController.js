@@ -5,7 +5,7 @@ const Route = require('../models/Route');
 const mongoose = require('mongoose');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 const { validateStudentAcademicContext, getExpectedYearForBatch } = require('../utils/studentAcademicValidation');
-const { assignTransportApplicationNumber, peekNextTransportApplicationNumber } = require('../utils/transportApplicationNumber');
+const { assignTransportApplicationNumber, peekNextTransportApplicationNumber, formatApplicationCode } = require('../utils/transportApplicationNumber');
 const { resolveApplicationNumberContext } = require('../utils/applicationNumberContext');
 const { resolveRouteStageFare } = require('../utils/stageFare');
 
