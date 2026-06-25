@@ -862,7 +862,11 @@ const approveTransportRequest = async (req, res) => {
                     return isTransport && Number(f.studentYear) === Number(studentYear);
                 });
                 if (match && match.revisedAmount !== undefined && match.revisedAmount !== null) {
-                    finalAmount = match.revisedAmount;
+                    if (match.concessionType && String(match.concessionType).toUpperCase() === 'CONCESSION') {
+                        finalAmount = Math.max(0, amount - Number(match.revisedAmount));
+                    } else {
+                        finalAmount = Number(match.revisedAmount);
+                    }
                 }
             }
         } catch (err) {
@@ -1545,7 +1549,10 @@ const getConcessions = async (req, res) => {
                         String(fee.feeHeadId) === '6996aa36e247525e006623b8'
                     ));
                 if (isTransport) {
-                    yearConcessions[fee.studentYear] = fee.revisedAmount;
+                    yearConcessions[fee.studentYear] = {
+                        amount: fee.revisedAmount,
+                        concessionType: fee.concessionType || 'REVISED'
+                    };
                 }
             });
 
@@ -1792,6 +1799,60 @@ const submitRouteChangeRequest = async (req, res) => {
 
             oldFare = currentRequest.fare || 0;
             fareDiff = new_fare - oldFare;
+
+            // Compute concession-aware fare difference if overall concessions are configured
+            try {
+                const { getFeePortalModels } = require('../models/fee-portal-models');
+                const feeModels = getFeePortalModels();
+                if (feeModels) {
+                    const { FeeHead } = feeModels;
+                    const transportFeeHead = await FeeHead.findOne({
+                        $or: [
+                            { code: TRANSPORT_FEE_HEAD_CODE },
+                            { code: String(TRANSPORT_FEE_HEAD_CODE).toLowerCase() },
+                            { name: { $regex: /transport/i } }
+                        ]
+                    });
+                    if (transportFeeHead) {
+                        const [overallConcessionRows] = await mysqlPool.query(
+                            'SELECT revised_fees FROM overall_concessions WHERE admission_number = ? LIMIT 1',
+                            [String(admission_number)]
+                        );
+                        if (overallConcessionRows && overallConcessionRows.length > 0) {
+                            const revisedFees = Array.isArray(overallConcessionRows[0].revised_fees)
+                                ? overallConcessionRows[0].revised_fees
+                                : (typeof overallConcessionRows[0].revised_fees === 'string'
+                                    ? JSON.parse(overallConcessionRows[0].revised_fees)
+                                    : []);
+                            const studentYear = currentRequest.year_of_study || 1;
+                            const match = revisedFees.find(f => {
+                                const isTransport = 
+                                    (f.feeHeadCode && String(f.feeHeadCode).toUpperCase() === 'TRN01') ||
+                                    (f.feeHeadId && (
+                                        String(f.feeHeadId) === String(transportFeeHead._id) || 
+                                        String(f.feeHeadId) === '6996aa36e247525e006623ca' ||
+                                        String(f.feeHeadId) === '6996aa36e247525e006623b8'
+                                    ));
+                                return isTransport && Number(f.studentYear) === Number(studentYear);
+                            });
+                            if (match && match.revisedAmount !== undefined && match.revisedAmount !== null) {
+                                let oldConcessionFare = oldFare;
+                                let newConcessionFare = new_fare;
+                                if (match.concessionType && String(match.concessionType).toUpperCase() === 'CONCESSION') {
+                                    oldConcessionFare = Math.max(0, oldFare - Number(match.revisedAmount));
+                                    newConcessionFare = Math.max(0, new_fare - Number(match.revisedAmount));
+                                } else {
+                                    oldConcessionFare = Number(match.revisedAmount);
+                                    newConcessionFare = Number(match.revisedAmount);
+                                }
+                                fareDiff = newConcessionFare - oldConcessionFare;
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Error calculating concession route change difference:', err);
+            }
 
             // Update MySQL Record
             await mysqlPool.query(

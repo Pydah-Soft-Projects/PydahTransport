@@ -156,21 +156,26 @@ const Concessions = () => {
                                             {[1, 2, 3, 4].map(year => {
                                                 const isAvailable = year <= c.total_course_years;
                                                 const isCurrentYear = Number(year) === Number(c.student_year);
-                                                const amount = c.yearConcessions ? c.yearConcessions[year] : undefined;
-                                                const isConcession = amount !== undefined && amount !== null;
+                                                const conInfo = c.yearConcessions ? c.yearConcessions[year] : undefined;
+                                                const isConcession = conInfo !== undefined && conInfo !== null;
+                                                const amount = conInfo && typeof conInfo === 'object' ? conInfo.amount : conInfo;
+                                                const type = conInfo && typeof conInfo === 'object' ? conInfo.concessionType : 'REVISED';
 
                                                 return (
                                                     <td key={year} className="p-4 text-center relative group">
                                                         {isAvailable && isConcession ? (
                                                             <>
                                                                 <span 
-                                                                    className={`inline-block px-3 py-1.5 rounded-lg text-xs font-bold border ${
+                                                                    className={`inline-flex flex-col items-center px-3 py-1.5 rounded-lg text-xs font-bold border ${
                                                                         isCurrentYear
                                                                             ? 'ring-2 ring-blue-500 ring-offset-1 border-blue-200 bg-blue-50 text-blue-700'
                                                                             : 'bg-green-50 border-green-200 text-green-700'
                                                                     }`}
                                                                 >
-                                                                    ₹{amount}
+                                                                    <span>{type === 'CONCESSION' ? `-₹${amount}` : `₹${amount}`}</span>
+                                                                    <span className="text-[8px] font-extrabold uppercase tracking-wider opacity-75 mt-0.5">
+                                                                        {type === 'CONCESSION' ? 'Concession' : 'Revised'}
+                                                                    </span>
                                                                 </span>
                                                                 {isCurrentYear && (
                                                                     <div className="absolute top-1 right-1">
