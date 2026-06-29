@@ -16,6 +16,47 @@ import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academi
 const statusDisplay = (s) => (s || 'pending').charAt(0).toUpperCase() + (s || 'pending').slice(1);
 
 const formatDate = (d) => (d ? new Date(d).toLocaleDateString() : '—');
+const formatFare = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+
+const getFareSummary = (request) => {
+    if (request?.user_type === 'employee') {
+        return {
+            normal: 'Free (₹0)',
+            adjusted: null,
+            label: null,
+            hasAdjustment: false,
+        };
+    }
+
+    const normalFare = request?.original_fare ?? request?.fare;
+    const payableFare = request?.payable_fare ?? normalFare;
+    const hasAdjustment = Boolean(request?.has_fare_adjustment);
+
+    return {
+        normal: formatFare(normalFare),
+        adjusted: hasAdjustment ? formatFare(payableFare) : null,
+        label: request?.fare_adjustment_type === 'CONCESSION' ? 'After concession' : 'Revised fee',
+        hasAdjustment,
+    };
+};
+
+const FareDisplay = ({ request }) => {
+    if (request?.user_type === 'employee') {
+        return <span className="text-gray-500 text-sm">Free (₹0)</span>;
+    }
+
+    const fare = getFareSummary(request);
+    return (
+        <div className="space-y-0.5">
+            <p className="text-sm font-semibold text-gray-900">Normal: {fare.normal}</p>
+            {fare.hasAdjustment && (
+                <p className="text-[11px] font-bold text-emerald-700">
+                    {fare.label}: {fare.adjusted}
+                </p>
+            )}
+        </div>
+    );
+};
 
 const courseExpiryKey = (courseId, yearOfStudy) => `${Number(courseId)}-${Number(yearOfStudy)}`;
 
@@ -965,7 +1006,9 @@ const TransportRequests = () => {
                                                 </div>
                                             )}
                                         </td>
-                                        <td className="p-4 font-medium text-gray-900">{req.user_type === 'employee' ? 'Free (₹0)' : `₹${req.fare}`}</td>
+                                        <td className="p-4 font-medium text-gray-900">
+                                            <FareDisplay request={req} />
+                                        </td>
                                         <td className="p-4">
                                             {isExpiredPass(req) ? (
                                                 <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
@@ -1009,6 +1052,7 @@ const TransportRequests = () => {
                     const name = req.student_name || req.employee_name || '—';
                     const idNo = req.admission_number || req.emp_no || '—';
                     const isEmployee = req.user_type === 'employee';
+                    const fareSummary = getFareSummary(req);
                     const statusKey = (req.status || '').toLowerCase();
                     const statusStyles = isExpiredPass(req)
                         ? 'bg-red-50 text-red-700 ring-red-100'
@@ -1078,11 +1122,20 @@ const TransportRequests = () => {
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                                             <DetailItem icon={MapPin} label="Route" value={req.route_name || '—'} />
                                             <DetailItem icon={Bus} label="Stage" value={req.stage_name || '—'} />
-                                            <DetailItem
-                                                icon={FileText}
-                                                label="Fare"
-                                                value={isEmployee ? 'Free (₹0)' : `₹${req.fare ?? '—'}`}
-                                            />
+                                            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
+                                                <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100">
+                                                    <FileText size={14} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Fare</p>
+                                                    <p className="text-sm font-semibold text-slate-900 mt-0.5">Normal: {fareSummary.normal}</p>
+                                                    {fareSummary.hasAdjustment && (
+                                                        <p className="text-[11px] font-bold text-emerald-700">
+                                                            {fareSummary.label}: {fareSummary.adjusted}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
                                             {req.effective_expiry_date && !isEmployee ? (
                                                 <DetailItem icon={Clock} label="Valid Until" value={formatDate(req.effective_expiry_date)} />
                                             ) : (

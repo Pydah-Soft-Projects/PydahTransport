@@ -311,7 +311,7 @@ const AdminRaiseRequest = () => {
             setBusesLoading(true);
             try {
                 const response = await apiFetch(
-                    `${API_BASE}/transport-requests/route-buses?route_id=${encodeURIComponent(selectedRoute.routeId)}`
+                    `${API_BASE}/transport-requests/route-buses?route_id=${encodeURIComponent(selectedRoute.routeId)}&occupancyMode=live`
                 );
                 const data = await response.json();
                 if (response.ok) {
@@ -828,7 +828,7 @@ const AdminRaiseRequest = () => {
                                     <div className="animate-in fade-in slide-in-from-top-2 duration-300 p-4 rounded-2xl border border-blue-100 bg-blue-50/60">
                                         <div className="flex items-center gap-2 mb-3">
                                             <Bus size={16} className="text-blue-700" />
-                                            <p className="text-xs font-black text-blue-800 uppercase tracking-widest">Route Bus Vacancy</p>
+                                            <p className="text-xs font-black text-blue-800 uppercase tracking-widest">Live Route Bus Occupancy</p>
                                         </div>
                                         {busesLoading ? (
                                             <p className="text-sm text-blue-600">Loading bus availability...</p>
@@ -841,7 +841,7 @@ const AdminRaiseRequest = () => {
                                                     >
                                                         <span className="font-bold text-slate-800">{b.busNumber}</span>
                                                         <span className={`text-xs font-semibold ${b.seatsAvailable > 0 ? 'text-green-700' : 'text-red-600'}`}>
-                                                            {b.seatsFilled}/{b.capacity} filled · {b.seatsAvailable} available
+                                                            Live: {b.seatsFilled}/{b.capacity} filled · {b.seatsAvailable} available
                                                         </span>
                                                     </div>
                                                 ))}
@@ -1032,7 +1032,7 @@ const AdminRaiseRequest = () => {
                                 <p className="text-sm font-semibold text-blue-900 mb-2">Route: {approveModal.data.route_name} {approveModal.data.route_id && <span className="text-blue-600">({approveModal.data.route_id})</span>}</p>
                                 {approveModal.data.busesOnRoute && approveModal.data.busesOnRoute.length > 0 ? (
                                     <>
-                                        <p className="text-xs font-semibold text-blue-800 mb-2">Select a Bus to Assign:</p>
+                                        <p className="text-xs font-semibold text-blue-800 mb-2">Select a Bus to Assign (Live Occupancy):</p>
                                         <select
                                             value={approveModal.selectedBusId}
                                             onChange={(e) => setApproveModal((m) => ({ ...m, selectedBusId: e.target.value, error: null }))}
@@ -1041,7 +1041,7 @@ const AdminRaiseRequest = () => {
                                             <option value="">-- Choose Bus --</option>
                                             {approveModal.data.busesOnRoute.map((b) => (
                                                 <option key={b.busNumber} value={b.busNumber}>
-                                                    {b.busNumber} (Filled: {b.seatsFilled}/{b.capacity} | {b.seatsAvailable} available)
+                                                    {b.busNumber} (Live: {b.seatsFilled}/{b.capacity} filled | {b.seatsAvailable} available)
                                                 </option>
                                             ))}
                                         </select>

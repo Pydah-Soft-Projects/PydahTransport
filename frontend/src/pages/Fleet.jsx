@@ -25,6 +25,7 @@ const Fleet = () => {
     const [list, setList] = useState([]);
     const [loading, setLoading] = useState(true);
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
+    const [occupancyMode, setOccupancyMode] = useState('live');
     const academicYearOptions = getAcademicYearOptions();
     const [allocatingId, setAllocatingId] = useState(null);
     const [message, setMessage] = useState({ text: '', type: '' });
@@ -44,8 +45,10 @@ const Fleet = () => {
     const handleDownloadReport = async () => {
         setIsPrinting(true);
         try {
+            const params = new URLSearchParams({ status: occupancyMode === 'live' ? 'active' : 'approved' });
+            if (occupancyMode !== 'live') params.append('academicYear', academicYear);
             const response = await apiFetch(
-                `${API}/transport-requests?status=approved&academicYear=${encodeURIComponent(academicYear)}`
+                `${API}/transport-requests?${params.toString()}`
             );
             if (response.ok) {
                 const data = await response.json();
@@ -72,8 +75,10 @@ const Fleet = () => {
     const fetchOverview = async () => {
         setLoading(true);
         try {
+            const params = new URLSearchParams({ occupancyMode });
+            if (occupancyMode !== 'live') params.append('academicYear', academicYear);
             const response = await apiFetch(
-                `${API}/buses/overview?academicYear=${encodeURIComponent(academicYear)}`
+                `${API}/buses/overview?${params.toString()}`
             );
             if (response.ok) {
                 const data = await response.json();
@@ -91,7 +96,7 @@ const Fleet = () => {
 
     useEffect(() => {
         fetchOverview();
-    }, [academicYear]);
+    }, [academicYear, occupancyMode]);
 
     const handleAutoAllocate = async (busId) => {
         setAllocatingId(busId);
@@ -129,6 +134,28 @@ const Fleet = () => {
                     <h2 className="text-3xl font-extrabold text-slate-800 break-words tracking-tight">Fleet & Passengers</h2>
                     <p className="text-slate-700 mt-2 font-medium">Manage transport requests and bus capacity.</p>
                     <div className="mt-4 flex flex-wrap items-center gap-3">
+                        <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+                            <button
+                                type="button"
+                                onClick={() => setOccupancyMode('live')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide transition-colors ${occupancyMode === 'live'
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'text-slate-500 hover:bg-slate-50'
+                                    }`}
+                            >
+                                Live
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setOccupancyMode('academicYear')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide transition-colors ${occupancyMode === 'academicYear'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'text-slate-500 hover:bg-slate-50'
+                                    }`}
+                            >
+                                AY
+                            </button>
+                        </div>
                         <label htmlFor="fleet-academic-year" className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                             Academic Year
                         </label>
@@ -136,7 +163,8 @@ const Fleet = () => {
                             id="fleet-academic-year"
                             value={academicYear}
                             onChange={(e) => setAcademicYear(e.target.value)}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500"
+                            disabled={occupancyMode === 'live'}
+                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                         >
                             {academicYearOptions.map((year) => (
                                 <option key={year} value={year}>{year}</option>
@@ -160,8 +188,10 @@ const Fleet = () => {
             {!loading && list.length > 0 && (
                 <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Academic Year</p>
-                        <p className="text-lg font-black text-slate-800 mt-1">{academicYear}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Occupancy Mode</p>
+                        <p className="text-lg font-black text-slate-800 mt-1">
+                            {occupancyMode === 'live' ? 'Live' : academicYear}
+                        </p>
                     </div>
                     <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Capacity</p>

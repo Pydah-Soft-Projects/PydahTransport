@@ -65,6 +65,113 @@ function academicYearDateRange(academicYear) {
     };
 }
 
+function parseRevisedFees(value) {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+        try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+    return [];
+}
+
+function isTransportFeeRevision(fee, transportFeeHeadId = null) {
+    if (!fee) return false;
+    const feeHeadCode = fee.feeHeadCode ? String(fee.feeHeadCode).toUpperCase() : '';
+    if (feeHeadCode === TRANSPORT_FEE_HEAD_CODE) return true;
+    if (!fee.feeHeadId) return false;
+    const feeHeadId = String(fee.feeHeadId);
+    return feeHeadId === String(transportFeeHeadId || '')
+        || feeHeadId === '6996aa36e247525e006623ca'
+        || feeHeadId === '6996aa36e247525e006623b8';
+}
+
+function calculateTransportFareAdjustment(originalFare, studentYear, revisedFees, transportFeeHeadId = null) {
+    const amount = Number(originalFare || 0);
+    const match = revisedFees.find((fee) => (
+        isTransportFeeRevision(fee, transportFeeHeadId)
+        && Number(fee.studentYear) === Number(studentYear)
+        && fee.revisedAmount !== undefined
+        && fee.revisedAmount !== null
+    ));
+
+    if (!match) {
+        return {
+            original_fare: amount,
+            payable_fare: amount,
+            has_fare_adjustment: false,
+            fare_adjustment_type: null,
+            fare_adjustment_amount: null,
+        };
+    }
+
+    const adjustmentAmount = Number(match.revisedAmount || 0);
+    const type = String(match.concessionType || 'REVISED').toUpperCase();
+    const payable = type === 'CONCESSION'
+        ? Math.max(0, amount - adjustmentAmount)
+        : adjustmentAmount;
+
+    return {
+        original_fare: amount,
+        payable_fare: payable,
+        has_fare_adjustment: payable !== amount,
+        fare_adjustment_type: type,
+        fare_adjustment_amount: adjustmentAmount,
+    };
+}
+
+async function enrichTransportFareAdjustments(mysqlPool, rows = []) {
+    const studentRows = rows.filter((row) => {
+        const admissionNumber = row.admission_number || row.admission_no;
+        return admissionNumber && row.user_type !== 'employee';
+    });
+    if (!studentRows.length) return rows;
+
+    const admissionNumbers = [...new Set(studentRows.map((row) => String(row.admission_number || row.admission_no)))];
+    let transportFeeHeadId = null;
+    try {
+        const feeModels = getFeePortalModels();
+        if (feeModels?.FeeHead) {
+            const transportFeeHead = await feeModels.FeeHead.findOne({ code: TRANSPORT_FEE_HEAD_CODE }).select('_id').lean();
+            transportFeeHeadId = transportFeeHead?._id || null;
+        }
+    } catch {
+        transportFeeHeadId = null;
+    }
+
+    let concessionRows = [];
+    try {
+        const [rows] = await mysqlPool.query(
+            'SELECT admission_number, revised_fees FROM overall_concessions WHERE admission_number IN (?)',
+            [admissionNumbers]
+        );
+        concessionRows = rows || [];
+    } catch (error) {
+        console.error('Error fetching fare adjustments from overall_concessions:', error.message);
+        return rows.map((row) => ({
+            ...row,
+            ...calculateTransportFareAdjustment(row.fare, row.year_of_study),
+        }));
+    }
+
+    const revisedFeeMap = new Map(
+        concessionRows.map((row) => [String(row.admission_number), parseRevisedFees(row.revised_fees)])
+    );
+
+    return rows.map((row) => {
+        if (row.user_type === 'employee') return row;
+        const admissionNumber = String(row.admission_number || row.admission_no || '');
+        const revisedFees = revisedFeeMap.get(admissionNumber) || [];
+        return {
+            ...row,
+            ...calculateTransportFareAdjustment(row.fare, row.year_of_study, revisedFees, transportFeeHeadId),
+        };
+    });
+}
+
 // Last semester of the student's year within the transport request's academic session.
 async function getLastSemesterForRequest(mysqlPool, transportRequest) {
     const admissionNumber = transportRequest.admission_number || transportRequest.admission_no;
@@ -561,11 +668,13 @@ const getTransportRequests = async (req, res) => {
             }));
         }
 
-        const combined = [...mysqlRows.map(r => ({
+        const enrichedMysqlRows = await enrichTransportFareAdjustments(mysqlPool, mysqlRows.map(r => ({
             ...r,
             user_type: 'student',
             is_expired: Boolean(r.is_expired),
-        })), ...mongoRows];
+        })));
+
+        const combined = [...enrichedMysqlRows, ...mongoRows];
         combined.sort((a, b) => {
             const appA = a.application_number;
             const appB = b.application_number;
@@ -2344,4 +2453,5 @@ module.exports = {
     getDefaultAcademicYear,
     resolveAcademicYear,
     getActivePassengerSqlParts,
+    enrichTransportFareAdjustments,
 };

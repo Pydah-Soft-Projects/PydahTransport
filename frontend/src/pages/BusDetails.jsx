@@ -14,6 +14,30 @@ import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academi
 
 const API = API_BASE;
 
+const formatFare = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+
+const FareDisplay = ({ passenger }) => {
+    if (passenger?.user_type === 'employee') {
+        return <span className="text-gray-500 text-sm">Free (₹0)</span>;
+    }
+
+    const normalFare = passenger?.original_fare ?? passenger?.fare;
+    const payableFare = passenger?.payable_fare ?? normalFare;
+    const hasAdjustment = Boolean(passenger?.has_fare_adjustment);
+    const label = passenger?.fare_adjustment_type === 'CONCESSION' ? 'After concession' : 'Revised fee';
+
+    return (
+        <div className="space-y-0.5">
+            <p className="text-sm font-semibold text-gray-800">Normal: {formatFare(normalFare)}</p>
+            {hasAdjustment && (
+                <p className="text-[11px] font-bold text-emerald-700">
+                    {label}: {formatFare(payableFare)}
+                </p>
+            )}
+        </div>
+    );
+};
+
 const BusDetails = () => {
     const { id } = useParams();
     const [data, setData] = useState(null);
@@ -32,6 +56,7 @@ const BusDetails = () => {
     const [routeHistoryLoading, setRouteHistoryLoading] = useState(false);
     const [staffHistoryLoading, setStaffHistoryLoading] = useState(false);
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
+    const [occupancyMode, setOccupancyMode] = useState('live');
     const academicYearOptions = getAcademicYearOptions();
     
     // For expired taxes warning
@@ -141,8 +166,10 @@ const BusDetails = () => {
             if (!id) return;
             setLoading(true);
             try {
+                const params = new URLSearchParams({ occupancyMode });
+                if (occupancyMode !== 'live') params.append('academicYear', academicYear);
                 const response = await apiFetch(
-                    `${API}/buses/${id}/details?academicYear=${encodeURIComponent(academicYear)}`
+                    `${API}/buses/${id}/details?${params.toString()}`
                 );
                 if (response.ok) {
                     const json = await response.json();
@@ -158,7 +185,7 @@ const BusDetails = () => {
             }
         };
         fetchDetails();
-    }, [id, academicYear]);
+    }, [id, academicYear, occupancyMode]);
 
     // Check for expired taxes whenever bus data changes
     useEffect(() => {
@@ -213,8 +240,10 @@ const BusDetails = () => {
                 });
             }
             setAssignModalOpen(false);
+            const params = new URLSearchParams({ occupancyMode });
+            if (occupancyMode !== 'live') params.append('academicYear', academicYear);
             const res = await apiFetch(
-                `${API}/buses/${id}/details?academicYear=${encodeURIComponent(academicYear)}`
+                `${API}/buses/${id}/details?${params.toString()}`
             );
             if (res.ok) setData(await res.json());
         } catch (e) {
@@ -255,6 +284,7 @@ const BusDetails = () => {
     }
 
     const { bus, route, passengers, seatsFilled, seatsAvailable, capacity, occupancyPercent } = data;
+    const occupancyLabel = occupancyMode === 'live' ? 'Live' : academicYear;
 
     const activePassengers = (passengers || []).filter((p) => !p.is_expired);
     const yearPassengers = passengers || [];
@@ -312,11 +342,34 @@ const BusDetails = () => {
 
                     <div className="flex items-center gap-6">
                         <div>
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Academic Year</p>
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Occupancy Mode</p>
+                            <div className="inline-flex rounded-xl border border-gray-200 bg-white p-1 mb-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setOccupancyMode('live')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide transition-colors ${occupancyMode === 'live'
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'text-gray-500 hover:bg-gray-50'
+                                        }`}
+                                >
+                                    Live
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setOccupancyMode('academicYear')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide transition-colors ${occupancyMode === 'academicYear'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'text-gray-500 hover:bg-gray-50'
+                                        }`}
+                                >
+                                    AY
+                                </button>
+                            </div>
                             <select
                                 value={academicYear}
                                 onChange={(e) => setAcademicYear(e.target.value)}
-                                className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-800 bg-white outline-none focus:ring-2 focus:ring-blue-500"
+                                disabled={occupancyMode === 'live'}
+                                className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-800 bg-white outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                             >
                                 {academicYearOptions.map((year) => (
                                     <option key={year} value={year}>{year}</option>
@@ -376,7 +429,7 @@ const BusDetails = () => {
                             <span className="text-3xl font-black text-emerald-700">{seatsFilled}</span>
                             <span className="text-gray-400 font-bold">/ {capacity}</span>
                         </div>
-                        <p className="text-[10px] text-emerald-600 font-bold mt-1 uppercase">{seatsAvailable} seats available · {academicYear}</p>
+                        <p className="text-[10px] text-emerald-600 font-bold mt-1 uppercase">{seatsAvailable} seats available · {occupancyLabel}</p>
                     </div>
 
                  {/* Breakdown */}
@@ -485,7 +538,7 @@ const BusDetails = () => {
                     <>
                         <div className="p-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-4">
                             <h2 className="text-lg font-bold text-gray-800">
-                                Passenger list <span className="text-sm font-medium text-gray-500">({academicYear})</span>
+                                Passenger list <span className="text-sm font-medium text-gray-500">({occupancyLabel})</span>
                             </h2>
                             {route && (
                                 <button
@@ -499,7 +552,7 @@ const BusDetails = () => {
                         </div>
                         {passengers.length === 0 ? (
                             <div className="p-12 text-center text-gray-500">
-                                <p>No passengers for academic year {academicYear} on this bus.</p>
+                                <p>No passengers for {occupancyMode === 'live' ? 'live occupancy' : `academic year ${academicYear}`} on this bus.</p>
                                 {route && (
                                     <button
                                         type="button"
@@ -568,7 +621,9 @@ const BusDetails = () => {
                                                     {p.user_type === 'employee' ? '—' : (p.academic_year || academicYear || '—')}
                                                 </td>
                                                 <td className="p-4">{p.stage_name}</td>
-                                                <td className="p-4 text-gray-500">{p.user_type === 'employee' ? 'Free (₹0)' : `₹${p.fare}`}</td>
+                                                <td className="p-4 text-gray-500">
+                                                    <FareDisplay passenger={p} />
+                                                </td>
                                                 <td className="p-4 text-right">
                                                     <button
                                                         type="button"
