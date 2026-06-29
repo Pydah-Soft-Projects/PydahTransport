@@ -44,6 +44,76 @@ const UNITS = [
     'Can'
 ];
 
+const getItemDisplayName = (item) => {
+    if (!item) return 'Unselected Item';
+    return item.variantName ? `${item.itemName} - ${item.variantName}` : item.itemName;
+};
+
+const getAllocatedItemDisplayName = (allocation) => {
+    if (!allocation?.itemId) return 'Unselected Item';
+    return allocation.variantName
+        ? `${allocation.itemId.itemName} - ${allocation.variantName}`
+        : getItemDisplayName(allocation.itemId);
+};
+
+const getItemVariants = (item) => {
+    const variants = Array.isArray(item?.variants)
+        ? item.variants
+            .filter((variant) => variant?.isActive !== false && variant?.name)
+            .map((variant) => ({ name: variant.name, itemId: item._id, source: 'group' }))
+        : [];
+
+    if (item?.variantName) {
+        variants.push({ name: item.variantName, itemId: item._id, source: 'legacy' });
+    }
+
+    return variants;
+};
+
+const getInventoryGroups = (items) => {
+    const map = new Map();
+    items.forEach((item) => {
+        const key = item.itemName || item._id;
+        if (!map.has(key)) {
+            map.set(key, {
+                key,
+                itemName: item.itemName,
+                category: item.category,
+                unit: item.unit,
+                description: item.description,
+                primaryItem: item,
+                variants: [],
+                itemIds: [],
+            });
+        }
+        const group = map.get(key);
+        group.itemIds.push(item._id);
+        if ((item.variants || []).length > (group.primaryItem?.variants || []).length) {
+            group.primaryItem = item;
+            group.category = item.category;
+            group.unit = item.unit;
+            group.description = item.description;
+        }
+        group.variants.push(...getItemVariants(item));
+    });
+
+    return Array.from(map.values()).map((group) => ({
+        ...group,
+        variants: group.variants.filter((variant, index, arr) => (
+            arr.findIndex((candidate) => candidate.name === variant.name) === index
+        )),
+    })).sort((a, b) => a.itemName.localeCompare(b.itemName));
+};
+
+const emptyItemFormData = {
+    itemName: '',
+    variantName: '',
+    variantNames: [''],
+    category: 'General',
+    unit: 'Pcs',
+    description: ''
+};
+
 const Inventory = () => {
     const [activeTab, setActiveTab] = useState(TABS.inventory);
     const [items, setItems] = useState([]);
@@ -60,6 +130,7 @@ const Inventory = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isVendorModalOpen, setIsVendorModalOpen] = useState(false);
     const [isBillModalOpen, setIsBillModalOpen] = useState(false);
+    const [isBillSuccessModalOpen, setIsBillSuccessModalOpen] = useState(false);
     const [printBill, setPrintBill] = useState(null);
     const [inventoryView, setInventoryView] = useState('card'); // 'card' or 'table'
     
@@ -67,13 +138,9 @@ const Inventory = () => {
     const [editingVendor, setEditingVendor] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedBusFilter, setSelectedBusFilter] = useState('all');
+    const [expandedInventoryGroup, setExpandedInventoryGroup] = useState(null);
 
-    const [itemFormData, setItemFormData] = useState({
-        itemName: '',
-        category: 'General',
-        unit: 'Pcs',
-        description: ''
-    });
+    const [itemFormData, setItemFormData] = useState(emptyItemFormData);
 
     const [billFormData, setBillFormData] = useState({
         busId: '',
@@ -81,6 +148,8 @@ const Inventory = () => {
         billNo: '',
         items: [{
             itemId: '',
+            itemGroup: '',
+            variantName: '',
             quantity: 1,
             price: '',
             remarks: '',
@@ -95,6 +164,8 @@ const Inventory = () => {
             ...billFormData,
             items: [...billFormData.items, {
                 itemId: '',
+                itemGroup: '',
+                variantName: '',
                 quantity: 1,
                 price: '',
                 remarks: '',
@@ -242,7 +313,7 @@ const Inventory = () => {
                 fetchItems();
                 setIsModalOpen(false);
                 setEditingItem(null);
-                setItemFormData({ itemName: '', category: 'General', unit: 'Pcs', description: '' });
+                setItemFormData(emptyItemFormData);
             }
         } catch (error) {
             console.error('Error saving item:', error);
@@ -294,26 +365,34 @@ const Inventory = () => {
             });
 
             if (response.ok) {
+                const printableBill = buildPrintableBillData();
                 fetchItems();
+                fetchHistory(billFormData.busId);
                 setIsBillModalOpen(false);
+                setPrintBill(printableBill);
+                setIsBillSuccessModalOpen(true);
                 setBillFormData({ 
                     busId: '',
                     vendorId: '',
                     billNo: '',
                     items: [{
-                        itemId: '', quantity: 1, price: '', 
+                        itemId: '', itemGroup: '', variantName: '', quantity: 1, price: '', 
                         remarks: '', tyrePosition: 'front right', kmReading: '', tyreType: 'new tyre' 
                     }]
                 });
                 if (activeTab === TABS.history) fetchHistory(selectedBusFilter);
                 if (activeTab === TABS.tyreRegistry) fetchTyreRegistry(selectedBusFilter);
-                alert('Bill raised and assigned to bus successfully!');
             } else {
                 const data = await response.json();
-                alert(data.message || 'Failed to raise bill');
+                setPrintBill({
+                    error: data.message || 'Failed to raise bill',
+                });
+                setIsBillSuccessModalOpen(true);
             }
         } catch (error) {
             console.error('Error raising bill:', error);
+            setPrintBill({ error: 'Error raising bill. Please try again.' });
+            setIsBillSuccessModalOpen(true);
         }
     };
 
@@ -339,21 +418,30 @@ const Inventory = () => {
         }
     };
 
-    const openEditModal = (item) => {
+    const openEditModal = (item, group = null) => {
         setEditingItem(item);
+        const existingVariants = group?.variants?.length
+            ? group.variants.map((variant) => variant.name).filter(Boolean)
+            : Array.isArray(item.variants)
+            ? item.variants.map((variant) => variant.name).filter(Boolean)
+            : [];
         setItemFormData({
-            itemName: item.itemName,
-            category: item.category,
+            itemName: group?.itemName || item.itemName,
+            variantName: item.variantName || '',
+            variantNames: existingVariants.length > 0 ? existingVariants : (item.variantName ? [item.variantName] : ['']),
+            category: group?.category || item.category,
             totalQuantity: item.totalQuantity,
-            unit: item.unit,
-            description: item.description
+            unit: group?.unit || item.unit,
+            description: group?.description || item.description
         });
         setIsModalOpen(true);
     };
 
-    const filteredItems = items.filter(item => 
-        item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.category.toLowerCase().includes(searchTerm.toLowerCase())
+    const inventoryGroups = getInventoryGroups(items);
+    const filteredGroups = inventoryGroups.filter(group =>
+        group.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        group.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        group.variants.some((variant) => variant.name.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
     const getLastPrice = (itemId) => {
@@ -365,6 +453,48 @@ const Inventory = () => {
 
     const calculateGrandTotal = () => {
         return billFormData.items.reduce((sum, item) => sum + (item.quantity * (item.price || 0)), 0);
+    };
+
+    const buildPrintableBillData = () => {
+        const selectedBus = buses.find((bus) => bus.busNumber === billFormData.busId);
+        const selectedVendor = vendors.find((vendor) => vendor._id === billFormData.vendorId);
+
+        return {
+            billNo: billFormData.billNo,
+            date: new Date(),
+            vendorId: selectedVendor || billFormData.vendorId,
+            busId: selectedBus ? { ...selectedBus, busNumber: selectedBus.busNumber } : billFormData.busId,
+            adminName: JSON.parse(localStorage.getItem('adminInfo') || '{}').name || 'Admin',
+            totalAmount: calculateGrandTotal(),
+            items: billFormData.items
+                .filter((line) => line.itemId)
+                .map((line) => ({
+                    ...line,
+                    itemId: items.find((item) => item._id === line.itemId) || line.itemId,
+                    allocatedDate: new Date(),
+                })),
+        };
+    };
+
+    const getSelectedBillHistory = () => {
+        const selectedLines = billFormData.items.filter((line) => line.itemId || line.itemGroup);
+        if (!billFormData.busId) return [];
+        if (selectedLines.length === 0) return history.slice(0, 20);
+
+        return history.filter((record) => {
+            const recordItem = record.itemId;
+            const recordGroup = recordItem?.itemName || '';
+            const recordVariant = record.variantName || recordItem?.variantName || '';
+            return selectedLines.some((line) => {
+                if (line.variantName) {
+                    return recordGroup === line.itemGroup && recordVariant === line.variantName;
+                }
+                if (line.itemGroup) {
+                    return recordGroup === line.itemGroup;
+                }
+                return (recordItem?._id || record.itemId) === line.itemId;
+            });
+        });
     };
 
     const getGroupedBills = () => {
@@ -392,6 +522,75 @@ const Inventory = () => {
     };
 
     const groupedBills = getGroupedBills();
+    const itemGroupOptions = [...new Set(items.map((item) => item.itemName).filter(Boolean))].sort();
+    const filledVariantNames = itemFormData.variantNames.map((value) => value.trim()).filter(Boolean);
+    const creatingMultipleVariants = !editingItem && filledVariantNames.length > 1;
+
+    const getGroupByName = (name) => inventoryGroups.find((group) => group.itemName === name);
+    const getSelectedInventoryItem = (lineItem) => {
+        if (lineItem.itemId) return items.find((item) => item._id === lineItem.itemId);
+        const group = getGroupByName(lineItem.itemGroup);
+        return group?.primaryItem || null;
+    };
+
+    const handleBillGroupChange = (index, groupName) => {
+        const group = getGroupByName(groupName);
+        const firstVariant = group?.variants?.[0] || null;
+        const newItems = [...billFormData.items];
+        newItems[index] = {
+            ...newItems[index],
+            itemGroup: groupName,
+            itemId: firstVariant?.itemId || group?.primaryItem?._id || '',
+            variantName: firstVariant?.name || '',
+        };
+        setBillFormData({ ...billFormData, items: newItems });
+    };
+
+    const handleBillVariantChange = (index, variantName) => {
+        const lineItem = billFormData.items[index];
+        const group = getGroupByName(lineItem.itemGroup);
+        const variant = group?.variants?.find((candidate) => candidate.name === variantName);
+        const newItems = [...billFormData.items];
+        newItems[index] = {
+            ...newItems[index],
+            variantName,
+            itemId: variant?.itemId || group?.primaryItem?._id || '',
+        };
+        setBillFormData({ ...billFormData, items: newItems });
+    };
+
+    const addVariantRow = () => {
+        setItemFormData((prev) => ({
+            ...prev,
+            variantNames: [...prev.variantNames, ''],
+        }));
+    };
+
+    const updateVariantRow = (index, value) => {
+        setItemFormData((prev) => {
+            const nextVariants = [...prev.variantNames];
+            nextVariants[index] = value;
+            const firstVariant = nextVariants.map((name) => name.trim()).find(Boolean) || '';
+            return {
+                ...prev,
+                variantName: firstVariant,
+                variantNames: nextVariants,
+            };
+        });
+    };
+
+    const removeVariantRow = (index) => {
+        setItemFormData((prev) => {
+            const nextVariants = prev.variantNames.filter((_, i) => i !== index);
+            const normalizedVariants = nextVariants.length > 0 ? nextVariants : [''];
+            const firstVariant = normalizedVariants.map((name) => name.trim()).find(Boolean) || '';
+            return {
+                ...prev,
+                variantName: firstVariant,
+                variantNames: normalizedVariants,
+            };
+        });
+    };
 
     return (
         <Layout>
@@ -405,10 +604,10 @@ const Inventory = () => {
                 </div>
                 <div className="flex flex-wrap gap-3">
                     <button 
-                        onClick={() => { setEditingItem(null); setItemFormData({ itemName: '', category: 'General', unit: 'Pcs', description: '' }); setIsModalOpen(true); }}
+                        onClick={() => { setEditingItem(null); setItemFormData(emptyItemFormData); setIsModalOpen(true); }}
                         className="bg-gray-800 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 hover:bg-gray-700 transition-all shadow-sm active:scale-95"
                     >
-                        <Plus size={16} /> Add Item
+                        <Plus size={16} /> Add Item / Variant
                     </button>
                     <button 
                         onClick={() => setIsBillModalOpen(true)}
@@ -431,28 +630,28 @@ const Inventory = () => {
                 </div>
             </div>
 
-            <div className="flex bg-gray-100 p-1 rounded border border-gray-200 mb-6 w-fit">
+            <div className="grid grid-cols-2 md:grid-cols-4 bg-gray-100 p-1 rounded border border-gray-200 mb-6 w-full gap-1">
                 <button
                     onClick={() => setActiveTab(TABS.inventory)}
-                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === TABS.inventory ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === TABS.inventory ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                     <Layers size={14} /> Master Inventory
                 </button>
                 <button
                     onClick={() => setActiveTab(TABS.history)}
-                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === TABS.history ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === TABS.history ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                     <History size={14} /> Bills
                 </button>
                 <button
                     onClick={() => setActiveTab(TABS.vendors)}
-                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === TABS.vendors ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === TABS.vendors ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                     <Package size={14} /> Vendors
                 </button>
                 <button
                     onClick={() => setActiveTab(TABS.tyreRegistry)}
-                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === TABS.tyreRegistry ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === TABS.tyreRegistry ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                     <Truck size={14} /> Tyre Registry
                 </button>
@@ -466,7 +665,7 @@ const Inventory = () => {
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={18} />
                                 <input
                                     type="text"
-                                    placeholder="Search by name or category..."
+                                    placeholder="Search by item group, variant, or category..."
                                     className="w-full pl-11 pr-4 py-3 rounded-md border border-slate-200 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all text-sm font-medium"
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -492,7 +691,7 @@ const Inventory = () => {
 
                         {loading ? (
                             <div className="py-20 flex justify-center"><Loader text="Loading inventory..." /></div>
-                        ) : filteredItems.length > 0 ? (
+                        ) : filteredGroups.length > 0 ? (
                             inventoryView === 'table' ? (
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-left border-collapse">
@@ -504,24 +703,40 @@ const Inventory = () => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-50">
-                                            {filteredItems.map(item => (
-                                                <tr key={item._id} className="hover:bg-slate-50/50 transition-colors group">
+                                            {filteredGroups.map(group => (
+                                                <tr
+                                                    key={group.key}
+                                                    onClick={() => setExpandedInventoryGroup(expandedInventoryGroup === group.key ? null : group.key)}
+                                                    className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
+                                                >
                                                     <td className="px-6 py-5">
                                                         <div>
-                                                            <p className="font-bold text-slate-800">{item.itemName}</p>
+                                                            <p className="font-bold text-slate-800">{group.itemName}</p>
                                                             <div className="flex items-center gap-2 mt-1">
-                                                                <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase">{item.category}</span>
-                                                                <span className="text-[10px] text-slate-400 font-medium">| {item.unit}</span>
+                                                                <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase">{group.category}</span>
+                                                                <span className="text-[10px] text-slate-400 font-medium">| {group.unit}</span>
+                                                                <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase">
+                                                                    {group.variants.length} variant(s)
+                                                                </span>
                                                             </div>
+                                                            {expandedInventoryGroup === group.key && group.variants.length > 0 && (
+                                                                <div className="flex flex-wrap gap-1 mt-2">
+                                                                    {group.variants.map((variant) => (
+                                                                        <span key={variant.name} className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                                                                            {variant.name}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-5">
-                                                        <p className="text-sm text-slate-500 line-clamp-1">{item.description || 'No description'}</p>
+                                                        <p className="text-sm text-slate-500 line-clamp-1">{group.description || 'No description'}</p>
                                                     </td>
                                                     <td className="px-6 py-5 text-right">
                                                         <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button onClick={() => openEditModal(item)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"><Edit size={16} /></button>
-                                                            <button onClick={() => handleDeleteItem(item._id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"><Trash2 size={16} /></button>
+                                                            <button onClick={(e) => { e.stopPropagation(); openEditModal(group.primaryItem, group); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"><Edit size={16} /></button>
+                                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteItem(group.primaryItem._id); }} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"><Trash2 size={16} /></button>
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -531,47 +746,60 @@ const Inventory = () => {
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                    {filteredItems.map(item => (
-                                        <div key={item._id} className="group relative bg-white rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-xl hover:shadow-blue-500/5 transition-all p-5 flex flex-col justify-between overflow-hidden">
+                                    {filteredGroups.map(group => (
+                                        <div
+                                            key={group.key}
+                                            onClick={() => setExpandedInventoryGroup(expandedInventoryGroup === group.key ? null : group.key)}
+                                            className="group relative bg-white rounded-xl border border-blue-300 shadow-xl shadow-blue-500/5 transition-all p-5 flex flex-col justify-between overflow-hidden cursor-pointer"
+                                        >
                                             {/* Accent Banner */}
-                                            <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-blue-500 to-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                                            <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-blue-500 to-indigo-600"></div>
                                             
                                             <div>
                                                 <div className="flex justify-between items-start mb-4">
-                                                    <div className="p-2.5 bg-slate-50 rounded-lg group-hover:bg-blue-50 transition-colors">
-                                                        <Package className="text-slate-400 group-hover:text-blue-600 transition-colors" size={24} />
+                                                    <div className="p-2.5 bg-blue-50 rounded-lg transition-colors">
+                                                        <Package className="text-blue-600 transition-colors" size={24} />
                                                     </div>
-                                                    <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded text-[9px] font-black uppercase tracking-widest">{item.category}</span>
+                                                    <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded text-[9px] font-black uppercase tracking-widest">{group.category}</span>
                                                 </div>
                                                 
-                                                <h3 className="text-lg font-black text-slate-900 leading-tight uppercase group-hover:text-blue-700 transition-colors line-clamp-1">{item.itemName}</h3>
+                                                <h3 className="text-lg font-black text-blue-700 leading-tight uppercase transition-colors line-clamp-1">{group.itemName}</h3>
+                                                {expandedInventoryGroup === group.key && group.variants.length > 0 && (
+                                                    <div className="mt-2 flex flex-wrap gap-1">
+                                                        {group.variants.map((variant) => (
+                                                            <span key={variant.name} className="text-[10px] font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">
+                                                                {variant.name}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
                                                 <div className="mt-2 text-xs font-black text-slate-400 uppercase tracking-tighter flex items-center gap-1.5 pt-2 border-t border-slate-50">
-                                                    Measured In: <span className="text-slate-800">{item.unit}</span>
+                                                    Measured In: <span className="text-slate-800">{group.unit}</span>
                                                 </div>
                                                 
                                                 <p className="mt-4 text-xs font-medium text-slate-500 line-clamp-2 italic leading-relaxed h-8">
-                                                    {item.description || 'No detailed description provided for this item.'}
+                                                    {group.description || 'No detailed description provided for this item.'}
                                                 </p>
                                             </div>
 
                                             <div className="mt-6 pt-4 border-t border-slate-50 flex items-center justify-between">
                                                 <div className="flex gap-2">
                                                     <button 
-                                                        onClick={() => openEditModal(item)}
+                                                        onClick={(e) => { e.stopPropagation(); openEditModal(group.primaryItem, group); }}
                                                         className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                                                         title="Edit Item"
                                                     >
                                                         <Edit size={16} />
                                                     </button>
                                                     <button 
-                                                        onClick={() => handleDeleteItem(item._id)}
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteItem(group.primaryItem._id); }}
                                                         className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                                                         title="Delete Item"
                                                     >
                                                         <Trash2 size={16} />
                                                     </button>
                                                 </div>
-                                                <span className="text-[10px] font-black text-slate-300 uppercase italic">Ref: #{item._id.slice(-4)}</span>
+                                                <span className="text-[10px] font-black text-slate-300 uppercase italic">{group.variants.length} variant(s)</span>
                                             </div>
                                         </div>
                                     ))}
@@ -642,7 +870,7 @@ const Inventory = () => {
                                                 <div className="flex flex-wrap gap-1 max-w-xs">
                                                     {bill.items.map((item, idx) => (
                                                         <span key={idx} className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
-                                                            {item.itemId?.itemName} ({item.quantity})
+                                                            {getAllocatedItemDisplayName(item)} ({item.quantity})
                                                         </span>
                                                     ))}
                                                 </div>
@@ -770,23 +998,66 @@ const Inventory = () => {
             <Modal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
-                title={editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}
+                title={editingItem ? 'Edit Inventory Item / Variant' : 'Add New Item Variants'}
             >
                 <form onSubmit={handleItemSubmit} className="space-y-5">
                     <div>
-                        <label className="block text-xs font-black uppercase text-slate-400 mb-2 tracking-widest">Item Name</label>
+                        <label className="block text-xs font-black uppercase text-slate-400 mb-2 tracking-widest">Item Group / Category</label>
                         <input
                             required
                             type="text"
-                            placeholder="e.g. Engine Oil, Front Tire"
+                            placeholder="e.g. Mirror, Filter, Engine Oil"
+                            list="inventory-item-groups"
                             className="w-full px-4 py-3 rounded-md border border-slate-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium"
                             value={itemFormData.itemName}
                             onChange={(e) => setItemFormData({ ...itemFormData, itemName: e.target.value })}
                         />
+                        <datalist id="inventory-item-groups">
+                            {itemGroupOptions.map((name) => (
+                                <option key={name} value={name} />
+                            ))}
+                        </datalist>
+                        <p className="text-[11px] text-slate-400 mt-1 font-medium">Use this as the parent item name. Examples: Mirror, Filter, Tyre.</p>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-black uppercase text-slate-400 mb-2 tracking-widest">Variants</label>
+                        <div className="space-y-2">
+                            {itemFormData.variantNames.map((variant, index) => (
+                                <div key={index} className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        placeholder={index === 0 ? 'e.g. Left Mirror' : 'Another variant'}
+                                        className="flex-1 px-4 py-3 rounded-md border border-slate-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium"
+                                        value={variant}
+                                        onChange={(e) => updateVariantRow(index, e.target.value)}
+                                    />
+                                    {itemFormData.variantNames.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeVariantRow(index)}
+                                            className="px-3 rounded-md border border-red-100 text-red-500 hover:bg-red-50"
+                                            title="Remove variant"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                            <button
+                                type="button"
+                                onClick={addVariantRow}
+                                className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-blue-50 text-blue-700 text-xs font-black uppercase tracking-wide hover:bg-blue-100"
+                            >
+                                <Plus size={14} /> Add Variant
+                            </button>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1 font-medium">
+                            Add one row per variant. Leave all variants blank to keep only the item group.
+                        </p>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-black uppercase text-slate-400 mb-2 tracking-widest">Category</label>
+                            <label className="block text-xs font-black uppercase text-slate-400 mb-2 tracking-widest">Inventory Type</label>
                             <select
                                 required
                                 className="w-full px-4 py-3 rounded-md border border-slate-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium bg-white"
@@ -824,7 +1095,9 @@ const Inventory = () => {
                     </div>
                     <div className="flex gap-3 pt-4">
                         <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-3 rounded-md border border-slate-200 font-bold text-slate-600 hover:bg-slate-50 transition-all">Cancel</button>
-                        <button type="submit" className="flex-1 px-4 py-3 rounded-md bg-slate-900 text-white font-bold hover:bg-slate-800 transition-all shadow-lg active:scale-95">Save Item</button>
+                        <button type="submit" className="flex-1 px-4 py-3 rounded-md bg-slate-900 text-white font-bold hover:bg-slate-800 transition-all shadow-lg active:scale-95">
+                            {creatingMultipleVariants ? `Save ${filledVariantNames.length} Variants` : 'Save Item'}
+                        </button>
                     </div>
                 </form>
             </Modal>
@@ -926,28 +1199,45 @@ const Inventory = () => {
                                     <div key={index} className="relative p-6 bg-white rounded-lg border border-gray-200 shadow-sm transition-all mb-4 hover:border-blue-200">
                                         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
                                             {/* Item Selection */}
-                                            <div className="md:col-span-5">
-                                                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Select Item</label>
+                                            <div className="md:col-span-3">
+                                                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Select Category</label>
                                                 <select 
                                                     required 
                                                     className="w-full px-4 py-2 rounded border border-gray-200 bg-white text-sm font-medium text-gray-700 focus:border-blue-500 outline-none" 
-                                                    value={lineItem.itemId} 
-                                                    onChange={e => updateBillItem(index, 'itemId', e.target.value)}
+                                                    value={lineItem.itemGroup} 
+                                                    onChange={e => handleBillGroupChange(index, e.target.value)}
                                                 >
-                                                    <option value="">-- Choose Item --</option>
-                                                    {items.map(item => (
-                                                        <option key={item._id} value={item._id}>
-                                                            {item.itemName} ({item.category})
+                                                    <option value="">-- Choose Category --</option>
+                                                    {inventoryGroups.map(group => (
+                                                        <option key={group.key} value={group.itemName}>
+                                                            {group.itemName} ({group.category})
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            <div className="md:col-span-3">
+                                                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Select Variant</label>
+                                                <select
+                                                    className="w-full px-4 py-2 rounded border border-gray-200 bg-white text-sm font-medium text-gray-700 focus:border-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-400"
+                                                    value={lineItem.variantName}
+                                                    disabled={!lineItem.itemGroup}
+                                                    onChange={e => handleBillVariantChange(index, e.target.value)}
+                                                >
+                                                    <option value="">-- {lineItem.itemGroup ? 'No Variant / Base Item' : 'Choose Category First'} --</option>
+                                                    {(getGroupByName(lineItem.itemGroup)?.variants || []).map(variant => (
+                                                        <option key={variant.name} value={variant.name}>
+                                                            {variant.name}
                                                         </option>
                                                     ))}
                                                 </select>
                                             </div>
 
                                             {/* Qty & Price */}
-                                            <div className="md:col-span-7 grid grid-cols-2 gap-6">
+                                            <div className="md:col-span-6 grid grid-cols-2 gap-6">
                                                 <div>
                                                     <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
-                                                        Quantity {lineItem.itemId && `(${items.find(i => i._id === lineItem.itemId)?.unit || 'Pcs'})`}
+                                                        Quantity {lineItem.itemId && `(${getSelectedInventoryItem(lineItem)?.unit || 'Pcs'})`}
                                                     </label>
                                                     <input 
                                                         required type="number" min="1" 
@@ -979,7 +1269,7 @@ const Inventory = () => {
                                         </div>
 
                                         {/* Tyre Details */}
-                                        {lineItem.itemId && items.find(i => i._id === lineItem.itemId)?.category === 'Tires' && (
+                                        {lineItem.itemId && getSelectedInventoryItem(lineItem)?.category === 'Tires' && (
                                             <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded border border-gray-100 italic">
                                                 <div>
                                                     <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase">Position</label>
@@ -1045,53 +1335,63 @@ const Inventory = () => {
                                     <Plus size={16} /> Add Another Item Row
                                 </button>
                             </div>
+                            <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">Total Amount</p>
+                                    <p className="text-2xl font-black text-blue-700 italic">₹{calculateGrandTotal()}</p>
+                                </div>
+                                <button
+                                    type="submit"
+                                    className="md:w-64 bg-blue-600 text-white font-black py-4 rounded hover:bg-blue-700 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 uppercase text-xs tracking-widest"
+                                >
+                                    <Truck size={18} /> Raise Bill
+                                </button>
+                            </div>
                         </div>
 
-                        {/* Right Side: Invoice Summary (Preview) */}
+                        {/* Right Side: Selected Bus Item History */}
                         <div className="lg:col-span-4 sticky top-0 space-y-6">
                             <div className="bg-white rounded-lg border-2 border-blue-600 shadow-lg overflow-hidden flex flex-col h-full max-h-[70vh]">
                                 <div className="bg-blue-600 text-white p-4">
                                     <h3 className="text-xs font-black uppercase tracking-[0.2em] flex items-center gap-2">
-                                        <History size={16} className="text-white/80" /> Invoice Summary
+                                        <History size={16} className="text-white/80" /> Bus Item History
                                     </h3>
+                                    <p className="text-[10px] text-blue-100 mt-1 font-semibold">
+                                        {billFormData.busId ? `Bus ${billFormData.busId}` : 'Select a bus to view assignment history'}
+                                    </p>
                                 </div>
                                 <div className="flex-1 p-6 overflow-y-auto space-y-4">
-                                    {billFormData.items.map((line, idx) => {
-                                        const item = items.find(i => i._id === line.itemId);
-                                        if (!item && !line.itemId) return null;
-                                        return (
-                                            <div key={idx} className="flex justify-between items-start gap-4 border-b border-gray-100 pb-3">
-                                                <div className="flex-1">
-                                                    <div className="text-xs font-bold text-gray-800 truncate" title={item?.itemName}>{item?.itemName || 'Unselected Item'}</div>
-                                                    <div className="text-[10px] text-gray-400 flex items-center gap-1 mt-1">
-                                                        <span>{line.quantity} {item?.unit || 'Pcs'}</span>
-                                                        <span>•</span>
-                                                        <span>₹{line.price || 0}</span>
+                                    {!billFormData.busId ? (
+                                        <div className="py-12 text-center text-gray-300 italic text-xs">
+                                            Choose a bus first.
+                                        </div>
+                                    ) : getSelectedBillHistory().length > 0 ? (
+                                        getSelectedBillHistory().map((record) => (
+                                            <div key={record._id} className="border-b border-gray-100 pb-3">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs font-black text-gray-800 truncate" title={getAllocatedItemDisplayName(record)}>
+                                                            {getAllocatedItemDisplayName(record)}
+                                                        </p>
+                                                        <p className="text-[10px] text-gray-400 mt-1 font-semibold">
+                                                            {new Date(record.allocatedDate).toLocaleDateString()} · Bill #{record.billNo || 'N/A'}
+                                                        </p>
+                                                        {record.remarks && (
+                                                            <p className="text-[10px] text-gray-500 mt-1 italic line-clamp-2">{record.remarks}</p>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-right shrink-0">
+                                                        <p className="text-xs font-black text-blue-700">{record.quantity} {record.itemId?.unit || 'Pcs'}</p>
+                                                        <p className="text-[10px] text-gray-400">₹{record.price || 0}</p>
                                                     </div>
                                                 </div>
-                                                <div className="text-xs font-black text-blue-700">
-                                                    ₹{line.quantity * (line.price || 0)}
-                                                </div>
                                             </div>
-                                        );
-                                    })}
-                                    {billFormData.items.every(i => !i.itemId) && (
+                                        ))
+                                    ) : (
                                         <div className="py-12 text-center text-gray-300 italic text-xs">
-                                            No items added yet to the invoice.
+                                            No previous assignment history for this bus.
                                         </div>
                                     )}
-                                </div>
-                                <div className="p-6 bg-blue-50/50 border-t border-blue-100">
-                                    <div className="flex justify-between items-center mb-4">
-                                        <span className="text-[10px] font-black uppercase text-blue-400 tracking-widest">Total Amount</span>
-                                        <span className="text-2xl font-black text-blue-700 italic">₹{calculateGrandTotal()}</span>
-                                    </div>
-                                    <button 
-                                        type="submit" 
-                                        className="w-full bg-blue-600 text-white font-black py-4 rounded hover:bg-blue-700 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 uppercase text-xs tracking-widest"
-                                    >
-                                        <Truck size={18} /> Submit Invoice
-                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -1099,9 +1399,67 @@ const Inventory = () => {
                 </form>
             </Modal>
 
+            <Modal
+                isOpen={isBillSuccessModalOpen}
+                onClose={() => {
+                    setIsBillSuccessModalOpen(false);
+                    setPrintBill(null);
+                }}
+                title={printBill?.error ? 'Bill Not Raised' : 'Bill Raised Successfully'}
+                maxWidth="max-w-md"
+            >
+                {printBill?.error ? (
+                    <div className="space-y-4">
+                        <div className="p-4 rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm font-semibold">
+                            {printBill.error}
+                        </div>
+                        <div className="flex justify-end">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsBillSuccessModalOpen(false);
+                                    setPrintBill(null);
+                                }}
+                                className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-bold hover:bg-slate-800"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-5">
+                        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+                            <p className="text-sm font-black text-emerald-800">Bill raised and assigned to bus successfully.</p>
+                            <p className="text-xs text-emerald-700 mt-1">
+                                Bill #{printBill?.billNo || 'N/A'} · Total ₹{printBill?.totalAmount || 0}
+                            </p>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <button
+                                type="button"
+                                onClick={() => handlePrint(printBill)}
+                                className="flex-1 px-4 py-3 rounded-xl bg-blue-600 text-white text-sm font-black hover:bg-blue-700 flex items-center justify-center gap-2"
+                            >
+                                <Printer size={16} /> Print Bill
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsBillSuccessModalOpen(false);
+                                    setPrintBill(null);
+                                }}
+                                className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
             {/* Hidden Print Area */}
             <div className="hidden print:block absolute top-0 left-0 w-full">
-                {printBill && (
+                {printBill && !printBill.error && (
                     <div id="print-container">
                         <BillPrint 
                             billData={printBill} 

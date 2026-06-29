@@ -4,10 +4,34 @@ const Bus = require('../models/Bus');
 const Vendor = require('../models/Vendor');
 const TyreRegistry = require('../models/TyreRegistry');
 
+const normalizeInventoryItemPayload = ({ itemName, variantName, variantNames, variants, category, unit, description }) => ({
+    itemName: String(itemName || '').trim(),
+    variantName: String(variantName || '').trim(),
+    variants: normalizeVariantList({ variantNames, variants, variantName }).map((name) => ({ name })),
+    category: String(category || 'General').trim() || 'General',
+    unit: String(unit || 'Pcs').trim() || 'Pcs',
+    description: String(description || '').trim()
+});
+
+function normalizeVariantList({ variantNames, variants, variantName }) {
+    const values = Array.isArray(variants)
+        ? variants.map((variant) => typeof variant === 'string' ? variant : variant?.name)
+        : Array.isArray(variantNames)
+        ? variantNames
+        : String(variantNames || variantName || '')
+            .split(/\r?\n|,/);
+
+    return [...new Set(
+        values
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+    )];
+}
+
 // Master Inventory
 exports.getItems = async (req, res) => {
     try {
-        const items = await InventoryItem.find().sort({ itemName: 1 });
+        const items = await InventoryItem.find().sort({ itemName: 1, variantName: 1 });
         res.status(200).json(items);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching inventory items', error: error.message });
@@ -16,8 +40,15 @@ exports.getItems = async (req, res) => {
 
 exports.createItem = async (req, res) => {
     try {
-        const { itemName, category, unit, description } = req.body;
-        const newItem = new InventoryItem({ itemName, category, unit, description });
+        const payload = normalizeInventoryItemPayload(req.body);
+        if (!payload.itemName) {
+            return res.status(400).json({ message: 'Item group / category is required' });
+        }
+        if (payload.variants.length > 0) {
+            payload.variantName = '';
+        }
+
+        const newItem = new InventoryItem(payload);
         await newItem.save();
         res.status(201).json({ message: 'Item created successfully', item: newItem });
     } catch (error) {
@@ -28,8 +59,14 @@ exports.createItem = async (req, res) => {
 exports.updateItem = async (req, res) => {
     try {
         const { id } = req.params;
-        const { itemName, category, unit, description } = req.body;
-        const updatedItem = await InventoryItem.findByIdAndUpdate(id, { itemName, category, unit, description }, { new: true });
+        const payload = normalizeInventoryItemPayload(req.body);
+        if (!payload.itemName) {
+            return res.status(400).json({ message: 'Item group / category is required' });
+        }
+        if (payload.variants.length > 0) {
+            payload.variantName = '';
+        }
+        const updatedItem = await InventoryItem.findByIdAndUpdate(id, payload, { new: true });
         if (!updatedItem) return res.status(404).json({ message: 'Item not found' });
         res.status(200).json({ message: 'Item updated successfully', item: updatedItem });
     } catch (error) {
@@ -97,7 +134,7 @@ exports.raiseBill = async (req, res) => {
 
         for (const lineItem of items) {
             const { 
-                itemIds, quantity, price, remarks, 
+                itemIds, quantity, price, remarks, variantName,
                 tyrePosition, kmReading, tyreType 
             } = lineItem;
             
@@ -110,6 +147,7 @@ exports.raiseBill = async (req, res) => {
                 const allocation = new InventoryAllocation({
                     busId: bus._id,
                     itemId,
+                    variantName: variantName || '',
                     vendorId,
                     billNo, // Add Bill Number
                     quantity: quantity || 1,
@@ -123,7 +161,7 @@ exports.raiseBill = async (req, res) => {
                 await allocation.save();
 
                 // If it's a tyre, update Registry
-                if (item.category === 'Tires' && tyrePosition) {
+                if ((item.category === 'Tires' || item.itemName === 'Tires') && tyrePosition) {
                     await TyreRegistry.updateMany(
                         { busId: bus._id, position: tyrePosition, status: 'Active' },
                         { status: 'Replaced' }
@@ -132,7 +170,7 @@ exports.raiseBill = async (req, res) => {
                     const registryEntry = new TyreRegistry({
                         busId: bus._id,
                         position: tyrePosition,
-                        tyreType: tyreType || (item.itemName.toLowerCase().includes('old') ? 'old tyre' : 'new tyre'),
+                        tyreType: tyreType || (`${item.itemName} ${variantName || item.variantName || ''}`.toLowerCase().includes('old') ? 'old tyre' : 'new tyre'),
                         installKm: kmReading || 0,
                         status: 'Active'
                     });
@@ -163,7 +201,7 @@ exports.getHistory = async (req, res) => {
         }
 
         const history = await InventoryAllocation.find(query)
-            .populate('itemId', 'itemName category unit')
+            .populate('itemId', 'itemName variantName variants category unit')
             .populate('busId', 'busNumber type')
             .populate('vendorId', 'name')
             .sort({ allocatedDate: -1 });

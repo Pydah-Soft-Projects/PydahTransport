@@ -1,105 +1,104 @@
 import React from 'react';
 
+const getItemDisplayName = (item) => {
+    if (!item) return 'General Part';
+    return item.variantName ? `${item.itemName} - ${item.variantName}` : item.itemName;
+};
+
+const getAllocatedItemDisplayName = (allocation) => {
+    if (!allocation?.itemId) return 'General Part';
+    return allocation.variantName
+        ? `${allocation.itemId.itemName} - ${allocation.variantName}`
+        : getItemDisplayName(allocation.itemId);
+};
+
 const BillPrint = ({ billData, vendor, bus }) => {
     if (!billData || !billData.items || billData.items.length === 0) return null;
 
-    const totalAmount = billData.totalAmount;
+    const totalAmount = Number(billData.totalAmount || 0);
     const formattedDate = new Date(billData.date).toLocaleDateString('en-IN', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric'
     });
+    const vehicleNumber = bus?.busNumber || billData.items[0]?.busId?.busNumber || billData.busId?.busNumber || billData.busId || 'N/A';
+    const vendorName = vendor?.name || billData.vendorId?.name || 'Generic Vendor';
+    const vendorAddress = vendor?.address || billData.vendorId?.address || 'Address not provided';
+    const vendorPhone = vendor?.phone || billData.vendorId?.phone || null;
 
     return (
         <div id="printable-bill" className="bg-white text-black font-sans max-w-5xl mx-auto p-10 min-h-screen">
-            {/* Header */}
-            <div className="text-center mb-10 border-b-2 border-black pb-6">
-                <h1 className="text-3xl font-bold uppercase tracking-widest">Pydah Transport Bills</h1>
-                <p className="text-sm mt-2 font-semibold italic underline">Vehicle Maintenance & Spares Invoice</p>
+            <div className="text-center border-b-2 border-black pb-4 mb-6">
+                <h1 className="text-2xl font-bold uppercase tracking-wide">Pydah Transport</h1>
+                <p className="text-sm font-semibold mt-1">Vehicle Maintenance & Spares Bill</p>
             </div>
 
-            {/* Bill Info */}
-            <div className="grid grid-cols-2 gap-8 mb-10 text-sm">
-                <div className="border border-black p-4 space-y-2">
-                    <div className="font-bold border-b border-black pb-1 mb-2">VEHICLE DETAILS</div>
-                    <div><span className="font-bold">Bus Number:</span> {bus?.busNumber || billData.items[0]?.busId?.busNumber || 'N/A'}</div>
-                    <div><span className="font-bold">Bill Number:</span> #{billData.billNo || 'N/A'}</div>
-                    <div><span className="font-bold">Date:</span> {formattedDate}</div>
+            <div className="grid grid-cols-2 gap-6 mb-6 text-sm">
+                <div className="space-y-1">
+                    <p><span className="font-bold">Bill No:</span> #{billData.billNo || 'N/A'}</p>
+                    <p><span className="font-bold">Date:</span> {formattedDate}</p>
+                    <p><span className="font-bold">Bus No:</span> {vehicleNumber}</p>
                 </div>
-                <div className="border border-black p-4 space-y-2">
-                    <div className="font-bold border-b border-black pb-1 mb-2">VENDOR DETAILS</div>
-                    <div className="font-bold">{vendor?.name || 'GENERIC VENDOR'}</div>
-                    <div className="text-xs uppercase">{vendor?.address || 'Address Not Provided'}</div>
-                    {vendor?.phone && <div className="text-xs font-bold">Ph: {vendor.phone}</div>}
+                <div className="space-y-1">
+                    <p><span className="font-bold">Vendor:</span> {vendorName}</p>
+                    <p><span className="font-bold">Address:</span> {vendorAddress}</p>
+                    {vendorPhone && <p><span className="font-bold">Phone:</span> {vendorPhone}</p>}
                 </div>
             </div>
 
-            {/* Table */}
-            <table className="w-full border-collapse border border-black mb-10 text-sm">
+            <table className="w-full border-collapse border border-black text-sm">
                 <thead>
-                    <tr className="bg-gray-100 border-b border-black">
-                        <th className="border border-black p-2 text-center w-12 text-xs">SL.</th>
-                        <th className="border border-black p-2 text-left text-xs">DESCRIPTION OF SPARES / SERVICES</th>
-                        <th className="border border-black p-2 text-center w-24 text-xs">QUANTITY</th>
-                        <th className="border border-black p-2 text-right w-32 text-xs">UNIT PRICE</th>
-                        <th className="border border-black p-2 text-right w-32 text-xs">AMOUNT (₹)</th>
+                    <tr className="bg-gray-100">
+                        <th className="border border-black p-2 text-center w-12">S.No</th>
+                        <th className="border border-black p-2 text-left">Item Details</th>
+                        <th className="border border-black p-2 text-center w-24">Qty</th>
+                        <th className="border border-black p-2 text-right w-28">Rate</th>
+                        <th className="border border-black p-2 text-right w-32">Amount</th>
                     </tr>
                 </thead>
                 <tbody>
                     {billData.items.map((item, index) => (
-                        <tr key={index} className="border-b border-black">
+                        <tr key={index} className="align-top">
                             <td className="border border-black p-2 text-center">{index + 1}</td>
                             <td className="border border-black p-2">
-                                <div className="font-bold uppercase leading-tight">{item.itemId?.itemName || 'General Part'}</div>
-                                <div className="text-[10px] uppercase font-semibold mt-1 opacity-70 italic">Category: {item.itemId?.category}</div>
+                                <div className="font-bold">{getAllocatedItemDisplayName(item)}</div>
+                                <div className="text-xs mt-1">Category: {item.itemId?.category || 'General'} | Unit: {item.itemId?.unit || 'Pcs'}</div>
                                 {item.tyrePosition && item.itemId?.category === 'Tires' && (
-                                    <div className="text-[10px] font-bold mt-1 uppercase">Pos: {item.tyrePosition} | Reading: {item.kmReading} KM</div>
+                                    <div className="text-xs mt-1">Tyre Position: {item.tyrePosition} | Reading: {item.kmReading || 0} KM</div>
                                 )}
                                 {item.remarks && (
-                                    <div className="text-[10px] mt-1 border-t border-dotted border-black/20 pt-1 italic max-w-sm">Note: {item.remarks}</div>
+                                    <div className="text-xs mt-1 italic">Remarks: {item.remarks}</div>
                                 )}
                             </td>
-                            <td className="border border-black p-2 text-center font-semibold">
-                                {item.quantity} {item.itemId?.unit || 'Pcs'}
-                            </td>
-                            <td className="border border-black p-2 text-right font-semibold">
-                                {item.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            <td className="border border-black p-2 text-center">{item.quantity} {item.itemId?.unit || 'Pcs'}</td>
+                            <td className="border border-black p-2 text-right">
+                                ₹{Number(item.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </td>
                             <td className="border border-black p-2 text-right font-bold">
-                                {(item.quantity * item.price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                ₹{(Number(item.quantity || 0) * Number(item.price || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </td>
-                        </tr>
-                    ))}
-                    {/* Filler Rows for look */}
-                    {[...Array(Math.max(0, 5 - billData.items.length))].map((_, i) => (
-                        <tr key={`filler-${i}`} className="border-b border-black h-8">
-                            <td className="border border-black p-2"></td>
-                            <td className="border border-black p-2"></td>
-                            <td className="border border-black p-2"></td>
-                            <td className="border border-black p-2"></td>
-                            <td className="border border-black p-2"></td>
                         </tr>
                     ))}
                 </tbody>
                 <tfoot>
-                    <tr className="font-bold">
-                        <td colSpan="4" className="border border-black p-2 text-right uppercase tracking-widest text-xs">Grand Total</td>
-                        <td className="border border-black p-2 text-right text-base">
+                    <tr>
+                        <td colSpan="4" className="border border-black p-2 text-right font-bold">Grand Total</td>
+                        <td className="border border-black p-2 text-right font-bold">
                             ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </td>
                     </tr>
                 </tfoot>
             </table>
 
-            {/* Footer Signatures */}
-            <div className="mt-auto pt-16 grid grid-cols-3 gap-10 text-center text-xs font-bold uppercase tracking-widest">
-                <div className="border-t border-black pt-2">Receiver's Signature</div>
-                <div className="border-t border-black pt-2">Fleet Manager</div>
-                <div className="border-t border-black pt-2">Authorized Signatory</div>
+            <div className="mt-8 text-xs">
+                <p><span className="font-bold">Raised By:</span> {billData.adminName || 'Admin'}</p>
+                <p className="mt-1">Items listed above were allocated to the mentioned vehicle for maintenance/spares usage.</p>
             </div>
 
-            <div className="mt-8 text-center text-[10px] opacity-50 uppercase font-semibold border-t border-black pt-4">
-                This is a computer generated document. Physical seal and sign required for validation.
+            <div className="mt-16 grid grid-cols-3 gap-10 text-center text-xs font-bold">
+                <div className="border-t border-black pt-2">Receiver Signature</div>
+                <div className="border-t border-black pt-2">Fleet Manager</div>
+                <div className="border-t border-black pt-2">Authorized Signatory</div>
             </div>
 
             {/* Simple Print Styles */}
@@ -127,9 +126,11 @@ const BillPrint = ({ billData, vendor, bus }) => {
                         margin: 0 !important; 
                         padding: 0 !important;
                     }
-                    /* Ensure borders and header backgrounds print */
-                    table, th, td { border: 1px solid black !important; }
-                    .bg-gray-100 { background-color: #f3f4f6 !important; -webkit-print-color-adjust: exact; }
+                    * {
+                        -webkit-print-color-adjust: exact !important;
+                        print-color-adjust: exact !important;
+                    }
+                    table, th, td { border-color: #94a3b8 !important; }
                 `}
             </style>
         </div>

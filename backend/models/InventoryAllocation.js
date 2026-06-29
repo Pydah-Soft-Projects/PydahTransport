@@ -11,6 +11,11 @@ const inventoryAllocationSchema = new mongoose.Schema({
         ref: 'InventoryItem',
         required: true
     },
+    variantName: {
+        type: String,
+        trim: true,
+        default: ''
+    },
     vendorId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Vendor'

@@ -14,6 +14,18 @@ import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academi
 
 const API = API_BASE;
 
+const getInventoryItemName = (item) => {
+    if (!item) return 'Deleted Item';
+    return item.variantName ? `${item.itemName} - ${item.variantName}` : item.itemName;
+};
+
+const getInventoryAllocationItemName = (record) => {
+    if (!record?.itemId) return 'Deleted Item';
+    return record.variantName
+        ? `${record.itemId.itemName} - ${record.variantName}`
+        : getInventoryItemName(record.itemId);
+};
+
 const formatFare = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 
 const FareDisplay = ({ passenger }) => {
@@ -691,7 +703,7 @@ const BusDetails = () => {
                                                         <td className="px-6 py-4">
                                                             <div className="flex items-center gap-2">
                                                                 <Package size={14} className="text-blue-400" />
-                                                                <span className="font-bold text-gray-800 text-sm">{record.itemId?.itemName || 'Deleted Item'}</span>
+                                                                <span className="font-bold text-gray-800 text-sm">{getInventoryAllocationItemName(record)}</span>
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4">
