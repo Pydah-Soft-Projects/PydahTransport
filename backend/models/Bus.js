@@ -40,6 +40,11 @@ const busSchema = new mongoose.Schema({
         type: String,
         default: null
     },
+    campus: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Campus',
+        default: null
+    },
     taxes: [{
         taxHeader: {
             type: String,

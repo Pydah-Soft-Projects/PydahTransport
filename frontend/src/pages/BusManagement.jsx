@@ -44,6 +44,8 @@ const BusManagement = () => {
 
     const [buses, setBuses] = useState([]);
     const [routes, setRoutes] = useState([]);
+    const [campuses, setCampuses] = useState([]);
+    const [selectedCampusFilter, setSelectedCampusFilter] = useState('');
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState(null);
@@ -60,8 +62,9 @@ const BusManagement = () => {
         capacity: '',
         type: 'Standard',
         vehicleModel: '',
-        registrationDate: todayDateInput(),
-        status: 'Active'
+        registrationDate: '',
+        status: 'Active',
+        campus: ''
     });
     const [isTaxesModalOpen, setIsTaxesModalOpen] = useState(false);
     const [selectedBusForTaxes, setSelectedBusForTaxes] = useState(null);
@@ -188,6 +191,16 @@ const BusManagement = () => {
         }
     };
 
+    const fetchCampuses = async () => {
+        try {
+            const response = await apiFetch(`${API}/campuses`);
+            const data = await response.json();
+            setCampuses(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error('Error fetching campuses:', error);
+        }
+    };
+
     const fetchTaxHeaders = async () => {
         setTaxHeadersLoading(true);
         try {
@@ -208,7 +221,29 @@ const BusManagement = () => {
         loadDrivers();
         loadCleaners();
         fetchTaxHeaders();
+        fetchCampuses();
     }, []);
+
+    const filteredBuses = selectedCampusFilter
+        ? buses.filter((bus) => {
+            const bCampusId = bus.campus?._id || bus.campus;
+            return bCampusId === selectedCampusFilter;
+        })
+        : buses;
+
+    const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+    const userCampuses = adminInfo.campuses || [];
+    const isSuperAdmin = adminInfo.roles && adminInfo.roles.includes('superadmin');
+
+    const allowedCampuses = isSuperAdmin
+        ? campuses
+        : campuses.filter(c => userCampuses.includes(c._id));
+
+    useEffect(() => {
+        if (campuses.length > 0 && !isSuperAdmin && userCampuses.length === 1) {
+            setSelectedCampusFilter(userCampuses[0]);
+        }
+    }, [campuses]);
 
     const buildStaffDraft = (bus) => ({
         driverName: bus.driverName || '',
@@ -313,11 +348,11 @@ const BusManagement = () => {
     };
 
     const formatDateForInput = (value) => {
-        if (!value) return todayDateInput();
+        if (!value) return '';
         try {
             return new Date(value).toISOString().slice(0, 10);
         } catch {
-            return todayDateInput();
+            return '';
         }
     };
 
@@ -329,7 +364,8 @@ const BusManagement = () => {
             type: bus.type,
             vehicleModel: bus.vehicleModel || '',
             registrationDate: formatDateForInput(bus.registrationDate),
-            status: bus.status
+            status: bus.status,
+            campus: bus.campus?._id || bus.campus || ''
         });
         setEditingId(bus._id);
         setIsModalOpen(true);
@@ -363,8 +399,9 @@ const BusManagement = () => {
             capacity: '',
             type: 'Standard',
             vehicleModel: '',
-            registrationDate: todayDateInput(),
-            status: 'Active'
+            registrationDate: '',
+            status: 'Active',
+            campus: ''
         });
     };
 
@@ -671,26 +708,43 @@ const BusManagement = () => {
 
     return (
         <Layout>
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
                 <div>
                     <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Bus Management</h2>
                     <p className="text-slate-600 mt-1">Manage buses, routes, and staff assignments.</p>
                 </div>
-                <div className="flex gap-2">
-                    <button
-                        onClick={() => setIsModalOpen(true)}
-                        className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
-                    >
-                        <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
-                        Add New Bus
-                    </button>
-                    <button
-                        onClick={() => handleOpenTaxHeaderModal()}
-                        className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
-                    >
-                        <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
-                        Add Tax Header
-                    </button>
+                <div className="flex flex-wrap items-center gap-3">
+                    {(activeTab === TABS.buses || activeTab === TABS.mapping || activeTab === TABS.staffMapping) && allowedCampuses.length > 1 && (
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Campus</label>
+                            <select
+                                value={selectedCampusFilter}
+                                onChange={(e) => setSelectedCampusFilter(e.target.value)}
+                                className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 min-w-[150px]"
+                            >
+                                <option value="">All Campuses</option>
+                                {allowedCampuses.map((campus) => (
+                                    <option key={campus._id} value={campus._id}>{campus.name} ({campus.code})</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                    <div className="flex gap-2 self-end lg:self-auto">
+                        <button
+                            onClick={() => setIsModalOpen(true)}
+                            className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
+                        >
+                            <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
+                            Add New Bus
+                        </button>
+                        <button
+                            onClick={() => handleOpenTaxHeaderModal()}
+                            className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
+                        >
+                            <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
+                            Add Tax Header
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -748,6 +802,8 @@ const BusManagement = () => {
                         </div>
                     ) : buses.length === 0 ? (
                         <div className="p-12 text-center text-slate-500">No buses available. Add buses in the Buses tab first.</div>
+                    ) : filteredBuses.length === 0 ? (
+                        <div className="p-12 text-center text-slate-500">No buses found matching the selected campus.</div>
                     ) : (
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
@@ -760,7 +816,7 @@ const BusManagement = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {buses.map((bus) => {
+                                    {filteredBuses.map((bus) => {
                                         const draft = routeDrafts[bus._id] || buildRouteDraft(bus);
                                         const routeChanged = hasRouteDraftChanges(bus);
                                         const previousRouteId = bus.assignedRouteId || '';
@@ -867,6 +923,8 @@ const BusManagement = () => {
                         </div>
                     ) : buses.length === 0 ? (
                         <div className="p-12 text-center text-slate-500">No buses available. Add buses in the Buses tab first.</div>
+                    ) : filteredBuses.length === 0 ? (
+                        <div className="p-12 text-center text-slate-500">No buses found matching the selected campus.</div>
                     ) : (
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
@@ -879,7 +937,7 @@ const BusManagement = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {buses.map((bus) => {
+                                    {filteredBuses.map((bus) => {
                                         const draft = staffDrafts[bus._id] || buildStaffDraft(bus);
                                         const hasChanges = hasStaffDraftChanges(bus);
                                         const driverChanged = normalizeStaffName(draft.driverName) !== normalizeStaffName(bus.driverName);
@@ -1196,6 +1254,16 @@ const BusManagement = () => {
                                 Add your first bus
                             </button>
                         </div>
+                    ) : filteredBuses.length === 0 ? (
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col items-center justify-center py-20 px-4 text-center">
+                            <div className="bg-slate-50 p-6 rounded-full mb-6">
+                                <Bus size={48} className="text-slate-400" />
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-800 mb-2">No Buses Found</h3>
+                            <p className="text-slate-500 max-w-md mx-auto">
+                                There are no buses matching the selected campus.
+                            </p>
+                        </div>
                     ) : (
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
                             <div className="overflow-x-auto w-full">
@@ -1215,7 +1283,7 @@ const BusManagement = () => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {buses.map((bus) => (
+                                        {filteredBuses.map((bus) => (
                                             <tr
                                                 key={bus._id}
                                                 onClick={() => navigate(`/buses/${bus._id}`)}
@@ -1225,6 +1293,13 @@ const BusManagement = () => {
                                                     <div>
                                                         <p className="font-bold text-slate-800 text-sm">{bus.busNumber}</p>
                                                         <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">{bus.type}</p>
+                                                        {bus.campus && (
+                                                            <div className="mt-1">
+                                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                                                    {bus.campus.name || bus.campus}
+                                                                </span>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </td>
                                                 <td className="px-4 py-3 text-sm text-slate-600">
@@ -1334,7 +1409,16 @@ const BusManagement = () => {
                     </div>
                     <div>
                         <label className="block text-sm font-semibold text-slate-700 mb-1.5">Date of Registration</label>
-                        <input type="date" name="registrationDate" required value={formData.registrationDate} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" />
+                        <input type="date" name="registrationDate" value={formData.registrationDate} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">Campus</label>
+                        <select name="campus" value={formData.campus} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-white">
+                            <option value="">Select Campus</option>
+                            {allowedCampuses.map((c) => (
+                                <option key={c._id} value={c._id}>{c.name} ({c.code})</option>
+                            ))}
+                        </select>
                     </div>
                     <div>
                         <label className="block text-sm font-semibold text-slate-700 mb-1.5">Status</label>

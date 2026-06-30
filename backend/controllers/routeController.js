@@ -26,8 +26,8 @@ const getRoutes = async (req, res) => {
         
         let query = {};
         if (req.user) {
-            const isSuperAdminOrAdmin = req.user.roles && (req.user.roles.includes('superadmin') || req.user.roles.includes('admin'));
-            if (!isSuperAdminOrAdmin && req.user.campuses && req.user.campuses.length > 0) {
+            const isSuperAdmin = req.user.roles && req.user.roles.includes('superadmin');
+            if (!isSuperAdmin && req.user.campuses && req.user.campuses.length > 0) {
                 query.campus = { $in: req.user.campuses };
             }
         }

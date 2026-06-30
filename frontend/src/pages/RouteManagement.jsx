@@ -283,6 +283,20 @@ const RouteManagement = () => {
         })
         : routes;
 
+    const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+    const userCampuses = adminInfo.campuses || [];
+    const isSuperAdmin = adminInfo.roles && adminInfo.roles.includes('superadmin');
+
+    const allowedCampuses = isSuperAdmin
+        ? campuses
+        : campuses.filter(c => userCampuses.includes(c._id));
+
+    useEffect(() => {
+        if (campuses.length > 0 && !isSuperAdmin && userCampuses.length === 1) {
+            setSelectedCampusFilter(userCampuses[0]);
+        }
+    }, [campuses]);
+
     return (
         <Layout>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
@@ -291,19 +305,21 @@ const RouteManagement = () => {
                     <p className="text-slate-600 mt-1">Design routes, manage stages, and set fares per academic year.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                    <div>
-                        <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Campus</label>
-                        <select
-                            value={selectedCampusFilter}
-                            onChange={(e) => setSelectedCampusFilter(e.target.value)}
-                            className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 min-w-[150px]"
-                        >
-                            <option value="">All Campuses</option>
-                            {campuses.map((campus) => (
-                                <option key={campus._id} value={campus._id}>{campus.name} ({campus.code})</option>
-                            ))}
-                        </select>
-                    </div>
+                    {allowedCampuses.length > 1 && (
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Campus</label>
+                            <select
+                                value={selectedCampusFilter}
+                                onChange={(e) => setSelectedCampusFilter(e.target.value)}
+                                className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 min-w-[150px]"
+                            >
+                                <option value="">All Campuses</option>
+                                {allowedCampuses.map((campus) => (
+                                    <option key={campus._id} value={campus._id}>{campus.name} ({campus.code})</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                     <div>
                         <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Academic Year</label>
                         <select
@@ -532,7 +548,7 @@ const RouteManagement = () => {
                                 className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-white"
                             >
                                 <option value="">Select Campus (Optional)</option>
-                                {campuses.map(campus => (
+                                {allowedCampuses.map(campus => (
                                     <option key={campus._id} value={campus._id}>
                                         {campus.name} ({campus.code})
                                     </option>

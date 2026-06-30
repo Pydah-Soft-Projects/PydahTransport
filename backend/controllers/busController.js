@@ -141,13 +141,13 @@ const recordStaffHistory = async (bus, role, change, changedBy) => {
 // @access  Private/Admin
 const getBusDetails = async (req, res) => {
     try {
-        const bus = await Bus.findById(req.params.id);
+        const bus = await Bus.findById(req.params.id).populate('campus');
         if (!bus) {
             return res.status(404).json({ message: 'Bus not found' });
         }
         let route = null;
         if (bus.assignedRouteId) {
-            route = await Route.findOne({ routeId: bus.assignedRouteId });
+            route = await Route.findOne({ routeId: bus.assignedRouteId }).populate('campus');
         }
         let mysqlPassengers = [];
         const academicYear = resolveAcademicYear(req.query);
@@ -258,9 +258,16 @@ const getBusDetails = async (req, res) => {
 // @access  Public
 const getBusesOverview = async (req, res) => {
     try {
-        const buses = await Bus.find().lean();
+        let query = {};
+        if (req.user) {
+            const isSuperAdmin = req.user.roles && req.user.roles.includes('superadmin');
+            if (!isSuperAdmin && req.user.campuses && req.user.campuses.length > 0) {
+                query.campus = { $in: req.user.campuses };
+            }
+        }
+        const buses = await Bus.find(query).lean();
         const routeIds = [...new Set(buses.map((b) => b.assignedRouteId).filter(Boolean))];
-        const routes = await Route.find({ routeId: { $in: routeIds } }).lean();
+        const routes = await Route.find({ routeId: { $in: routeIds } }).populate('campus').lean();
         const routeMap = Object.fromEntries(routes.map((r) => [r.routeId, r]));
 
         const academicYear = resolveAcademicYear(req.query);
@@ -405,7 +412,14 @@ const autoAllocate = async (req, res) => {
 // @access  Public
 const getBuses = async (req, res) => {
     try {
-        const buses = await Bus.find();
+        let query = {};
+        if (req.user) {
+            const isSuperAdmin = req.user.roles && req.user.roles.includes('superadmin');
+            if (!isSuperAdmin && req.user.campuses && req.user.campuses.length > 0) {
+                query.campus = { $in: req.user.campuses };
+            }
+        }
+        const buses = await Bus.find(query).populate('campus');
         res.json(buses);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -445,6 +459,7 @@ const updateBus = async (req, res) => {
         bus.type = req.body.type || bus.type;
         bus.amenities = req.body.amenities || bus.amenities;
         bus.status = req.body.status || bus.status;
+        bus.campus = req.body.campus !== undefined ? (req.body.campus || null) : bus.campus;
 
         if (req.body.vehicleModel !== undefined) {
             bus.vehicleModel = req.body.vehicleModel;
