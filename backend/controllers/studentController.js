@@ -2,6 +2,39 @@ const { mysqlPool } = require('../config/db');
 const { getDefaultAcademicYear, resolveAcademicYear } = require('./transportRequestController');
 const { resolveStudentPhoto } = require('../utils/studentPhoto');
 const { validateStudentAcademicContext } = require('../utils/studentAcademicValidation');
+const { getCollegesForCampuses } = require('./campusController');
+
+const getRestrictedCollegesForUser = async (user, selectedCampusId = null) => {
+    const isSuperAdmin = user && user.roles && user.roles.includes('superadmin');
+    if (isSuperAdmin) return null;
+
+    let campusIds = [];
+    if (selectedCampusId) {
+        campusIds = [selectedCampusId];
+    } else if (user && user.campuses && user.campuses.length > 0) {
+        campusIds = user.campuses;
+    }
+
+    let campusColleges = [];
+    if (campusIds.length > 0) {
+        campusColleges = await getCollegesForCampuses(campusIds);
+    }
+
+    const hasCollegeRestriction = user && user.colleges && user.colleges.length > 0;
+
+    if (hasCollegeRestriction) {
+        if (campusColleges.length > 0) {
+            return user.colleges.filter(c => campusColleges.includes(c));
+        }
+        return user.colleges;
+    }
+
+    if (campusColleges.length > 0) {
+        return campusColleges;
+    }
+
+    return null;
+};
 
 const COURSE_EXPIRY_MIGRATION_MSG =
     'Remove the old course+academic-year-only unique key so each year can have its own date. Run: ' +
@@ -58,7 +91,6 @@ const searchStudents = async (req, res) => {
         }
 
         const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
-        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
         const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
 
         // Search by name, admission number, or PIN number
@@ -69,9 +101,10 @@ const searchStudents = async (req, res) => {
         `;
         const params = [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`];
 
-        if (hasCollegeRestriction) {
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+        if (restrictedColleges !== null) {
             sql += ' AND college IN (?)';
-            params.push(req.user.colleges);
+            params.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
         }
         if (hasCourseRestriction) {
             sql += ' AND course IN (?)';
@@ -98,8 +131,10 @@ const getCourses = async (req, res) => {
         }
 
         const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
-        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
         const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+        const hasCollegeRestriction = restrictedColleges !== null;
 
         let sql = 'SELECT c.id, c.college_id, c.name, c.code, c.total_years FROM courses c';
         const params = [];
@@ -112,7 +147,7 @@ const getCourses = async (req, res) => {
 
         if (hasCollegeRestriction) {
             sql += ' AND coll.name IN (?)';
-            params.push(req.user.colleges);
+            params.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
         }
 
         if (hasCourseRestriction) {
@@ -384,10 +419,10 @@ const getStudentProfile = async (req, res) => {
         const row = rows[0];
 
         const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
-        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
         const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
 
-        if (hasCollegeRestriction && !req.user.colleges.includes(row.college)) {
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+        if (restrictedColleges !== null && !restrictedColleges.includes(row.college)) {
             return res.status(403).json({ message: 'Access denied: student belongs to restricted college' });
         }
         if (hasCourseRestriction && !req.user.courses.includes(row.course)) {
@@ -547,9 +582,10 @@ const getColleges = async (req, res) => {
         let sql = 'SELECT id, name, code FROM colleges WHERE is_active = 1';
         const params = [];
 
-        if (hasCollegeRestriction) {
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+        if (restrictedColleges !== null) {
             sql += ' AND name IN (?)';
-            params.push(req.user.colleges);
+            params.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
         }
 
         sql += ' ORDER BY name ASC';

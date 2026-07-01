@@ -307,6 +307,19 @@ const UserManagement = () => {
         ? courses.filter(course => selectedCollegeIds.includes(course.college_id))
         : [];
 
+    const activeCampusColleges = campuses
+        .filter(campus => selectedCampuses.includes(campus._id))
+        .reduce((acc, campus) => {
+            if (campus.colleges && campus.colleges.length > 0) {
+                acc.push(...campus.colleges);
+            }
+            return acc;
+        }, []);
+
+    const displayedColleges = selectedCampuses.length > 0
+        ? colleges.filter(college => activeCampusColleges.includes(college.name))
+        : colleges;
+
     return (
         <Layout>
             <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -599,10 +612,22 @@ const UserManagement = () => {
                                                     value={campus._id}
                                                     checked={isChecked}
                                                     onChange={(e) => {
+                                                        let newSelectedCampuses;
                                                         if (e.target.checked) {
-                                                            setSelectedCampuses([...selectedCampuses, campus._id]);
+                                                            newSelectedCampuses = [...selectedCampuses, campus._id];
                                                         } else {
-                                                            setSelectedCampuses(selectedCampuses.filter(id => id !== campus._id));
+                                                            newSelectedCampuses = selectedCampuses.filter(id => id !== campus._id);
+                                                        }
+                                                        setSelectedCampuses(newSelectedCampuses);
+
+                                                        if (newSelectedCampuses.length > 0) {
+                                                            const remainingCampusColleges = campuses
+                                                                .filter(c => newSelectedCampuses.includes(c._id))
+                                                                .reduce((acc, c) => {
+                                                                    if (c.colleges) acc.push(...c.colleges);
+                                                                    return acc;
+                                                                }, []);
+                                                            setSelectedColleges(prev => prev.filter(colName => remainingCampusColleges.includes(colName)));
                                                         }
                                                     }}
                                                     className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
@@ -624,7 +649,7 @@ const UserManagement = () => {
                                     <span className="text-[10px] text-gray-400">({selectedColleges.length} selected)</span>
                                 </div>
                                 <div className="p-3 grid grid-cols-1 gap-1 max-h-36 overflow-y-auto custom-scrollbar">
-                                    {colleges.map(college => {
+                                    {displayedColleges.map(college => {
                                         const isChecked = selectedColleges.includes(college.name);
                                         return (
                                             <label key={college.id} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
@@ -641,7 +666,7 @@ const UserManagement = () => {
                                             </label>
                                         );
                                     })}
-                                    {colleges.length === 0 && (
+                                    {displayedColleges.length === 0 && (
                                         <p className="text-xs text-gray-400 italic p-2">No colleges available.</p>
                                     )}
                                 </div>
@@ -857,10 +882,22 @@ const UserManagement = () => {
                                                     value={campus._id}
                                                     checked={isChecked}
                                                     onChange={(e) => {
+                                                        let newSelectedCampuses;
                                                         if (e.target.checked) {
-                                                            setSelectedCampuses([...selectedCampuses, campus._id]);
+                                                            newSelectedCampuses = [...selectedCampuses, campus._id];
                                                         } else {
-                                                            setSelectedCampuses(selectedCampuses.filter(id => id !== campus._id));
+                                                            newSelectedCampuses = selectedCampuses.filter(id => id !== campus._id);
+                                                        }
+                                                        setSelectedCampuses(newSelectedCampuses);
+
+                                                        if (newSelectedCampuses.length > 0) {
+                                                            const remainingCampusColleges = campuses
+                                                                .filter(c => newSelectedCampuses.includes(c._id))
+                                                                .reduce((acc, c) => {
+                                                                    if (c.colleges) acc.push(...c.colleges);
+                                                                    return acc;
+                                                                }, []);
+                                                            setSelectedColleges(prev => prev.filter(colName => remainingCampusColleges.includes(colName)));
                                                         }
                                                     }}
                                                     disabled={!selectedEmployee}
@@ -883,7 +920,7 @@ const UserManagement = () => {
                                     <span className="text-[10px] text-gray-400">({selectedColleges.length} selected)</span>
                                 </div>
                                 <div className="p-3 grid grid-cols-1 gap-1 max-h-36 overflow-y-auto custom-scrollbar">
-                                    {colleges.map(college => {
+                                    {displayedColleges.map(college => {
                                         const isChecked = selectedColleges.includes(college.name);
                                         return (
                                             <label key={college.id} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
@@ -901,7 +938,7 @@ const UserManagement = () => {
                                             </label>
                                         );
                                     })}
-                                    {colleges.length === 0 && (
+                                    {displayedColleges.length === 0 && (
                                         <p className="text-xs text-gray-400 italic p-2">No colleges available.</p>
                                     )}
                                 </div>

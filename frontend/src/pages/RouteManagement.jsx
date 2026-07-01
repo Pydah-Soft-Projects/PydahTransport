@@ -54,6 +54,35 @@ const RouteManagement = () => {
     const [campusFormData, setCampusFormData] = useState({ name: '', code: '', location: '' });
     const [campusMessage, setCampusMessage] = useState({ text: '', type: '' });
     const [campusLoading, setCampusLoading] = useState(false);
+    const [editingCampusId, setEditingCampusId] = useState(null);
+    const [colleges, setColleges] = useState([]);
+    const [selectedColleges, setSelectedColleges] = useState([]);
+
+    const fetchColleges = async () => {
+        try {
+            const response = await apiFetch(`${API}/students/colleges`);
+            const data = await response.json();
+            setColleges(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error('Error fetching colleges:', error);
+        }
+    };
+
+    const handleCampusEdit = (campus) => {
+        setEditingCampusId(campus._id);
+        setCampusFormData({
+            name: campus.name,
+            code: campus.code,
+            location: campus.location || ''
+        });
+        setSelectedColleges(campus.colleges || []);
+    };
+
+    const handleCampusCancelEdit = () => {
+        setEditingCampusId(null);
+        setCampusFormData({ name: '', code: '', location: '' });
+        setSelectedColleges([]);
+    };
 
     const fetchCampuses = async () => {
         try {
@@ -91,6 +120,7 @@ const RouteManagement = () => {
         setExpandedRouteId(null);
         fetchRoutes(academicYear);
         fetchCampuses();
+        fetchColleges();
     }, [academicYear]);
 
     const handleCampusSubmit = async (e) => {
@@ -98,22 +128,32 @@ const RouteManagement = () => {
         setCampusLoading(true);
         setCampusMessage({ text: '', type: '' });
         try {
-            const response = await apiFetch(`${API}/campuses`, {
-                method: 'POST',
+            const url = editingCampusId 
+                ? `${API}/campuses/${editingCampusId}`
+                : `${API}/campuses`;
+            const method = editingCampusId ? 'PUT' : 'POST';
+
+            const response = await apiFetch(url, {
+                method: method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(campusFormData),
+                body: JSON.stringify({
+                    ...campusFormData,
+                    colleges: selectedColleges
+                }),
             });
             const data = await response.json();
             if (response.ok) {
                 setCampusFormData({ name: '', code: '', location: '' });
-                setCampusMessage({ text: 'Campus created successfully.', type: 'success' });
+                setSelectedColleges([]);
+                setEditingCampusId(null);
+                setCampusMessage({ text: `Campus ${editingCampusId ? 'updated' : 'created'} successfully.`, type: 'success' });
                 fetchCampuses();
             } else {
-                setCampusMessage({ text: data.message || 'Failed to create campus.', type: 'error' });
+                setCampusMessage({ text: data.message || `Failed to ${editingCampusId ? 'update' : 'create'} campus.`, type: 'error' });
             }
         } catch (error) {
-            console.error('Error creating campus:', error);
-            setCampusMessage({ text: 'Error creating campus.', type: 'error' });
+            console.error(`Error ${editingCampusId ? 'updating' : 'creating'} campus:`, error);
+            setCampusMessage({ text: `Error ${editingCampusId ? 'updating' : 'creating'} campus.`, type: 'error' });
         } finally {
             setCampusLoading(false);
         }
@@ -285,7 +325,7 @@ const RouteManagement = () => {
 
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
     const userCampuses = adminInfo.campuses || [];
-    const isSuperAdmin = adminInfo.roles && adminInfo.roles.includes('superadmin');
+    const isSuperAdmin = adminInfo.role === 'admin' || (adminInfo.roles && adminInfo.roles.includes('superadmin'));
 
     const allowedCampuses = isSuperAdmin
         ? campuses
@@ -332,12 +372,14 @@ const RouteManagement = () => {
                             ))}
                         </select>
                     </div>
-                    <button
-                        onClick={() => setIsCampusModalOpen(true)}
-                        className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-md active:scale-95 flex items-center group self-end"
-                    >
-                        Manage Campuses
-                    </button>
+                    {isSuperAdmin && (
+                        <button
+                            onClick={() => setIsCampusModalOpen(true)}
+                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-md active:scale-95 flex items-center group self-end"
+                        >
+                            Manage Campuses
+                        </button>
+                    )}
                     <button
                         onClick={() => setIsModalOpen(true)}
                         className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group self-end"
@@ -601,11 +643,18 @@ const RouteManagement = () => {
                 </form>
             </Modal>
 
-            <Modal isOpen={isCampusModalOpen} onClose={() => { setIsCampusModalOpen(false); setCampusMessage({ text: '', type: '' }); }} title="Manage Campuses">
+            <Modal isOpen={isCampusModalOpen} onClose={() => { setIsCampusModalOpen(false); setCampusMessage({ text: '', type: '' }); handleCampusCancelEdit(); }} title="Manage Campuses" maxWidth="max-w-2xl">
                 <div className="space-y-6">
-                    {/* Add Campus Form */}
+                    {/* Add/Edit Campus Form */}
                     <form onSubmit={handleCampusSubmit} className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-4">
-                        <h4 className="font-bold text-slate-800 text-sm">Add New Campus</h4>
+                        <div className="flex justify-between items-center">
+                            <h4 className="font-bold text-slate-800 text-sm">{editingCampusId ? 'Edit Campus' : 'Add New Campus'}</h4>
+                            {editingCampusId && (
+                                <button type="button" onClick={handleCampusCancelEdit} className="text-xs text-blue-600 font-semibold hover:text-blue-800">
+                                    Cancel Edit
+                                </button>
+                            )}
+                        </div>
                         {campusMessage.text && (
                             <div className={`p-2.5 rounded-lg text-xs border ${campusMessage.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
                                 {campusMessage.text}
@@ -645,12 +694,44 @@ const RouteManagement = () => {
                                 placeholder="e.g. Visakhapatnam"
                             />
                         </div>
+
+                        {/* Colleges Linking Section */}
+                        <div className="space-y-1.5">
+                            <label className="block text-xs font-semibold text-slate-600">Link Colleges</label>
+                            <div className="bg-white p-3 rounded-xl border border-slate-300 max-h-36 overflow-y-auto space-y-2 custom-scrollbar">
+                                {colleges.length === 0 ? (
+                                    <p className="text-[10px] text-slate-400 italic">No colleges available to link.</p>
+                                ) : (
+                                    colleges.map((c) => {
+                                        const isChecked = selectedColleges.includes(c.name);
+                                        return (
+                                            <label key={c.id || c.name} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isChecked}
+                                                    onChange={() => {
+                                                        if (isChecked) {
+                                                            setSelectedColleges(selectedColleges.filter(name => name !== c.name));
+                                                        } else {
+                                                            setSelectedColleges([...selectedColleges, c.name]);
+                                                        }
+                                                    }}
+                                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                />
+                                                <span>{c.name} ({c.code})</span>
+                                            </label>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </div>
+
                         <button
                             type="submit"
                             disabled={campusLoading}
                             className="w-full bg-blue-900 text-white font-bold py-2 rounded-lg hover:bg-blue-700 transition-colors text-xs disabled:opacity-50"
                         >
-                            {campusLoading ? 'Creating...' : 'Create Campus'}
+                            {campusLoading ? (editingCampusId ? 'Updating...' : 'Creating...') : (editingCampusId ? 'Update Campus' : 'Create Campus')}
                         </button>
                     </form>
 
@@ -663,18 +744,37 @@ const RouteManagement = () => {
                             ) : (
                                 campuses.map((campus) => (
                                     <div key={campus._id} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200 animate-in fade-in duration-200">
-                                        <div>
+                                        <div className="flex-1 min-w-0 pr-4">
                                             <p className="font-bold text-slate-800 text-xs">{campus.name}</p>
                                             <p className="text-[10px] text-slate-400 font-mono">Code: {campus.code} {campus.location && `| Location: ${campus.location}`}</p>
+                                            {campus.colleges && campus.colleges.length > 0 && (
+                                                <div className="mt-1 flex flex-wrap gap-1">
+                                                    {campus.colleges.map((colName) => (
+                                                        <span key={colName} className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[9px] border border-slate-200 truncate max-w-[150px]" title={colName}>
+                                                            {colName}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCampusDelete(campus._id)}
-                                            className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
-                                            title="Delete Campus"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleCampusEdit(campus)}
+                                                className="p-1.5 text-slate-400 hover:text-blue-600 rounded hover:bg-blue-50 transition-colors"
+                                                title="Edit Campus"
+                                            >
+                                                <Edit size={14} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleCampusDelete(campus._id)}
+                                                className="p-1.5 text-slate-400 hover:text-red-500 rounded hover:bg-red-50 transition-colors"
+                                                title="Delete Campus"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
                                     </div>
                                 ))
                             )}

@@ -24,15 +24,54 @@ const Dashboard = () => {
     });
     const [selectedRouteId, setSelectedRouteId] = useState(null);
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear());
+    const [campuses, setCampuses] = useState([]);
+    const [selectedCampus, setSelectedCampus] = useState('');
+
+    const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+    const userCampuses = adminInfo.campuses || [];
+    const isSuperAdmin = adminInfo.role === 'admin' || (adminInfo.roles && adminInfo.roles.includes('superadmin'));
+
+    const allowedCampuses = isSuperAdmin
+        ? campuses
+        : campuses.filter(c => userCampuses.includes(c._id));
+
+    useEffect(() => {
+        const fetchCampuses = async () => {
+            try {
+                const res = await apiFetch(`${import.meta.env.VITE_API_URL}/campuses`);
+                const data = await res.json();
+                setCampuses(Array.isArray(data) ? data : []);
+            } catch (err) {
+                console.error('Error fetching campuses:', err);
+            }
+        };
+        fetchCampuses();
+    }, []);
+
+    useEffect(() => {
+        if (allowedCampuses.length > 0 && !isSuperAdmin && userCampuses.length === 1) {
+            setSelectedCampus(userCampuses[0]);
+        }
+    }, [campuses]);
 
     useEffect(() => {
         const fetchStats = async () => {
             setLoading(true);
             try {
+                const busUrl = selectedCampus 
+                    ? `${import.meta.env.VITE_API_URL}/buses?campus=${selectedCampus}`
+                    : `${import.meta.env.VITE_API_URL}/buses`;
+                const routeUrl = selectedCampus
+                    ? `${import.meta.env.VITE_API_URL}/routes?campus=${selectedCampus}`
+                    : `${import.meta.env.VITE_API_URL}/routes`;
+                const statsUrl = selectedCampus
+                    ? `${import.meta.env.VITE_API_URL}/transport-requests/stats?academicYear=${academicYear}&campus=${selectedCampus}`
+                    : `${import.meta.env.VITE_API_URL}/transport-requests/stats?academicYear=${academicYear}`;
+
                 const [busRes, routeRes, statsRes] = await Promise.all([
-                    apiFetch(`${import.meta.env.VITE_API_URL}/buses`),
-                    apiFetch(`${import.meta.env.VITE_API_URL}/routes`),
-                    apiFetch(`${import.meta.env.VITE_API_URL}/transport-requests/stats?academicYear=${academicYear}`)
+                    apiFetch(busUrl),
+                    apiFetch(routeUrl),
+                    apiFetch(statsUrl)
                 ]);
 
                 const buses = await busRes.json();
@@ -58,7 +97,7 @@ const Dashboard = () => {
         };
 
         fetchStats();
-    }, [academicYear]);
+    }, [academicYear, selectedCampus]);
 
     return (
         <Layout>
@@ -68,6 +107,23 @@ const Dashboard = () => {
                     <p className="text-slate-500 text-sm font-medium">Insights and analytics for transport management.</p>
                 </div>
                 <div className="flex items-center gap-2.5 self-stretch sm:self-auto">
+                    {allowedCampuses.length > 0 && (
+                        <>
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Campus</span>
+                            <select
+                                value={selectedCampus}
+                                onChange={(e) => setSelectedCampus(e.target.value)}
+                                className="bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 pr-8 shadow-sm transition-all cursor-pointer hover:border-slate-300 mr-2"
+                            >
+                                <option value="">All Campuses</option>
+                                {allowedCampuses.map((campus) => (
+                                    <option key={campus._id} value={campus._id}>
+                                        {campus.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </>
+                    )}
                     <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Academic Year</span>
                     <select
                         value={academicYear}

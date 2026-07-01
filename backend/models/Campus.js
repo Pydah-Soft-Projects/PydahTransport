@@ -14,7 +14,10 @@ const campusSchema = new mongoose.Schema({
     location: {
         type: String,
         default: ''
-    }
+    },
+    colleges: [{
+        type: String
+    }]
 }, {
     timestamps: true
 });

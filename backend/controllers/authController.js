@@ -49,6 +49,9 @@ const loginUser = async (req, res) => {
                         name: employee.employee_name,
                         roles: userRole ? userRole.roles : ['user'],
                         permissions: userRole ? userRole.permissions : [],
+                        campuses: userRole ? userRole.campuses : [],
+                        colleges: userRole ? userRole.colleges : [],
+                        courses: userRole ? userRole.courses : [],
                         token: generateToken(employee._id)
                     });
                 }
@@ -87,6 +90,9 @@ const loginUser = async (req, res) => {
                         name: user.name,
                         roles: userRole ? userRole.roles : ['user'],
                         permissions: userRole ? userRole.permissions : [],
+                        campuses: userRole ? userRole.campuses : [],
+                        colleges: userRole ? userRole.colleges : [],
+                        courses: userRole ? userRole.courses : [],
                         token: generateToken(user.employeeRef)
                     });
                 }
@@ -152,6 +158,9 @@ const ssoLogin = async (req, res) => {
                     name: employee.employee_name,
                     roles: userRole ? userRole.roles : ['user'],
                     permissions: userRole ? userRole.permissions : [],
+                    campuses: userRole ? userRole.campuses : [],
+                    colleges: userRole ? userRole.colleges : [],
+                    courses: userRole ? userRole.courses : [],
                     isSSO: true,
                     token: generateToken(employee._id)
                 };

@@ -262,7 +262,17 @@ const getBusesOverview = async (req, res) => {
         if (req.user) {
             const isSuperAdmin = req.user.roles && req.user.roles.includes('superadmin');
             if (!isSuperAdmin && req.user.campuses && req.user.campuses.length > 0) {
-                query.campus = { $in: req.user.campuses };
+                if (req.query.campus) {
+                    if (req.user.campuses.map(c => c.toString()).includes(req.query.campus)) {
+                        query.campus = req.query.campus;
+                    } else {
+                        query.campus = null;
+                    }
+                } else {
+                    query.campus = { $in: req.user.campuses };
+                }
+            } else if (req.query.campus) {
+                query.campus = req.query.campus;
             }
         }
         const buses = await Bus.find(query).lean();
@@ -416,7 +426,17 @@ const getBuses = async (req, res) => {
         if (req.user) {
             const isSuperAdmin = req.user.roles && req.user.roles.includes('superadmin');
             if (!isSuperAdmin && req.user.campuses && req.user.campuses.length > 0) {
-                query.campus = { $in: req.user.campuses };
+                if (req.query.campus) {
+                    if (req.user.campuses.map(c => c.toString()).includes(req.query.campus)) {
+                        query.campus = req.query.campus;
+                    } else {
+                        query.campus = null;
+                    }
+                } else {
+                    query.campus = { $in: req.user.campuses };
+                }
+            } else if (req.query.campus) {
+                query.campus = req.query.campus;
             }
         }
         const buses = await Bus.find(query).populate('campus');

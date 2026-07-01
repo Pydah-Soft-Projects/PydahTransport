@@ -233,7 +233,7 @@ const BusManagement = () => {
 
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
     const userCampuses = adminInfo.campuses || [];
-    const isSuperAdmin = adminInfo.roles && adminInfo.roles.includes('superadmin');
+    const isSuperAdmin = adminInfo.role === 'admin' || (adminInfo.roles && adminInfo.roles.includes('superadmin'));
 
     const allowedCampuses = isSuperAdmin
         ? campuses

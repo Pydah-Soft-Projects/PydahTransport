@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getCampuses, createCampus, deleteCampus } = require('../controllers/campusController');
+const { getCampuses, createCampus, deleteCampus, updateCampus } = require('../controllers/campusController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 router.route('/')
@@ -8,6 +8,7 @@ router.route('/')
     .post(protect, admin, createCampus);
 
 router.route('/:id')
+    .put(protect, admin, updateCampus)
     .delete(protect, admin, deleteCampus);
 
 module.exports = router;

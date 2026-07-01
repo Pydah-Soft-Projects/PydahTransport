@@ -8,6 +8,39 @@ const { validateStudentAcademicContext, getExpectedYearForBatch } = require('../
 const { assignTransportApplicationNumber, peekNextTransportApplicationNumber, formatApplicationCode } = require('../utils/transportApplicationNumber');
 const { resolveApplicationNumberContext } = require('../utils/applicationNumberContext');
 const { resolveRouteStageFare } = require('../utils/stageFare');
+const { getCollegesForCampuses } = require('./campusController');
+
+const getRestrictedCollegesForUser = async (user, selectedCampusId = null) => {
+    const isSuperAdmin = user && user.roles && user.roles.includes('superadmin');
+    if (isSuperAdmin) return null;
+
+    let campusIds = [];
+    if (selectedCampusId) {
+        campusIds = [selectedCampusId];
+    } else if (user && user.campuses && user.campuses.length > 0) {
+        campusIds = user.campuses;
+    }
+
+    let campusColleges = [];
+    if (campusIds.length > 0) {
+        campusColleges = await getCollegesForCampuses(campusIds);
+    }
+
+    const hasCollegeRestriction = user && user.colleges && user.colleges.length > 0;
+
+    if (hasCollegeRestriction) {
+        if (campusColleges.length > 0) {
+            return user.colleges.filter(c => campusColleges.includes(c));
+        }
+        return user.colleges;
+    }
+
+    if (campusColleges.length > 0) {
+        return campusColleges;
+    }
+
+    return null;
+};
 
 const isMongoId = (id) => mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === String(id);
 
@@ -521,14 +554,8 @@ const getTransportRequests = async (req, res) => {
             ? resolveAcademicYear(req.query)
             : null;
 
-        const isSuperAdminOrAdmin = req.user && req.user.roles && (req.user.roles.includes('superadmin') || req.user.roles.includes('admin'));
-        const hasCampusRestriction = req.user && !isSuperAdminOrAdmin && req.user.campuses && req.user.campuses.length > 0;
-
-        let allowedRouteIds = [];
-        if (hasCampusRestriction) {
-            const allowedRoutes = await Route.find({ campus: { $in: req.user.campuses } }).select('routeId').lean();
-            allowedRouteIds = allowedRoutes.map(r => r.routeId);
-        }
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCampusRestriction = req.user && !isSuperAdmin && req.user.campuses && req.user.campuses.length > 0;
 
         let sql = `
             SELECT tr.*,
@@ -580,7 +607,20 @@ const getTransportRequests = async (req, res) => {
             sql += ' AND COALESCE(tr.academic_year, ?) = ?';
             params.push(fallbackAcademicYear, filterAcademicYear);
         }
-        if (hasCampusRestriction) {
+        let allowedRouteIds = [];
+        let filterByCampusRoutes = false;
+        let queryCampusId = req.query.campus;
+        if (!queryCampusId && hasCampusRestriction) {
+            const allowedRoutes = await Route.find({ campus: { $in: req.user.campuses } }).select('routeId').lean();
+            allowedRouteIds = allowedRoutes.map(r => r.routeId);
+            filterByCampusRoutes = true;
+        } else if (queryCampusId) {
+            const campusRoutes = await Route.find({ campus: queryCampusId }).select('routeId').lean();
+            allowedRouteIds = campusRoutes.map(r => r.routeId);
+            filterByCampusRoutes = true;
+        }
+
+        if (filterByCampusRoutes) {
             if (allowedRouteIds.length > 0) {
                 const routePlaceholders = allowedRouteIds.map(() => '?').join(',');
                 sql += ` AND tr.route_id IN (${routePlaceholders})`;
@@ -590,13 +630,12 @@ const getTransportRequests = async (req, res) => {
             }
         }
 
-        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
-        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
         const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
 
-        if (hasCollegeRestriction) {
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+        if (restrictedColleges !== null) {
             sql += ' AND COALESCE(s1.college, s2.college) IN (?)';
-            params.push(req.user.colleges);
+            params.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
         }
         if (hasCourseRestriction) {
             sql += ' AND COALESCE(s1.course, s2.course) IN (?)';
@@ -1372,18 +1411,46 @@ const getDashboardStats = async (req, res) => {
         const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
 
         const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
-        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
         const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
 
         let restrictedWhere = '';
         const restrictedParams = [];
-        if (hasCollegeRestriction) {
+        
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+        if (restrictedColleges !== null) {
             restrictedWhere += ' AND COALESCE(s1.college, s2.college) IN (?)';
-            restrictedParams.push(req.user.colleges);
+            restrictedParams.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
         }
         if (hasCourseRestriction) {
             restrictedWhere += ' AND COALESCE(s1.course, s2.course) IN (?)';
             restrictedParams.push(req.user.courses);
+        }
+
+        let campusRouteIds = [];
+        let filterByCampusRoutes = false;
+        let queryCampusId = req.query.campus;
+        
+        const Campus = require('../models/Campus');
+        if (!queryCampusId && req.user && !isSuperAdmin && req.user.campuses && req.user.campuses.length > 0) {
+            const allowedCampuses = await Campus.find({ _id: { $in: req.user.campuses } }).select('_id').lean();
+            if (allowedCampuses.length > 0) {
+                const campusRoutes = await Route.find({ campus: { $in: allowedCampuses.map(c => c._id) } }).select('routeId').lean();
+                campusRouteIds = campusRoutes.map(r => r.routeId);
+                filterByCampusRoutes = true;
+            }
+        } else if (queryCampusId) {
+            const campusRoutes = await Route.find({ campus: queryCampusId }).select('routeId').lean();
+            campusRouteIds = campusRoutes.map(r => r.routeId);
+            filterByCampusRoutes = true;
+        }
+
+        if (filterByCampusRoutes) {
+            if (campusRouteIds.length > 0) {
+                restrictedWhere += ` AND tr.route_id IN (${campusRouteIds.map(() => '?').join(',')})`;
+                restrictedParams.push(...campusRouteIds);
+            } else {
+                restrictedWhere += ' AND 1=0';
+            }
         }
 
         if (mysqlPool) {
@@ -1829,12 +1896,12 @@ const getApprovedPassengers = async (req, res) => {
         const params = [...parts.expiryParams];
 
         const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
-        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
         const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
 
-        if (hasCollegeRestriction) {
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+        if (restrictedColleges !== null) {
             sql += ' AND COALESCE(s1.college, s2.college) IN (?)';
-            params.push(req.user.colleges);
+            params.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
         }
         if (hasCourseRestriction) {
             sql += ' AND COALESCE(s1.course, s2.course) IN (?)';
@@ -2069,12 +2136,14 @@ const getIdCardApplicationNumbers = async (req, res) => {
         const courseCode = req.query.courseCode || req.query.course_code || null;
 
         const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
-        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
         const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+        const hasCollegeRestriction = restrictedColleges !== null;
 
         let allowedCollegeCodes = [];
         if (hasCollegeRestriction) {
-            const [rows] = await mysqlPool.query('SELECT code FROM colleges WHERE name IN (?)', [req.user.colleges]);
+            const [rows] = await mysqlPool.query('SELECT code FROM colleges WHERE name IN (?)', [restrictedColleges.length > 0 ? restrictedColleges : ['']]);
             allowedCollegeCodes = rows.map(r => formatApplicationCode(r.code));
         }
 
@@ -2097,7 +2166,7 @@ const getIdCardApplicationNumbers = async (req, res) => {
 
         if (hasCollegeRestriction) {
             mysqlFilterSql += ' AND COALESCE(s1.college, s2.college) IN (?)';
-            mysqlParams.push(req.user.colleges);
+            mysqlParams.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
         }
         if (hasCourseRestriction) {
             mysqlFilterSql += ' AND COALESCE(s1.course, s2.course) IN (?)';
@@ -2211,12 +2280,14 @@ const getIdCardsForPrint = async (req, res) => {
         }
 
         const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
-        const hasCollegeRestriction = req.user && !isSuperAdmin && req.user.colleges && req.user.colleges.length > 0;
         const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+        const hasCollegeRestriction = restrictedColleges !== null;
 
         let allowedCollegeCodes = [];
         if (hasCollegeRestriction) {
-            const [rows] = await mysqlPool.query('SELECT code FROM colleges WHERE name IN (?)', [req.user.colleges]);
+            const [rows] = await mysqlPool.query('SELECT code FROM colleges WHERE name IN (?)', [restrictedColleges.length > 0 ? restrictedColleges : ['']]);
             allowedCollegeCodes = rows.map(r => formatApplicationCode(r.code));
         }
 
@@ -2242,7 +2313,7 @@ const getIdCardsForPrint = async (req, res) => {
 
         if (hasCollegeRestriction) {
             mysqlFilterSql += ' AND COALESCE(s1.college, s2.college) IN (?)';
-            mysqlParams.push(req.user.colleges);
+            mysqlParams.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
         }
         if (hasCourseRestriction) {
             mysqlFilterSql += ' AND COALESCE(s1.course, s2.course) IN (?)';

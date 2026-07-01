@@ -17,13 +17,13 @@ const getCampuses = async (req, res) => {
 // @route   POST /api/campuses
 // @access  Private/Admin
 const createCampus = async (req, res) => {
-    const { name, code, location } = req.body;
+    const { name, code, location, colleges } = req.body;
     if (!name || !code) {
         return res.status(400).json({ message: 'Campus name and code are required' });
     }
 
     try {
-        const newCampus = new Campus({ name, code, location });
+        const newCampus = new Campus({ name, code, location, colleges: colleges || [] });
         await newCampus.save();
         res.status(201).json(newCampus);
     } catch (error) {
@@ -31,6 +31,56 @@ const createCampus = async (req, res) => {
             return res.status(400).json({ message: 'Campus name or code already exists' });
         }
         res.status(500).json({ message: error.message || 'Failed to create campus' });
+    }
+};
+
+// @desc    Update a campus
+// @route   PUT /api/campuses/:id
+// @access  Private/Admin
+const updateCampus = async (req, res) => {
+    const { id } = req.params;
+    const { name, code, location, colleges } = req.body;
+
+    if (!name || !code) {
+        return res.status(400).json({ message: 'Campus name and code are required' });
+    }
+
+    try {
+        const campus = await Campus.findById(id);
+        if (!campus) {
+            return res.status(404).json({ message: 'Campus not found' });
+        }
+
+        campus.name = name;
+        campus.code = code;
+        campus.location = location !== undefined ? location : campus.location;
+        campus.colleges = colleges !== undefined ? colleges : campus.colleges;
+
+        await campus.save();
+        res.json(campus);
+    } catch (error) {
+        if (error.code === 11000) {
+            return res.status(400).json({ message: 'Campus name or code already exists' });
+        }
+        res.status(500).json({ message: error.message || 'Failed to update campus' });
+    }
+};
+
+// Helper to get colleges mapped to campus IDs
+const getCollegesForCampuses = async (campusIds) => {
+    if (!campusIds || campusIds.length === 0) return [];
+    try {
+        const campuses = await Campus.find({ _id: { $in: campusIds } });
+        const colleges = [];
+        campuses.forEach(c => {
+            if (c.colleges && c.colleges.length > 0) {
+                colleges.push(...c.colleges);
+            }
+        });
+        return [...new Set(colleges)];
+    } catch (error) {
+        console.error('Error in getCollegesForCampuses:', error);
+        return [];
     }
 };
 
@@ -62,5 +112,7 @@ const deleteCampus = async (req, res) => {
 module.exports = {
     getCampuses,
     createCampus,
-    deleteCampus
+    deleteCampus,
+    updateCampus,
+    getCollegesForCampuses
 };
