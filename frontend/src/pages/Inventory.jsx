@@ -121,6 +121,7 @@ const Inventory = () => {
     const [vendors, setVendors] = useState([]);
     const [tyreRegistry, setTyreRegistry] = useState([]);
     const [buses, setBuses] = useState([]);
+    const [otherVehicles, setOtherVehicles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [vendorsLoading, setVendorsLoading] = useState(false);
@@ -213,6 +214,7 @@ const Inventory = () => {
     useEffect(() => {
         fetchItems();
         fetchBuses();
+        fetchOtherVehicles();
         fetchVendors();
     }, []);
 
@@ -253,6 +255,16 @@ const Inventory = () => {
             setBuses(data);
         } catch (error) {
             console.error('Error fetching buses:', error);
+        }
+    };
+
+    const fetchOtherVehicles = async () => {
+        try {
+            const response = await apiFetch(`${API}/other-vehicles`);
+            const data = await response.json();
+            setOtherVehicles(data);
+        } catch (error) {
+            console.error('Error fetching other vehicles:', error);
         }
     };
 
@@ -826,9 +838,16 @@ const Inventory = () => {
                                 onChange={(e) => setSelectedBusFilter(e.target.value)}
                             >
                                 <option value="all">All Fleet Activity</option>
-                                {buses.map(b => (
-                                    <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
-                                ))}
+                                <optgroup label="Buses">
+                                    {buses.map(b => (
+                                        <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="Other Vehicles">
+                                    {otherVehicles.map(o => (
+                                        <option key={o._id} value={o.vehicleNumber}>{o.vehicleNumber} ({o.type})</option>
+                                    ))}
+                                </optgroup>
                             </select>
                         </div>
                     </div>
@@ -863,7 +882,7 @@ const Inventory = () => {
                                             <td className="px-6 py-5">
                                                 <div className="flex flex-col">
                                                     <span className="font-bold text-slate-800 text-sm">{bill.vendorId?.name || 'Unknown'}</span>
-                                                    <span className="text-[10px] text-slate-400 font-black uppercase mt-0.5">Bus: {bill.busId?.busNumber || 'N/A'}</span>
+                                                    <span className="text-[10px] text-slate-400 font-black uppercase mt-0.5">Vehicle: {bill.busId?.vehicleNumber || bill.busId?.busNumber || 'N/A'}</span>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-5">
@@ -950,9 +969,16 @@ const Inventory = () => {
                                 onChange={(e) => setSelectedBusFilter(e.target.value)}
                             >
                                 <option value="all">All Fleet Tyres</option>
-                                {buses.map(b => (
-                                    <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
-                                ))}
+                                <optgroup label="Buses">
+                                    {buses.map(b => (
+                                        <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="Other Vehicles">
+                                    {otherVehicles.map(o => (
+                                        <option key={o._id} value={o.vehicleNumber}>{o.vehicleNumber} ({o.type})</option>
+                                    ))}
+                                </optgroup>
                             </select>
                         </div>
                     </div>
@@ -964,7 +990,7 @@ const Inventory = () => {
                             <table className="w-full text-left border-collapse">
                                 <thead>
                                     <tr className="bg-slate-50 border-b border-slate-100 text-[11px] uppercase text-slate-400 font-black tracking-widest">
-                                        <th className="px-6 py-4">Bus</th>
+                                        <th className="px-6 py-4">Vehicle</th>
                                         <th className="px-6 py-4">Position</th>
                                         <th className="px-6 py-4">Type</th>
                                         <th className="px-6 py-4">Install KM</th>
@@ -974,7 +1000,7 @@ const Inventory = () => {
                                 <tbody className="divide-y divide-slate-50">
                                     {tyreRegistry.map(reg => (
                                         <tr key={reg._id} className="hover:bg-slate-50 transition-colors">
-                                            <td className="px-6 py-5"><span className="font-black text-slate-900 text-xs px-2 py-1 bg-slate-100 rounded-lg">{reg.busId?.busNumber || 'N/A'}</span></td>
+                                            <td className="px-6 py-5"><span className="font-black text-slate-900 text-xs px-2 py-1 bg-slate-100 rounded-lg">{reg.busId?.vehicleNumber || reg.busId?.busNumber || 'N/A'}</span></td>
                                             <td className="px-6 py-5 uppercase font-bold text-xs text-blue-600">{reg.position}</td>
                                             <td className="px-6 py-5 text-sm">
                                                 <span className={`px-2 py-0.5 rounded-full font-black text-[10px] uppercase ${reg.tyreType === 'new tyre' ? 'bg-green-50 text-green-600' : 'bg-yellow-50 text-yellow-600'}`}>
@@ -1152,17 +1178,24 @@ const Inventory = () => {
                             {/* Header Section: Bus, Vendor, Bill No */}
                             <div className="bg-gray-50 p-6 rounded-lg border border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-2 uppercase">1. Select Bus</label>
+                                    <label className="block text-xs font-bold text-gray-600 mb-2 uppercase">1. Select Vehicle</label>
                                     <select 
                                         required 
                                         className="w-full px-4 py-2.5 rounded border border-gray-300 bg-white font-medium text-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all" 
                                         value={billFormData.busId} 
                                         onChange={e => setBillFormData({...billFormData, busId: e.target.value})}
                                     >
-                                        <option value="">-- Choose Bus --</option>
-                                        {buses.map(b => (
-                                            <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
-                                        ))}
+                                        <option value="">-- Choose Vehicle --</option>
+                                        <optgroup label="Buses">
+                                            {buses.map(b => (
+                                                <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
+                                            ))}
+                                        </optgroup>
+                                        <optgroup label="Other Vehicles">
+                                            {otherVehicles.map(o => (
+                                                <option key={o._id} value={o.vehicleNumber}>{o.vehicleNumber} ({o.type})</option>
+                                            ))}
+                                        </optgroup>
                                     </select>
                                 </div>
                                 <div>

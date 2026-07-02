@@ -1,6 +1,7 @@
 const InventoryItem = require('../models/InventoryItem');
 const InventoryAllocation = require('../models/InventoryAllocation');
 const Bus = require('../models/Bus');
+const OtherVehicle = require('../models/OtherVehicle');
 const Vendor = require('../models/Vendor');
 const TyreRegistry = require('../models/TyreRegistry');
 
@@ -127,10 +128,17 @@ exports.raiseBill = async (req, res) => {
 
         const results = [];
 
-        // Find the bus (if it's one bus per bill now)
-        const bus = await Bus.findOne({ busNumber: busId }).catch(() => null) || 
-                    await Bus.findById(busId).catch(() => null);
-        if (!bus) return res.status(404).json({ message: 'Bus not found' });
+        // Find the vehicle (Bus or OtherVehicle)
+        let vehicle = await Bus.findOne({ busNumber: busId }).catch(() => null) || 
+                      await Bus.findById(busId).catch(() => null);
+        let vehicleType = 'Bus';
+        
+        if (!vehicle) {
+            vehicle = await OtherVehicle.findOne({ vehicleNumber: busId }).catch(() => null) || 
+                      await OtherVehicle.findById(busId).catch(() => null);
+            vehicleType = 'OtherVehicle';
+        }
+        if (!vehicle) return res.status(404).json({ message: 'Vehicle not found' });
 
         for (const lineItem of items) {
             const { 
@@ -145,7 +153,8 @@ exports.raiseBill = async (req, res) => {
                 if (!item) continue;
 
                 const allocation = new InventoryAllocation({
-                    busId: bus._id,
+                    busId: vehicle._id,
+                    vehicleType,
                     itemId,
                     variantName: variantName || '',
                     vendorId,
@@ -163,12 +172,13 @@ exports.raiseBill = async (req, res) => {
                 // If it's a tyre, update Registry
                 if ((item.category === 'Tires' || item.itemName === 'Tires') && tyrePosition) {
                     await TyreRegistry.updateMany(
-                        { busId: bus._id, position: tyrePosition, status: 'Active' },
+                        { busId: vehicle._id, vehicleType, position: tyrePosition, status: 'Active' },
                         { status: 'Replaced' }
                     );
 
                     const registryEntry = new TyreRegistry({
-                        busId: bus._id,
+                        busId: vehicle._id,
+                        vehicleType,
                         position: tyrePosition,
                         tyreType: tyreType || (`${item.itemName} ${variantName || item.variantName || ''}`.toLowerCase().includes('old') ? 'old tyre' : 'new tyre'),
                         installKm: kmReading || 0,
@@ -197,12 +207,23 @@ exports.getHistory = async (req, res) => {
         
         if (busId && busId !== 'all') {
             const bus = await Bus.findOne({ busNumber: busId }).catch(() => null) || await Bus.findById(busId).catch(() => null);
-            if (bus) query.busId = bus._id;
+            if (bus) {
+                query.busId = bus._id;
+                query.vehicleType = 'Bus';
+            } else {
+                const vehicle = await OtherVehicle.findOne({ vehicleNumber: busId }).catch(() => null) || await OtherVehicle.findById(busId).catch(() => null);
+                if (vehicle) {
+                    query.busId = vehicle._id;
+                    query.vehicleType = 'OtherVehicle';
+                } else {
+                    return res.status(200).json([]);
+                }
+            }
         }
 
         const history = await InventoryAllocation.find(query)
             .populate('itemId', 'itemName variantName variants category unit')
-            .populate('busId', 'busNumber type')
+            .populate('busId', 'busNumber vehicleNumber type')
             .populate('vendorId', 'name')
             .sort({ allocatedDate: -1 });
 
@@ -219,11 +240,22 @@ exports.getTyreRegistry = async (req, res) => {
         const query = { status: 'Active' };
         if (busId && busId !== 'all') {
             const bus = await Bus.findOne({ busNumber: busId }).catch(() => null) || await Bus.findById(busId).catch(() => null);
-            if (bus) query.busId = bus._id;
+            if (bus) {
+                query.busId = bus._id;
+                query.vehicleType = 'Bus';
+            } else {
+                const vehicle = await OtherVehicle.findOne({ vehicleNumber: busId }).catch(() => null) || await OtherVehicle.findById(busId).catch(() => null);
+                if (vehicle) {
+                    query.busId = vehicle._id;
+                    query.vehicleType = 'OtherVehicle';
+                } else {
+                    return res.status(200).json([]);
+                }
+            }
         }
 
         const registry = await TyreRegistry.find(query)
-            .populate('busId', 'busNumber type')
+            .populate('busId', 'busNumber vehicleNumber type')
             .sort({ updatedAt: -1 });
         
         res.status(200).json(registry);

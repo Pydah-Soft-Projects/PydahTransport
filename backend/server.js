@@ -25,6 +25,7 @@ const { verifyTransportPassenger } = require('./controllers/transportRequestCont
 app.use('/api/auth', authRoutes);
 app.get('/api/transport-verify/:id', verifyTransportPassenger);
 app.use('/api/buses', protect, busRoutes);
+app.use('/api/other-vehicles', protect, require('./routes/otherVehicleRoutes'));
 app.use('/api/routes', protect, routeRoutes);
 app.use('/api/tax-headers', protect, taxHeaderRoutes);
 app.use('/api/campuses', campusRoutes);

@@ -3,8 +3,14 @@ const mongoose = require('mongoose');
 const inventoryAllocationSchema = new mongoose.Schema({
     busId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Bus',
-        required: true
+        required: true,
+        refPath: 'vehicleType'
+    },
+    vehicleType: {
+        type: String,
+        required: true,
+        enum: ['Bus', 'OtherVehicle'],
+        default: 'Bus'
     },
     itemId: {
         type: mongoose.Schema.Types.ObjectId,

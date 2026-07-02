@@ -16,12 +16,13 @@ import {
     Armchair,
     X,
     History,
-    AlertTriangle
+    AlertTriangle,
+    Truck
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
 
-const TABS = { buses: 'buses', mapping: 'mapping', staffMapping: 'staffMapping', staff: 'staff', taxHeaders: 'taxHeaders' };
+const TABS = { buses: 'buses', otherVehicles: 'otherVehicles', mapping: 'mapping', staffMapping: 'staffMapping', staff: 'staff', taxHeaders: 'taxHeaders' };
 
 
 const todayDateInput = () => new Date().toISOString().slice(0, 10);
@@ -43,6 +44,8 @@ const BusManagement = () => {
     const [staffSubTab, setStaffSubTab] = useState('drivers');
 
     const [buses, setBuses] = useState([]);
+    const [otherVehicles, setOtherVehicles] = useState([]);
+    const [isOtherVehicleMode, setIsOtherVehicleMode] = useState(false);
     const [routes, setRoutes] = useState([]);
     const [campuses, setCampuses] = useState([]);
     const [selectedCampusFilter, setSelectedCampusFilter] = useState('');
@@ -64,7 +67,9 @@ const BusManagement = () => {
         vehicleModel: '',
         registrationDate: '',
         status: 'Active',
-        campus: ''
+        campus: '',
+        driverName: '',
+        attendantName: ''
     });
     const [isTaxesModalOpen, setIsTaxesModalOpen] = useState(false);
     const [selectedBusForTaxes, setSelectedBusForTaxes] = useState(null);
@@ -117,6 +122,38 @@ const BusManagement = () => {
             return data;
         } catch (error) {
             console.error('Error fetching buses:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchOtherVehicles = async () => {
+        try {
+            const response = await apiFetch(`${API}/other-vehicles`);
+            const data = await response.json();
+            setOtherVehicles(data);
+
+            // Sync the open modal's vehicle + taxValues with fresh data
+            const currentSelected = selectedBusForTaxesRef.current;
+            if (currentSelected) {
+                const fresh = data.find(b => b._id === currentSelected._id);
+                if (fresh) {
+                    setSelectedBusForTaxes(fresh);
+                    selectedBusForTaxesRef.current = fresh;
+                    const updatedValues = {};
+                    (fresh.taxes || []).forEach(tax => {
+                        updatedValues[tax.taxHeader] = {
+                            amount: tax.amount.toString(),
+                            endDate: tax.endDate ? new Date(tax.endDate).toISOString().slice(0, 10) : ''
+                        };
+                    });
+                    setTaxValues(updatedValues);
+                }
+            }
+
+            return data;
+        } catch (error) {
+            console.error('Error fetching other vehicles:', error);
         } finally {
             setLoading(false);
         }
@@ -217,6 +254,7 @@ const BusManagement = () => {
 
     useEffect(() => {
         fetchBuses();
+        fetchOtherVehicles();
         fetchRoutes();
         loadDrivers();
         loadCleaners();
@@ -356,44 +394,56 @@ const BusManagement = () => {
         }
     };
 
-    const handleEdit = (bus, e) => {
+    const handleEdit = (vehicle, e) => {
         e.stopPropagation();
+        const isOther = otherVehicles.some(v => v._id === vehicle._id);
+        setIsOtherVehicleMode(isOther);
         setFormData({
-            busNumber: bus.busNumber,
-            capacity: bus.capacity,
-            type: bus.type,
-            vehicleModel: bus.vehicleModel || '',
-            registrationDate: formatDateForInput(bus.registrationDate),
-            status: bus.status,
-            campus: bus.campus?._id || bus.campus || ''
+            busNumber: isOther ? vehicle.vehicleNumber : vehicle.busNumber,
+            capacity: vehicle.capacity,
+            type: vehicle.type,
+            vehicleModel: vehicle.vehicleModel || '',
+            registrationDate: formatDateForInput(vehicle.registrationDate),
+            status: vehicle.status,
+            campus: vehicle.campus?._id || vehicle.campus || '',
+            driverName: vehicle.driverName || '',
+            attendantName: vehicle.attendantName || ''
         });
-        setEditingId(bus._id);
+        setEditingId(vehicle._id);
         setIsModalOpen(true);
     };
 
     const handleDelete = async (id, e) => {
         e.stopPropagation();
-        if (!window.confirm('Are you sure you want to delete this bus?')) return;
+        const isOther = otherVehicles.some(v => v._id === id);
+        const nameLabel = isOther ? 'vehicle' : 'bus';
+        if (!window.confirm(`Are you sure you want to delete this ${nameLabel}?`)) return;
 
         try {
-            const response = await apiFetch(`${API}/buses/${id}`, {
+            const baseUrl = isOther ? `${API}/other-vehicles` : `${API}/buses`;
+            const response = await apiFetch(`${baseUrl}/${id}`, {
                 method: 'DELETE'
             });
 
             if (response.ok) {
-                fetchBuses();
+                if (isOther) {
+                    fetchOtherVehicles();
+                } else {
+                    fetchBuses();
+                }
             } else {
-                alert('Failed to delete bus');
+                alert(`Failed to delete ${nameLabel}`);
             }
         } catch (error) {
-            console.error('Error deleting bus:', error);
-            alert('Error deleting bus');
+            console.error(`Error deleting ${nameLabel}:`, error);
+            alert(`Error deleting ${nameLabel}`);
         }
     };
 
     const handleCloseModal = () => {
         setIsModalOpen(false);
         setEditingId(null);
+        setIsOtherVehicleMode(false);
         setFormData({
             busNumber: '',
             capacity: '',
@@ -401,7 +451,9 @@ const BusManagement = () => {
             vehicleModel: '',
             registrationDate: '',
             status: 'Active',
-            campus: ''
+            campus: '',
+            driverName: '',
+            attendantName: ''
         });
     };
 
@@ -516,13 +568,18 @@ const BusManagement = () => {
         e.preventDefault();
 
         try {
+            const baseUrl = isOtherVehicleMode ? `${API}/other-vehicles` : `${API}/buses`;
             const url = editingId
-                ? `${API}/buses/${editingId}`
-                : `${API}/buses`;
+                ? `${baseUrl}/${editingId}`
+                : baseUrl;
 
             const method = editingId ? 'PUT' : 'POST';
 
             const payload = { ...formData };
+            if (isOtherVehicleMode) {
+                payload.vehicleNumber = payload.busNumber;
+                delete payload.busNumber;
+            }
 
             const response = await apiFetch(url, {
                 method: method,
@@ -534,13 +591,18 @@ const BusManagement = () => {
 
             if (response.ok) {
                 handleCloseModal();
-                fetchBuses(); // Refresh list
+                if (isOtherVehicleMode) {
+                    fetchOtherVehicles();
+                } else {
+                    fetchBuses();
+                }
             } else {
-                alert(`Failed to ${editingId ? 'update' : 'create'} bus`);
+                const errData = await response.json().catch(() => ({}));
+                alert(errData.message || `Failed to ${editingId ? 'update' : 'create'} ${isOtherVehicleMode ? 'vehicle' : 'bus'}`);
             }
         } catch (error) {
-            console.error(`Error ${editingId ? 'updating' : 'creating'} bus:`, error);
-            alert(`Error ${editingId ? 'updating' : 'creating'} bus`);
+            console.error(`Error ${editingId ? 'updating' : 'creating'} ${isOtherVehicleMode ? 'vehicle' : 'bus'}:`, error);
+            alert(`Error ${editingId ? 'updating' : 'creating'} ${isOtherVehicleMode ? 'vehicle' : 'bus'}`);
         }
     };
 
@@ -570,8 +632,11 @@ const BusManagement = () => {
      const handleUpdateTaxInTable = async (taxId, taxData) => {
          if (!selectedBusForTaxes) return;
          
+         const isOther = otherVehicles.some(v => v._id === selectedBusForTaxes._id);
+         const baseUrl = isOther ? `${API}/other-vehicles/${selectedBusForTaxes._id}/taxes` : `${API}/buses/${selectedBusForTaxes._id}/taxes`;
+         
          try {
-             const response = await apiFetch(`${API}/buses/${selectedBusForTaxes._id}/taxes/${taxId}`, {
+             const response = await apiFetch(`${baseUrl}/${taxId}`, {
                  method: 'PUT',
                  headers: { 'Content-Type': 'application/json' },
                  body: JSON.stringify({
@@ -582,7 +647,11 @@ const BusManagement = () => {
              });
              
              if (response.ok) {
-                 await fetchBuses(); // refreshes buses list AND selectedBusForTaxes
+                 if (isOther) {
+                     await fetchOtherVehicles();
+                 } else {
+                     await fetchBuses();
+                 }
              } else {
                  const errorData = await response.json();
                  alert(errorData.message || `Failed to update tax: ${errorData.message}`);
@@ -596,8 +665,11 @@ const BusManagement = () => {
      const handleAddTaxInTable = async (taxData) => {
          if (!selectedBusForTaxes) return;
          
+         const isOther = otherVehicles.some(v => v._id === selectedBusForTaxes._id);
+         const baseUrl = isOther ? `${API}/other-vehicles/${selectedBusForTaxes._id}/taxes` : `${API}/buses/${selectedBusForTaxes._id}/taxes`;
+         
          try {
-             const response = await apiFetch(`${API}/buses/${selectedBusForTaxes._id}/taxes`, {
+             const response = await apiFetch(baseUrl, {
                  method: 'POST',
                  headers: { 'Content-Type': 'application/json' },
                  body: JSON.stringify({
@@ -608,7 +680,11 @@ const BusManagement = () => {
              });
              
              if (response.ok) {
-                 await fetchBuses(); // refreshes buses list AND selectedBusForTaxes
+                 if (isOther) {
+                     await fetchOtherVehicles();
+                 } else {
+                     await fetchBuses();
+                 }
              } else {
                  const errorData = await response.json();
                  alert(errorData.message || `Failed to add tax: ${errorData.message}`);
@@ -710,11 +786,15 @@ const BusManagement = () => {
         <Layout>
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
                 <div>
-                    <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Bus Management</h2>
-                    <p className="text-slate-600 mt-1">Manage buses, routes, and staff assignments.</p>
+                    <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">
+                        {activeTab === TABS.otherVehicles ? 'Vehicle Management' : 'Bus Management'}
+                    </h2>
+                    <p className="text-slate-600 mt-1">
+                        {activeTab === TABS.otherVehicles ? 'Manage other vehicles in the fleet and their taxes.' : 'Manage buses, routes, and staff assignments.'}
+                    </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                    {(activeTab === TABS.buses || activeTab === TABS.mapping || activeTab === TABS.staffMapping) && allowedCampuses.length > 1 && (
+                    {(activeTab === TABS.buses || activeTab === TABS.otherVehicles || activeTab === TABS.mapping || activeTab === TABS.staffMapping) && allowedCampuses.length > 1 && (
                         <div>
                             <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Campus</label>
                             <select
@@ -730,13 +810,23 @@ const BusManagement = () => {
                         </div>
                     )}
                     <div className="flex gap-2 self-end lg:self-auto">
-                        <button
-                            onClick={() => setIsModalOpen(true)}
-                            className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
-                        >
-                            <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
-                            Add New Bus
-                        </button>
+                        {activeTab === TABS.otherVehicles ? (
+                            <button
+                                onClick={() => { setIsOtherVehicleMode(true); setFormData(f => ({ ...f, type: 'Car' })); setIsModalOpen(true); }}
+                                className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
+                            >
+                                <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
+                                Add New Vehicle
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => { setIsOtherVehicleMode(false); setIsModalOpen(true); }}
+                                className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
+                            >
+                                <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
+                                Add New Bus
+                            </button>
+                        )}
                         <button
                             onClick={() => handleOpenTaxHeaderModal()}
                             className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
@@ -748,19 +838,27 @@ const BusManagement = () => {
                 </div>
             </div>
 
-            <div className="flex gap-2 mb-6 border-b border-gray-200">
+            <div className="flex gap-2 mb-6 border-b border-gray-200 overflow-x-auto">
                 <button
                     type="button"
                     onClick={() => setActiveTab(TABS.buses)}
-                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center ${activeTab === TABS.buses ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.buses ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
                 >
                     <Bus size={18} className="mr-2" />
                     Buses ({buses.length})
                 </button>
                 <button
                     type="button"
+                    onClick={() => setActiveTab(TABS.otherVehicles)}
+                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.otherVehicles ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                >
+                    <Truck size={18} className="mr-2" />
+                    Other Vehicles ({otherVehicles.length})
+                </button>
+                <button
+                    type="button"
                     onClick={() => setActiveTab(TABS.mapping)}
-                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center ${activeTab === TABS.mapping ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.mapping ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
                 >
                     <MapPin size={18} className="mr-2" />
                     Bus–Route mapping
@@ -768,7 +866,7 @@ const BusManagement = () => {
                 <button
                     type="button"
                     onClick={() => setActiveTab(TABS.staffMapping)}
-                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center ${activeTab === TABS.staffMapping ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.staffMapping ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
                 >
                     <UserCheck size={18} className="mr-2" />
                     Bus–Staff assignment
@@ -776,7 +874,7 @@ const BusManagement = () => {
                 <button
                     type="button"
                     onClick={() => setActiveTab(TABS.staff)}
-                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center ${activeTab === TABS.staff ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.staff ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
                 >
                     <Users size={18} className="mr-2" />
                     Staff directory
@@ -784,7 +882,7 @@ const BusManagement = () => {
                 <button
                     type="button"
                     onClick={() => setActiveTab(TABS.taxHeaders)}
-                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center ${activeTab === TABS.taxHeaders ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.taxHeaders ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
                 >
                     Tax Headers
                 </button>
@@ -1234,6 +1332,147 @@ const BusManagement = () => {
                 </div>
             )}
 
+            {activeTab === TABS.otherVehicles && (
+                <>
+                    {loading ? (
+                        <div className="py-20 flex justify-center">
+                            <Loader size={40} text="Loading vehicle data..." />
+                        </div>
+                    ) : otherVehicles.length === 0 ? (
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col items-center justify-center py-20 px-4 text-center">
+                            <div className="bg-slate-50 p-6 rounded-full mb-6">
+                                <Truck size={48} className="text-slate-400" />
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-800 mb-2">No Vehicles Found</h3>
+                            <p className="text-slate-500 max-w-md mx-auto mb-8">
+                                There are no other vehicles in the fleet. Click Add Vehicle to register a car or van.
+                            </p>
+                            <button onClick={() => { setIsOtherVehicleMode(true); setFormData(f => ({ ...f, type: 'Car' })); setIsModalOpen(true); }} className="flex items-center text-blue-600 font-semibold hover:text-blue-800 hover:bg-blue-50 px-4 py-2 rounded-lg transition-all">
+                                <Plus size={20} className="mr-2" />
+                                Add your first vehicle
+                            </button>
+                        </div>
+                    ) : otherVehicles.filter(v => !selectedCampusFilter || (v.campus?._id || v.campus) === selectedCampusFilter).length === 0 ? (
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col items-center justify-center py-20 px-4 text-center">
+                            <div className="bg-slate-50 p-6 rounded-full mb-6">
+                                <Truck size={48} className="text-slate-400" />
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-800 mb-2">No Vehicles Found</h3>
+                            <p className="text-slate-500 max-w-md mx-auto">
+                                There are no other vehicles matching the selected campus.
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
+                            <div className="overflow-x-auto w-full">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
+                                            <th className="px-4 py-3 w-56">Vehicle Details</th>
+                                            <th className="px-4 py-3">Model</th>
+                                            <th className="px-4 py-3">Reg. Date</th>
+                                            <th className="px-4 py-3">Capacity</th>
+                                            <th className="px-4 py-3">Driver</th>
+                                            <th className="px-4 py-3">Attendant</th>
+                                            <th className="px-4 py-3">Status</th>
+                                            <th className="px-4 py-3">Taxes Config</th>
+                                            <th className="px-4 py-3 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {otherVehicles.filter(v => !selectedCampusFilter || (v.campus?._id || v.campus) === selectedCampusFilter).map((vehicle) => (
+                                            <tr
+                                                key={vehicle._id}
+                                                className="hover:bg-blue-50/30 transition-colors group"
+                                            >
+                                                <td className="px-4 py-3">
+                                                    <div>
+                                                        <p className="font-bold text-slate-800 text-sm">{vehicle.vehicleNumber}</p>
+                                                        <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">{vehicle.type}</p>
+                                                        {vehicle.campus && (
+                                                            <div className="mt-1">
+                                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                                                    {vehicle.campus.name || vehicle.campus}
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-slate-600">
+                                                    {vehicle.vehicleModel || <span className="text-slate-400 italic text-xs">--</span>}
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
+                                                    {vehicle.registrationDate
+                                                        ? new Date(vehicle.registrationDate).toLocaleDateString()
+                                                        : <span className="text-slate-400 italic text-xs">--</span>}
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-slate-600 font-medium">
+                                                    <div className="flex items-center">
+                                                        <Armchair size={14} className="text-slate-400 mr-2" />
+                                                        {vehicle.capacity}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-slate-600">
+                                                    {vehicle.driverName || <span className="text-slate-400 italic text-xs">--</span>}
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-slate-600">
+                                                    {vehicle.attendantName || <span className="text-slate-400 italic text-xs">--</span>}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex w-fit items-center ${vehicle.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                                                        vehicle.status === 'In Maintenance' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-red-50 text-red-700 border-red-100'
+                                                        }`}>
+                                                        <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${vehicle.status === 'Active' ? 'bg-emerald-500' : vehicle.status === 'In Maintenance' ? 'bg-amber-500' : 'bg-red-500'}`}></span>
+                                                        {vehicle.status}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setIsOtherVehicleMode(true);
+                                                            handleOpenTaxesModal(vehicle);
+                                                        }}
+                                                        className="px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-all flex items-center gap-1"
+                                                        title="Manage Taxes"
+                                                    >
+                                                        <span className="bg-purple-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold">
+                                                            {(vehicle.taxes && vehicle.taxes.length) || 0}
+                                                        </span>
+                                                        Taxes
+                                                    </button>
+                                                </td>
+                                                <td className="px-4 py-3 text-right">
+                                                    <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                setIsOtherVehicleMode(true);
+                                                                handleEdit(vehicle, e);
+                                                            }}
+                                                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
+                                                            title="Edit Vehicle"
+                                                        >
+                                                            <Edit size={16} />
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => handleDelete(vehicle._id, e)}
+                                                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
+                                                            title="Delete Vehicle"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
+
             {activeTab === TABS.buses && (
                 <>
                     {loading ? (
@@ -1383,10 +1622,10 @@ const BusManagement = () => {
                 </>
             )}
 
-            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingId ? "Edit Bus Details" : "Add New Bus"}>
+            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingId ? (isOtherVehicleMode ? "Edit Vehicle Details" : "Edit Bus Details") : (isOtherVehicleMode ? "Add New Vehicle" : "Add New Bus")}>
                 <form onSubmit={handleSubmit} className="space-y-5">
                     <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">Bus Number</label>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">{isOtherVehicleMode ? "Vehicle Number" : "Bus Number"}</label>
                         <input type="text" name="busNumber" required value={formData.busNumber} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="e.g. KA-01-F-1234" />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
@@ -1397,12 +1636,35 @@ const BusManagement = () => {
                         <div>
                             <label className="block text-sm font-semibold text-slate-700 mb-1.5">Type</label>
                             <select name="type" value={formData.type} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-white">
-                                <option value="Standard">Standard</option>
-                                <option value="Mini-bus">Mini-bus</option>
-                                <option value="Van">Van</option>
+                                {isOtherVehicleMode ? (
+                                    <>
+                                        <option value="Car">Car</option>
+                                        <option value="Van">Van</option>
+                                        <option value="SUV">SUV</option>
+                                        <option value="Other">Other</option>
+                                    </>
+                                ) : (
+                                    <>
+                                        <option value="Standard">Standard</option>
+                                        <option value="Mini-bus">Mini-bus</option>
+                                        <option value="Van">Van</option>
+                                    </>
+                                )}
                             </select>
                         </div>
                     </div>
+                    {isOtherVehicleMode && (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Driver Name</label>
+                                <input type="text" name="driverName" value={formData.driverName || ''} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="e.g. Ramesh" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Attendant Name</label>
+                                <input type="text" name="attendantName" value={formData.attendantName || ''} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="e.g. Suresh" />
+                            </div>
+                        </div>
+                    )}
                     <div>
                         <label className="block text-sm font-semibold text-slate-700 mb-1.5">Vehicle Model</label>
                         <input type="text" name="vehicleModel" value={formData.vehicleModel} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="e.g. Ashok Leyland Viking" />
@@ -1429,12 +1691,12 @@ const BusManagement = () => {
                         </select>
                     </div>
                     <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mt-4">
-                        {editingId ? 'Update Bus Details' : 'Create Bus'}
+                        {editingId ? (isOtherVehicleMode ? 'Update Vehicle Details' : 'Update Bus Details') : (isOtherVehicleMode ? 'Create Vehicle' : 'Create Bus')}
                     </button>
                 </form>
             </Modal>
 
-             <Modal isOpen={isTaxesModalOpen} onClose={handleCloseTaxesModal} title={selectedBusForTaxes ? `Manage Taxes - ${selectedBusForTaxes.busNumber}` : "Manage Taxes"} maxWidth="max-w-4xl">
+             <Modal isOpen={isTaxesModalOpen} onClose={handleCloseTaxesModal} title={selectedBusForTaxes ? `Manage Taxes - ${selectedBusForTaxes.vehicleNumber || selectedBusForTaxes.busNumber}` : "Manage Taxes"} maxWidth="max-w-4xl">
                  <div className="space-y-6">
                      {/* Expired taxes banner — checks both saved data and live input values */}
                      {(() => {
@@ -1609,8 +1871,10 @@ const BusManagement = () => {
                                                                  setIsTaxHistoryModalOpen(true);
                                                                  setTaxHistoryLoading(true);
                                                                  try {
+                                                                     const isOther = otherVehicles.some(v => v._id === selectedBusForTaxes._id);
+                                                                     const baseUrl = isOther ? `${API}/other-vehicles/${selectedBusForTaxes._id}/taxes/history` : `${API}/buses/${selectedBusForTaxes._id}/taxes/history`;
                                                                      const res = await apiFetch(
-                                                                         `${API}/buses/${selectedBusForTaxes._id}/taxes/history?taxHeader=${encodeURIComponent(taxHeaderName)}`
+                                                                         `${baseUrl}?taxHeader=${encodeURIComponent(taxHeaderName)}`
                                                                      );
                                                                      const data = await res.json();
                                                                      setTaxHistoryData(data);
