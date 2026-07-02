@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import BusManagement from './pages/BusManagement';
 import BusDetails from './pages/BusDetails';
+import VehicleDetails from './pages/VehicleDetails';
 import Fleet from './pages/Fleet';
 import RouteManagement from './pages/RouteManagement';
 import TransportRequests from './pages/TransportRequests';
@@ -27,6 +28,7 @@ function App() {
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/buses" element={<ProtectedRoute><BusManagement /></ProtectedRoute>} />
           <Route path="/buses/:id" element={<ProtectedRoute><BusDetails /></ProtectedRoute>} />
+          <Route path="/other-vehicles/:id" element={<ProtectedRoute><VehicleDetails /></ProtectedRoute>} />
           <Route path="/fleet" element={<ProtectedRoute><Fleet /></ProtectedRoute>} />
           <Route path="/routes" element={<ProtectedRoute><RouteManagement /></ProtectedRoute>} />
           <Route path="/transport-requests" element={<ProtectedRoute><TransportRequests /></ProtectedRoute>} />

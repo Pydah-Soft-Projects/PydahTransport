@@ -1380,10 +1380,11 @@ const BusManagement = () => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {otherVehicles.filter(v => !selectedCampusFilter || (v.campus?._id || v.campus) === selectedCampusFilter).map((vehicle) => (
+                                                                        {otherVehicles.filter(v => !selectedCampusFilter || (v.campus?._id || v.campus) === selectedCampusFilter).map((vehicle) => (
                                             <tr
                                                 key={vehicle._id}
-                                                className="hover:bg-blue-50/30 transition-colors group"
+                                                onClick={() => navigate(`/other-vehicles/${vehicle._id}`)}
+                                                className="hover:bg-blue-50/30 transition-colors cursor-pointer group"
                                             >
                                                 <td className="px-4 py-3">
                                                     <div>

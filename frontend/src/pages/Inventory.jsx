@@ -1168,7 +1168,7 @@ const Inventory = () => {
             <Modal
                 isOpen={isBillModalOpen}
                 onClose={() => setIsBillModalOpen(false)}
-                title="Raise Invoice & Allocate"
+                title="Raise Bills"
                 maxWidth="max-w-7xl"
             >
                 <form onSubmit={handleBillSubmit} className="space-y-6">
