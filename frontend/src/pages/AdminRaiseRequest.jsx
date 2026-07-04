@@ -527,7 +527,7 @@ const AdminRaiseRequest = () => {
         <Layout>
             <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Raise Request</h2>
+                    <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Raise Request</h2>
                     <p className="text-slate-500 mt-1">Enroll a new student or request a route/stage change for existing passengers.</p>
                 </div>
                 
