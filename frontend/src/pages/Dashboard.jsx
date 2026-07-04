@@ -103,7 +103,7 @@ const Dashboard = () => {
         <Layout>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-slate-100 pb-4">
                 <div>
-                    <h2 className="text-2xl font-extrabold break-words tracking-tight text-slate-900">Dashboard Overview</h2>
+                    <h2 className="text-2xl font-bold break-words tracking-tight text-slate-900">Dashboard Overview</h2>
                     <p className="text-slate-500 text-sm font-medium">Insights and analytics for transport management.</p>
                 </div>
                 <div className="flex items-center gap-2.5 self-stretch sm:self-auto">
@@ -158,7 +158,7 @@ const Dashboard = () => {
                                 </div>
                                 <div>
                                     <h3 className="text-slate-400 text-[11px] font-bold uppercase tracking-widest mb-0.5">Total Buses</h3>
-                                    <p className="text-3xl font-extrabold text-slate-900 leading-none">{stats.buses}</p>
+                                    <p className="text-3xl font-bold text-slate-900 leading-none">{stats.buses}</p>
                                 </div>
                                 <p className="text-emerald-600 text-[11px] font-medium flex items-center">
                                     <span className="mr-1">●</span> Fleet Operational
@@ -178,7 +178,7 @@ const Dashboard = () => {
                                 </div>
                                 <div>
                                     <h3 className="text-slate-400 text-[11px] font-bold uppercase tracking-widest mb-0.5">Total Routes</h3>
-                                    <p className="text-3xl font-extrabold text-slate-900 leading-none">{stats.routes}</p>
+                                    <p className="text-3xl font-bold text-slate-900 leading-none">{stats.routes}</p>
                                 </div>
                                 <p className="text-blue-600 text-[11px] font-medium flex items-center">
                                     <span className="font-bold mr-1">{stats.totalDistance} km</span> coverage
@@ -198,7 +198,7 @@ const Dashboard = () => {
                                 </div>
                                 <div>
                                     <h3 className="text-slate-400 text-[11px] font-bold uppercase tracking-widest mb-0.5">Passengers</h3>
-                                    <p className="text-3xl font-extrabold text-slate-900 leading-none">{stats.totalPassengers}</p>
+                                    <p className="text-3xl font-bold text-slate-900 leading-none">{stats.totalPassengers}</p>
                                 </div>
                                 <p className="text-purple-600 text-[11px] font-medium flex items-center">
                                     <span className="mr-1">●</span> Approved Requests

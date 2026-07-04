@@ -83,7 +83,7 @@ const Layout = ({ children }) => {
                             className="h-10 w-10 object-contain flex-shrink-0"
                         />
                         {!isCollapsed && (
-                            <h1 className="text-xl font-extrabold whitespace-nowrap animate-in fade-in slide-in-from-left-2">
+                            <h1 className="text-xl font-bold whitespace-nowrap animate-in fade-in slide-in-from-left-2">
                                 TRANSPORT
                             </h1>
                         )}
@@ -119,7 +119,7 @@ const Layout = ({ children }) => {
                                     <p className="text-[11px] font-bold text-slate-900 truncate leading-tight">
                                         {adminInfo.name || adminInfo.username || 'User'}
                                     </p>
-                                    <p className="text-[9px] uppercase font-black text-slate-400 truncate tracking-tighter">
+                                    <p className="text-[9px] uppercase font-semibold text-slate-400 truncate tracking-tighter">
                                         {adminInfo.role || (adminInfo.roles && adminInfo.roles.join(', ')) || 'Guest'}
                                     </p>
                                 </div>

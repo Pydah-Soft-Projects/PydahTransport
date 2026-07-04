@@ -131,7 +131,7 @@ const Fleet = () => {
         <Layout>
             <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-extrabold text-slate-800 break-words tracking-tight">Fleet & Passengers</h2>
+                    <h2 className="text-3xl font-bold text-slate-800 break-words tracking-tight">Fleet & Passengers</h2>
                     <p className="text-slate-700 mt-2 font-medium">Manage transport requests and bus capacity.</p>
                     <div className="mt-4 flex flex-wrap items-center gap-3">
                         <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">

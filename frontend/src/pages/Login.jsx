@@ -103,7 +103,7 @@ const Login = () => {
                 </button>
 
                 <div className="text-center mb-8 mt-2">
-                    <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Welcome Back</h1>
+                    <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome Back</h1>
                     <p className="text-slate-500 text-sm font-medium">Sign in to access the transport dashboard</p>
                 </div>
 

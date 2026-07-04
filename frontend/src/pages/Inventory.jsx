@@ -608,7 +608,7 @@ const Inventory = () => {
         <Layout>
             <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-3">
+                    <h2 className="text-3xl font-bold text-slate-800 tracking-tight flex items-center gap-3">
                         <Package className="text-blue-600" size={32} />
                         Bus Inventory
                     </h2>

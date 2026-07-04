@@ -786,7 +786,7 @@ const BusManagement = () => {
         <Layout>
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
                 <div>
-                    <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">
+                    <h2 className="text-3xl font-bold text-slate-800 tracking-tight">
                         {activeTab === TABS.otherVehicles ? 'Vehicle Management' : 'Bus Management'}
                     </h2>
                     <p className="text-slate-600 mt-1">

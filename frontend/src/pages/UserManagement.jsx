@@ -324,7 +324,7 @@ const UserManagement = () => {
         <Layout>
             <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-extrabold text-gray-800 tracking-tight">User Management</h2>
+                    <h2 className="text-3xl font-bold text-gray-800 tracking-tight">User Management</h2>
                     <p className="text-gray-500 mt-1">Manage system administration roles, page permissions, and campus/college-level data access restrictions.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">

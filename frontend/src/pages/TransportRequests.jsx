@@ -765,7 +765,7 @@ const TransportRequests = () => {
         <Layout>
             <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-extrabold text-gray-800 tracking-tight">Transport Requests</h2>
+                    <h2 className="text-3xl font-bold text-gray-800 tracking-tight">Transport Requests</h2>
                     <p className="text-gray-500 mt-1">View, approve, or reject student transport requests. Approval creates the transport fee (TRN01) in Fee Management.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
