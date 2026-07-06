@@ -1884,7 +1884,7 @@ const getApprovedPassengers = async (req, res) => {
 
         const parts = getActivePassengerSqlParts(resolveAcademicYear(req.query));
         let sql = `
-            SELECT tr.id, tr.admission_number, tr.student_name, tr.route_id, tr.route_name, tr.stage_name, tr.fare, tr.year_of_study,
+            SELECT tr.id, tr.admission_number, tr.student_name, tr.route_id, tr.route_name, tr.stage_name, tr.fare, tr.year_of_study, tr.academic_year,
                    COALESCE(s1.course, s2.course) as course,
                    COALESCE(s1.branch, s2.branch) as branch,
                    COALESCE(s1.pin_no, s2.pin_no) as pin_no
@@ -1935,8 +1935,13 @@ const submitRouteChangeRequest = async (req, res) => {
         new_fare,
         admin_id,
         admin_name,
-        user_type // Optional, helps distinguish
+        user_type, // Optional, helps distinguish
+        academic_year: requestAcademicYear,
     } = req.body;
+
+    const resolvedAcademicYear = resolveAcademicYear({ academic_year: requestAcademicYear })
+        || process.env.CURRENT_ACADEMIC_YEAR
+        || getDefaultAcademicYear();
 
     try {
         let currentRequest;
@@ -1944,7 +1949,14 @@ const submitRouteChangeRequest = async (req, res) => {
         let fareDiff = 0;
 
         if (user_type === 'employee') {
-            currentRequest = await EmployeeTransportRequest.findOne({ emp_no: admission_number, status: 'approved' }).lean();
+            // Find approved employee request, prefer matching academic year
+            const empQuery = { emp_no: admission_number, status: 'approved' };
+            if (resolvedAcademicYear) empQuery.academic_year = resolvedAcademicYear;
+            currentRequest = await EmployeeTransportRequest.findOne(empQuery).lean();
+            // Fallback: any approved request for this employee if year-filtered one not found
+            if (!currentRequest) {
+                currentRequest = await EmployeeTransportRequest.findOne({ emp_no: admission_number, status: 'approved' }).lean();
+            }
             if (!currentRequest) {
                 return res.status(404).json({ message: 'No approved transport request found for this employee.' });
             }
@@ -1964,10 +1976,21 @@ const submitRouteChangeRequest = async (req, res) => {
                 return res.status(500).json({ message: 'MySQL connection not established' });
             }
 
-            const [currentRows] = await mysqlPool.query(
-                'SELECT * FROM transport_requests WHERE admission_number = ? AND status = "approved" LIMIT 1',
-                [admission_number]
-            );
+            // Filter by academic_year when possible so we update the correct year's request
+            let currentRows;
+            if (resolvedAcademicYear) {
+                [currentRows] = await mysqlPool.query(
+                    'SELECT * FROM transport_requests WHERE admission_number = ? AND status = "approved" AND COALESCE(academic_year, ?) = ? ORDER BY id DESC LIMIT 1',
+                    [admission_number, resolvedAcademicYear, resolvedAcademicYear]
+                );
+            }
+            // Fallback: any approved request for this student if year-filtered one not found
+            if (!currentRows || !currentRows[0]) {
+                [currentRows] = await mysqlPool.query(
+                    'SELECT * FROM transport_requests WHERE admission_number = ? AND status = "approved" ORDER BY id DESC LIMIT 1',
+                    [admission_number]
+                );
+            }
             currentRequest = currentRows[0];
             if (!currentRequest) {
                 return res.status(404).json({ message: 'No approved transport request found for this student.' });

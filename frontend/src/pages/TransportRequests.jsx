@@ -85,7 +85,7 @@ const TransportRequests = () => {
     const [courseExpiryEdits, setCourseExpiryEdits] = useState({});
     const [courseExpirySchemaOk, setCourseExpirySchemaOk] = useState(true);
     const [editingYears, setEditingYears] = useState({});
-    const [detailModal, setDetailModal] = useState({ open: false, request: null });
+    const [detailModal, setDetailModal] = useState({ open: false, request: null, loading: false });
     const [idCardModalOpen, setIdCardModalOpen] = useState(false);
     const [idCardAcademicYear, setIdCardAcademicYear] = useState(getDefaultAcademicYear());
     const [idCardCollegeCode, setIdCardCollegeCode] = useState('');
@@ -350,12 +350,33 @@ const TransportRequests = () => {
         }
     };
 
-    const openDetailModal = (req) => {
-        setDetailModal({ open: true, request: req });
+    const openDetailModal = async (req) => {
+        // Open modal immediately with list data so it appears responsive
+        setDetailModal({ open: true, request: req, loading: true });
+        try {
+            const response = await apiFetch(`${API_BASE}/transport-requests/${req.id}/full-details`);
+            if (response.ok) {
+                const freshData = await response.json();
+                // Merge fresh transport fields on top of list-row data (which has expiry, is_expired, etc.)
+                setDetailModal((prev) => ({
+                    ...prev,
+                    loading: false,
+                    request: { ...req, ...freshData },
+                }));
+                // Also update the requests list so re-opened modal stays consistent
+                setRequests((prev) =>
+                    prev.map((r) => (r.id === req.id ? { ...r, ...freshData } : r))
+                );
+            } else {
+                setDetailModal((prev) => ({ ...prev, loading: false }));
+            }
+        } catch {
+            setDetailModal((prev) => ({ ...prev, loading: false }));
+        }
     };
 
     const closeDetailModal = () => {
-        setDetailModal({ open: false, request: null });
+        setDetailModal({ open: false, request: null, loading: false });
     };
 
     const fetchRequests = async () => {
@@ -615,6 +636,18 @@ const TransportRequests = () => {
     useEffect(() => {
         fetchRequests();
         setCurrentPage(1);
+    }, [academicYear, routeFilter, courseFilter, statusFilter, searchQuery]);
+
+    // Re-fetch requests when the browser tab/page becomes visible again,
+    // so changes made in other pages (e.g. route change in AdminRaiseRequest) are reflected.
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                fetchRequests();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, [academicYear, routeFilter, courseFilter, statusFilter, searchQuery]);
 
     const calculateStats = () => {
@@ -1047,6 +1080,12 @@ const TransportRequests = () => {
                 maxWidth="max-w-5xl"
                 noScroll
             >
+                {detailModal.loading && (
+                    <div className="flex items-center gap-2 text-sm text-slate-500 py-2 px-1">
+                        <svg className="animate-spin h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                        Refreshing details…
+                    </div>
+                )}
                 {detailModal.request && (() => {
                     const req = detailModal.request;
                     const name = req.student_name || req.employee_name || '—';

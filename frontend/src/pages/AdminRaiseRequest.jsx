@@ -456,14 +456,16 @@ const AdminRaiseRequest = () => {
                 : `${API_BASE}/transport-requests`;
             
             const body = isChange ? {
-                admission_number: selectedStudent.admission_number,
+                admission_number: selectedStudent.admission_number || selectedStudent.emp_no,
                 new_route_id: selectedRoute.routeId,
                 new_route_name: selectedRoute.routeName,
                 new_stage_name: selectedStage.stageName,
                 new_fare: selectedStage.fare,
                 admin_name: admin.name,
                 admin_id: admin.id,
-                user_type: userType
+                user_type: userType,
+                // Use the student's own request academic_year if available, so the right year is updated
+                academic_year: selectedStudent.academic_year || academicYear,
             } : {
                 admission_number: selectedStudent.admission_number || selectedStudent.admission_no || selectedStudent.emp_no,
                 student_name: selectedStudent.student_name || selectedStudent.employee_name,
