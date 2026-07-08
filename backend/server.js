@@ -41,6 +41,10 @@ app.get('/', (req, res) => {
     res.json({ message: 'Pydah Transport API is running🎉' });
 });
 
+app.get('/api', (req, res) => {
+    res.json({ message: 'Pydah Transport API is running🎉' });
+});
+
 const PORT = process.env.PORT || 5000;
 
 const startDbs = async () => {
