@@ -9,6 +9,7 @@ import TransportBusIdCardSheet from '../components/TransportBusIdCardSheet';
 import Loader from '../components/Loader';
 import { apiFetch, API_BASE } from '../utils/api';
 import { triggerAdmitCardPrint } from '../utils/printAdmitCard';
+import { printHtmlDocument } from '../utils/printHtml';
 import QRCode from 'qrcode';
 import { getTransportVerifyUrl } from '../utils/siteUrl';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
@@ -104,24 +105,22 @@ const TransportRequests = () => {
 
     const admitCardRef = useRef();
     const idCardSheetRef = useRef();
-    const handlePrintAdmitCard = useReactToPrint({
-        contentRef: admitCardRef,
-        documentTitle: selectedPassPassenger
-            ? `Transport-Admit-Card-${selectedPassPassenger.admission_number || selectedPassPassenger.emp_no || selectedPassPassenger.admission_no}`
-            : 'Transport-Admit-Card'
-    });
-
     const handlePrintAdmitCardClick = async (p) => {
         if (fetchingPass || fetchingIdCard) return;
         setFetchingPass(true);
         try {
-            const response = await apiFetch(`${API_BASE}/transport-requests/${p.id}/full-details`);
+            const response = await apiFetch(`${API_BASE}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'transport-admit',
+                    data: { requestId: p.id }
+                })
+            });
             if (response.ok) {
-                const fullPassenger = await response.json();
-                flushSync(() => setSelectedPassPassenger(fullPassenger));
-                await triggerAdmitCardPrint(handlePrintAdmitCard, admitCardRef);
+                const html = await response.text();
+                printHtmlDocument(html, `Transport-Admit-Card-${p.admission_number || p.emp_no || p.id}`);
             } else {
-                alert('Failed to fetch passenger details for admit card.');
+                alert('Failed to generate admit card.');
             }
         } catch (error) {
             console.error('Error fetching admit card details:', error);
@@ -146,13 +145,6 @@ const TransportRequests = () => {
         }
     };
 
-    const handlePrintIdCards = useReactToPrint({
-        contentRef: idCardSheetRef,
-        documentTitle: `Bus-ID-Cards-${idCardAcademicYear}`,
-        onAfterPrint: () => setIdCardPrintLoading(false),
-        onPrintError: () => setIdCardPrintLoading(false),
-    });
-
     const handlePrintIdCardClick = async (req) => {
         if (fetchingIdCard || fetchingPass) return;
         if (req.status !== 'approved') {
@@ -161,21 +153,24 @@ const TransportRequests = () => {
         }
         setFetchingIdCard(true);
         try {
-            const response = await apiFetch(`${API_BASE}/transport-requests/${req.id}/full-details`);
-            if (!response.ok) {
-                alert('Failed to fetch passenger details for ID card.');
-                return;
-            }
-            const passenger = await response.json();
-            const passengerWithQr = await attachQrToPassenger(passenger);
-            const year = passenger.academic_year || req.academic_year || academicYear;
-            flushSync(() => {
-                setIdCardPassengers([passengerWithQr]);
-                setIdCardAcademicYear(year);
-                setIdCardPerPage(6);
-                setIdCardPadToFullPage(false);
+            const response = await apiFetch(`${API_BASE}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'transport-bus-idcard-sheet',
+                    data: {
+                        requestIds: [req.id],
+                        academicYear: req.academic_year || academicYear,
+                        cardsPerPage: 6,
+                        padToFullPage: false
+                    }
+                })
             });
-            await triggerAdmitCardPrint(handlePrintIdCards, idCardSheetRef);
+            if (response.ok) {
+                const html = await response.text();
+                printHtmlDocument(html, `Bus-ID-Card-${req.admission_number || req.id}`);
+            } else {
+                alert('Failed to generate ID card.');
+            }
         } catch (error) {
             console.error('Error printing ID card:', error);
             alert('Error preparing ID card.');
@@ -333,19 +328,33 @@ const TransportRequests = () => {
                 setIdCardPrintLoading(false);
                 return;
             }
-            const passengersWithQr = await Promise.all(
-                passengers.map((passenger) => attachQrToPassenger(passenger))
-            );
-            flushSync(() => {
-                setIdCardPassengers(passengersWithQr);
-                setIdCardPreviewCount(passengersWithQr.length);
-                setIdCardPadToFullPage(true);
+            const requestIds = passengers.map(p => p.id || p._id);
+            
+            // Request printed ID Card Sheet HTML from the backend Print Service
+            const printResponse = await apiFetch(`${API_BASE}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'transport-bus-idcard-sheet',
+                    data: {
+                        requestIds,
+                        academicYear: academicYear,
+                        cardsPerPage: 6,
+                        padToFullPage: true
+                    }
+                })
             });
-            await triggerAdmitCardPrint(handlePrintIdCards, idCardSheetRef);
-            setIdCardModalOpen(false);
+
+            if (printResponse.ok) {
+                const html = await printResponse.text();
+                printHtmlDocument(html, `Bus-ID-Cards-Range-${academicYear}`);
+                setIdCardModalOpen(false);
+            } else {
+                setMessage({ text: 'Failed to generate ID card sheet HTML.', type: 'error' });
+            }
         } catch (error) {
             console.error('Error printing ID cards:', error);
             setMessage({ text: 'Error preparing ID cards for print.', type: 'error' });
+        } finally {
             setIdCardPrintLoading(false);
         }
     };

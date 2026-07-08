@@ -10,6 +10,7 @@ import TransportAdmitCard from '../components/TransportAdmitCard';
 import Loader from '../components/Loader';
 import { apiFetch, API_BASE } from '../utils/api';
 import { triggerAdmitCardPrint } from '../utils/printAdmitCard';
+import { printHtmlDocument } from '../utils/printHtml';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 
 const API = API_BASE;
@@ -74,32 +75,47 @@ const BusDetails = () => {
     // For expired taxes warning
     const [expiredTaxesWarning, setExpiredTaxesWarning] = useState([]);
 
-    const componentRef = useRef();
-    const handlePrint = useReactToPrint({
-        contentRef: componentRef,
-        documentTitle: `Transport-Passenger-Report-${id}`
-    });
-
-    const [selectedAdmitPassenger, setSelectedAdmitPassenger] = useState(null);
-    const admitCardRef = useRef();
-    const handlePrintAdmitCard = useReactToPrint({
-        contentRef: admitCardRef,
-        documentTitle: selectedAdmitPassenger
-            ? `Transport-Admit-Card-${selectedAdmitPassenger.admission_number || selectedAdmitPassenger.emp_no || selectedAdmitPassenger.admission_no}`
-            : 'Transport-Admit-Card'
-    });
+    const handlePrint = async () => {
+        if (!data?.bus?.busNumber) return;
+        try {
+            const response = await apiFetch(`${API}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'passenger-report',
+                    data: {
+                        busId: data.bus.busNumber,
+                        academicYear: academicYear,
+                    }
+                })
+            });
+            if (response.ok) {
+                const html = await response.text();
+                printHtmlDocument(html, `Transport-Passenger-Report-${data.bus.busNumber}`);
+            } else {
+                alert('Failed to generate passenger report.');
+            }
+        } catch (error) {
+            console.error('Error printing passenger report:', error);
+            alert('Error preparing passenger report.');
+        }
+    };
 
     const handlePrintAdmitCardClick = async (p) => {
         if (fetchingPass) return;
         setFetchingPass(true);
         try {
-            const response = await apiFetch(`${API}/transport-requests/${p.id}/full-details`);
+            const response = await apiFetch(`${API}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'transport-admit',
+                    data: { requestId: p.id }
+                })
+            });
             if (response.ok) {
-                const fullPassenger = await response.json();
-                flushSync(() => setSelectedAdmitPassenger(fullPassenger));
-                await triggerAdmitCardPrint(handlePrintAdmitCard, admitCardRef);
+                const html = await response.text();
+                printHtmlDocument(html, `Transport-Admit-Card-${p.admission_number || p.emp_no || p.id}`);
             } else {
-                alert('Failed to fetch passenger details for admit card.');
+                alert('Failed to generate admit card.');
             }
         } catch (error) {
             console.error('Error fetching admit card details:', error);

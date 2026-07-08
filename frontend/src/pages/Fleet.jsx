@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { useReactToPrint } from 'react-to-print';
+import { printHtmlDocument } from '../utils/printHtml';
 import PassengerReport from '../components/PassengerReport';
 import Layout from '../components/Layout';
 import Loader from '../components/Loader';
@@ -35,39 +35,30 @@ const Fleet = () => {
     const [printPassengers, setPrintPassengers] = useState([]);
     const [isPrinting, setIsPrinting] = useState(false);
 
-    const handlePrint = useReactToPrint({
-        contentRef: componentRef,
-        documentTitle: 'Transport-Passenger-Report',
-        onAfterPrint: () => setIsPrinting(false),
-        onPrintError: () => setIsPrinting(false)
-    });
-
     const handleDownloadReport = async () => {
         setIsPrinting(true);
         try {
-            const params = new URLSearchParams({ status: occupancyMode === 'live' ? 'active' : 'approved' });
-            if (occupancyMode !== 'live') params.append('academicYear', academicYear);
-            const response = await apiFetch(
-                `${API}/transport-requests?${params.toString()}`
-            );
-            if (response.ok) {
-                const data = await response.json();
-                setPrintPassengers(data);
-                // Give React a tick to render the hidden component with data before triggering print
-                setTimeout(() => {
-                    try {
-                        handlePrint();
-                    } catch (e) {
-                        setIsPrinting(false);
-                        setMessage({ text: 'Error triggering print dialog.', type: 'error' });
+            const status = occupancyMode === 'live' ? 'active' : 'approved';
+            const response = await apiFetch(`${API}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'passenger-report',
+                    data: {
+                        status,
+                        academicYear: occupancyMode !== 'live' ? academicYear : undefined
                     }
-                }, 300);
+                })
+            });
+            if (response.ok) {
+                const html = await response.text();
+                printHtmlDocument(html, 'Transport-Passenger-Report');
             } else {
-                setMessage({ text: 'Failed to fetch printing data.', type: 'error' });
-                setIsPrinting(false);
+                setMessage({ text: 'Failed to generate passenger report HTML.', type: 'error' });
             }
         } catch (e) {
+            console.error('Error generating report:', e);
             setMessage({ text: 'Error generating report.', type: 'error' });
+        } finally {
             setIsPrinting(false);
         }
     };

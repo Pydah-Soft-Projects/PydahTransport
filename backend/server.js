@@ -35,6 +35,7 @@ app.use('/api/transport-dues', protect, require('./routes/transportDuesRoutes'))
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/students', protect, require('./routes/studentRoutes'));
 app.use('/api/inventory', protect, require('./routes/inventoryRoutes'));
+app.use('/api/print', require('./routes/print.routes'));
 
 app.get('/', (req, res) => {
     res.json({ message: 'Pydah Transport API is running🎉' });

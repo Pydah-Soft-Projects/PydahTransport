@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import BillPrint from '../components/BillPrint';
 import { apiFetch, API_BASE } from '../utils/api';
+import { printHtmlDocument } from '../utils/printHtml';
 
 const API = API_BASE;
 
@@ -408,11 +409,29 @@ const Inventory = () => {
         }
     };
 
-    const handlePrint = (billData) => {
-        setPrintBill(billData);
-        setTimeout(() => {
-            window.print();
-        }, 800);
+    const handlePrint = async (billData) => {
+        try {
+            const response = await apiFetch(`${API}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'bill-print',
+                    data: {
+                        billNo: billData.billNo,
+                        vendorId: billData.vendorId?._id || billData.vendorId,
+                        busId: billData.busId?._id || billData.busId
+                    }
+                })
+            });
+            if (response.ok) {
+                const html = await response.text();
+                printHtmlDocument(html, `Transport-Maintenance-Bill-${billData.billNo}`);
+            } else {
+                alert('Failed to generate bill print HTML.');
+            }
+        } catch (error) {
+            console.error('Error generating bill print:', error);
+            alert('Error preparing bill print.');
+        }
     };
 
     const handleDeleteItem = async (id) => {
