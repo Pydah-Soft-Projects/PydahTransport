@@ -78,7 +78,11 @@ const fetchAdmitCardData = async (data) => {
         throw error;
     }
 
-    const isMongoId = mongoose.Types.ObjectId.isValid(id);
+    // Strict check: must be a 24-char hex string that round-trips through ObjectId.
+    // mongoose.Types.ObjectId.isValid() returns true for plain integers in some versions,
+    // which causes a cast error when a MySQL numeric ID like 1491 is passed.
+    const isMongoId = mongoose.Types.ObjectId.isValid(id)
+        && String(new mongoose.Types.ObjectId(id)) === String(id);
     if (isMongoId) {
         const reqRow = await EmployeeTransportRequest.findById(id).lean();
         if (!reqRow) {
