@@ -66,41 +66,48 @@ const Layout = ({ children }) => {
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
             {/* Sidebar (Desktop) */}
-            <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-white shadow-xl hidden md:flex flex-col z-20 transition-all duration-300 relative`}>
+            <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-gradient-to-b from-[#f7f5fc] via-white to-[#f4f1fb] shadow-xl border-r border-slate-200 hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-hidden`}>
                 {/* Collapse Toggle Button */}
                 <button 
                     onClick={() => setIsCollapsed(!isCollapsed)}
-                    className="absolute -right-3 top-24 bg-white border border-gray-100 rounded-full p-1 shadow-md z-30 hover:bg-gray-50 text-blue-900 group"
+                    className="absolute -right-3 top-24 bg-white border border-violet-100 rounded-full p-1 shadow-md z-30 hover:bg-violet-50 text-violet-500 group"
                 >
                     {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
                 </button>
 
-                <div className={`h-22 flex items-center ${isCollapsed ? 'justify-center' : 'px-6'} border-b border-gray-100 py-4 transition-all duration-300`}>
-                    <div className="flex items-center gap-3 overflow-hidden">
-                        <img
-                            src="/Gemini_Generated_Image_uu0hhduu0hhduu0h.png"
-                            alt="Logo"
-                            className="h-10 w-10 object-contain flex-shrink-0"
-                        />
-                        {!isCollapsed && (
-                            <h1 className="text-xl font-bold whitespace-nowrap animate-in fade-in slide-in-from-left-2">
+                <div className={`min-h-28 flex items-center ${isCollapsed ? 'justify-center px-3' : 'px-6'} py-5 transition-all duration-300 bg-gradient-to-r from-violet-600 via-violet-700 to-indigo-700 relative z-10`}>
+                    <img
+                        src="/Gemini_Generated_Image_uu0hhduu0hhduu0h.png"
+                        alt="Logo"
+                        className="h-11 w-11 object-cover rounded-full flex-shrink-0 border-2 border-white/80 shadow-sm"
+                    />
+                    {!isCollapsed && (
+                        <div className="ml-4 animate-in fade-in slide-in-from-left-2">
+                            <h1 className="text-2xl font-extrabold whitespace-nowrap tracking-wide text-white">
                                 TRANSPORT
                             </h1>
-                        )}
-                    </div>
+                            <p className="text-[10px] uppercase tracking-[0.18em] text-violet-100">
+                                Management System
+                            </p>
+                        </div>
+                    )}
                 </div>
-                <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto custom-scrollbar">
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 top-28">
+                    <div className="absolute bottom-24 -right-10 h-40 w-40 rounded-full bg-violet-100/70 blur-2xl"></div>
+                    <div className="absolute bottom-0 right-6 h-32 w-32 rounded-full bg-indigo-100/60 blur-2xl"></div>
+                </div>
+                <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto custom-scrollbar relative z-10">
                     {menuItems.map((item) => (
                         <Link
                             key={item.path}
                             to={item.path}
                             title={isCollapsed ? item.label : ""}
-                            className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'px-4'} py-3 rounded-xl transition-all duration-200 group relative overflow-hidden ${location.pathname === item.path
-                                ? 'bg-slate-900 text-white shadow-md font-semibold'
-                                : 'text-slate-900 hover:bg-slate-100 hover:text-black font-medium'
+                            className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'px-4'} py-3 rounded-xl transition-all duration-200 group relative overflow-hidden border ${location.pathname === item.path
+                                ? 'bg-white/95 border-violet-100 text-violet-600 shadow-[0_8px_24px_rgba(15,23,42,0.08)] font-semibold'
+                                : 'border-transparent text-slate-700 hover:bg-white/85 hover:border-violet-100/70 hover:text-violet-600 font-medium'
                                 }`}
                         >
-                            <span className={`${isCollapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${location.pathname === item.path ? 'text-white' : 'text-slate-900 group-hover:text-black'
+                            <span className={`${isCollapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${location.pathname === item.path ? 'text-violet-500' : 'text-violet-500/90 group-hover:text-violet-600'
                                 }`}>
                                 {item.icon}
                             </span>
@@ -108,25 +115,25 @@ const Layout = ({ children }) => {
                         </Link>
                     ))}
                 </nav>
-                <div className={`p-3 border-t border-gray-100 bg-gray-50/50 ${isCollapsed ? 'flex justify-center' : ''}`}>
-                    <div className={`flex items-center ${isCollapsed ? 'justify-center w-12 h-12' : 'gap-3 px-3 py-2 bg-white'} rounded-xl border border-slate-100 transition-all duration-300 shadow-sm`}>
-                        <div className={`w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm border-2 border-white shadow-sm flex-shrink-0 transition-all duration-300 ${isCollapsed ? 'scale-110' : ''}`}>
+                <div className={`p-3 border-t border-slate-200/80 bg-white/55 relative z-10 ${isCollapsed ? 'flex justify-center' : ''}`}>
+                    <div className={`flex items-center ${isCollapsed ? 'justify-center w-12 h-12' : 'gap-3 px-4 py-3 bg-white/90'} rounded-2xl border border-violet-100 transition-all duration-300 shadow-[0_8px_24px_rgba(15,23,42,0.08)]`}>
+                        <div className={`w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 font-bold text-sm border-2 border-white shadow-sm flex-shrink-0 transition-all duration-300 ${isCollapsed ? 'scale-110' : ''}`}>
                             {(adminInfo.name || adminInfo.username || 'U').charAt(0).toUpperCase()}
                         </div>
                         {!isCollapsed && (
                             <>
                                 <div className="flex-1 min-w-0 animate-in fade-in duration-300">
-                                    <p className="text-[11px] font-bold text-slate-900 truncate leading-tight">
+                                    <p className="text-[11px] font-bold text-slate-800 truncate leading-tight">
                                         {adminInfo.name || adminInfo.username || 'User'}
                                     </p>
-                                    <p className="text-[9px] uppercase font-semibold text-slate-400 truncate tracking-tighter">
+                                    <p className="text-[9px] uppercase font-semibold text-slate-500 truncate tracking-tighter">
                                         {adminInfo.role || (adminInfo.roles && adminInfo.roles.join(', ')) || 'Guest'}
                                     </p>
                                 </div>
                                 <button
                                     onClick={handleLogout}
                                     title="Logout"
-                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 group"
+                                    className="p-1.5 text-slate-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all duration-200 group"
                                 >
                                     <LogOut size={16} className="group-hover:scale-110 transition-transform" />
                                 </button>
@@ -145,26 +152,40 @@ const Layout = ({ children }) => {
             )}
 
             {/* Sidebar (Mobile) */}
-            <aside className={`fixed inset-y-0 left-0 w-64 bg-white shadow-2xl flex flex-col z-40 transform transition-transform duration-300 md:hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+            <aside className={`fixed inset-y-0 left-0 w-64 bg-gradient-to-b from-[#f7f5fc] via-white to-[#f4f1fb] shadow-xl border-r border-slate-200 flex flex-col z-40 transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}>
-                <div className="h-16 flex justify-between items-center border-b border-gray-100 px-6">
-                    <h1 className="text-lg font-bold text-blue-900 truncate">Pydah Transport</h1>
-                    <button onClick={() => setIsMobileMenuOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <div className="min-h-24 flex justify-between items-center px-5 bg-gradient-to-r from-violet-600 via-violet-700 to-indigo-700 relative z-10">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <img
+                            src="/Gemini_Generated_Image_uu0hhduu0hhduu0h.png"
+                            alt="Logo"
+                            className="h-10 w-10 object-cover rounded-full border-2 border-white/80 shadow-sm"
+                        />
+                        <div className="min-w-0">
+                            <h1 className="text-lg font-bold text-white truncate">TRANSPORT</h1>
+                            <p className="text-[9px] uppercase tracking-[0.18em] text-violet-100 truncate">Management System</p>
+                        </div>
+                    </div>
+                    <button onClick={() => setIsMobileMenuOpen(false)} className="text-violet-100 hover:text-white">
                         <X size={24} />
                     </button>
                 </div>
-                <nav className="flex-1 p-4 space-y-2">
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 top-24">
+                    <div className="absolute bottom-20 -right-10 h-40 w-40 rounded-full bg-violet-100/70 blur-2xl"></div>
+                    <div className="absolute bottom-0 right-6 h-28 w-28 rounded-full bg-indigo-100/60 blur-2xl"></div>
+                </div>
+                <nav className="flex-1 p-4 space-y-2 relative z-10">
                     {menuItems.map((item) => (
                         <Link
                             key={item.path}
                             to={item.path}
                             onClick={() => setIsMobileMenuOpen(false)}
-                            className={`flex items-center px-4 py-3 rounded-lg transition-colors ${location.pathname === item.path
-                                ? 'bg-slate-900 text-white font-medium'
-                                : 'text-slate-900 hover:bg-slate-100'
+                            className={`flex items-center px-4 py-3 rounded-lg border transition-colors ${location.pathname === item.path
+                                ? 'bg-white/95 border-violet-100 text-violet-600 font-semibold shadow-[0_8px_24px_rgba(15,23,42,0.08)]'
+                                : 'border-transparent text-slate-700 hover:bg-white/85 hover:border-violet-100/70 hover:text-violet-600'
                                 }`}
                         >
-                            <span className="mr-3">{item.icon}</span>
+                            <span className={`mr-3 ${location.pathname === item.path ? 'text-violet-500' : 'text-violet-500/90'}`}>{item.icon}</span>
                             <span className="truncate text-sm">{item.label}</span>
                         </Link>
                     ))}
@@ -172,7 +193,7 @@ const Layout = ({ children }) => {
             </aside>
 
             {/* Main Content */}
-            <div className="flex-1 flex flex-col h-screen overflow-hidden relative bg-slate-200 w-full">
+            <div className="flex-1 flex flex-col h-screen overflow-hidden relative bg-gray-50 w-full">
                 {/* Mobile Header */}
                 <header className="md:hidden bg-white shadow-sm h-16 flex items-center justify-between px-4 z-20">
                     <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-gray-600 rounded-lg hover:bg-gray-100">
