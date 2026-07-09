@@ -21,13 +21,28 @@ async function resolveCourseDuration(mysqlPool, course, branch) {
 
     if (branch) {
         const [branchRows] = await mysqlPool.query(
-            `SELECT total_years FROM course_branches
+            `SELECT total_years, year_semester_config FROM course_branches
              WHERE course_id = ? AND (name = ? OR code = ?)
              LIMIT 1`,
             [courseRow.id, branch, branch]
         );
-        if (branchRows[0]?.total_years != null) {
-            totalYears = Number(branchRows[0].total_years);
+        const branchRow = branchRows[0];
+        if (branchRow?.total_years != null) {
+            totalYears = Number(branchRow.total_years);
+        }
+        // If the branch has an additional year (e.g. AGRD: 3 base + 1 additional = 4 effective years),
+        // add it so the course-completion check uses the full programme duration.
+        if (branchRow?.year_semester_config) {
+            try {
+                const config = typeof branchRow.year_semester_config === 'string'
+                    ? JSON.parse(branchRow.year_semester_config)
+                    : branchRow.year_semester_config;
+                if (config?.hasAdditionalYear === true && Number(config?.additionalYear) > 0) {
+                    totalYears = (totalYears ?? 0) + Number(config.additionalYear);
+                }
+            } catch {
+                // malformed JSON — ignore and use total_years as-is
+            }
         }
     }
 
