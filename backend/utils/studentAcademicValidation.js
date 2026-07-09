@@ -21,7 +21,7 @@ async function resolveCourseDuration(mysqlPool, course, branch) {
 
     if (branch) {
         const [branchRows] = await mysqlPool.query(
-            `SELECT total_years, year_semester_config FROM course_branches
+            `SELECT total_years, metadata FROM course_branches
              WHERE course_id = ? AND (name = ? OR code = ?)
              LIMIT 1`,
             [courseRow.id, branch, branch]
@@ -30,14 +30,14 @@ async function resolveCourseDuration(mysqlPool, course, branch) {
         if (branchRow?.total_years != null) {
             totalYears = Number(branchRow.total_years);
         }
-        // If the branch has an additional year, additionalYear holds the year *number* of that
-        // extra year (e.g. AGRD: total_years=3, additionalYear=4 → effective duration = 4).
+        // If the branch has an additional year, additionalYear in metadata holds the year
+        // *number* of that extra year (e.g. AGRD: total_years=3, additionalYear=4 → effective 4).
         // Use Math.max so we always end up with the highest year in the programme.
-        if (branchRow?.year_semester_config) {
+        if (branchRow?.metadata) {
             try {
-                const config = typeof branchRow.year_semester_config === 'string'
-                    ? JSON.parse(branchRow.year_semester_config)
-                    : branchRow.year_semester_config;
+                const config = typeof branchRow.metadata === 'string'
+                    ? JSON.parse(branchRow.metadata)
+                    : branchRow.metadata;
                 if (config?.hasAdditionalYear === true && Number(config?.additionalYear) > 0) {
                     totalYears = Math.max(totalYears ?? 0, Number(config.additionalYear));
                 }
