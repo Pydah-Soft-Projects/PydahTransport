@@ -30,15 +30,16 @@ async function resolveCourseDuration(mysqlPool, course, branch) {
         if (branchRow?.total_years != null) {
             totalYears = Number(branchRow.total_years);
         }
-        // If the branch has an additional year (e.g. AGRD: 3 base + 1 additional = 4 effective years),
-        // add it so the course-completion check uses the full programme duration.
+        // If the branch has an additional year, additionalYear holds the year *number* of that
+        // extra year (e.g. AGRD: total_years=3, additionalYear=4 → effective duration = 4).
+        // Use Math.max so we always end up with the highest year in the programme.
         if (branchRow?.year_semester_config) {
             try {
                 const config = typeof branchRow.year_semester_config === 'string'
                     ? JSON.parse(branchRow.year_semester_config)
                     : branchRow.year_semester_config;
                 if (config?.hasAdditionalYear === true && Number(config?.additionalYear) > 0) {
-                    totalYears = (totalYears ?? 0) + Number(config.additionalYear);
+                    totalYears = Math.max(totalYears ?? 0, Number(config.additionalYear));
                 }
             } catch {
                 // malformed JSON — ignore and use total_years as-is
