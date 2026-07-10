@@ -67,6 +67,9 @@ const STUDENT_JOINS_SQL = `
 
 function getActivePassengerSqlParts(fallbackAcademicYear) {
     const fallback = fallbackAcademicYear || getDefaultAcademicYear();
+    const academicYearEndExpr = `STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay_act.year_label, '-', -1), '-06-30'), '%Y-%m-%d')`;
+    const strictExpiryExpr = `COALESCE(cte.expiry_date, sem.end_date)`;
+    const isAcademicYearPastExpr = `(${strictExpiryExpr} IS NULL AND ${academicYearEndExpr} IS NOT NULL AND CURDATE() > ${academicYearEndExpr})`;
     // Match expiry only to the request's own academic year, batch, course, and year.
     return {
         academicYear: fallback,
@@ -83,9 +86,9 @@ function getActivePassengerSqlParts(fallbackAcademicYear) {
               AND sem.academic_year_id = ay_act.id
               AND CAST(sem.batch AS CHAR) = CAST(COALESCE(s1.batch, s2.batch) AS CHAR)
               AND sem.year_of_study = COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)`,
-        activeWhere: `(COALESCE(cte.expiry_date, sem.end_date) IS NULL OR CURDATE() <= COALESCE(cte.expiry_date, sem.end_date))`,
-        effectiveExpiryExpr: `COALESCE(cte.expiry_date, sem.end_date)`,
-        isExpiredExpr: `(tr.status = 'approved' AND COALESCE(cte.expiry_date, sem.end_date) IS NOT NULL AND CURDATE() > COALESCE(cte.expiry_date, sem.end_date))`,
+        activeWhere: `(((${strictExpiryExpr} IS NULL OR CURDATE() <= ${strictExpiryExpr}) AND NOT ${isAcademicYearPastExpr}))`,
+        effectiveExpiryExpr: strictExpiryExpr,
+        isExpiredExpr: `(tr.status = 'approved' AND ((${strictExpiryExpr} IS NOT NULL AND CURDATE() > ${strictExpiryExpr}) OR ${isAcademicYearPastExpr}))`,
         expiryParams: [fallback],
     };
 }

@@ -201,13 +201,23 @@ const getCourseExpiry = async (req, res) => {
                  COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1) AS year_of_study,
                  COUNT(*) AS passenger_count,
                  SUM(CASE
-                   WHEN COALESCE(cte2.expiry_date, sem2.end_date, tr.expiry_date) IS NULL
-                     OR CURDATE() <= COALESCE(cte2.expiry_date, sem2.end_date, tr.expiry_date)
+                   WHEN (COALESCE(cte2.expiry_date, sem2.end_date) IS NULL OR CURDATE() <= COALESCE(cte2.expiry_date, sem2.end_date))
+                    AND NOT (
+                      COALESCE(cte2.expiry_date, sem2.end_date) IS NULL
+                      AND STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay2.year_label, '-', -1), '-06-30'), '%Y-%m-%d') IS NOT NULL
+                      AND CURDATE() > STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay2.year_label, '-', -1), '-06-30'), '%Y-%m-%d')
+                    )
                    THEN 1 ELSE 0
                  END) AS active_passenger_count,
                  SUM(CASE
-                   WHEN COALESCE(cte2.expiry_date, sem2.end_date, tr.expiry_date) IS NOT NULL
-                     AND CURDATE() > COALESCE(cte2.expiry_date, sem2.end_date, tr.expiry_date)
+                   WHEN (
+                      COALESCE(cte2.expiry_date, sem2.end_date) IS NOT NULL
+                      AND CURDATE() > COALESCE(cte2.expiry_date, sem2.end_date)
+                    ) OR (
+                      COALESCE(cte2.expiry_date, sem2.end_date) IS NULL
+                      AND STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay2.year_label, '-', -1), '-06-30'), '%Y-%m-%d') IS NOT NULL
+                      AND CURDATE() > STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay2.year_label, '-', -1), '-06-30'), '%Y-%m-%d')
+                    )
                    THEN 1 ELSE 0
                  END) AS expired_passenger_count
                FROM transport_requests tr
@@ -215,18 +225,25 @@ const getCourseExpiry = async (req, res) => {
                LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
                LEFT JOIN colleges coll ON coll.name = COALESCE(s1.college, s2.college) COLLATE utf8mb4_unicode_ci
                INNER JOIN courses c2 ON c2.name = COALESCE(s1.course, s2.course) AND c2.college_id = coll.id AND c2.is_active = 1
+               LEFT JOIN academic_years ay2
+                 ON ay2.year_label = COALESCE(tr.academic_year, ?)
                LEFT JOIN course_transport_expiry cte2
                  ON cte2.course_id = c2.id
-                AND cte2.academic_year = ?
+                AND cte2.academic_year = ay2.year_label
                 AND cte2.year_of_study = COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)
-               LEFT JOIN semesters sem2 ON sem2.id = tr.semester_id
+               LEFT JOIN semesters sem2
+                 ON sem2.id = tr.semester_id
+                AND sem2.course_id = c2.id
+                AND sem2.academic_year_id = ay2.id
+                AND CAST(sem2.batch AS CHAR) = CAST(COALESCE(s1.batch, s2.batch) AS CHAR)
+                AND sem2.year_of_study = COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)
                WHERE tr.status = 'approved'
                  AND COALESCE(tr.academic_year, ?) = ?
                GROUP BY c2.id, COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)
              ) pc ON pc.course_id = c.id AND pc.year_of_study = yrs.year_of_study
              WHERE c.is_active = 1
              ORDER BY c.name ASC, yrs.year_of_study ASC`,
-            [academicYear, academicYear, fallbackAcademicYear, academicYear]
+            [academicYear, fallbackAcademicYear, fallbackAcademicYear, academicYear]
         );
 
         const yearWiseKeyOk = await courseExpirySupportsYearOfStudy();

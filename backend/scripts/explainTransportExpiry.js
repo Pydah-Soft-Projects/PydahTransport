@@ -342,11 +342,21 @@ async function explainRequest(request, student) {
                 cte.expiry_date AS course_expiry_date,
                 sem.end_date AS joined_semester_end_date,
                 tr.expiry_date AS stored_request_expiry_date,
+                STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay_act.year_label, '-', -1), '-06-30'), '%Y-%m-%d') AS academic_year_end_date,
                 COALESCE(cte.expiry_date, sem.end_date) AS effective_expiry_date,
                 CASE
                   WHEN tr.status = 'approved'
-                   AND COALESCE(cte.expiry_date, sem.end_date) IS NOT NULL
-                   AND CURDATE() > COALESCE(cte.expiry_date, sem.end_date)
+                   AND (
+                     (
+                       COALESCE(cte.expiry_date, sem.end_date) IS NOT NULL
+                       AND CURDATE() > COALESCE(cte.expiry_date, sem.end_date)
+                     )
+                     OR (
+                       COALESCE(cte.expiry_date, sem.end_date) IS NULL
+                       AND STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay_act.year_label, '-', -1), '-06-30'), '%Y-%m-%d') IS NOT NULL
+                       AND CURDATE() > STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay_act.year_label, '-', -1), '-06-30'), '%Y-%m-%d')
+                     )
+                   )
                   THEN 1 ELSE 0
                 END AS is_expired
          FROM transport_requests tr
@@ -372,14 +382,15 @@ async function explainRequest(request, student) {
         course_expiry_date: formatDate(effective.course_expiry_date),
         joined_semester_end_date: formatDate(effective.joined_semester_end_date),
         stored_request_expiry_date: formatDate(effective.stored_request_expiry_date),
+        academic_year_end_date: formatDate(effective.academic_year_end_date),
         effective_expiry_date: formatDate(effective.effective_expiry_date),
         is_expired: Boolean(effective.is_expired),
         source_used: effective.course_expiry_date
             ? 'course_transport_expiry.expiry_date'
             : effective.joined_semester_end_date
                 ? 'strict semesters.end_date via request.semester_id'
-                : effective.stored_request_expiry_date
-                    ? 'stored request expiry ignored by current strict logic'
+                : Boolean(effective.is_expired)
+                    ? 'academic year already ended, no strict date configured'
                     : 'none',
     });
 }

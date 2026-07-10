@@ -659,10 +659,15 @@ const TransportRequests = () => {
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, [academicYear, routeFilter, courseFilter, statusFilter, searchQuery]);
 
+    const isExpiredPass = (req) => {
+        const normalizedStatus = (req.status || '').toLowerCase();
+        return normalizedStatus === 'expired' || (normalizedStatus === 'approved' && Boolean(req.is_expired));
+    };
+
     const calculateStats = () => {
         const total = requests.length;
-        const approved = requests.filter(r => (r.status || '').toLowerCase() === 'approved' && !r.is_expired).length;
-        const expired = requests.filter(r => (r.status || '').toLowerCase() === 'approved' && r.is_expired).length;
+        const approved = requests.filter(r => (r.status || '').toLowerCase() === 'approved' && !isExpiredPass(r)).length;
+        const expired = requests.filter(r => isExpiredPass(r)).length;
         const pending = requests.filter(r => (r.status || '').toLowerCase() === 'pending').length;
         return { total, approved, expired, pending };
     };
@@ -801,7 +806,6 @@ const TransportRequests = () => {
     };
 
     const isPending = (req) => (req.status || '').toLowerCase() === 'pending';
-    const isExpiredPass = (req) => (req.status || '').toLowerCase() === 'approved' && Boolean(req.is_expired);
 
     return (
         <Layout>
