@@ -56,7 +56,7 @@ function getExpectedYearForBatch(academicYearLabel, batch) {
     return startYear - batchYear + 1;
 }
 
-function resolveExpiryInMemory(tr, studentsMap, coursesMap, expiryOverridesMap, semestersList) {
+function resolveExpiryInMemory(tr, studentsMap, coursesMap, academicYearsMap, expiryOverridesMap, semestersList) {
     const admissionNumber = tr.admission_number || tr.admission_no;
     if (!admissionNumber) return null;
 
@@ -89,45 +89,31 @@ function resolveExpiryInMemory(tr, studentsMap, coursesMap, expiryOverridesMap, 
         };
     }
 
-    // 2. Check semesters table in academic year range
-    const ayRange = academicYearDateRange(requestAcademicYear);
-    
-    const matchedSems = semestersList.filter(sem => 
-        sem.course_id === courseId && 
-        sem.year_of_study === yearOfStudy
+    const academicYearId = academicYearsMap.get(requestAcademicYear);
+    if (!academicYearId) return null;
+
+    // 2. Check only the exact academic session, batch, course, and year.
+    const matchedSems = semestersList.filter(sem =>
+        Number(sem.course_id) === Number(courseId) &&
+        Number(sem.academic_year_id) === Number(academicYearId) &&
+        String(sem.batch || '') === String(student.batch || '') &&
+        Number(sem.year_of_study) === Number(yearOfStudy)
     );
 
-    let bestSem = null;
-    if (ayRange) {
-        const inRangeSems = matchedSems.filter(sem => {
-            const endDateStr = formatDateString(sem.end_date);
-            return endDateStr && endDateStr >= ayRange.start && endDateStr <= ayRange.end;
-        });
-        if (inRangeSems.length > 0) {
-            inRangeSems.sort((a, b) => new Date(b.end_date) - new Date(a.end_date));
-            bestSem = inRangeSems[0];
-        }
-    }
+    if (!matchedSems.length) return null;
 
-    if (!bestSem) {
-        const today = formatDateString(new Date());
-        const futureSems = matchedSems.filter(sem => {
-            const endDateStr = formatDateString(sem.end_date);
-            return endDateStr && endDateStr >= today;
-        });
-        if (futureSems.length > 0) {
-            futureSems.sort((a, b) => new Date(a.end_date) - new Date(b.end_date));
-            bestSem = futureSems[0];
-        }
-    }
-
-    if (!bestSem) return null;
+    matchedSems.sort((a, b) => {
+        const semDiff = Number(b.semester_number || 0) - Number(a.semester_number || 0);
+        if (semDiff) return semDiff;
+        return Number(b.id || 0) - Number(a.id || 0);
+    });
+    const bestSem = matchedSems[0];
 
     return {
         id: bestSem.id,
         year_of_study: yearOfStudy,
         expiry_date: bestSem.end_date,
-        label: `End of Year ${bestSem.year_of_study}, Sem ${bestSem.semester_number}`,
+        label: `Strict calendar (${requestAcademicYear}, Batch ${student.batch}, Year ${bestSem.year_of_study}, Sem ${bestSem.semester_number})`,
     };
 }
 
@@ -145,7 +131,16 @@ async function main() {
     console.log('Preloading metadata tables...');
     const startTime = Date.now();
 
-    // 1. Preload courses
+    // 1. Preload academic years
+    const [academicYearRows] = await mysqlPool.query('SELECT id, year_label FROM academic_years');
+    const academicYearsMap = new Map();
+    for (let ay of academicYearRows) {
+        if (ay.year_label) {
+            academicYearsMap.set(String(ay.year_label).trim(), ay.id);
+        }
+    }
+
+    // 2. Preload courses
     const [courseRows] = await mysqlPool.query('SELECT id, name FROM courses');
     const coursesMap = new Map();
     for (let c of courseRows) {
@@ -154,7 +149,7 @@ async function main() {
         }
     }
 
-    // 2. Preload students
+    // 3. Preload students
     const [studentRows] = await mysqlPool.query(
         'SELECT admission_number, admission_no, course, batch, current_year FROM students'
     );
@@ -168,7 +163,7 @@ async function main() {
         }
     }
 
-    // 3. Preload course expiries
+    // 4. Preload course expiries
     const [expiryRows] = await mysqlPool.query(
         'SELECT course_id, academic_year, year_of_study, expiry_date FROM course_transport_expiry'
     );
@@ -178,12 +173,13 @@ async function main() {
         expiryOverridesMap.set(key, exp.expiry_date);
     }
 
-    // 4. Preload semesters
+    // 5. Preload semesters
     const [semestersList] = await mysqlPool.query(
-        'SELECT id, college_id, course_id, academic_year_id, year_of_study, semester_number, start_date, end_date FROM semesters'
+        'SELECT id, college_id, course_id, academic_year_id, batch, year_of_study, semester_number, start_date, end_date FROM semesters'
     );
 
     console.log(`Preload completed in ${Date.now() - startTime}ms.`);
+    console.log(`- Academic Years Loaded: ${academicYearsMap.size}`);
     console.log(`- Courses Loaded: ${coursesMap.size}`);
     console.log(`- Students Loaded: ${studentsMap.size}`);
     console.log(`- Expiry Overrides Loaded: ${expiryOverridesMap.size}`);
@@ -207,7 +203,7 @@ async function main() {
         const studentName = tr.student_name;
 
         // Resolve new expiration & semester in-memory
-        const semesterInfo = resolveExpiryInMemory(tr, studentsMap, coursesMap, expiryOverridesMap, semestersList);
+        const semesterInfo = resolveExpiryInMemory(tr, studentsMap, coursesMap, academicYearsMap, expiryOverridesMap, semestersList);
         if (!semesterInfo) {
             skippedCount++;
             continue;

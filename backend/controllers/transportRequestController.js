@@ -67,20 +67,25 @@ const STUDENT_JOINS_SQL = `
 
 function getActivePassengerSqlParts(fallbackAcademicYear) {
     const fallback = fallbackAcademicYear || getDefaultAcademicYear();
-    // Match course expiry to each request's academic year — not only the filter/default year.
+    // Match expiry only to the request's own academic year, batch, course, and year.
     return {
         academicYear: fallback,
         studentJoins: STUDENT_JOINS_SQL,
         expiryJoins: `
             LEFT JOIN colleges coll ON coll.name = COALESCE(s1.college, s2.college) COLLATE utf8mb4_unicode_ci
             LEFT JOIN courses c_act ON c_act.name = COALESCE(s1.course, s2.course) AND c_act.college_id = coll.id
+            LEFT JOIN academic_years ay_act ON ay_act.year_label = COALESCE(tr.academic_year, ?)
             LEFT JOIN course_transport_expiry cte ON cte.course_id = c_act.id
-              AND cte.academic_year = COALESCE(tr.academic_year, ?)
+              AND cte.academic_year = ay_act.year_label
               AND cte.year_of_study = COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)
-            LEFT JOIN semesters sem ON sem.id = tr.semester_id`,
-        activeWhere: `(COALESCE(cte.expiry_date, sem.end_date, tr.expiry_date) IS NULL OR CURDATE() <= COALESCE(cte.expiry_date, sem.end_date, tr.expiry_date))`,
-        effectiveExpiryExpr: `COALESCE(cte.expiry_date, sem.end_date, tr.expiry_date)`,
-        isExpiredExpr: `(tr.status = 'approved' AND COALESCE(cte.expiry_date, sem.end_date, tr.expiry_date) IS NOT NULL AND CURDATE() > COALESCE(cte.expiry_date, sem.end_date, tr.expiry_date))`,
+            LEFT JOIN semesters sem ON sem.id = tr.semester_id
+              AND sem.course_id = c_act.id
+              AND sem.academic_year_id = ay_act.id
+              AND CAST(sem.batch AS CHAR) = CAST(COALESCE(s1.batch, s2.batch) AS CHAR)
+              AND sem.year_of_study = COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)`,
+        activeWhere: `(COALESCE(cte.expiry_date, sem.end_date) IS NULL OR CURDATE() <= COALESCE(cte.expiry_date, sem.end_date))`,
+        effectiveExpiryExpr: `COALESCE(cte.expiry_date, sem.end_date)`,
+        isExpiredExpr: `(tr.status = 'approved' AND COALESCE(cte.expiry_date, sem.end_date) IS NOT NULL AND CURDATE() > COALESCE(cte.expiry_date, sem.end_date))`,
         expiryParams: [fallback],
     };
 }
@@ -213,8 +218,6 @@ async function getLastSemesterForRequest(mysqlPool, transportRequest) {
     const requestAcademicYear = transportRequest.academic_year
         || process.env.CURRENT_ACADEMIC_YEAR
         || getDefaultAcademicYear();
-    const ayRange = academicYearDateRange(requestAcademicYear);
-
     const [studentRows] = await mysqlPool.query(
         'SELECT course, batch, current_year FROM students WHERE admission_number = ? OR admission_no = ? LIMIT 1',
         [admissionNumber, admissionNumber]
@@ -256,29 +259,24 @@ async function getLastSemesterForRequest(mysqlPool, transportRequest) {
         };
     }
 
-    let semRows;
-    if (ayRange) {
-        [semRows] = await mysqlPool.query(
-            `SELECT id, college_id, course_id, academic_year_id, year_of_study, semester_number, start_date, end_date
-             FROM semesters
-             WHERE course_id = ? AND year_of_study = ?
-               AND end_date >= ? AND end_date <= ?
-             ORDER BY end_date DESC
-             LIMIT 1`,
-            [course.id, yearOfStudy, ayRange.start, ayRange.end]
-        );
-    }
+    const [academicYearRows] = await mysqlPool.query(
+        'SELECT id FROM academic_years WHERE year_label = ? LIMIT 1',
+        [requestAcademicYear]
+    );
+    const academicYear = academicYearRows[0];
+    if (!academicYear) return null;
 
-    if (!semRows?.[0]) {
-        [semRows] = await mysqlPool.query(
-            `SELECT id, college_id, course_id, academic_year_id, year_of_study, semester_number, start_date, end_date
-             FROM semesters
-             WHERE course_id = ? AND year_of_study = ? AND end_date >= CURDATE()
-             ORDER BY end_date ASC
-             LIMIT 1`,
-            [course.id, yearOfStudy]
-        );
-    }
+    const [semRows] = await mysqlPool.query(
+        `SELECT id, college_id, course_id, academic_year_id, year_of_study, semester_number, start_date, end_date
+         FROM semesters
+         WHERE course_id = ?
+           AND academic_year_id = ?
+           AND CAST(batch AS CHAR) = CAST(? AS CHAR)
+           AND year_of_study = ?
+         ORDER BY semester_number DESC, id DESC
+         LIMIT 1`,
+        [course.id, academicYear.id, student.batch, yearOfStudy]
+    );
 
     const row = semRows?.[0];
     if (!row) return null;
