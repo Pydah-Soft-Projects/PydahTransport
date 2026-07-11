@@ -29,11 +29,23 @@ const inventoryAllocationSchema = new mongoose.Schema({
     quantity: {
         type: Number,
         required: true,
-        min: 1
+        min: 0.1,
+        validate: {
+            validator: function (v) {
+                return Number.isFinite(v) && Math.round(v * 10) === v * 10;
+            },
+            message: 'Quantity can have at most 1 decimal place'
+        }
     },
     price: {
         type: Number,
         default: 0
+    },
+    gstPercent: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100
     },
     tyrePosition: {
         type: String,

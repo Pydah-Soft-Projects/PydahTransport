@@ -67,4 +67,19 @@ const admin = (req, res, next) => {
     }
 };
 
-module.exports = { protect, admin };
+const isLegacySuperAdmin = (user) => Boolean(user?.username && !user?.emp_no);
+
+const userHasPermission = (user, permission) => {
+    if (!user) return false;
+    if (isLegacySuperAdmin(user)) return true;
+    return Array.isArray(user.permissions) && user.permissions.includes(permission);
+};
+
+const requirePermission = (permission) => (req, res, next) => {
+    if (userHasPermission(req.user, permission)) {
+        return next();
+    }
+    return res.status(403).json({ message: 'You do not have permission to perform this action' });
+};
+
+module.exports = { protect, admin, requirePermission, userHasPermission, isLegacySuperAdmin };

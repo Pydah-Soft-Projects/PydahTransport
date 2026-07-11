@@ -1,4 +1,5 @@
 import React from 'react';
+import { getBillTotals, getLineGstAmount, getLineGstPercent, getLineTotal } from '../utils/billCalculations';
 
 const getItemDisplayName = (item) => {
     if (!item) return 'General Part';
@@ -12,10 +13,19 @@ const getAllocatedItemDisplayName = (allocation) => {
         : getItemDisplayName(allocation.itemId);
 };
 
+const formatCurrency = (value) => Number(value || 0).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+});
+
 const BillPrint = ({ billData, vendor, bus }) => {
     if (!billData || !billData.items || billData.items.length === 0) return null;
 
-    const totalAmount = Number(billData.totalAmount || 0);
+    const totals = getBillTotals(billData.items);
+    const subtotal = Number(billData.subtotal ?? totals.subtotal);
+    const gstTotal = Number(billData.gstTotal ?? totals.gstTotal);
+    const grandTotal = Number(billData.totalAmount ?? totals.grandTotal);
+
     const formattedDate = new Date(billData.date).toLocaleDateString('en-IN', {
         day: '2-digit',
         month: '2-digit',
@@ -51,46 +61,66 @@ const BillPrint = ({ billData, vendor, bus }) => {
                     <tr className="bg-gray-100">
                         <th className="border border-black p-2 text-center w-12">S.No</th>
                         <th className="border border-black p-2 text-left">Item Details</th>
-                        <th className="border border-black p-2 text-center w-24">Qty</th>
-                        <th className="border border-black p-2 text-right w-28">Rate</th>
-                        <th className="border border-black p-2 text-right w-32">Amount</th>
+                        <th className="border border-black p-2 text-center w-16">Qty</th>
+                        <th className="border border-black p-2 text-right w-24">Unit Price</th>
+                        <th className="border border-black p-2 text-center w-16">GST %</th>
+                        <th className="border border-black p-2 text-right w-24">GST Amt</th>
+                        <th className="border border-black p-2 text-right w-28">Overall Price</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {billData.items.map((item, index) => (
-                        <tr key={index} className="align-top">
-                            <td className="border border-black p-2 text-center">{index + 1}</td>
-                            <td className="border border-black p-2">
-                                <div className="font-bold">{getAllocatedItemDisplayName(item)}</div>
-                                <div className="text-xs mt-1">Category: {item.itemId?.category || 'General'} | Unit: {item.itemId?.unit || 'Pcs'}</div>
-                                {item.tyrePosition && item.itemId?.category === 'Tires' && (
-                                    <div className="text-xs mt-1">Tyre Position: {item.tyrePosition} | Reading: {item.kmReading || 0} KM</div>
-                                )}
-                                {item.remarks && (
-                                    <div className="text-xs mt-1 italic">Remarks: {item.remarks}</div>
-                                )}
-                            </td>
-                            <td className="border border-black p-2 text-center">{item.quantity} {item.itemId?.unit || 'Pcs'}</td>
-                            <td className="border border-black p-2 text-right">
-                                ₹{Number(item.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="border border-black p-2 text-right font-bold">
-                                ₹{(Number(item.quantity || 0) * Number(item.price || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                        </tr>
-                    ))}
+                    {billData.items.map((item, index) => {
+                        const gstPercent = getLineGstPercent(item.gstPercent);
+                        const gstAmount = getLineGstAmount(item.quantity, item.price, item.gstPercent);
+                        const lineTotal = getLineTotal(item.quantity, item.price, item.gstPercent);
+
+                        return (
+                            <tr key={index} className="align-top">
+                                <td className="border border-black p-2 text-center">{index + 1}</td>
+                                <td className="border border-black p-2">
+                                    <div className="text-xs font-bold">{getAllocatedItemDisplayName(item)}</div>
+                                    {item.tyrePosition && item.itemId?.category === 'Tires' && (
+                                        <div className="text-xs mt-1">Tyre Position: {item.tyrePosition} | Reading: {item.kmReading || 0} KM</div>
+                                    )}
+                                    {item.remarks && (
+                                        <div className="text-xs mt-1 italic">Remarks: {item.remarks}</div>
+                                    )}
+                                </td>
+                                <td className="border border-black p-2 text-center">{item.quantity}</td>
+                                <td className="border border-black p-2 text-right">
+                                    ₹{formatCurrency(item.price)}
+                                </td>
+                                <td className="border border-black p-2 text-center">{gstPercent}%</td>
+                                <td className="border border-black p-2 text-right">
+                                    ₹{formatCurrency(gstAmount)}
+                                </td>
+                                <td className="border border-black p-2 text-right font-bold">
+                                    ₹{formatCurrency(lineTotal)}
+                                </td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
-                <tfoot>
-                    <tr>
-                        <td colSpan="4" className="border border-black p-2 text-right font-bold">Grand Total</td>
-                        <td className="border border-black p-2 text-right font-bold">
-                            ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </td>
-                    </tr>
-                </tfoot>
             </table>
 
-            <div className="mt-8 text-xs">
+            <div className="bill-grand-total-table w-full border border-black border-t-0 text-sm">
+                <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-2 p-3">
+                    <div className="text-right whitespace-nowrap">
+                        <span className="font-bold">Subtotal:</span>{' '}
+                        <span>₹{formatCurrency(subtotal)}</span>
+                    </div>
+                    <div className="text-right whitespace-nowrap">
+                        <span className="font-bold">Total GST:</span>{' '}
+                        <span>₹{formatCurrency(gstTotal)}</span>
+                    </div>
+                    <div className="bill-grand-total-row text-right whitespace-nowrap">
+                        <span className="font-bold">Grand Total:</span>{' '}
+                        <span className="font-bold">₹{formatCurrency(grandTotal)}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="bill-footer-section mt-8 text-xs">
                 <p><span className="font-bold">Raised By:</span> {billData.adminName || 'Admin'}</p>
                 <p className="mt-1">Items listed above were allocated to the mentioned vehicle for maintenance/spares usage.</p>
             </div>
@@ -101,7 +131,6 @@ const BillPrint = ({ billData, vendor, bus }) => {
                 <div className="border-t border-black pt-2">Authorized Signatory</div>
             </div>
 
-            {/* Simple Print Styles */}
             <style type="text/css" media="print">
                 {`
                     @page { 
@@ -110,14 +139,22 @@ const BillPrint = ({ billData, vendor, bus }) => {
                     }
                     @media print {
                         body * { visibility: hidden; }
-                        #print-container, #print-container * { visibility: visible !important; }
-                        #print-container {
+                        #print-container, #print-container *,
+                        #printable-bill, #printable-bill * { visibility: visible !important; }
+                        #print-container, #printable-bill {
                             position: absolute !important;
                             left: 0 !important;
                             top: 0 !important;
                             width: 100% !important;
                         }
                         tr { page-break-inside: avoid; }
+                        tbody tr { page-break-inside: auto; }
+                        .bill-grand-total-table,
+                        .bill-grand-total-row,
+                        .bill-footer-section {
+                            page-break-inside: avoid !important;
+                            break-inside: avoid !important;
+                        }
                     }
                     #printable-bill { 
                         font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;

@@ -75,8 +75,12 @@ const UserManagement = () => {
         { id: 'user_management', label: 'User Management' },
         { id: 'raise_request', label: 'Raise Request' },
         { id: 'concessions', label: 'Concessions' },
-        { id: 'inventory', label: 'Inventory' },
+        { id: 'inventory', label: 'Inventory — Page Access' },
+        { id: 'inventory_edit', label: 'Inventory — Edit Bills', parent: 'inventory' },
+        { id: 'inventory_delete', label: 'Inventory — Delete Bills', parent: 'inventory' },
     ];
+
+    const INVENTORY_CHILD_PERMS = ['inventory_edit', 'inventory_delete'];
 
     useEffect(() => {
         fetchUsers();
@@ -271,9 +275,18 @@ const UserManagement = () => {
     const handlePermissionChange = (e) => {
         const perm = e.target.value;
         if (e.target.checked) {
-            setPermissions([...permissions, perm]);
+            let next = [...permissions, perm];
+            const option = PERMISSION_OPTIONS.find((entry) => entry.id === perm);
+            if (option?.parent && !next.includes(option.parent)) {
+                next.push(option.parent);
+            }
+            setPermissions(next);
         } else {
-            setPermissions(permissions.filter(p => p !== perm));
+            let next = permissions.filter(p => p !== perm);
+            if (perm === 'inventory') {
+                next = next.filter(p => !INVENTORY_CHILD_PERMS.includes(p));
+            }
+            setPermissions(next);
         }
     };
 
@@ -576,7 +589,7 @@ const UserManagement = () => {
                                         return (
                                             <label key={perm.id} className={`flex items-center space-x-3 p-2 rounded-lg cursor-pointer transition-colors ${
                                                 isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
-                                            }`}>
+                                            } ${perm.parent ? 'ml-4 border-l-2 border-indigo-100' : ''}`}>
                                                 <input
                                                     type="checkbox"
                                                     value={perm.id}
@@ -584,7 +597,7 @@ const UserManagement = () => {
                                                     onChange={handlePermissionChange}
                                                     className="w-4.5 h-4.5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 focus:ring-offset-0"
                                                 />
-                                                <span className={`text-sm font-medium ${isChecked ? 'text-indigo-900' : 'text-gray-700'}`}>{perm.label}</span>
+                                                <span className={`text-sm font-medium ${isChecked ? 'text-indigo-900' : 'text-gray-700'} ${perm.parent ? 'text-gray-600' : ''}`}>{perm.label}</span>
                                             </label>
                                         );
                                     })}
@@ -844,7 +857,7 @@ const UserManagement = () => {
                                         return (
                                             <label key={perm.id} className={`flex items-center space-x-3 p-2 rounded-lg cursor-pointer transition-colors ${
                                                 isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
-                                            } ${!selectedEmployee ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                            } ${perm.parent ? 'ml-4 border-l-2 border-indigo-100' : ''} ${!selectedEmployee ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                                 <input
                                                     type="checkbox"
                                                     value={perm.id}
@@ -853,7 +866,7 @@ const UserManagement = () => {
                                                     disabled={!selectedEmployee}
                                                     className="w-4.5 h-4.5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 focus:ring-offset-0 disabled:opacity-50"
                                                 />
-                                                <span className={`text-sm font-medium ${isChecked ? 'text-indigo-900' : 'text-gray-700'} ${!selectedEmployee ? 'opacity-50' : ''}`}>{perm.label}</span>
+                                                <span className={`text-sm font-medium ${isChecked ? 'text-indigo-900' : 'text-gray-700'} ${perm.parent ? 'text-gray-600' : ''} ${!selectedEmployee ? 'opacity-50' : ''}`}>{perm.label}</span>
                                             </label>
                                         );
                                     })}

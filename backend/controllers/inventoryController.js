@@ -5,6 +5,59 @@ const OtherVehicle = require('../models/OtherVehicle');
 const Vendor = require('../models/Vendor');
 const TyreRegistry = require('../models/TyreRegistry');
 
+const parseBillQuantity = (value) => {
+    const num = parseFloat(value);
+    if (!Number.isFinite(num) || num < 0.1) {
+        throw new Error('Quantity must be at least 0.1');
+    }
+    const rounded = Math.round(num * 10) / 10;
+    if (Math.abs(num - rounded) > 0.001) {
+        throw new Error('Quantity can have at most 1 decimal place');
+    }
+    return rounded;
+};
+
+const parseGstPercent = (value) => {
+    const num = parseFloat(value);
+    if (!Number.isFinite(num) || num < 0 || num > 100) {
+        return 0;
+    }
+    return Math.round(num * 100) / 100;
+};
+
+const resolveVehicle = async (busId) => {
+    let vehicle = await Bus.findOne({ busNumber: busId }).catch(() => null) ||
+                  await Bus.findById(busId).catch(() => null);
+    let vehicleType = 'Bus';
+
+    if (!vehicle) {
+        vehicle = await OtherVehicle.findOne({ vehicleNumber: busId }).catch(() => null) ||
+                  await OtherVehicle.findById(busId).catch(() => null);
+        vehicleType = 'OtherVehicle';
+    }
+
+    return vehicle ? { vehicle, vehicleType } : null;
+};
+
+const applyTyreRegistryUpdate = async ({ vehicle, vehicleType, item, variantName, tyrePosition, kmReading, tyreType }) => {
+    if (!(item.category === 'Tires' || item.itemName === 'Tires') || !tyrePosition) return;
+
+    await TyreRegistry.updateMany(
+        { busId: vehicle._id, vehicleType, position: tyrePosition, status: 'Active' },
+        { status: 'Replaced' }
+    );
+
+    const registryEntry = new TyreRegistry({
+        busId: vehicle._id,
+        vehicleType,
+        position: tyrePosition,
+        tyreType: tyreType || (`${item.itemName} ${variantName || item.variantName || ''}`.toLowerCase().includes('old') ? 'old tyre' : 'new tyre'),
+        installKm: kmReading || 0,
+        status: 'Active'
+    });
+    await registryEntry.save();
+};
+
 const normalizeInventoryItemPayload = ({ itemName, variantName, variantNames, variants, category, unit, description }) => ({
     itemName: String(itemName || '').trim(),
     variantName: String(variantName || '').trim(),
@@ -117,6 +170,21 @@ exports.updateVendor = async (req, res) => {
     }
 };
 
+exports.deleteVendor = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const allocations = await InventoryAllocation.countDocuments({ vendorId: id });
+        if (allocations > 0) {
+            return res.status(400).json({ message: 'Cannot delete vendor with existing bills or allocations' });
+        }
+        const deletedVendor = await Vendor.findByIdAndDelete(id);
+        if (!deletedVendor) return res.status(404).json({ message: 'Vendor not found' });
+        res.status(200).json({ message: 'Vendor deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting vendor', error: error.message });
+    }
+};
+
 // Raise Bill (Allocation to Bus)
 exports.raiseBill = async (req, res) => {
     try {
@@ -128,21 +196,13 @@ exports.raiseBill = async (req, res) => {
 
         const results = [];
 
-        // Find the vehicle (Bus or OtherVehicle)
-        let vehicle = await Bus.findOne({ busNumber: busId }).catch(() => null) || 
-                      await Bus.findById(busId).catch(() => null);
-        let vehicleType = 'Bus';
-        
-        if (!vehicle) {
-            vehicle = await OtherVehicle.findOne({ vehicleNumber: busId }).catch(() => null) || 
-                      await OtherVehicle.findById(busId).catch(() => null);
-            vehicleType = 'OtherVehicle';
-        }
-        if (!vehicle) return res.status(404).json({ message: 'Vehicle not found' });
+        const resolved = await resolveVehicle(busId);
+        if (!resolved) return res.status(404).json({ message: 'Vehicle not found' });
+        const { vehicle, vehicleType } = resolved;
 
         for (const lineItem of items) {
             const { 
-                itemIds, quantity, price, remarks, variantName,
+                itemIds, quantity, price, gstPercent, remarks, variantName,
                 tyrePosition, kmReading, tyreType 
             } = lineItem;
             
@@ -152,15 +212,18 @@ exports.raiseBill = async (req, res) => {
                 const item = await InventoryItem.findById(itemId);
                 if (!item) continue;
 
+                const parsedQuantity = parseBillQuantity(quantity);
+
                 const allocation = new InventoryAllocation({
                     busId: vehicle._id,
                     vehicleType,
                     itemId,
                     variantName: variantName || '',
                     vendorId,
-                    billNo, // Add Bill Number
-                    quantity: quantity || 1,
+                    billNo,
+                    quantity: parsedQuantity,
                     price: price || 0,
+                    gstPercent: parseGstPercent(gstPercent),
                     remarks,
                     adminName,
                     tyrePosition,
@@ -169,23 +232,15 @@ exports.raiseBill = async (req, res) => {
 
                 await allocation.save();
 
-                // If it's a tyre, update Registry
-                if ((item.category === 'Tires' || item.itemName === 'Tires') && tyrePosition) {
-                    await TyreRegistry.updateMany(
-                        { busId: vehicle._id, vehicleType, position: tyrePosition, status: 'Active' },
-                        { status: 'Replaced' }
-                    );
-
-                    const registryEntry = new TyreRegistry({
-                        busId: vehicle._id,
-                        vehicleType,
-                        position: tyrePosition,
-                        tyreType: tyreType || (`${item.itemName} ${variantName || item.variantName || ''}`.toLowerCase().includes('old') ? 'old tyre' : 'new tyre'),
-                        installKm: kmReading || 0,
-                        status: 'Active'
-                    });
-                    await registryEntry.save();
-                }
+                await applyTyreRegistryUpdate({
+                    vehicle,
+                    vehicleType,
+                    item,
+                    variantName,
+                    tyrePosition,
+                    kmReading,
+                    tyreType
+                });
                 results.push(allocation);
             }
         }
@@ -198,6 +253,165 @@ exports.raiseBill = async (req, res) => {
 
 // Internal allocation (legacy/backward compatibility)
 exports.allocateItem = exports.raiseBill;
+
+exports.updateBill = async (req, res) => {
+    try {
+        const { originalBillNo, vendorId, adminName, busId, billNo, items } = req.body;
+
+        if (!originalBillNo) {
+            return res.status(400).json({ message: 'Original bill number is required for editing' });
+        }
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ message: 'No items provided for the bill' });
+        }
+
+        const existingAllocations = await InventoryAllocation.find({ billNo: originalBillNo });
+        if (existingAllocations.length === 0) {
+            return res.status(404).json({ message: 'Bill not found' });
+        }
+
+        const resolved = await resolveVehicle(busId);
+        if (!resolved) return res.status(404).json({ message: 'Vehicle not found' });
+        const { vehicle, vehicleType } = resolved;
+
+        const submittedIds = new Set(
+            items.filter((line) => line.allocationId).map((line) => String(line.allocationId))
+        );
+
+        for (const alloc of existingAllocations) {
+            if (!submittedIds.has(String(alloc._id))) {
+                await InventoryAllocation.findByIdAndDelete(alloc._id);
+            }
+        }
+
+        const results = [];
+
+        for (const lineItem of items) {
+            const {
+                allocationId,
+                itemIds,
+                quantity,
+                price,
+                gstPercent,
+                remarks,
+                variantName,
+                tyrePosition,
+                kmReading,
+                tyreType
+            } = lineItem;
+
+            const targetItems = Array.isArray(itemIds) ? itemIds : [itemIds];
+
+            for (const itemId of targetItems) {
+                const item = await InventoryItem.findById(itemId);
+                if (!item) continue;
+
+                const parsedQuantity = parseBillQuantity(quantity);
+                const allocData = {
+                    busId: vehicle._id,
+                    vehicleType,
+                    itemId,
+                    variantName: variantName || '',
+                    vendorId,
+                    billNo: billNo || originalBillNo,
+                    quantity: parsedQuantity,
+                    price: price || 0,
+                    gstPercent: parseGstPercent(gstPercent),
+                    remarks,
+                    adminName,
+                    tyrePosition,
+                    kmReading: kmReading || 0
+                };
+
+                let allocation;
+                const isTyreItem = item.category === 'Tires' || item.itemName === 'Tires';
+
+                if (allocationId) {
+                    const existing = await InventoryAllocation.findById(allocationId);
+                    if (!existing) continue;
+
+                    const tyreFieldsChanged = isTyreItem && tyrePosition && (
+                        existing.tyrePosition !== tyrePosition ||
+                        Number(existing.kmReading || 0) !== Number(kmReading || 0)
+                    );
+
+                    allocation = await InventoryAllocation.findByIdAndUpdate(allocationId, allocData, { new: true });
+
+                    if (tyreFieldsChanged) {
+                        await applyTyreRegistryUpdate({
+                            vehicle,
+                            vehicleType,
+                            item,
+                            variantName,
+                            tyrePosition,
+                            kmReading,
+                            tyreType
+                        });
+                    }
+                } else {
+                    allocation = new InventoryAllocation(allocData);
+                    await allocation.save();
+
+                    await applyTyreRegistryUpdate({
+                        vehicle,
+                        vehicleType,
+                        item,
+                        variantName,
+                        tyrePosition,
+                        kmReading,
+                        tyreType
+                    });
+                }
+
+                if (allocation) results.push(allocation);
+            }
+        }
+
+        res.status(200).json({ message: 'Bill updated successfully', count: results.length });
+    } catch (error) {
+        res.status(400).json({ message: error.message || 'Error updating bill', error: error.message });
+    }
+};
+
+exports.deleteBill = async (req, res) => {
+    try {
+        const billNo = decodeURIComponent(req.params.billNo || '').trim();
+        if (!billNo) {
+            return res.status(400).json({ message: 'Bill number is required' });
+        }
+
+        const allocations = await InventoryAllocation.find({ billNo }).populate('itemId');
+        if (allocations.length === 0) {
+            return res.status(404).json({ message: 'Bill not found' });
+        }
+
+        for (const alloc of allocations) {
+            const item = alloc.itemId;
+            const isTyreItem = item && (item.category === 'Tires' || item.itemName === 'Tires');
+            if (isTyreItem && alloc.tyrePosition) {
+                await TyreRegistry.updateMany(
+                    {
+                        busId: alloc.busId,
+                        vehicleType: alloc.vehicleType,
+                        position: alloc.tyrePosition,
+                        installKm: alloc.kmReading || 0,
+                        status: 'Active'
+                    },
+                    { status: 'Replaced' }
+                );
+            }
+        }
+
+        await InventoryAllocation.deleteMany({ billNo });
+
+        res.status(200).json({
+            message: 'Bill deleted and vehicle assignments removed successfully',
+            count: allocations.length
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting bill', error: error.message });
+    }
+};
 
 // Get allocation/bill history
 exports.getHistory = async (req, res) => {

@@ -370,13 +370,29 @@ const fetchBillPrintData = async (data) => {
     if (!vehicle) {
         vehicle = await OtherVehicle.findById(busId).lean();
     }
+    if (!vehicle && typeof busId === 'string') {
+        vehicle = await Bus.findOne({ busNumber: busId }).lean();
+    }
+    if (!vehicle && typeof busId === 'string') {
+        vehicle = await OtherVehicle.findOne({ vehicleNumber: busId }).lean();
+    }
 
-    const totalAmount = allocations.reduce((sum, item) => sum + (item.quantity * item.price), 0);
+    const totals = allocations.reduce((acc, item) => {
+        const subtotal = (item.quantity || 0) * (item.price || 0);
+        const gstAmount = subtotal * ((item.gstPercent || 0) / 100);
+        acc.subtotal += subtotal;
+        acc.gstTotal += gstAmount;
+        acc.grandTotal += subtotal + gstAmount;
+        return acc;
+    }, { subtotal: 0, gstTotal: 0, grandTotal: 0 });
+
     const billData = {
         billNo: first.billNo,
         date: first.createdAt || new Date(),
         adminName: first.adminName || 'Admin',
-        totalAmount,
+        subtotal: totals.subtotal,
+        gstTotal: totals.gstTotal,
+        totalAmount: totals.grandTotal,
         items: allocations,
         vendorId: vendor,
         busId: vehicle
@@ -502,11 +518,17 @@ const renderTemplate = async (template, data) => {
                 box-shadow: none !important;
                 background-color: #ffffff !important;
             }
+            #printable-bill,
+            #printable-bill * {
+                visibility: visible !important;
+            }
             #printable-bill {
                 box-shadow: none !important;
                 border: none !important;
                 padding: 0 !important;
                 margin: 0 !important;
+                position: static !important;
+                width: 100% !important;
             }
         }
     </style>
