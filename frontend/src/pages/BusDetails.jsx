@@ -1,15 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { flushSync } from 'react-dom';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useReactToPrint } from 'react-to-print';
 import { Download, FileText, History, Users as UsersIcon, Package, Calendar, Tag, MapPin, UserCheck, AlertTriangle } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
-import PassengerReport from '../components/PassengerReport';
-import TransportAdmitCard from '../components/TransportAdmitCard';
 import Loader from '../components/Loader';
 import { apiFetch, API_BASE } from '../utils/api';
-import { triggerAdmitCardPrint } from '../utils/printAdmitCard';
 import { printHtmlDocument } from '../utils/printHtml';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 
@@ -543,9 +538,6 @@ const BusDetails = () => {
                 </div>
             </div>
 
-
-            <PassengerReport ref={componentRef} passengers={activePassengers} />
-
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="border-b border-gray-100 flex">
                     <button
@@ -861,16 +853,6 @@ const BusDetails = () => {
                     </div>
                 )}
             </div>
-            
-            <TransportAdmitCard
-                ref={admitCardRef}
-                passenger={selectedAdmitPassenger}
-                busMeta={{
-                    driverName: bus.driverName,
-                    attendantName: bus.attendantName,
-                    routeName: route?.routeName,
-                }}
-            />
 
             <Modal isOpen={assignModalOpen} onClose={() => setAssignModalOpen(false)} title="Assign passengers to this bus">
                 {!data?.bus?.assignedRouteId ? (
