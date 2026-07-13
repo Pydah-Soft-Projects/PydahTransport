@@ -9,6 +9,7 @@ const { assignTransportApplicationNumber, peekNextTransportApplicationNumber, fo
 const { resolveApplicationNumberContext } = require('../utils/applicationNumberContext');
 const { resolveRouteStageFare } = require('../utils/stageFare');
 const { getCollegesForCampuses } = require('./campusController');
+const campusService = require('../services/campusService');
 
 const getRestrictedCollegesForUser = async (user, selectedCampusId = null) => {
     const isSuperAdmin = user && user.roles && user.roles.includes('superadmin');
@@ -16,9 +17,10 @@ const getRestrictedCollegesForUser = async (user, selectedCampusId = null) => {
 
     let campusIds = [];
     if (selectedCampusId) {
-        campusIds = [selectedCampusId];
+        const normalized = campusService.normalizeCampusId(selectedCampusId);
+        campusIds = normalized !== null ? [normalized] : [];
     } else if (user && user.campuses && user.campuses.length > 0) {
-        campusIds = user.campuses;
+        campusIds = campusService.normalizeCampusIds(user.campuses);
     }
 
     let campusColleges = [];
@@ -610,12 +612,13 @@ const getTransportRequests = async (req, res) => {
         }
         let allowedRouteIds = [];
         let filterByCampusRoutes = false;
-        let queryCampusId = req.query.campus;
-        if (!queryCampusId && hasCampusRestriction) {
-            const allowedRoutes = await Route.find({ campus: { $in: req.user.campuses } }).select('routeId').lean();
+        let queryCampusId = campusService.normalizeCampusId(req.query.campus);
+        if (queryCampusId === null && hasCampusRestriction) {
+            const allowedCampusIds = campusService.normalizeCampusIds(req.user.campuses);
+            const allowedRoutes = await Route.find({ campus: { $in: allowedCampusIds } }).select('routeId').lean();
             allowedRouteIds = allowedRoutes.map(r => r.routeId);
             filterByCampusRoutes = true;
-        } else if (queryCampusId) {
+        } else if (queryCampusId !== null) {
             const campusRoutes = await Route.find({ campus: queryCampusId }).select('routeId').lean();
             allowedRouteIds = campusRoutes.map(r => r.routeId);
             filterByCampusRoutes = true;
@@ -1429,17 +1432,16 @@ const getDashboardStats = async (req, res) => {
 
         let campusRouteIds = [];
         let filterByCampusRoutes = false;
-        let queryCampusId = req.query.campus;
+        const queryCampusId = campusService.normalizeCampusId(req.query.campus);
         
-        const Campus = require('../models/Campus');
         if (!queryCampusId && req.user && !isSuperAdmin && req.user.campuses && req.user.campuses.length > 0) {
-            const allowedCampuses = await Campus.find({ _id: { $in: req.user.campuses } }).select('_id').lean();
-            if (allowedCampuses.length > 0) {
-                const campusRoutes = await Route.find({ campus: { $in: allowedCampuses.map(c => c._id) } }).select('routeId').lean();
+            const allowedCampusIds = campusService.normalizeCampusIds(req.user.campuses);
+            if (allowedCampusIds.length > 0) {
+                const campusRoutes = await Route.find({ campus: { $in: allowedCampusIds } }).select('routeId').lean();
                 campusRouteIds = campusRoutes.map(r => r.routeId);
                 filterByCampusRoutes = true;
             }
-        } else if (queryCampusId) {
+        } else if (queryCampusId !== null) {
             const campusRoutes = await Route.find({ campus: queryCampusId }).select('routeId').lean();
             campusRouteIds = campusRoutes.map(r => r.routeId);
             filterByCampusRoutes = true;

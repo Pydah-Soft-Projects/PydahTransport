@@ -3,6 +3,7 @@ import { Shield, MapPin, GraduationCap, Edit3, Trash2, Plus, User } from 'lucide
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import { apiFetch } from '../utils/api';
+import { campusIdsMatch, getCampusId, userHasCampus } from '../utils/campus';
 
 const UserManagement = () => {
     const [users, setUsers] = useState([]);
@@ -321,7 +322,7 @@ const UserManagement = () => {
         : [];
 
     const activeCampusColleges = campuses
-        .filter(campus => selectedCampuses.includes(campus._id))
+        .filter(campus => userHasCampus(selectedCampuses, getCampusId(campus)))
         .reduce((acc, campus) => {
             if (campus.colleges && campus.colleges.length > 0) {
                 acc.push(...campus.colleges);
@@ -424,9 +425,9 @@ const UserManagement = () => {
                                                 {user.campuses && user.campuses.length > 0 ? (
                                                     <div className="flex flex-wrap gap-1.5 max-w-xs">
                                                         {user.campuses.map(cId => {
-                                                            const campus = campuses.find(c => c._id === cId || c._id === cId._id || c === cId);
+                                                            const campus = campuses.find(c => campusIdsMatch(getCampusId(c), cId));
                                                             return (
-                                                                <span key={cId._id || cId} className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-700 text-[11px] font-bold rounded-md border border-slate-200/60 shadow-sm">
+                                                                <span key={String(cId)} className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-700 text-[11px] font-bold rounded-md border border-slate-200/60 shadow-sm">
                                                                     <MapPin size={10} className="text-slate-400" />
                                                                     {campus ? campus.name : 'Unknown Campus'}
                                                                 </span>
@@ -615,27 +616,28 @@ const UserManagement = () => {
                                 </div>
                                 <div className="p-3 grid grid-cols-1 gap-1 max-h-36 overflow-y-auto custom-scrollbar">
                                     {campuses.map(campus => {
-                                        const isChecked = selectedCampuses.includes(campus._id);
+                                        const campusId = getCampusId(campus);
+                                        const isChecked = userHasCampus(selectedCampuses, campusId);
                                         return (
-                                            <label key={campus._id} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
+                                            <label key={campusId} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
                                                 isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
                                             }`}>
                                                 <input
                                                     type="checkbox"
-                                                    value={campus._id}
+                                                    value={campusId}
                                                     checked={isChecked}
                                                     onChange={(e) => {
                                                         let newSelectedCampuses;
                                                         if (e.target.checked) {
-                                                            newSelectedCampuses = [...selectedCampuses, campus._id];
+                                                            newSelectedCampuses = [...selectedCampuses, campusId];
                                                         } else {
-                                                            newSelectedCampuses = selectedCampuses.filter(id => id !== campus._id);
+                                                            newSelectedCampuses = selectedCampuses.filter(id => !campusIdsMatch(id, campusId));
                                                         }
                                                         setSelectedCampuses(newSelectedCampuses);
 
                                                         if (newSelectedCampuses.length > 0) {
                                                             const remainingCampusColleges = campuses
-                                                                .filter(c => newSelectedCampuses.includes(c._id))
+                                                                .filter(c => userHasCampus(newSelectedCampuses, getCampusId(c)))
                                                                 .reduce((acc, c) => {
                                                                     if (c.colleges) acc.push(...c.colleges);
                                                                     return acc;
@@ -885,27 +887,28 @@ const UserManagement = () => {
                                 </div>
                                 <div className="p-3 grid grid-cols-1 gap-1 max-h-36 overflow-y-auto custom-scrollbar">
                                     {campuses.map(campus => {
-                                        const isChecked = selectedCampuses.includes(campus._id);
+                                        const campusId = getCampusId(campus);
+                                        const isChecked = userHasCampus(selectedCampuses, campusId);
                                         return (
-                                            <label key={campus._id} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
+                                            <label key={campusId} className={`flex items-center space-x-3 p-1.5 rounded-lg cursor-pointer transition-colors ${
                                                 isChecked ? 'bg-indigo-50/40' : 'hover:bg-gray-50'
                                             } ${!selectedEmployee ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                                 <input
                                                     type="checkbox"
-                                                    value={campus._id}
+                                                    value={campusId}
                                                     checked={isChecked}
                                                     onChange={(e) => {
                                                         let newSelectedCampuses;
                                                         if (e.target.checked) {
-                                                            newSelectedCampuses = [...selectedCampuses, campus._id];
+                                                            newSelectedCampuses = [...selectedCampuses, campusId];
                                                         } else {
-                                                            newSelectedCampuses = selectedCampuses.filter(id => id !== campus._id);
+                                                            newSelectedCampuses = selectedCampuses.filter(id => !campusIdsMatch(id, campusId));
                                                         }
                                                         setSelectedCampuses(newSelectedCampuses);
 
                                                         if (newSelectedCampuses.length > 0) {
                                                             const remainingCampusColleges = campuses
-                                                                .filter(c => newSelectedCampuses.includes(c._id))
+                                                                .filter(c => userHasCampus(newSelectedCampuses, getCampusId(c)))
                                                                 .reduce((acc, c) => {
                                                                     if (c.colleges) acc.push(...c.colleges);
                                                                     return acc;

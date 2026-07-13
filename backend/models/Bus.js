@@ -41,8 +41,7 @@ const busSchema = new mongoose.Schema({
         default: null
     },
     campus: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Campus',
+        type: Number,
         default: null
     },
     taxes: [{

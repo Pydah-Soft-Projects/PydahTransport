@@ -37,8 +37,7 @@ const otherVehicleSchema = new mongoose.Schema({
         default: 'Active'
     },
     campus: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Campus',
+        type: Number,
         default: null
     },
     taxes: [{

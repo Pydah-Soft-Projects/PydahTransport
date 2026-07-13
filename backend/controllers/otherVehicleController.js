@@ -1,5 +1,6 @@
 const OtherVehicle = require('../models/OtherVehicle');
 const OtherVehicleTaxHistory = require('../models/OtherVehicleTaxHistory');
+const campusService = require('../services/campusService');
 
 const getChangedByName = (req) =>
     req.user?.employee_name || req.user?.name || req.user?.username || 'Admin';
@@ -11,23 +12,13 @@ const getOtherVehicles = async (req, res) => {
     try {
         let query = {};
         if (req.user) {
-            const isSuperAdmin = req.user.roles && req.user.roles.includes('superadmin');
-            if (!isSuperAdmin && req.user.campuses && req.user.campuses.length > 0) {
-                if (req.query.campus) {
-                    if (req.user.campuses.map(c => c.toString()).includes(req.query.campus)) {
-                        query.campus = req.query.campus;
-                    } else {
-                        query.campus = null;
-                    }
-                } else {
-                    query.campus = { $in: req.user.campuses };
-                }
-            } else if (req.query.campus) {
-                query.campus = req.query.campus;
-            }
+            query = campusService.buildCampusFilter(req.user, req.query.campus);
+        } else if (req.query.campus) {
+            query.campus = campusService.normalizeCampusId(req.query.campus);
         }
-        const vehicles = await OtherVehicle.find(query).populate('campus');
-        res.json(vehicles);
+        const vehicles = await OtherVehicle.find(query);
+        const vehiclesWithCampus = await campusService.attachCampusToDocs(vehicles);
+        res.json(vehiclesWithCampus);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -38,10 +29,11 @@ const getOtherVehicles = async (req, res) => {
 // @access  Private/Admin
 const getOtherVehicleById = async (req, res) => {
     try {
-        const vehicle = await OtherVehicle.findById(req.params.id).populate('campus');
-        if (!vehicle) {
+        const vehicleDoc = await OtherVehicle.findById(req.params.id);
+        if (!vehicleDoc) {
             return res.status(404).json({ message: 'Vehicle not found' });
         }
+        const vehicle = await campusService.attachCampusToDoc(vehicleDoc);
         res.json(vehicle);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -76,7 +68,9 @@ const updateOtherVehicle = async (req, res) => {
         vehicle.capacity = req.body.capacity || vehicle.capacity;
         vehicle.type = req.body.type || vehicle.type;
         vehicle.status = req.body.status || vehicle.status;
-        vehicle.campus = req.body.campus !== undefined ? (req.body.campus || null) : vehicle.campus;
+        vehicle.campus = req.body.campus !== undefined
+            ? campusService.normalizeCampusId(req.body.campus)
+            : vehicle.campus;
         vehicle.driverName = req.body.driverName !== undefined ? req.body.driverName : vehicle.driverName;
         vehicle.attendantName = req.body.attendantName !== undefined ? req.body.attendantName : vehicle.attendantName;
 

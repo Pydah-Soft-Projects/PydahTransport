@@ -4,6 +4,7 @@ import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
 import { apiFetch } from '../utils/api';
+import { campusIdsMatch, filterCampusesForUser, getCampusId } from '../utils/campus';
 import {
     Bus,
     Users,
@@ -263,23 +264,18 @@ const BusManagement = () => {
     }, []);
 
     const filteredBuses = selectedCampusFilter
-        ? buses.filter((bus) => {
-            const bCampusId = bus.campus?._id || bus.campus;
-            return bCampusId === selectedCampusFilter;
-        })
+        ? buses.filter((bus) => campusIdsMatch(getCampusId(bus.campus), selectedCampusFilter))
         : buses;
 
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
     const userCampuses = adminInfo.campuses || [];
     const isSuperAdmin = adminInfo.role === 'admin' || (adminInfo.roles && adminInfo.roles.includes('superadmin'));
 
-    const allowedCampuses = isSuperAdmin
-        ? campuses
-        : campuses.filter(c => userCampuses.includes(c._id));
+    const allowedCampuses = filterCampusesForUser(campuses, userCampuses, isSuperAdmin);
 
     useEffect(() => {
         if (campuses.length > 0 && !isSuperAdmin && userCampuses.length === 1) {
-            setSelectedCampusFilter(userCampuses[0]);
+            setSelectedCampusFilter(String(userCampuses[0]));
         }
     }, [campuses]);
 
@@ -405,7 +401,7 @@ const BusManagement = () => {
             vehicleModel: vehicle.vehicleModel || '',
             registrationDate: formatDateForInput(vehicle.registrationDate),
             status: vehicle.status,
-            campus: vehicle.campus?._id || vehicle.campus || '',
+            campus: getCampusId(vehicle.campus) || '',
             driverName: vehicle.driverName || '',
             attendantName: vehicle.attendantName || ''
         });
@@ -804,7 +800,7 @@ const BusManagement = () => {
                             >
                                 <option value="">All Campuses</option>
                                 {allowedCampuses.map((campus) => (
-                                    <option key={campus._id} value={campus._id}>{campus.name} ({campus.code})</option>
+                                    <option key={getCampusId(campus)} value={getCampusId(campus)}>{campus.name} ({campus.code})</option>
                                 ))}
                             </select>
                         </div>
@@ -1352,7 +1348,7 @@ const BusManagement = () => {
                                 Add your first vehicle
                             </button>
                         </div>
-                    ) : otherVehicles.filter(v => !selectedCampusFilter || (v.campus?._id || v.campus) === selectedCampusFilter).length === 0 ? (
+                    ) : otherVehicles.filter(v => !selectedCampusFilter || campusIdsMatch(getCampusId(v.campus), selectedCampusFilter)).length === 0 ? (
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col items-center justify-center py-20 px-4 text-center">
                             <div className="bg-slate-50 p-6 rounded-full mb-6">
                                 <Truck size={48} className="text-slate-400" />
@@ -1380,7 +1376,7 @@ const BusManagement = () => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                                                        {otherVehicles.filter(v => !selectedCampusFilter || (v.campus?._id || v.campus) === selectedCampusFilter).map((vehicle) => (
+                                                                        {otherVehicles.filter(v => !selectedCampusFilter || campusIdsMatch(getCampusId(v.campus), selectedCampusFilter)).map((vehicle) => (
                                             <tr
                                                 key={vehicle._id}
                                                 onClick={() => navigate(`/other-vehicles/${vehicle._id}`)}
@@ -1679,7 +1675,7 @@ const BusManagement = () => {
                         <select name="campus" value={formData.campus} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-white">
                             <option value="">Select Campus</option>
                             {allowedCampuses.map((c) => (
-                                <option key={c._id} value={c._id}>{c.name} ({c.code})</option>
+                                <option key={getCampusId(c)} value={getCampusId(c)}>{c.name} ({c.code})</option>
                             ))}
                         </select>
                     </div>

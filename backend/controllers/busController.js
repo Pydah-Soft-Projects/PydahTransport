@@ -11,6 +11,7 @@ const {
     getActivePassengerSqlParts,
     enrichTransportFareAdjustments,
 } = require('./transportRequestController');
+const campusService = require('../services/campusService');
 
 const LEGACY_CHANGED_BY = 'Existing assignment';
 
@@ -141,13 +142,15 @@ const recordStaffHistory = async (bus, role, change, changedBy) => {
 // @access  Private/Admin
 const getBusDetails = async (req, res) => {
     try {
-        const bus = await Bus.findById(req.params.id).populate('campus');
-        if (!bus) {
+        const busDoc = await Bus.findById(req.params.id);
+        if (!busDoc) {
             return res.status(404).json({ message: 'Bus not found' });
         }
+        const bus = await campusService.attachCampusToDoc(busDoc);
         let route = null;
         if (bus.assignedRouteId) {
-            route = await Route.findOne({ routeId: bus.assignedRouteId }).populate('campus');
+            const routeDoc = await Route.findOne({ routeId: bus.assignedRouteId });
+            route = routeDoc ? await campusService.attachCampusToDoc(routeDoc) : null;
         }
         let mysqlPassengers = [];
         const academicYear = resolveAcademicYear(req.query);
@@ -227,6 +230,7 @@ const getBusDetails = async (req, res) => {
                 attendantName: bus.attendantName,
                 status: bus.status,
                 assignedRouteId: bus.assignedRouteId,
+                campus: bus.campus,
             },
             route: route ? {
                 _id: route._id,
@@ -260,24 +264,14 @@ const getBusesOverview = async (req, res) => {
     try {
         let query = {};
         if (req.user) {
-            const isSuperAdmin = req.user.roles && req.user.roles.includes('superadmin');
-            if (!isSuperAdmin && req.user.campuses && req.user.campuses.length > 0) {
-                if (req.query.campus) {
-                    if (req.user.campuses.map(c => c.toString()).includes(req.query.campus)) {
-                        query.campus = req.query.campus;
-                    } else {
-                        query.campus = null;
-                    }
-                } else {
-                    query.campus = { $in: req.user.campuses };
-                }
-            } else if (req.query.campus) {
-                query.campus = req.query.campus;
-            }
+            query = campusService.buildCampusFilter(req.user, req.query.campus);
+        } else if (req.query.campus) {
+            query.campus = campusService.normalizeCampusId(req.query.campus);
         }
         const buses = await Bus.find(query).lean();
         const routeIds = [...new Set(buses.map((b) => b.assignedRouteId).filter(Boolean))];
-        const routes = await Route.find({ routeId: { $in: routeIds } }).populate('campus').lean();
+        const routeDocs = await Route.find({ routeId: { $in: routeIds } }).lean();
+        const routes = await campusService.attachCampusToDocs(routeDocs);
         const routeMap = Object.fromEntries(routes.map((r) => [r.routeId, r]));
 
         const academicYear = resolveAcademicYear(req.query);
@@ -424,23 +418,13 @@ const getBuses = async (req, res) => {
     try {
         let query = {};
         if (req.user) {
-            const isSuperAdmin = req.user.roles && req.user.roles.includes('superadmin');
-            if (!isSuperAdmin && req.user.campuses && req.user.campuses.length > 0) {
-                if (req.query.campus) {
-                    if (req.user.campuses.map(c => c.toString()).includes(req.query.campus)) {
-                        query.campus = req.query.campus;
-                    } else {
-                        query.campus = null;
-                    }
-                } else {
-                    query.campus = { $in: req.user.campuses };
-                }
-            } else if (req.query.campus) {
-                query.campus = req.query.campus;
-            }
+            query = campusService.buildCampusFilter(req.user, req.query.campus);
+        } else if (req.query.campus) {
+            query.campus = campusService.normalizeCampusId(req.query.campus);
         }
-        const buses = await Bus.find(query).populate('campus');
-        res.json(buses);
+        const buses = await Bus.find(query);
+        const busesWithCampus = await campusService.attachCampusToDocs(buses);
+        res.json(busesWithCampus);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -479,7 +463,9 @@ const updateBus = async (req, res) => {
         bus.type = req.body.type || bus.type;
         bus.amenities = req.body.amenities || bus.amenities;
         bus.status = req.body.status || bus.status;
-        bus.campus = req.body.campus !== undefined ? (req.body.campus || null) : bus.campus;
+        bus.campus = req.body.campus !== undefined
+            ? campusService.normalizeCampusId(req.body.campus)
+            : bus.campus;
 
         if (req.body.vehicleModel !== undefined) {
             bus.vehicleModel = req.body.vehicleModel;

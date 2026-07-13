@@ -15,8 +15,7 @@ const userRoleSchema = new mongoose.Schema({
         type: String
     }],
     campuses: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Campus'
+        type: Number
     }],
     colleges: [{
         type: String

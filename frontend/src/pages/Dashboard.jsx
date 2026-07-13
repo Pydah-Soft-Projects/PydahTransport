@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
+import { filterCampusesForUser, getCampusId, campusIdsMatch } from '../utils/campus';
 
 const Dashboard = () => {
     const [loading, setLoading] = useState(true);
@@ -31,9 +32,7 @@ const Dashboard = () => {
     const userCampuses = adminInfo.campuses || [];
     const isSuperAdmin = adminInfo.role === 'admin' || (adminInfo.roles && adminInfo.roles.includes('superadmin'));
 
-    const allowedCampuses = isSuperAdmin
-        ? campuses
-        : campuses.filter(c => userCampuses.includes(c._id));
+    const allowedCampuses = filterCampusesForUser(campuses, userCampuses, isSuperAdmin);
 
     useEffect(() => {
         const fetchCampuses = async () => {
@@ -50,7 +49,7 @@ const Dashboard = () => {
 
     useEffect(() => {
         if (allowedCampuses.length > 0 && !isSuperAdmin && userCampuses.length === 1) {
-            setSelectedCampus(userCampuses[0]);
+            setSelectedCampus(String(userCampuses[0]));
         }
     }, [campuses]);
 
@@ -117,7 +116,7 @@ const Dashboard = () => {
                             >
                                 <option value="">All Campuses</option>
                                 {allowedCampuses.map((campus) => (
-                                    <option key={campus._id} value={campus._id}>
+                                    <option key={getCampusId(campus)} value={getCampusId(campus)}>
                                         {campus.name}
                                     </option>
                                 ))}

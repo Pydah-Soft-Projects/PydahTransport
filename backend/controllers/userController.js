@@ -1,5 +1,6 @@
 const { getEmployeeModel } = require('../models/Employee');
 const UserRole = require('../models/UserRole');
+const campusService = require('../services/campusService');
 const Admin = require('../models/Admin');
 
 // @desc    Get all users (Employees + Roles)
@@ -107,7 +108,7 @@ const updateUserRole = async (req, res) => {
                 $set: {
                     roles: rolesArray,
                     permissions: permissions || [],
-                    campuses: campuses || [],
+                    campuses: campusService.normalizeCampusIds(campuses || []),
                     colleges: colleges || [],
                     courses: courses || []
                 }

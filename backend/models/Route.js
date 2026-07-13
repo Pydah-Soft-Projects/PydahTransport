@@ -40,8 +40,7 @@ const routeSchema = new mongoose.Schema({
         type: String // e.g. "45 mins"
     },
     campus: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Campus',
+        type: Number,
         default: null
     },
     stages: [stageSchema]

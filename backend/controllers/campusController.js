@@ -1,108 +1,104 @@
-const Campus = require('../models/Campus');
 const Route = require('../models/Route');
+const Bus = require('../models/Bus');
+const OtherVehicle = require('../models/OtherVehicle');
+const UserRole = require('../models/UserRole');
+const campusService = require('../services/campusService');
 
-// @desc    Get all campuses
-// @route   GET /api/campuses
-// @access  Private
 const getCampuses = async (req, res) => {
     try {
-        const campuses = await Campus.find().sort({ name: 1 });
+        let campuses = await campusService.getAllCampuses();
+        const isSuperAdmin = req.user?.roles?.includes('superadmin');
+        if (!isSuperAdmin && req.user?.campuses?.length > 0) {
+            const allowed = campusService.normalizeCampusIds(req.user.campuses);
+            campuses = campuses.filter((campus) => allowed.includes(campus.id));
+        }
         res.json(campuses);
     } catch (error) {
         res.status(500).json({ message: error.message || 'Failed to fetch campuses' });
     }
 };
 
-// @desc    Create a campus
-// @route   POST /api/campuses
-// @access  Private/Admin
 const createCampus = async (req, res) => {
-    const { name, code, location, colleges } = req.body;
+    const { name, code, description, location, colleges, collegeIds } = req.body;
     if (!name || !code) {
         return res.status(400).json({ message: 'Campus name and code are required' });
     }
 
     try {
-        const newCampus = new Campus({ name, code, location, colleges: colleges || [] });
-        await newCampus.save();
-        res.status(201).json(newCampus);
+        const campus = await campusService.createCampus({
+            name,
+            code,
+            description: description || location || '',
+            colleges: colleges || [],
+            collegeIds: collegeIds || []
+        });
+        res.status(201).json(campus);
     } catch (error) {
-        if (error.code === 11000) {
+        if (error.code === 'ER_DUP_ENTRY') {
             return res.status(400).json({ message: 'Campus name or code already exists' });
         }
         res.status(500).json({ message: error.message || 'Failed to create campus' });
     }
 };
 
-// @desc    Update a campus
-// @route   PUT /api/campuses/:id
-// @access  Private/Admin
 const updateCampus = async (req, res) => {
     const { id } = req.params;
-    const { name, code, location, colleges } = req.body;
+    const { name, code, description, location, colleges, collegeIds } = req.body;
 
     if (!name || !code) {
         return res.status(400).json({ message: 'Campus name and code are required' });
     }
 
     try {
-        const campus = await Campus.findById(id);
+        const campus = await campusService.updateCampus(id, {
+            name,
+            code,
+            description: description !== undefined ? description : location,
+            colleges,
+            collegeIds
+        });
+
         if (!campus) {
             return res.status(404).json({ message: 'Campus not found' });
         }
 
-        campus.name = name;
-        campus.code = code;
-        campus.location = location !== undefined ? location : campus.location;
-        campus.colleges = colleges !== undefined ? colleges : campus.colleges;
-
-        await campus.save();
         res.json(campus);
     } catch (error) {
-        if (error.code === 11000) {
+        if (error.code === 'ER_DUP_ENTRY') {
             return res.status(400).json({ message: 'Campus name or code already exists' });
         }
         res.status(500).json({ message: error.message || 'Failed to update campus' });
     }
 };
 
-// Helper to get colleges mapped to campus IDs
-const getCollegesForCampuses = async (campusIds) => {
-    if (!campusIds || campusIds.length === 0) return [];
-    try {
-        const campuses = await Campus.find({ _id: { $in: campusIds } });
-        const colleges = [];
-        campuses.forEach(c => {
-            if (c.colleges && c.colleges.length > 0) {
-                colleges.push(...c.colleges);
-            }
-        });
-        return [...new Set(colleges)];
-    } catch (error) {
-        console.error('Error in getCollegesForCampuses:', error);
-        return [];
-    }
-};
+const getCollegesForCampuses = async (campusIds) => campusService.getCollegesForCampuses(campusIds);
 
-// @desc    Delete a campus
-// @route   DELETE /api/campuses/:id
-// @access  Private/Admin
 const deleteCampus = async (req, res) => {
-    const { id } = req.params;
+    const campusId = campusService.normalizeCampusId(req.params.id);
+    if (campusId === null) {
+        return res.status(400).json({ message: 'Invalid campus id' });
+    }
 
     try {
-        const campus = await Campus.findById(id);
+        const campus = await campusService.getCampusById(campusId);
         if (!campus) {
             return res.status(404).json({ message: 'Campus not found' });
         }
 
-        // Check if any route maps to this campus
-        const routeCount = await Route.countDocuments({ campus: id });
-        if (routeCount > 0) {
-            return res.status(400).json({ message: 'Cannot delete campus. It is mapped to existing route(s).' });
+        const [routeCount, busCount, vehicleCount, userCount] = await Promise.all([
+            Route.countDocuments({ campus: campusId }),
+            Bus.countDocuments({ campus: campusId }),
+            OtherVehicle.countDocuments({ campus: campusId }),
+            UserRole.countDocuments({ campuses: campusId })
+        ]);
+
+        if (routeCount > 0 || busCount > 0 || vehicleCount > 0 || userCount > 0) {
+            return res.status(400).json({
+                message: 'Cannot delete campus. It is mapped to existing routes, vehicles, or users.'
+            });
         }
 
-        await campus.deleteOne();
+        await campusService.deleteCampus(campusId);
         res.json({ message: 'Campus deleted successfully' });
     } catch (error) {
         res.status(500).json({ message: error.message || 'Failed to delete campus' });

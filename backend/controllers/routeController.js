@@ -4,6 +4,7 @@ const {
     normalizeStagesForSave,
     normalizeAcademicYear,
 } = require('../utils/stageFare');
+const campusService = require('../services/campusService');
 
 function serializeRoute(route, academicYear = null) {
     const plain = route.toObject ? route.toObject() : route;
@@ -26,24 +27,14 @@ const getRoutes = async (req, res) => {
         
         let query = {};
         if (req.user) {
-            const isSuperAdmin = req.user.roles && req.user.roles.includes('superadmin');
-            if (!isSuperAdmin && req.user.campuses && req.user.campuses.length > 0) {
-                if (req.query.campus) {
-                    if (req.user.campuses.map(c => c.toString()).includes(req.query.campus)) {
-                        query.campus = req.query.campus;
-                    } else {
-                        query.campus = null;
-                    }
-                } else {
-                    query.campus = { $in: req.user.campuses };
-                }
-            } else if (req.query.campus) {
-                query.campus = req.query.campus;
-            }
+            query = campusService.buildCampusFilter(req.user, req.query.campus);
+        } else if (req.query.campus) {
+            query.campus = campusService.normalizeCampusId(req.query.campus);
         }
 
-        const routes = await Route.find(query).populate('campus');
-        res.json(routes.map((route) => serializeRoute(route, academicYear || null)));
+        const routes = await Route.find(query);
+        const routesWithCampus = await campusService.attachCampusToDocs(routes);
+        res.json(routesWithCampus.map((route) => serializeRoute(route, academicYear || null)));
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -59,6 +50,7 @@ const createRoute = async (req, res) => {
         );
         const payload = {
             ...req.body,
+            campus: campusService.normalizeCampusId(req.body.campus),
             stages: normalizeStagesForSave(req.body.stages, editingAcademicYear),
         };
         delete payload.editingAcademicYear;
@@ -66,7 +58,7 @@ const createRoute = async (req, res) => {
 
         const route = new Route(payload);
         const createdRoute = await route.save();
-        const populatedRoute = await Route.findById(createdRoute._id).populate('campus');
+        const populatedRoute = await campusService.attachCampusToDoc(createdRoute);
         res.status(201).json(serializeRoute(populatedRoute, editingAcademicYear));
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -90,14 +82,16 @@ const updateRoute = async (req, res) => {
             route.endPoint = req.body.endPoint || route.endPoint;
             route.totalDistance = req.body.totalDistance || route.totalDistance;
             route.estimatedTime = req.body.estimatedTime || route.estimatedTime;
-            route.campus = req.body.campus !== undefined ? (req.body.campus || null) : route.campus;
+            route.campus = req.body.campus !== undefined
+                ? campusService.normalizeCampusId(req.body.campus)
+                : route.campus;
             if (req.body.stages) {
                 route.stages = normalizeStagesForSave(req.body.stages, editingAcademicYear);
                 route.markModified('stages');
             }
 
             const updatedRoute = await route.save();
-            const populatedRoute = await Route.findById(updatedRoute._id).populate('campus');
+            const populatedRoute = await campusService.attachCampusToDoc(updatedRoute);
             res.json(serializeRoute(populatedRoute, editingAcademicYear));
         } else {
             res.status(404).json({ message: 'Route not found' });
