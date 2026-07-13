@@ -63,6 +63,30 @@ const Layout = ({ children }) => {
 
     const menuItems = allMenuItems.filter(item => hasPermission(item.permission));
 
+    const isMenuActive = (path) => (
+        location.pathname === path || location.pathname.startsWith(`${path}/`)
+    );
+
+    const getMenuItemClasses = (path, collapsed = false) => {
+        const active = isMenuActive(path);
+        if (active) {
+            return collapsed
+                ? 'bg-blue-600 border-blue-600 text-white shadow-sm font-semibold'
+                : 'bg-blue-600 border-blue-600 text-white shadow-sm font-semibold';
+        }
+        return collapsed
+            ? 'border-transparent text-slate-600 hover:bg-white hover:border-slate-200 hover:text-slate-900 font-medium'
+            : 'border-transparent text-slate-600 hover:bg-white hover:border-slate-200 hover:text-slate-900 font-medium';
+    };
+
+    const getMenuIconClasses = (path, collapsed = false) => {
+        const active = isMenuActive(path);
+        if (active) return 'text-white';
+        return collapsed
+            ? 'text-slate-400 group-hover:text-slate-600'
+            : 'text-slate-400 group-hover:text-slate-600';
+    };
+
     return (
         <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
             {/* Sidebar (Desktop) */}
@@ -98,13 +122,9 @@ const Layout = ({ children }) => {
                             key={item.path}
                             to={item.path}
                             title={isCollapsed ? item.label : ""}
-                            className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'px-4'} py-3 rounded-xl transition-all duration-200 group relative overflow-hidden border ${location.pathname === item.path
-                                ? 'bg-white border-blue-200 text-blue-700 shadow-sm font-semibold'
-                                : 'border-transparent text-slate-600 hover:bg-white hover:border-slate-200 hover:text-slate-900 font-medium'
-                                }`}
+                            className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'px-4'} py-3 rounded-xl transition-all duration-200 group relative overflow-hidden border ${getMenuItemClasses(item.path, isCollapsed)}`}
                         >
-                            <span className={`${isCollapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${location.pathname === item.path ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'
-                                }`}>
+                            <span className={`${isCollapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${getMenuIconClasses(item.path, isCollapsed)}`}>
                                 {item.icon}
                             </span>
                             {!isCollapsed && <span className="truncate text-sm animate-in fade-in slide-in-from-left-2">{item.label}</span>}
@@ -172,12 +192,9 @@ const Layout = ({ children }) => {
                             key={item.path}
                             to={item.path}
                             onClick={() => setIsMobileMenuOpen(false)}
-                            className={`flex items-center px-4 py-3 rounded-xl border transition-colors ${location.pathname === item.path
-                                ? 'bg-white border-blue-200 text-blue-700 font-semibold shadow-sm'
-                                : 'border-transparent text-slate-600 hover:bg-white hover:border-slate-200 hover:text-slate-900'
-                                }`}
+                            className={`flex items-center px-4 py-3 rounded-xl border transition-colors ${getMenuItemClasses(item.path)}`}
                         >
-                            <span className={`mr-3 ${location.pathname === item.path ? 'text-blue-600' : 'text-slate-400'}`}>{item.icon}</span>
+                            <span className={`mr-3 ${getMenuIconClasses(item.path)}`}>{item.icon}</span>
                             <span className="truncate text-sm">{item.label}</span>
                         </Link>
                     ))}
