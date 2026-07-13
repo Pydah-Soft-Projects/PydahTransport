@@ -64,18 +64,18 @@ const Layout = ({ children }) => {
     const menuItems = allMenuItems.filter(item => hasPermission(item.permission));
 
     return (
-        <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+        <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
             {/* Sidebar (Desktop) */}
-            <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-gradient-to-b from-[#f7f5fc] via-white to-[#f4f1fb] shadow-xl border-r border-slate-200 hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-hidden`}>
+            <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-white shadow-sm border-r border-slate-200 hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-hidden`}>
                 {/* Collapse Toggle Button */}
                 <button 
                     onClick={() => setIsCollapsed(!isCollapsed)}
-                    className="absolute -right-3 top-24 bg-white border border-violet-100 rounded-full p-1 shadow-md z-30 hover:bg-violet-50 text-violet-500 group"
+                    className="absolute -right-3 top-24 bg-white border border-slate-200 rounded-full p-1 shadow-md z-30 hover:bg-slate-50 text-blue-600 group"
                 >
                     {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
                 </button>
 
-                <div className={`min-h-28 flex items-center ${isCollapsed ? 'justify-center px-3' : 'px-6'} py-5 transition-all duration-300 bg-gradient-to-r from-violet-600 via-violet-700 to-indigo-700 relative z-10`}>
+                <div className={`min-h-28 flex items-center ${isCollapsed ? 'justify-center px-3' : 'px-6'} py-5 transition-all duration-300 bg-gradient-to-r from-blue-600 to-blue-700 relative z-10 border-b border-blue-700/20`}>
                     <img
                         src="/Gemini_Generated_Image_uu0hhduu0hhduu0h.png"
                         alt="Logo"
@@ -86,28 +86,24 @@ const Layout = ({ children }) => {
                             <h1 className="text-2xl font-extrabold whitespace-nowrap tracking-wide text-white">
                                 TRANSPORT
                             </h1>
-                            <p className="text-[10px] uppercase tracking-[0.18em] text-violet-100">
+                            <p className="text-[10px] uppercase tracking-[0.18em] text-blue-100">
                                 Management System
                             </p>
                         </div>
                     )}
                 </div>
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 top-28">
-                    <div className="absolute bottom-24 -right-10 h-40 w-40 rounded-full bg-violet-100/70 blur-2xl"></div>
-                    <div className="absolute bottom-0 right-6 h-32 w-32 rounded-full bg-indigo-100/60 blur-2xl"></div>
-                </div>
-                <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto custom-scrollbar relative z-10">
+                <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scrollbar relative z-10 bg-slate-50/60">
                     {menuItems.map((item) => (
                         <Link
                             key={item.path}
                             to={item.path}
                             title={isCollapsed ? item.label : ""}
                             className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'px-4'} py-3 rounded-xl transition-all duration-200 group relative overflow-hidden border ${location.pathname === item.path
-                                ? 'bg-white/95 border-violet-100 text-violet-600 shadow-[0_8px_24px_rgba(15,23,42,0.08)] font-semibold'
-                                : 'border-transparent text-slate-700 hover:bg-white/85 hover:border-violet-100/70 hover:text-violet-600 font-medium'
+                                ? 'bg-white border-blue-200 text-blue-700 shadow-sm font-semibold'
+                                : 'border-transparent text-slate-600 hover:bg-white hover:border-slate-200 hover:text-slate-900 font-medium'
                                 }`}
                         >
-                            <span className={`${isCollapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${location.pathname === item.path ? 'text-violet-500' : 'text-violet-500/90 group-hover:text-violet-600'
+                            <span className={`${isCollapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${location.pathname === item.path ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'
                                 }`}>
                                 {item.icon}
                             </span>
@@ -115,9 +111,9 @@ const Layout = ({ children }) => {
                         </Link>
                     ))}
                 </nav>
-                <div className={`p-3 border-t border-slate-200/80 bg-white/55 relative z-10 ${isCollapsed ? 'flex justify-center' : ''}`}>
-                    <div className={`flex items-center ${isCollapsed ? 'justify-center w-12 h-12' : 'gap-3 px-4 py-3 bg-white/90'} rounded-2xl border border-violet-100 transition-all duration-300 shadow-[0_8px_24px_rgba(15,23,42,0.08)]`}>
-                        <div className={`w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 font-bold text-sm border-2 border-white shadow-sm flex-shrink-0 transition-all duration-300 ${isCollapsed ? 'scale-110' : ''}`}>
+                <div className={`p-3 border-t border-slate-200 bg-white relative z-10 ${isCollapsed ? 'flex justify-center' : ''}`}>
+                    <div className={`flex items-center ${isCollapsed ? 'justify-center w-12 h-12' : 'gap-3 px-4 py-3 bg-slate-50'} rounded-2xl border border-slate-200 transition-all duration-300`}>
+                        <div className={`w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm border border-blue-200 flex-shrink-0 transition-all duration-300 ${isCollapsed ? 'scale-110' : ''}`}>
                             {(adminInfo.name || adminInfo.username || 'U').charAt(0).toUpperCase()}
                         </div>
                         {!isCollapsed && (
@@ -133,7 +129,7 @@ const Layout = ({ children }) => {
                                 <button
                                     onClick={handleLogout}
                                     title="Logout"
-                                    className="p-1.5 text-slate-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all duration-200 group"
+                                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200 group"
                                 >
                                     <LogOut size={16} className="group-hover:scale-110 transition-transform" />
                                 </button>
@@ -152,9 +148,9 @@ const Layout = ({ children }) => {
             )}
 
             {/* Sidebar (Mobile) */}
-            <aside className={`fixed inset-y-0 left-0 w-64 bg-gradient-to-b from-[#f7f5fc] via-white to-[#f4f1fb] shadow-xl border-r border-slate-200 flex flex-col z-40 transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+            <aside className={`fixed inset-y-0 left-0 w-64 bg-white shadow-xl border-r border-slate-200 flex flex-col z-40 transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}>
-                <div className="min-h-24 flex justify-between items-center px-5 bg-gradient-to-r from-violet-600 via-violet-700 to-indigo-700 relative z-10">
+                <div className="min-h-24 flex justify-between items-center px-5 bg-gradient-to-r from-blue-600 to-blue-700 relative z-10 border-b border-blue-700/20">
                     <div className="flex items-center gap-3 min-w-0">
                         <img
                             src="/Gemini_Generated_Image_uu0hhduu0hhduu0h.png"
@@ -163,29 +159,25 @@ const Layout = ({ children }) => {
                         />
                         <div className="min-w-0">
                             <h1 className="text-lg font-bold text-white truncate">TRANSPORT</h1>
-                            <p className="text-[9px] uppercase tracking-[0.18em] text-violet-100 truncate">Management System</p>
+                            <p className="text-[9px] uppercase tracking-[0.18em] text-blue-100 truncate">Management System</p>
                         </div>
                     </div>
-                    <button onClick={() => setIsMobileMenuOpen(false)} className="text-violet-100 hover:text-white">
+                    <button onClick={() => setIsMobileMenuOpen(false)} className="text-blue-100 hover:text-white">
                         <X size={24} />
                     </button>
                 </div>
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 top-24">
-                    <div className="absolute bottom-20 -right-10 h-40 w-40 rounded-full bg-violet-100/70 blur-2xl"></div>
-                    <div className="absolute bottom-0 right-6 h-28 w-28 rounded-full bg-indigo-100/60 blur-2xl"></div>
-                </div>
-                <nav className="flex-1 p-4 space-y-2 relative z-10">
+                <nav className="flex-1 p-4 space-y-1 bg-slate-50/60 relative z-10">
                     {menuItems.map((item) => (
                         <Link
                             key={item.path}
                             to={item.path}
                             onClick={() => setIsMobileMenuOpen(false)}
-                            className={`flex items-center px-4 py-3 rounded-lg border transition-colors ${location.pathname === item.path
-                                ? 'bg-white/95 border-violet-100 text-violet-600 font-semibold shadow-[0_8px_24px_rgba(15,23,42,0.08)]'
-                                : 'border-transparent text-slate-700 hover:bg-white/85 hover:border-violet-100/70 hover:text-violet-600'
+                            className={`flex items-center px-4 py-3 rounded-xl border transition-colors ${location.pathname === item.path
+                                ? 'bg-white border-blue-200 text-blue-700 font-semibold shadow-sm'
+                                : 'border-transparent text-slate-600 hover:bg-white hover:border-slate-200 hover:text-slate-900'
                                 }`}
                         >
-                            <span className={`mr-3 ${location.pathname === item.path ? 'text-violet-500' : 'text-violet-500/90'}`}>{item.icon}</span>
+                            <span className={`mr-3 ${location.pathname === item.path ? 'text-blue-600' : 'text-slate-400'}`}>{item.icon}</span>
                             <span className="truncate text-sm">{item.label}</span>
                         </Link>
                     ))}
@@ -193,13 +185,13 @@ const Layout = ({ children }) => {
             </aside>
 
             {/* Main Content */}
-            <div className="flex-1 flex flex-col h-screen overflow-hidden relative bg-gray-50 w-full">
+            <div className="flex-1 flex flex-col h-screen overflow-hidden relative bg-slate-50 w-full">
                 {/* Mobile Header */}
-                <header className="md:hidden bg-white shadow-sm h-16 flex items-center justify-between px-4 z-20">
-                    <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-gray-600 rounded-lg hover:bg-gray-100">
+                <header className="md:hidden bg-white shadow-sm border-b border-slate-200 h-16 flex items-center justify-between px-4 z-20">
+                    <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-slate-600 rounded-lg hover:bg-slate-100">
                         <Menu size={24} />
                     </button>
-                    <h1 className="text-lg font-bold text-gray-800 truncate">Pydah Transport</h1>
+                    <h1 className="text-lg font-bold text-slate-800 truncate">Pydah Transport</h1>
                     <div className="w-10"></div> {/* Spacer for center alignment */}
                 </header>
 
