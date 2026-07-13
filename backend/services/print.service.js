@@ -14,6 +14,7 @@ const InventoryAllocation = require('../models/InventoryAllocation');
 const Vendor = require('../models/Vendor');
 const { mysqlPool } = require('../config/db');
 const { resolveStudentPhoto } = require('../utils/studentPhoto');
+const campusService = require('./campusService');
 
 // Pre-load logo to inline as Base64 to handle cross-origin printing
 const logoPath = path.join(__dirname, '../../frontend/public/PYDAH_LOGO_PHOTO.jpg');
@@ -24,6 +25,37 @@ if (fs.existsSync(logoPath)) {
 }
 
 const componentCache = new Map();
+
+function getDefaultAcademicYear() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    if (month >= 5) {
+        return `${year}-${year + 1}`;
+    }
+    return `${year - 1}-${year}`;
+}
+
+function getActivePassengerSqlParts(fallbackAcademicYear) {
+    return require('../controllers/transportRequestController').getActivePassengerSqlParts(fallbackAcademicYear);
+}
+
+async function getCampusRouteFilter(campusId) {
+    const queryCampusId = campusService.normalizeCampusId(campusId);
+    if (queryCampusId === null) return null;
+
+    const campusRoutes = await Route.find({ campus: queryCampusId }).select('routeId').lean();
+    const routeIds = campusRoutes.map((route) => route.routeId);
+    if (routeIds.length === 0) {
+        return { routeIds: [], sqlClause: ' AND 1=0', params: [] };
+    }
+
+    return {
+        routeIds,
+        sqlClause: ` AND tr.route_id IN (${routeIds.map(() => '?').join(',')})`,
+        params: routeIds,
+    };
+}
 
 // Map template names to their frontend source file paths
 const TEMPLATE_PATHS = {
@@ -37,12 +69,14 @@ const TEMPLATE_PATHS = {
  * On-the-fly ESM/JSX transpiler & bundler using esbuild
  */
 function getTranspiledComponent(filePath) {
-    if (componentCache.has(filePath)) {
-        return componentCache.get(filePath);
-    }
-
     if (!fs.existsSync(filePath)) {
         throw new Error(`Component file does not exist: ${filePath}`);
+    }
+
+    const mtimeMs = fs.statSync(filePath).mtimeMs;
+    const cached = componentCache.get(filePath);
+    if (cached && cached.mtimeMs === mtimeMs) {
+        return cached.component;
     }
     
     const result = esbuild.buildSync({
@@ -63,7 +97,7 @@ function getTranspiledComponent(filePath) {
     m._compile(code, filePath);
     
     const component = m.exports.default || m.exports;
-    componentCache.set(filePath, component);
+    componentCache.set(filePath, { component, mtimeMs });
     return component;
 }
 
@@ -167,40 +201,67 @@ const fetchAdmitCardData = async (data) => {
 /**
  * Helper to fetch active passengers for a bus
  */
-const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true) => {
-    const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || '2025-2026';
-    const { getActivePassengerSqlParts } = require('../controllers/transportRequestController');
+const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true, campusId) => {
+    const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
+    const resolvedYear = academicYear || fallbackAcademicYear;
     let mysqlPassengers = [];
-    
+    const campusFilter = await getCampusRouteFilter(campusId);
+
     if (mysqlPool) {
-        const parts = getActivePassengerSqlParts(liveOccupancy ? fallbackAcademicYear : academicYear);
-        const [rows] = await mysqlPool.query(
-            `SELECT tr.*, 
+        const parts = getActivePassengerSqlParts(liveOccupancy ? fallbackAcademicYear : resolvedYear);
+        const params = [...(liveOccupancy ? parts.expiryParams : [])];
+
+        let sql = `SELECT tr.*,
                     COALESCE(tr.year_of_study, s1.current_year, s2.current_year) as year_of_study,
                     COALESCE(s1.course, s2.course) as course,
                     COALESCE(s1.branch, s2.branch) as branch,
                     COALESCE(s1.student_photo, s2.student_photo) as student_photo,
                     COALESCE(s1.student_data, s2.student_data) as student_data,
                     COALESCE(s1.pin_no, s2.pin_no) as pin_no
+                    ${liveOccupancy ? `, ${parts.isExpiredExpr} as is_expired` : ''}
              FROM transport_requests tr
-             LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
-             LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
-             ${liveOccupancy ? `${parts.studentJoins} ${parts.expiryJoins}` : ''}
-             WHERE tr.bus_id = ? AND tr.status = 'approved'
-               ${liveOccupancy ? `AND ${parts.activeWhere}` : ''}`,
-            [...(liveOccupancy ? parts.expiryParams : []), busNumber]
-        );
-        
-        mysqlPassengers = (rows || []).map(r => ({
+             ${parts.studentJoins}
+             ${liveOccupancy ? parts.expiryJoins : ''}
+             WHERE tr.bus_id = ? AND tr.status = 'approved'`;
+
+        params.push(busNumber);
+
+        if (campusFilter) {
+            sql += campusFilter.sqlClause;
+            params.push(...campusFilter.params);
+        }
+
+        if (!liveOccupancy) {
+            sql += ' AND COALESCE(tr.academic_year, ?) = ?';
+            params.push(fallbackAcademicYear, resolvedYear);
+        } else {
+            sql += ` AND ${parts.activeWhere}`;
+        }
+
+        const [rows] = await mysqlPool.query(sql, params);
+
+        mysqlPassengers = (rows || []).map((r) => ({
             ...r,
             id: r.id,
             student_photo: resolveStudentPhoto(r),
             user_type: 'student',
+            is_expired: Boolean(r.is_expired),
         }));
     }
-    
-    const mongoRequests = await EmployeeTransportRequest.find({ bus_id: busNumber, status: 'approved' }).lean();
-    const mongoPassengers = mongoRequests.map(r => ({
+
+    const mongoQuery = { bus_id: busNumber, status: 'approved' };
+    if (!liveOccupancy) {
+        mongoQuery.$or = [
+            { academic_year: resolvedYear },
+            { academic_year: null },
+            { academic_year: { $exists: false } },
+        ];
+    }
+    if (campusFilter) {
+        mongoQuery.route_id = { $in: campusFilter.routeIds };
+    }
+    const mongoRequests = await EmployeeTransportRequest.find(mongoQuery).lean();
+    const mongoPassengers = mongoRequests.map((r) => ({
         ...r,
         id: r._id.toString(),
         admission_number: r.emp_no,
@@ -208,8 +269,10 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true)
         user_type: 'employee',
         course: 'Employee',
     }));
-    
-    const activePassengers = mysqlPassengers.filter((p) => !p.is_expired);
+
+    const activePassengers = liveOccupancy
+        ? mysqlPassengers.filter((p) => !p.is_expired)
+        : mysqlPassengers;
     return [...activePassengers, ...mongoPassengers];
 };
 
@@ -276,45 +339,69 @@ const fetchIdCardSheetData = async (data) => {
  */
 const fetchPassengerReportData = async (data) => {
     let passengers = [];
+    const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
+    const academicYear = data.academicYear || fallbackAcademicYear;
+    const status = data.status || 'approved';
+    const activeOnly = status === 'active';
+    const campusFilter = await getCampusRouteFilter(data.campus);
 
     if (data.busId) {
-        passengers = await fetchBusPassengers(data.busId, data.academicYear, true);
-    } else {
-        const status = data.status || 'approved';
-        const academicYear = data.academicYear || process.env.CURRENT_ACADEMIC_YEAR || '2025-2026';
-        
-        // Fetch from MySQL
-        if (mysqlPool) {
-            const [rows] = await mysqlPool.query(
-                `SELECT tr.*, 
+        passengers = await fetchBusPassengers(data.busId, academicYear, activeOnly, data.campus);
+    } else if (mysqlPool) {
+        const parts = getActivePassengerSqlParts(activeOnly ? fallbackAcademicYear : academicYear);
+        const params = [...(activeOnly ? parts.expiryParams : [])];
+
+        let sql = `SELECT tr.*,
                         COALESCE(tr.year_of_study, s1.current_year, s2.current_year) as year_of_study,
                         COALESCE(s1.course, s2.course) as course,
                         COALESCE(s1.branch, s2.branch) as branch,
                         COALESCE(s1.student_photo, s2.student_photo) as student_photo,
                         COALESCE(s1.student_data, s2.student_data) as student_data,
                         COALESCE(s1.pin_no, s2.pin_no) as pin_no
+                        ${activeOnly ? `, ${parts.isExpiredExpr} as is_expired` : ''}
                  FROM transport_requests tr
-                 LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
-                 LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
-                 WHERE tr.status = ? AND COALESCE(tr.academic_year, ?) = ?`,
-                [status, academicYear, academicYear]
-            );
-            
-            passengers = (rows || []).map(r => ({
-                ...r,
-                id: r.id,
-                student_photo: resolveStudentPhoto(r),
-                user_type: 'student',
-            }));
+                 ${parts.studentJoins}
+                 ${activeOnly ? parts.expiryJoins : ''}
+                 WHERE tr.status = 'approved'`;
+
+        if (campusFilter) {
+            sql += campusFilter.sqlClause;
+            params.push(...campusFilter.params);
         }
-        
-        // Fetch Employees from Mongo
-        const mongoRequests = await EmployeeTransportRequest.find({
-            status,
-            academic_year: academicYear
-        }).lean();
-        
-        const mongoPassengers = mongoRequests.map(r => ({
+
+        if (!activeOnly) {
+            sql += ' AND COALESCE(tr.academic_year, ?) = ?';
+            params.push(fallbackAcademicYear, academicYear);
+        } else {
+            sql += ` AND ${parts.activeWhere}`;
+        }
+
+        const [rows] = await mysqlPool.query(sql, params);
+        passengers = (rows || []).map((r) => ({
+            ...r,
+            id: r.id,
+            student_photo: resolveStudentPhoto(r),
+            user_type: 'student',
+            is_expired: Boolean(r.is_expired),
+        }));
+
+        if (activeOnly) {
+            passengers = passengers.filter((p) => !p.is_expired);
+        }
+
+        const mongoQuery = { status: 'approved' };
+        if (!activeOnly) {
+            mongoQuery.$or = [
+                { academic_year: academicYear },
+                { academic_year: null },
+                { academic_year: { $exists: false } },
+            ];
+        }
+        if (campusFilter) {
+            mongoQuery.route_id = { $in: campusFilter.routeIds };
+        }
+        const mongoRequests = await EmployeeTransportRequest.find(mongoQuery).lean();
+        const mongoPassengers = mongoRequests.map((r) => ({
             ...r,
             id: r._id.toString(),
             admission_number: r.emp_no,
@@ -322,7 +409,7 @@ const fetchPassengerReportData = async (data) => {
             user_type: 'employee',
             course: 'Employee',
         }));
-        
+
         passengers = [...passengers, ...mongoPassengers];
     }
     
@@ -335,7 +422,14 @@ const fetchPassengerReportData = async (data) => {
         return stageA.localeCompare(stageB) || nameA.localeCompare(nameB);
     });
     
-    return { passengers };
+    return {
+        passengers,
+        includeAbstract: Boolean(data.includeAbstract),
+        includeDetailed: data.includeDetailed !== false,
+        occupancyMode: data.occupancyMode === 'academicYear' ? 'academicYear' : 'live',
+        academicYear: academicYear,
+        campusName: data.campusName || '',
+    };
 };
 
 /**
@@ -502,6 +596,18 @@ const renderTemplate = async (template, data) => {
                 margin-top: 20px;
                 margin-bottom: 20px;
             }
+            #printable-passenger-report,
+            .print-container {
+                visibility: visible !important;
+                position: relative !important;
+                top: auto !important;
+                left: auto !important;
+                overflow: visible !important;
+                width: 210mm !important;
+                margin: 0 auto 20px auto !important;
+                box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+                background-color: #ffffff !important;
+            }
         }
 
         /* Native browser page printing configuration */
@@ -529,6 +635,22 @@ const renderTemplate = async (template, data) => {
                 margin: 0 !important;
                 position: static !important;
                 width: 100% !important;
+            }
+            #printable-passenger-report,
+            #printable-passenger-report *,
+            .print-container,
+            .print-container * {
+                visibility: visible !important;
+            }
+            #printable-passenger-report,
+            .print-container {
+                position: static !important;
+                top: auto !important;
+                left: auto !important;
+                overflow: visible !important;
+                width: 100% !important;
+                box-shadow: none !important;
+                margin: 0 !important;
             }
         }
     </style>

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { printHtmlDocument } from '../utils/printHtml';
-import PassengerReport from '../components/PassengerReport';
 import Layout from '../components/Layout';
 import Loader from '../components/Loader';
+import Modal from '../components/Modal';
 import {
     Bus,
     MapPin,
@@ -18,6 +18,7 @@ import {
 
 import { apiFetch, API_BASE } from '../utils/api';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
+import { filterCampusesForUser, getCampusId } from '../utils/campus';
 
 const API = API_BASE;
 
@@ -29,14 +30,49 @@ const Fleet = () => {
     const academicYearOptions = getAcademicYearOptions();
     const [allocatingId, setAllocatingId] = useState(null);
     const [message, setMessage] = useState({ text: '', type: '' });
-    
-    // Print logic
-    const componentRef = useRef();
-    const [printPassengers, setPrintPassengers] = useState([]);
     const [isPrinting, setIsPrinting] = useState(false);
+    const [reportModalOpen, setReportModalOpen] = useState(false);
+    const [reportOptions, setReportOptions] = useState({ abstract: true, detailed: true });
+    const [reportModalError, setReportModalError] = useState('');
+    const [campuses, setCampuses] = useState([]);
+    const [selectedCampus, setSelectedCampus] = useState('');
 
-    const handleDownloadReport = async () => {
+    const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+    const userCampuses = adminInfo.campuses || [];
+    const isSuperAdmin = adminInfo.role === 'admin' || (adminInfo.roles && adminInfo.roles.includes('superadmin'));
+    const allowedCampuses = filterCampusesForUser(campuses, userCampuses, isSuperAdmin);
+    const selectedCampusLabel = allowedCampuses.find((campus) => String(getCampusId(campus)) === String(selectedCampus))?.name;
+
+    useEffect(() => {
+        const fetchCampuses = async () => {
+            try {
+                const response = await apiFetch(`${API}/campuses`);
+                if (response.ok) {
+                    const data = await response.json();
+                    setCampuses(Array.isArray(data) ? data : []);
+                }
+            } catch (error) {
+                console.error('Error fetching campuses:', error);
+            }
+        };
+        fetchCampuses();
+    }, []);
+
+    useEffect(() => {
+        if (campuses.length > 0 && !isSuperAdmin && userCampuses.length === 1) {
+            setSelectedCampus(String(userCampuses[0]));
+        }
+    }, [campuses]);
+
+    const handleDownloadReport = async (options = reportOptions) => {
+        if (!options.abstract && !options.detailed) {
+            setReportModalError('Select at least one report section.');
+            return;
+        }
+
         setIsPrinting(true);
+        setMessage({ text: '', type: '' });
+        setReportModalError('');
         try {
             const status = occupancyMode === 'live' ? 'active' : 'approved';
             const response = await apiFetch(`${API}/print`, {
@@ -45,22 +81,56 @@ const Fleet = () => {
                     template: 'passenger-report',
                     data: {
                         status,
-                        academicYear: occupancyMode !== 'live' ? academicYear : undefined
+                        academicYear: occupancyMode !== 'live' ? academicYear : undefined,
+                        occupancyMode,
+                        campus: selectedCampus || undefined,
+                        campusName: selectedCampusLabel || undefined,
+                        includeAbstract: options.abstract,
+                        includeDetailed: options.detailed,
                     }
                 })
             });
             if (response.ok) {
                 const html = await response.text();
                 printHtmlDocument(html, 'Transport-Passenger-Report');
+                setReportModalOpen(false);
             } else {
-                setMessage({ text: 'Failed to generate passenger report HTML.', type: 'error' });
+                const err = await response.json().catch(() => ({}));
+                const errorText = err.message || 'Failed to generate passenger report HTML.';
+                if (reportModalOpen) {
+                    setReportModalError(errorText);
+                } else {
+                    setMessage({ text: errorText, type: 'error' });
+                }
             }
         } catch (e) {
             console.error('Error generating report:', e);
-            setMessage({ text: 'Error generating report.', type: 'error' });
+            const errorText = 'Error generating report.';
+            if (reportModalOpen) {
+                setReportModalError(errorText);
+            } else {
+                setMessage({ text: errorText, type: 'error' });
+            }
         } finally {
             setIsPrinting(false);
         }
+    };
+
+    const openReportModal = () => {
+        setReportModalError('');
+        setReportOptions({ abstract: true, detailed: true });
+        setReportModalOpen(true);
+    };
+
+    const toggleReportOption = (key) => {
+        setReportOptions((prev) => {
+            const next = { ...prev, [key]: !prev[key] };
+            if (!next.abstract && !next.detailed) {
+                return prev;
+            }
+            return next;
+        });
+        setReportModalError('');
     };
 
     const fetchOverview = async () => {
@@ -68,6 +138,7 @@ const Fleet = () => {
         try {
             const params = new URLSearchParams({ occupancyMode });
             if (occupancyMode !== 'live') params.append('academicYear', academicYear);
+            if (selectedCampus) params.append('campus', selectedCampus);
             const response = await apiFetch(
                 `${API}/buses/overview?${params.toString()}`
             );
@@ -87,7 +158,7 @@ const Fleet = () => {
 
     useEffect(() => {
         fetchOverview();
-    }, [academicYear, occupancyMode]);
+    }, [academicYear, occupancyMode, selectedCampus]);
 
     const handleAutoAllocate = async (busId) => {
         setAllocatingId(busId);
@@ -161,11 +232,31 @@ const Fleet = () => {
                                 <option key={year} value={year}>{year}</option>
                             ))}
                         </select>
+                        {allowedCampuses.length > 1 && (
+                            <>
+                                <label htmlFor="fleet-campus" className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                    Campus
+                                </label>
+                                <select
+                                    id="fleet-campus"
+                                    value={selectedCampus}
+                                    onChange={(e) => setSelectedCampus(e.target.value)}
+                                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500 min-w-[150px]"
+                                >
+                                    <option value="">All Campuses</option>
+                                    {allowedCampuses.map((campus) => (
+                                        <option key={getCampusId(campus)} value={getCampusId(campus)}>
+                                            {campus.name} ({campus.code})
+                                        </option>
+                                    ))}
+                                </select>
+                            </>
+                        )}
                     </div>
                 </div>
                 <button
                     type="button"
-                    onClick={handleDownloadReport}
+                    onClick={openReportModal}
                     disabled={isPrinting}
                     className="flex items-center bg-blue-600 text-white px-5 py-2.5 rounded-xl font-semibold shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-all flex-none whitespace-nowrap h-fit"
                 >
@@ -173,8 +264,73 @@ const Fleet = () => {
                     {isPrinting ? 'Preparing Report...' : 'Download Route-Wise Report'}
                 </button>
             </div>
-            
-            <PassengerReport ref={componentRef} passengers={printPassengers} />
+
+            <Modal
+                isOpen={reportModalOpen}
+                onClose={() => !isPrinting && setReportModalOpen(false)}
+                title="Download Route-Wise Report"
+                maxWidth="max-w-md"
+            >
+                <p className="text-sm text-slate-600 mb-4">
+                    Choose which sections to include in the report.
+                </p>
+
+                <div className="space-y-3">
+                    <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={reportOptions.abstract}
+                            onChange={() => toggleReportOption('abstract')}
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>
+                            <span className="block text-sm font-bold text-slate-800">Abstract</span>
+                            <span className="block text-xs text-slate-500 mt-0.5">
+                                Route-wise summary table with totals for students and employees.
+                            </span>
+                        </span>
+                    </label>
+
+                    <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={reportOptions.detailed}
+                            onChange={() => toggleReportOption('detailed')}
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>
+                            <span className="block text-sm font-bold text-slate-800">Detailed</span>
+                            <span className="block text-xs text-slate-500 mt-0.5">
+                                Stage-wise passenger list with names, IDs, course, and bus details.
+                            </span>
+                        </span>
+                    </label>
+                </div>
+
+                {reportModalError && (
+                    <p className="mt-3 text-sm font-medium text-red-600">{reportModalError}</p>
+                )}
+
+                <div className="mt-5 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setReportModalOpen(false)}
+                        disabled={isPrinting}
+                        className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleDownloadReport(reportOptions)}
+                        disabled={isPrinting || (!reportOptions.abstract && !reportOptions.detailed)}
+                        className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center"
+                    >
+                        {isPrinting ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
+                        {isPrinting ? 'Generating...' : 'Download Report'}
+                    </button>
+                </div>
+            </Modal>
 
             {!loading && list.length > 0 && (
                 <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -183,6 +339,9 @@ const Fleet = () => {
                         <p className="text-lg font-black text-slate-800 mt-1">
                             {occupancyMode === 'live' ? 'Live' : academicYear}
                         </p>
+                        {selectedCampusLabel && (
+                            <p className="text-[10px] font-semibold text-slate-500 mt-1">{selectedCampusLabel}</p>
+                        )}
                     </div>
                     <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Capacity</p>
@@ -217,7 +376,9 @@ const Fleet = () => {
                     </div>
                     <h3 className="text-lg font-bold text-slate-800 mb-1">No Buses Found</h3>
                     <p className="text-slate-500 text-sm max-w-sm mx-auto mb-6">
-                        No buses in the fleet. Add buses and assign routes in Bus Management.
+                        {selectedCampus
+                            ? 'No buses found for the selected campus. Try another campus or add buses in Bus Management.'
+                            : 'No buses in the fleet. Add buses and assign routes in Bus Management.'}
                     </p>
                     <Link to="/buses" className="inline-flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm hover:bg-blue-700 transition-all">
                         Go to Bus Management

@@ -79,7 +79,9 @@ const BusDetails = () => {
                     template: 'passenger-report',
                     data: {
                         busId: data.bus.busNumber,
-                        academicYear: academicYear,
+                        academicYear,
+                        occupancyMode,
+                        status: occupancyMode === 'live' ? 'active' : 'approved',
                     }
                 })
             });
@@ -87,7 +89,8 @@ const BusDetails = () => {
                 const html = await response.text();
                 printHtmlDocument(html, `Transport-Passenger-Report-${data.bus.busNumber}`);
             } else {
-                alert('Failed to generate passenger report.');
+                const err = await response.json().catch(() => ({}));
+                alert(err.message || 'Failed to generate passenger report.');
             }
         } catch (error) {
             console.error('Error printing passenger report:', error);
