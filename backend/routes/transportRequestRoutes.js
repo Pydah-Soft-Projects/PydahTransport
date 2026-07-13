@@ -7,6 +7,7 @@ const {
     updateTransportRequest,
     approveTransportRequest,
     rejectTransportRequest,
+    cancelTransportRequest,
     createTransportRequest,
     getConcessions,
     getDashboardStats,
@@ -33,6 +34,7 @@ router.get('/:id/semester-options', getSemesterOptions);
 router.get('/:id/full-details', getPassengerFullDetails);
 router.patch('/:id/approve', approveTransportRequest);
 router.patch('/:id/reject', rejectTransportRequest);
+router.patch('/:id/cancel', cancelTransportRequest);
 router.patch('/:id', updateTransportRequest);
 
 router.delete('/:id/concession', deleteConcession);

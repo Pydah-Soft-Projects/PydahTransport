@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { useReactToPrint } from 'react-to-print';
-import { FileText, Trash2, Calendar, Pencil, Users, CheckCircle2, XCircle, User, MapPin, GraduationCap, Clock, Bus, Printer } from 'lucide-react';
+import { FileText, Trash2, Calendar, Pencil, Users, CheckCircle2, XCircle, User, MapPin, GraduationCap, Clock, Bus, Printer, Ban } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import TransportAdmitCard from '../components/TransportAdmitCard';
@@ -87,6 +87,8 @@ const TransportRequests = () => {
     const [courseExpirySchemaOk, setCourseExpirySchemaOk] = useState(true);
     const [editingYears, setEditingYears] = useState({});
     const [detailModal, setDetailModal] = useState({ open: false, request: null, loading: false });
+    const [cancelFormOpen, setCancelFormOpen] = useState(false);
+    const [cancelReason, setCancelReason] = useState('');
     const [idCardModalOpen, setIdCardModalOpen] = useState(false);
     const [idCardAcademicYear, setIdCardAcademicYear] = useState(getDefaultAcademicYear());
     const [idCardCollegeCode, setIdCardCollegeCode] = useState('');
@@ -386,6 +388,8 @@ const TransportRequests = () => {
 
     const closeDetailModal = () => {
         setDetailModal({ open: false, request: null, loading: false });
+        setCancelFormOpen(false);
+        setCancelReason('');
     };
 
     const fetchRequests = async () => {
@@ -774,6 +778,40 @@ const TransportRequests = () => {
         }
     };
 
+    const handleCancelRequest = async (id) => {
+        const reason = cancelReason.trim();
+        if (!reason) {
+            setMessage({ text: 'Please enter a cancellation reason.', type: 'error' });
+            return;
+        }
+
+        if (!window.confirm('Cancel this transport request? The seat will be vacated but the record will be kept.')) {
+            return;
+        }
+
+        setActionLoading(id);
+        setMessage({ text: '', type: '' });
+        try {
+            const response = await apiFetch(`${API_BASE}/transport-requests/${id}/cancel`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (response.ok) {
+                setMessage({ text: data.message || 'Transport request cancelled.', type: 'success' });
+                closeDetailModal();
+                fetchRequests();
+            } else {
+                setMessage({ text: data.message || 'Failed to cancel request', type: 'error' });
+            }
+        } catch (err) {
+            setMessage({ text: 'Something went wrong. Please try again.', type: 'error' });
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
     const handleDelete = async (id) => {
         if (!window.confirm('Are you sure you want to delete this request? If approved, this will also remove associated fees and concessions.')) {
             return;
@@ -943,6 +981,7 @@ const TransportRequests = () => {
                         <option value="active">Active (not expired)</option>
                         <option value="expired">Expired</option>
                         <option value="rejected">Rejected</option>
+                        <option value="cancelled">Cancelled</option>
                     </select>
                 </div>
 
@@ -1063,6 +1102,7 @@ const TransportRequests = () => {
                                             ) : (
                                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${(req.status || '').toLowerCase() === 'approved' ? 'bg-green-100 text-green-700' :
                                                     (req.status || '').toLowerCase() === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                                                    (req.status || '').toLowerCase() === 'cancelled' ? 'bg-orange-100 text-orange-700' :
                                                         'bg-gray-100 text-gray-600'
                                                     }`}>
                                                     {statusDisplay(req.status)}
@@ -1112,6 +1152,8 @@ const TransportRequests = () => {
                             ? 'bg-emerald-50 text-emerald-700 ring-emerald-100'
                             : statusKey === 'pending'
                                 ? 'bg-amber-50 text-amber-700 ring-amber-100'
+                                : statusKey === 'cancelled'
+                                    ? 'bg-orange-50 text-orange-700 ring-orange-100'
                                 : 'bg-slate-100 text-slate-600 ring-slate-200';
 
                     const DetailItem = ({ icon: Icon, label, value }) => (
@@ -1242,7 +1284,64 @@ const TransportRequests = () => {
                                                     <Printer size={17} />
                                                     {fetchingIdCard ? 'Preparing…' : 'Print ID Card'}
                                                 </button>
+                                                {!cancelFormOpen ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setCancelFormOpen(true);
+                                                            setCancelReason('');
+                                                        }}
+                                                        disabled={actionLoading !== null}
+                                                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white text-orange-700 text-sm font-bold border border-orange-200 hover:bg-orange-50 disabled:opacity-50 transition-colors"
+                                                    >
+                                                        <Ban size={17} />
+                                                        Cancel Request
+                                                    </button>
+                                                ) : (
+                                                    <div className="rounded-xl border border-orange-200 bg-orange-50/60 p-3 space-y-2">
+                                                        <p className="text-xs font-bold text-orange-800">Cancellation reason</p>
+                                                        <textarea
+                                                            value={cancelReason}
+                                                            onChange={(e) => setCancelReason(e.target.value)}
+                                                            rows={3}
+                                                            placeholder="e.g. Student withdrew transport for this year"
+                                                            className="w-full rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-400 resize-none"
+                                                        />
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleCancelRequest(req.id)}
+                                                                disabled={actionLoading !== null}
+                                                                className="flex-1 py-2 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 disabled:opacity-50"
+                                                            >
+                                                                {actionLoading === req.id ? 'Cancelling…' : 'Confirm Cancel'}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setCancelFormOpen(false);
+                                                                    setCancelReason('');
+                                                                }}
+                                                                disabled={actionLoading !== null}
+                                                                className="px-3 py-2 rounded-lg border border-orange-200 text-orange-700 text-xs font-bold hover:bg-white disabled:opacity-50"
+                                                            >
+                                                                Back
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </>
+                                        )}
+                                        {statusKey === 'cancelled' && (
+                                            <div className="rounded-xl border border-orange-200 bg-orange-50/70 p-3 text-sm text-orange-900">
+                                                <p className="text-[10px] font-black uppercase tracking-wider text-orange-600 mb-1">Cancelled</p>
+                                                <p className="font-semibold leading-snug">{req.cancellation_reason || 'No reason recorded'}</p>
+                                                {req.cancelled_at && (
+                                                    <p className="text-[11px] text-orange-700 mt-1">
+                                                        {formatDate(req.cancelled_at)}
+                                                    </p>
+                                                )}
+                                            </div>
                                         )}
                                         <button
                                             type="button"

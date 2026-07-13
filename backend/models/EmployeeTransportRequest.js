@@ -31,8 +31,16 @@ const employeeTransportRequestSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['pending', 'approved', 'rejected'],
+        enum: ['pending', 'approved', 'rejected', 'cancelled'],
         default: 'pending'
+    },
+    cancellation_reason: {
+        type: String,
+        default: null
+    },
+    cancelled_at: {
+        type: Date,
+        default: null
     },
     raised_by: {
         type: String,

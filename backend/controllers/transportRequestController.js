@@ -48,6 +48,81 @@ const isMongoId = (id) => mongoose.Types.ObjectId.isValid(id) && String(new mong
 
 const TRANSPORT_FEE_HEAD_CODE = 'TRN01';
 
+const ACTIVE_STUDENT_FEE_FILTER = {
+    $or: [{ isActive: true }, { isActive: { $exists: false } }],
+};
+
+async function getTransportFeeHead(FeeHead) {
+    return FeeHead.findOne({
+        $or: [
+            { code: TRANSPORT_FEE_HEAD_CODE },
+            { code: String(TRANSPORT_FEE_HEAD_CODE).toLowerCase() },
+            { name: { $regex: /transport/i } },
+        ],
+    });
+}
+
+async function deactivateTransportFeeForCancellation({
+    admissionNumber,
+    academicYear,
+    studentYear,
+    semester,
+    cancellationReason,
+}) {
+    const feeModels = getFeePortalModels();
+    if (!feeModels || !admissionNumber || !academicYear) {
+        return { updated: false, reason: 'fee_db_unavailable' };
+    }
+
+    const { FeeHead, StudentFee } = feeModels;
+    const transportFeeHead = await getTransportFeeHead(FeeHead);
+    if (!transportFeeHead) {
+        return { updated: false, reason: 'fee_head_missing' };
+    }
+
+    const resolvedYear = String(academicYear);
+    const studentId = String(admissionNumber);
+    const feeQuery = {
+        studentId,
+        feeHead: transportFeeHead._id,
+        academicYear: resolvedYear,
+        ...ACTIVE_STUDENT_FEE_FILTER,
+    };
+
+    if (studentYear != null && studentYear !== '') {
+        feeQuery.studentYear = Number(studentYear);
+    }
+    if (semester != null && semester !== '') {
+        feeQuery.semester = Number(semester);
+    }
+
+    let fee = await StudentFee.findOne(feeQuery);
+
+    if (!fee) {
+        fee = await StudentFee.findOne({
+            studentId,
+            feeHead: transportFeeHead._id,
+            academicYear: resolvedYear,
+            remarks: { $regex: /^Transport/i },
+            ...ACTIVE_STUDENT_FEE_FILTER,
+        });
+    }
+
+    if (!fee) {
+        return { updated: false, reason: 'fee_not_found' };
+    }
+
+    const cancelTag = `Cancelled: ${cancellationReason}`;
+    const existingRemarks = String(fee.remarks || 'Transport').trim();
+    fee.isActive = false;
+    fee.remarks = existingRemarks.includes('Cancelled:')
+        ? existingRemarks
+        : `${existingRemarks} | ${cancelTag}`;
+    await fee.save();
+
+    return { updated: true, feeId: fee._id };
+}
+
 function getDefaultAcademicYear() {
     const now = new Date();
     const year = now.getFullYear();
@@ -700,6 +775,8 @@ const getTransportRequests = async (req, res) => {
                 fare: r.fare,
                 status: r.status,
                 bus_id: r.bus_id,
+                cancellation_reason: r.cancellation_reason || null,
+                cancelled_at: r.cancelled_at || null,
                 request_date: r.request_date || r.created_at,
                 raised_by: r.raised_by,
                 raised_by_id: r.raised_by_id,
@@ -851,6 +928,7 @@ const approveTransportRequest = async (req, res) => {
             if (!reqRow) return res.status(404).json({ message: 'Transport request not found' });
             if (reqRow.status === 'approved') return res.status(400).json({ message: 'Request is already approved' });
             if (reqRow.status === 'rejected') return res.status(400).json({ message: 'Request was rejected and cannot be approved' });
+            if (reqRow.status === 'cancelled') return res.status(400).json({ message: 'Request was cancelled and cannot be approved' });
 
             const resolvedAcademicYear = academicYear || reqRow.academic_year || process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
             if (!mysqlPool) {
@@ -906,6 +984,9 @@ const approveTransportRequest = async (req, res) => {
         }
         if (request.status === 'rejected') {
             return res.status(400).json({ message: 'Request was rejected and cannot be approved' });
+        }
+        if (request.status === 'cancelled') {
+            return res.status(400).json({ message: 'Request was cancelled and cannot be approved' });
         }
 
         if (req.body.fare != null) {
@@ -1032,6 +1113,7 @@ const approveTransportRequest = async (req, res) => {
             studentYear,
             semester: semester || null,
             remarks,
+            ...ACTIVE_STUDENT_FEE_FILTER,
         });
         if (existingFee) {
             if (lastSem) {
@@ -1166,6 +1248,129 @@ const rejectTransportRequest = async (req, res) => {
     } catch (error) {
         console.error('Error rejecting transport request:', error);
         res.status(500).json({ message: error.message || 'Failed to reject request' });
+    }
+};
+
+// @desc    Cancel an approved transport request (keeps record; vacates seat)
+// @route   PATCH /api/transport-requests/:id/cancel
+// @access  Private/Admin
+const cancelTransportRequest = async (req, res) => {
+    const requestId = req.params.id;
+    const reason = String(req.body?.reason || '').trim();
+
+    if (!reason) {
+        return res.status(400).json({ message: 'Cancellation reason is required.' });
+    }
+
+    try {
+        if (isMongoId(requestId)) {
+            const reqRow = await EmployeeTransportRequest.findById(requestId);
+            if (!reqRow) return res.status(404).json({ message: 'Transport request not found' });
+            if (reqRow.status === 'cancelled') {
+                return res.json({
+                    message: 'Request is already cancelled.',
+                    requestId: String(requestId),
+                    cancellation_reason: reqRow.cancellation_reason || reason,
+                });
+            }
+            if (reqRow.status !== 'approved') {
+                return res.status(400).json({ message: 'Only approved requests can be cancelled.' });
+            }
+
+            reqRow.status = 'cancelled';
+            reqRow.cancellation_reason = reason;
+            reqRow.cancelled_at = new Date();
+            await reqRow.save();
+
+            return res.json({
+                message: 'Transport request cancelled. The seat has been vacated.',
+                requestId: String(requestId),
+                cancellation_reason: reason,
+            });
+        }
+
+        if (!mysqlPool) {
+            return res.status(500).json({ message: 'MySQL connection not established' });
+        }
+
+        const [rows] = await mysqlPool.query(
+            `SELECT tr.*,
+                    COALESCE(tr.year_of_study, s1.current_year, s2.current_year) AS resolved_year_of_study,
+                    COALESCE(s1.current_semester, s2.current_semester) AS resolved_semester
+             FROM transport_requests tr
+             LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
+             LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
+             WHERE tr.id = ?`,
+            [requestId]
+        );
+        const request = rows[0];
+        if (!request) {
+            return res.status(404).json({ message: 'Transport request not found' });
+        }
+        if (request.status === 'cancelled') {
+            return res.json({
+                message: 'Request is already cancelled.',
+                requestId: Number(requestId),
+                cancellation_reason: request.cancellation_reason || reason,
+            });
+        }
+        if (request.status !== 'approved') {
+            return res.status(400).json({ message: 'Only approved requests can be cancelled.' });
+        }
+
+        try {
+            await mysqlPool.query(
+                `UPDATE transport_requests
+                 SET status = 'cancelled',
+                     cancellation_reason = ?,
+                     cancelled_at = CURRENT_TIMESTAMP
+                 WHERE id = ?`,
+                [reason, requestId]
+            );
+        } catch (error) {
+            if (error.code === 'ER_BAD_FIELD_ERROR') {
+                await mysqlPool.query(
+                    "UPDATE transport_requests SET status = 'cancelled' WHERE id = ?",
+                    [requestId]
+                );
+            } else {
+                throw error;
+            }
+        }
+
+        const admissionNumber = request.admission_number || request.admission_no;
+        const resolvedAcademicYear = request.academic_year || process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
+        const feeResult = await deactivateTransportFeeForCancellation({
+            admissionNumber,
+            academicYear: resolvedAcademicYear,
+            studentYear: request.resolved_year_of_study ?? request.year_of_study,
+            semester: request.resolved_semester,
+            cancellationReason: reason,
+        });
+
+        let message = 'Transport request cancelled. The seat has been vacated.';
+        if (feeResult.updated) {
+            message += ' Transport fee (TRN01) marked inactive in Fee Management with cancellation remarks.';
+        } else if (feeResult.reason === 'fee_db_unavailable') {
+            message += ' Fee Management was not connected — transport fee was not updated.';
+        } else if (feeResult.reason === 'fee_not_found') {
+            message += ' No active transport fee record was found to deactivate.';
+        }
+
+        res.json({
+            message,
+            requestId: Number(requestId),
+            cancellation_reason: reason,
+            fee_deactivated: feeResult.updated,
+        });
+    } catch (error) {
+        console.error('Error cancelling transport request:', error);
+        if (error.code === 'ER_TRUNCATED_WRONG_VALUE' || error.code === 'WARN_DATA_TRUNCATED') {
+            return res.status(503).json({
+                message: 'Database is missing cancelled status support. Run backend/mysql-schema/alter-transport-requests-cancel.sql on MySQL.',
+            });
+        }
+        res.status(500).json({ message: error.message || 'Failed to cancel request' });
     }
 };
 
@@ -2536,6 +2741,7 @@ module.exports = {
     updateTransportRequest,
     approveTransportRequest,
     rejectTransportRequest,
+    cancelTransportRequest,
     createTransportRequest,
     getConcessions,
     getDashboardStats,

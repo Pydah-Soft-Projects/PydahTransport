@@ -31,6 +31,7 @@ const getTransportDues = async (req, res) => {
         const studentFees = await StudentFee.find({
             feeHead: transportHead._id,
             academicYear: String(academicYear),
+            $or: [{ isActive: true }, { isActive: { $exists: false } }],
         }).lean();
 
         const dues = [];
