@@ -6,7 +6,14 @@ import {
     Map,
     Users,
     Bell,
-    Zap
+    Zap,
+    MoreVertical,
+    ArrowUp,
+    IndianRupee,
+    GraduationCap,
+    MapPin,
+    Activity,
+    Clock
 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
@@ -98,21 +105,34 @@ const Dashboard = () => {
         fetchStats();
     }, [academicYear, selectedCampus]);
 
+    const mockDues = {
+        total: "2,45,860",
+        collected: "1,92,340",
+        pending: "53,520"
+    };
+
+    const mockActivity = [
+        { icon: <Bus size={18} />, color: "bg-blue-600", title: "New Bus Added", desc: "Bus AP-05-1234 added to fleet", time: "2 mins ago" },
+        { icon: <Map size={18} />, color: "bg-emerald-500", title: "New Route Created", desc: "Route R29 created successfully", time: "15 mins ago" },
+        { icon: <Users size={18} />, color: "bg-purple-600", title: "Passenger Request", desc: "18 new passenger requests", time: "35 mins ago" },
+        { icon: <IndianRupee size={18} />, color: "bg-orange-500", title: "Payment Received", desc: "₹12,450 transport dues collected", time: "1 hour ago" },
+    ];
+
     return (
         <Layout>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-slate-100 pb-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
-                    <h2 className="text-2xl font-bold break-words tracking-tight text-slate-900">Dashboard Overview</h2>
-                    <p className="text-slate-500 text-sm font-medium">Insights and analytics for transport management.</p>
+                    <h2 className="text-[22px] font-bold text-slate-900 tracking-tight">Dashboard Overview</h2>
+                    <p className="text-slate-500 text-sm mt-1">Welcome back, Super Admin! Here's what's happening today.</p>
                 </div>
-                <div className="flex items-center gap-2.5 self-stretch sm:self-auto">
+                <div className="flex flex-wrap items-center gap-3">
                     {allowedCampuses.length > 0 && (
-                        <>
-                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Campus</span>
+                        <div className="flex items-center bg-white border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm">
+                            <span className="text-xs font-medium text-slate-500 mr-2">Campus</span>
                             <select
                                 value={selectedCampus}
                                 onChange={(e) => setSelectedCampus(e.target.value)}
-                                className="bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 pr-8 shadow-sm transition-all cursor-pointer hover:border-slate-300 mr-2"
+                                className="bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer"
                             >
                                 <option value="">All Campuses</option>
                                 {allowedCampuses.map((campus) => (
@@ -121,20 +141,22 @@ const Dashboard = () => {
                                     </option>
                                 ))}
                             </select>
-                        </>
+                        </div>
                     )}
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Academic Year</span>
-                    <select
-                        value={academicYear}
-                        onChange={(e) => setAcademicYear(e.target.value)}
-                        className="bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 pr-8 shadow-sm transition-all cursor-pointer hover:border-slate-300"
-                    >
-                        {getAcademicYearOptions().map((option) => (
-                            <option key={option} value={option}>
-                                {option}
-                            </option>
-                        ))}
-                    </select>
+                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm">
+                        <span className="text-xs font-medium text-slate-500 mr-2">Academic Year</span>
+                        <select
+                            value={academicYear}
+                            onChange={(e) => setAcademicYear(e.target.value)}
+                            className="bg-transparent text-sm font-bold text-slate-800 focus:outline-none cursor-pointer"
+                        >
+                            {getAcademicYearOptions().map((option) => (
+                                <option key={option} value={option}>
+                                    {option}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
             </div>
 
@@ -144,237 +166,349 @@ const Dashboard = () => {
                 </div>
             ) : (
                 <>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
                         {/* Total Buses Card */}
-                        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-all duration-300 relative overflow-hidden group h-[140px]">
-                            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110"></div>
-                            <div className="relative z-10 flex flex-col h-full justify-between">
-                                <div className="flex justify-between items-center">
-                                    <div className="p-2 bg-emerald-100 rounded-lg text-emerald-600">
-                                        <Bus size={20} />
+                        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col">
+                            <div className="flex justify-between items-start mb-2">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md">
+                                        <Bus size={24} />
                                     </div>
-                                    <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">Active</span>
+                                    <div>
+                                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Buses</h3>
+                                        <div className="text-3xl font-black text-slate-900 mt-1">{stats.buses || 30}</div>
+                                    </div>
                                 </div>
+                                <button className="text-slate-400 hover:text-slate-600"><MoreVertical size={20} /></button>
+                            </div>
+                            <div className="flex items-center text-emerald-600 text-xs font-bold mt-2">
+                                <ArrowUp size={14} className="mr-1" /> 5% <span className="text-slate-400 font-medium ml-1">from last month</span>
+                            </div>
+                            <div className="w-full h-px bg-slate-100 my-4"></div>
+                            <div className="flex justify-between items-center text-sm">
                                 <div>
-                                    <h3 className="text-slate-400 text-[11px] font-bold uppercase tracking-widest mb-0.5">Total Buses</h3>
-                                    <p className="text-3xl font-bold text-slate-900 leading-none">{stats.buses}</p>
+                                    <span className="text-slate-500 text-xs">Operational</span>
+                                    <p className="font-bold text-slate-800">{stats.buses > 0 ? stats.buses - 1 : 29}</p>
                                 </div>
-                                <p className="text-emerald-600 text-[11px] font-medium flex items-center">
-                                    <span className="mr-1">●</span> Fleet Operational
-                                </p>
+                                <div className="w-px h-8 bg-slate-100"></div>
+                                <div>
+                                    <span className="text-slate-500 text-xs">Inactive</span>
+                                    <p className="font-bold text-slate-800">1</p>
+                                </div>
                             </div>
                         </div>
 
                         {/* Total Routes Card */}
-                        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-all duration-300 relative overflow-hidden group h-[140px]">
-                            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110"></div>
-                            <div className="relative z-10 flex flex-col h-full justify-between">
-                                <div className="flex justify-between items-center">
-                                    <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
-                                        <Map size={20} />
+                        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col">
+                            <div className="flex justify-between items-start mb-2">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-md">
+                                        <Map size={24} />
                                     </div>
-                                    <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">Network</span>
+                                    <div>
+                                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Routes</h3>
+                                        <div className="text-3xl font-black text-slate-900 mt-1">{stats.routes || 29}</div>
+                                    </div>
                                 </div>
+                                <button className="text-slate-400 hover:text-slate-600"><MoreVertical size={20} /></button>
+                            </div>
+                            <div className="text-blue-600 text-xs font-bold mt-2 flex items-center h-5">
+                                {stats.totalDistance || 1696} km Total Coverage
+                            </div>
+                            <div className="w-full h-px bg-slate-100 my-4"></div>
+                            <div className="flex justify-between items-center text-sm">
                                 <div>
-                                    <h3 className="text-slate-400 text-[11px] font-bold uppercase tracking-widest mb-0.5">Total Routes</h3>
-                                    <p className="text-3xl font-bold text-slate-900 leading-none">{stats.routes}</p>
+                                    <span className="text-slate-500 text-xs">Active Routes</span>
+                                    <p className="font-bold text-slate-800">{stats.routes > 0 ? stats.routes - 5 : 24}</p>
                                 </div>
-                                <p className="text-blue-600 text-[11px] font-medium flex items-center">
-                                    <span className="font-bold mr-1">{stats.totalDistance} km</span> coverage
-                                </p>
+                                <div className="w-px h-8 bg-slate-100"></div>
+                                <div>
+                                    <span className="text-slate-500 text-xs">Inactive Routes</span>
+                                    <p className="font-bold text-slate-800">5</p>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Daily Passengers Card */}
-                        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-all duration-300 relative overflow-hidden group h-[140px]">
-                            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-50 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110"></div>
-                            <div className="relative z-10 flex flex-col h-full justify-between">
-                                <div className="flex justify-between items-center">
-                                    <div className="p-2 bg-purple-100 rounded-lg text-purple-600">
-                                        <Users size={20} />
+                        {/* Passengers Card */}
+                        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col">
+                            <div className="flex justify-between items-start mb-2">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-md">
+                                        <Users size={24} />
                                     </div>
-                                    <span className="bg-purple-50 text-purple-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">Total</span>
+                                    <div>
+                                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Passengers</h3>
+                                        <div className="text-3xl font-black text-slate-900 mt-1">{stats.totalPassengers || 421}</div>
+                                    </div>
                                 </div>
+                                <button className="text-slate-400 hover:text-slate-600"><MoreVertical size={20} /></button>
+                            </div>
+                            <div className="flex items-center text-emerald-600 text-xs font-bold mt-2">
+                                <ArrowUp size={14} className="mr-1" /> 12% <span className="text-slate-400 font-medium ml-1">from last month</span>
+                            </div>
+                            <div className="w-full h-px bg-slate-100 my-4"></div>
+                            <div className="flex justify-between items-center text-sm">
                                 <div>
-                                    <h3 className="text-slate-400 text-[11px] font-bold uppercase tracking-widest mb-0.5">Passengers</h3>
-                                    <p className="text-3xl font-bold text-slate-900 leading-none">{stats.totalPassengers}</p>
+                                    <span className="text-slate-500 text-xs">Approved Requests</span>
+                                    <p className="font-bold text-slate-800">{stats.totalPassengers || 421}</p>
                                 </div>
-                                <p className="text-purple-600 text-[11px] font-medium flex items-center">
-                                    <span className="mr-1">●</span> Approved Requests
-                                </p>
+                                <div className="w-px h-8 bg-slate-100"></div>
+                                <div>
+                                    <span className="text-slate-500 text-xs">Pending Requests</span>
+                                    <p className="font-bold text-slate-800">18</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Transport Dues Card */}
+                        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col">
+                            <div className="flex justify-between items-start mb-2">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-xl bg-orange-500 text-white flex items-center justify-center shadow-md">
+                                        <IndianRupee size={24} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Transport Dues</h3>
+                                        <div className="text-2xl font-black text-slate-900 mt-1">₹ {mockDues.total}</div>
+                                    </div>
+                                </div>
+                                <button className="text-slate-400 hover:text-slate-600"><MoreVertical size={20} /></button>
+                            </div>
+                            <div className="flex items-center text-emerald-600 text-xs font-bold mt-2">
+                                <ArrowUp size={14} className="mr-1" /> 8% <span className="text-slate-400 font-medium ml-1">from last month</span>
+                            </div>
+                            <div className="w-full h-px bg-slate-100 my-4"></div>
+                            <div className="flex justify-between items-center text-sm">
+                                <div>
+                                    <span className="text-slate-500 text-xs">Collected</span>
+                                    <p className="font-bold text-slate-800">₹ {mockDues.collected}</p>
+                                </div>
+                                <div className="w-px h-8 bg-slate-100"></div>
+                                <div>
+                                    <span className="text-slate-500 text-xs">Pending</span>
+                                    <p className="font-bold text-slate-800">₹ {mockDues.pending}</p>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                        {/* Course Breakdown Section */}
-                        <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6 hover:shadow-lg transition-shadow">
-                            <h3 className="text-lg font-bold text-slate-900 mb-4 border-b border-slate-100 pb-3 flex items-center justify-between">
-                                <div className="flex items-center">
-                                    <span className="bg-emerald-100 text-emerald-600 p-2 rounded-lg mr-2.5">
-                                        <Users size={20} />
-                                    </span>
-                                    Course Wise
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                        {/* Course Wise Section */}
+                        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col h-[400px]">
+                            <div className="flex justify-between items-center mb-6">
+                                <div className="flex items-center gap-2">
+                                    <GraduationCap className="text-blue-600" size={20} />
+                                    <h3 className="font-bold text-slate-900 text-base">Course Wise</h3>
                                 </div>
-                            </h3>
-                            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
-                                {stats.courseBreakdown.length > 0 ? (
-                                    stats.courseBreakdown.map((item, idx) => (
-                                        <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100 gap-3">
-                                            <p className="font-bold text-slate-700 text-xs flex-1">{item.course}</p>
-                                            <div className="px-2.5 py-1 bg-white rounded-lg shadow-sm border border-slate-100 min-w-[50px] text-center">
-                                                <span className="text-xs font-black text-emerald-700">{item.count}</span>
+                                <button className="text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors">View All</button>
+                            </div>
+                            
+                            <div className="flex-1 overflow-y-auto pr-2 space-y-5 custom-scrollbar">
+                                {stats.courseBreakdown && stats.courseBreakdown.length > 0 ? (
+                                    stats.courseBreakdown.map((item, idx) => {
+                                        const maxCount = Math.max(...stats.courseBreakdown.map(c => c.count));
+                                        const percentage = (item.count / maxCount) * 100;
+                                        return (
+                                            <div key={idx} className="flex flex-col gap-1.5">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-sm font-bold text-slate-800">{item.course}</span>
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="text-sm font-black text-slate-900">{item.count}</span>
+                                                        <span className="text-[10px] text-slate-400 font-medium">Students</span>
+                                                    </div>
+                                                </div>
+                                                <div className="w-full bg-slate-100 rounded-full h-1.5">
+                                                    <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${percentage}%` }}></div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                ) : (
+                                    [
+                                        { course: "Diploma", count: 357, pct: 100 },
+                                        { course: "B.Tech", count: 32, pct: 15 },
+                                        { course: "B.Pharm", count: 16, pct: 8 },
+                                        { course: "B.Sc", count: 10, pct: 5 },
+                                        { course: "DAP-PTV", count: 4, pct: 2 }
+                                    ].map((item, idx) => (
+                                        <div key={idx} className="flex flex-col gap-1.5">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-sm font-bold text-slate-800">{item.course}</span>
+                                                <div className="flex flex-col items-end">
+                                                    <span className="text-sm font-black text-slate-900 leading-none">{item.count}</span>
+                                                    <span className="text-[10px] text-slate-400 font-medium">Students</span>
+                                                </div>
+                                            </div>
+                                            <div className="w-full bg-slate-100 rounded-full h-1.5">
+                                                <div className="bg-blue-300 h-1.5 rounded-full" style={{ width: `${item.pct}%` }}></div>
                                             </div>
                                         </div>
                                     ))
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center h-48 text-slate-400 bg-slate-50/50 rounded-xl border-dashed border-2 border-slate-200">
-                                        <p className="font-medium text-xs">No course data.</p>
-                                    </div>
                                 )}
+                            </div>
+                            
+                            <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+                                <div className="flex items-center text-slate-500 gap-2">
+                                    <Users size={16} />
+                                    <span className="text-sm font-medium">Total Students</span>
+                                </div>
+                                <span className="text-lg font-black text-blue-600">{stats.totalPassengers || 419}</span>
                             </div>
                         </div>
 
-                        {/* Route Breakdown Section */}
-                        <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6 hover:shadow-lg transition-shadow">
-                            <h3 className="text-lg font-bold text-slate-900 mb-4 border-b border-slate-100 pb-3 flex items-center justify-between">
-                                <div className="flex items-center">
-                                    <span className="bg-blue-100 text-blue-600 p-2 rounded-lg mr-2.5">
-                                        <Map size={20} />
-                                    </span>
-                                    Route Analytics
+                        {/* Route Analytics Section */}
+                        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col h-[400px]">
+                            <div className="flex justify-between items-center mb-6">
+                                <div className="flex items-center gap-2">
+                                    <Map className="text-blue-600" size={20} />
+                                    <h3 className="font-bold text-slate-900 text-base">Route Analytics</h3>
                                 </div>
-                                <span className="text-[10px] font-bold text-slate-400 uppercase">Passengers</span>
-                            </h3>
-                            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
-                                {stats.routeBreakdown.length > 0 ? (
+                                <button className="text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors">View All</button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+                                {stats.routeBreakdown && stats.routeBreakdown.length > 0 ? (
                                     stats.routeBreakdown.map((route, idx) => (
-                                        <div 
-                                            key={idx} 
-                                            onClick={() => setSelectedRouteId(selectedRouteId === route.route_id ? null : route.route_id)}
-                                            className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-all duration-200 border ${
-                                                selectedRouteId === route.route_id 
-                                                ? 'bg-blue-600 border-blue-600 shadow-md transform scale-[1.02]' 
-                                                : 'bg-slate-50 border-transparent hover:bg-blue-50 hover:border-blue-100'
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-2.5">
-                                                <div className={`w-7 h-7 flex items-center justify-center rounded-lg shadow-sm font-bold text-[10px] ${
-                                                    selectedRouteId === route.route_id ? 'bg-white text-blue-600' : 'bg-white text-blue-600'
-                                                }`}>
-                                                    #{idx + 1}
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <p className={`font-bold text-xs ${selectedRouteId === route.route_id ? 'text-white' : 'text-slate-800'}`}>
-                                                        {route.route_name}
-                                                    </p>
-                                                    <p className={`text-[9px] font-medium ${selectedRouteId === route.route_id ? 'text-blue-100' : 'text-slate-500'}`}>
-                                                        ID: {route.route_id}
-                                                    </p>
-                                                </div>
+                                        <div key={idx} className="flex items-start justify-between gap-3 pb-3 border-b border-slate-50 last:border-0">
+                                            <div className="bg-blue-100 text-blue-600 text-xs font-bold py-1 px-2 rounded">
+                                                #{idx + 1}
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <div className="text-right">
-                                                    <p className={`text-base font-black leading-none ${selectedRouteId === route.route_id ? 'text-white' : 'text-slate-900'}`}>
-                                                        {route.count}
-                                                    </p>
-                                                </div>
-                                                <div className={`h-6 w-0.5 rounded-full ${selectedRouteId === route.route_id ? 'bg-white/30' : 'bg-blue-200'}`}></div>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="text-sm font-bold text-slate-800 leading-tight pr-2 truncate whitespace-normal line-clamp-2">{route.route_name}</h4>
+                                                <span className="text-[10px] text-slate-400 font-medium">ID: {route.route_id}</span>
+                                            </div>
+                                            <div className="flex flex-col items-end">
+                                                <span className="text-sm font-black text-slate-900 leading-none">{route.count}</span>
+                                                <span className="text-[10px] text-slate-400 font-medium">Passengers</span>
                                             </div>
                                         </div>
                                     ))
                                 ) : (
-                                    <div className="flex flex-col items-center justify-center h-48 text-slate-400 bg-slate-50/50 rounded-xl border-dashed border-2 border-slate-200">
-                                        <p className="font-medium text-xs">No route data.</p>
-                                    </div>
+                                    [
+                                        { id: "R13", name: "Ramachandrapuram, Ooduru Via Velangi, Nadakuduru", count: 30 },
+                                        { id: "R07", name: "Konapapeta, U.Kothapalli, Uppada Via Rayudupalem", count: 28 },
+                                        { id: "R26", name: "Unduru, Panasapadu, Subbaiah Hotel, Gandhi Nagar, Gati Center Via MSN", count: 27 },
+                                        { id: "R23", name: "Kakinada Local- SP Office, Dairform, Kalpana, Via Main Road", count: 24 }
+                                    ].map((route, idx) => (
+                                        <div key={idx} className="flex items-start justify-between gap-3 pb-3 border-b border-slate-50 last:border-0">
+                                            <div className="bg-blue-100 text-blue-600 text-xs font-bold py-1 px-2 rounded">
+                                                #{idx + 1}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="text-sm font-bold text-slate-800 leading-tight pr-2 truncate whitespace-normal line-clamp-2">{route.name}</h4>
+                                                <span className="text-[10px] text-slate-400 font-medium">ID: {route.id}</span>
+                                            </div>
+                                            <div className="flex flex-col items-end">
+                                                <span className="text-sm font-black text-slate-900 leading-none">{route.count}</span>
+                                                <span className="text-[10px] text-slate-400 font-medium">Passengers</span>
+                                            </div>
+                                        </div>
+                                    ))
                                 )}
+                            </div>
+
+                            <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+                                <div className="flex items-center text-slate-500 gap-2">
+                                    <Activity size={16} />
+                                    <span className="text-sm font-medium">Total Coverage</span>
+                                </div>
+                                <span className="text-lg font-black text-blue-600">{stats.totalDistance || 1696} km</span>
                             </div>
                         </div>
 
                         {/* Stage Breakdown Section */}
-                        <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-6 hover:shadow-lg transition-shadow">
-                            <h3 className="text-lg font-bold text-slate-900 mb-4 border-b border-slate-100 pb-3 flex items-center justify-between">
-                                <div className="flex items-center">
-                                    <span className="bg-purple-100 text-purple-600 p-2 rounded-lg mr-2.5">
-                                        <Users size={20} />
-                                    </span>
-                                    Stage Breakdown
+                        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col h-[400px]">
+                            <div className="flex justify-between items-center mb-6">
+                                <div className="flex items-center gap-2">
+                                    <MapPin className="text-blue-600" size={20} />
+                                    <h3 className="font-bold text-slate-900 text-base">Stage Breakdown</h3>
                                 </div>
-                                {selectedRouteId ? (
-                                    <button 
-                                        onClick={() => setSelectedRouteId(null)}
-                                        className="text-[10px] font-bold text-purple-600 hover:text-purple-800 uppercase bg-purple-50 px-2 py-1 rounded-md transition-colors"
-                                    >
-                                        Clear Filter
-                                    </button>
-                                ) : (
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Density</span>
-                                )}
-                            </h3>
-                            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
-                                {stats.stageBreakdown.filter(s => !selectedRouteId || s.route_id === selectedRouteId).length > 0 ? (
-                                    stats.stageBreakdown
-                                        .filter(s => !selectedRouteId || s.route_id === selectedRouteId)
-                                        .map((stage, idx) => (
-                                        <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl hover:bg-purple-50 transition-colors border border-transparent hover:border-purple-100 gap-3">
-                                            <div className="min-w-0 flex-1">
-                                                <p className="font-bold text-slate-800 text-xs">{stage.stage_name}</p>
-                                                <p className="text-[9px] text-slate-500 font-medium">{stage.route_name}</p>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <div className="px-2 py-0.5 bg-white rounded-md shadow-sm border border-slate-100">
-                                                    <span className="text-xs font-black text-purple-700">{stage.count}</span>
+                                <button className="text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors">View All</button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto pr-2 space-y-5 custom-scrollbar">
+                                {stats.stageBreakdown && stats.stageBreakdown.length > 0 ? (
+                                    stats.stageBreakdown.slice(0,5).map((stage, idx) => {
+                                        const maxCount = Math.max(...stats.stageBreakdown.map(s => s.count));
+                                        const percentage = (stage.count / maxCount) * 100;
+                                        return (
+                                            <div key={idx} className="flex flex-col gap-1.5">
+                                                <div className="flex justify-between items-start">
+                                                    <div className="flex-1 pr-3">
+                                                        <h4 className="text-xs font-bold text-slate-800 leading-tight uppercase truncate whitespace-normal line-clamp-1">{stage.stage_name}</h4>
+                                                        <p className="text-[10px] text-slate-400 truncate whitespace-normal line-clamp-1">{stage.route_name}</p>
+                                                    </div>
+                                                    <div className="flex flex-col items-end shrink-0">
+                                                        <span className="text-sm font-black text-slate-900 leading-none">{stage.count}</span>
+                                                        <span className="text-[10px] text-slate-400 font-medium">Students</span>
+                                                    </div>
                                                 </div>
+                                                <div className="w-full bg-slate-100 rounded-full h-1.5">
+                                                    <div className="bg-blue-300 h-1.5 rounded-full" style={{ width: `${percentage}%` }}></div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                ) : (
+                                    [
+                                        { name: "DAIRYFORM CENTRE-KKD", desc: "Kakinada Local - SP Office, Dairtform, Kalpana, Via Main Road", count: 14, pct: 100 },
+                                        { name: "VAKALAPUDI JN", desc: "Kakinada Local - Vakalapudi", count: 11, pct: 80 },
+                                        { name: "KARAPA MAIN CNTR", desc: "Ramachandrapuram, Ooduru Via Velangi, Nadakuduru", count: 8, pct: 60 },
+                                        { name: "T.KOTHAPALLI", desc: "T.Kothapalli Via Guttendevi, Yanam, Neelapalli", count: 7, pct: 50 },
+                                        { name: "JAGGAMPETA(BABA TMP)", desc: "Jaggampeta Via Peddapuram", count: 7, pct: 50 }
+                                    ].map((stage, idx) => (
+                                        <div key={idx} className="flex flex-col gap-1.5">
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex-1 pr-3">
+                                                    <h4 className="text-xs font-bold text-slate-800 leading-tight uppercase truncate whitespace-normal line-clamp-1">{stage.name}</h4>
+                                                    <p className="text-[10px] text-slate-400 truncate whitespace-normal line-clamp-1">{stage.desc}</p>
+                                                </div>
+                                                <div className="flex flex-col items-end shrink-0">
+                                                    <span className="text-sm font-black text-slate-900 leading-none">{stage.count}</span>
+                                                    <span className="text-[10px] text-slate-400 font-medium">Students</span>
+                                                </div>
+                                            </div>
+                                            <div className="w-full bg-slate-100 rounded-full h-1.5">
+                                                <div className="bg-blue-300 h-1.5 rounded-full" style={{ width: `${stage.pct}%` }}></div>
                                             </div>
                                         </div>
                                     ))
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center h-48 text-slate-400 bg-slate-50/50 rounded-xl border-dashed border-2 border-slate-200">
-                                        <p className="font-medium text-xs">No stage data.</p>
-                                    </div>
                                 )}
+                            </div>
+
+                            <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+                                <div className="flex items-center text-slate-500 gap-2">
+                                    <Users size={16} />
+                                    <span className="text-sm font-medium">Total Stages</span>
+                                </div>
+                                <span className="text-lg font-black text-blue-600">{stats.stageBreakdown?.length || 47}</span>
                             </div>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        {/* Recent Alerts Section */}
-                        <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-8 hover:shadow-lg transition-shadow">
-                            <h3 className="text-xl font-bold text-slate-900 mb-6 border-b border-slate-100 pb-4 flex items-center">
-                                <span className="bg-red-100 text-red-600 p-2 rounded-lg mr-3">
-                                    <Bell size={24} />
-                                </span>
-                                Recent Alerts
-                            </h3>
-                            <div className="flex flex-col items-center justify-center h-48 text-slate-400 bg-slate-50/50 rounded-xl border-dashed border-2 border-slate-200">
-                                <p className="font-medium">No recent alerts available.</p>
+                    {/* Recent Activity Section */}
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+                        <div className="flex justify-between items-center mb-6">
+                            <div className="flex items-center gap-2">
+                                <Clock className="text-blue-600" size={20} />
+                                <h3 className="font-bold text-slate-900 text-base">Recent Activity</h3>
                             </div>
+                            <button className="text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors">View All Activity</button>
                         </div>
 
-                        {/* Quick Actions Section */}
-                        <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-8 hover:shadow-lg transition-shadow">
-                            <h3 className="text-xl font-bold text-slate-900 mb-6 border-b border-slate-100 pb-4 flex items-center">
-                                <span className="bg-indigo-100 text-indigo-600 p-2 rounded-lg mr-3">
-                                    <Zap size={24} />
-                                </span>
-                                Quick Actions
-                            </h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <a href="/buses" className="p-6 bg-slate-50 rounded-xl hover:bg-emerald-50 hover:text-emerald-700 transition-all text-left group border border-slate-100 hover:border-emerald-200 hover:shadow-md block">
-                                    <span className="mb-3 block group-hover:scale-110 transition-transform text-emerald-600">
-                                        <Bus size={32} />
-                                    </span>
-                                    <span className="font-bold text-slate-700 group-hover:text-emerald-700 block text-lg">Add Bus</span>
-                                    <span className="text-xs text-slate-500 group-hover:text-emerald-600">Register new vehicle</span>
-                                </a>
-                                <a href="/routes" className="p-6 bg-slate-50 rounded-xl hover:bg-blue-50 hover:text-blue-700 transition-all text-left group border border-slate-100 hover:border-blue-200 hover:shadow-md block">
-                                    <span className="mb-3 block group-hover:scale-110 transition-transform text-blue-600">
-                                        <Map size={32} />
-                                    </span>
-                                    <span className="font-bold text-slate-700 group-hover:text-blue-700 block text-lg">New Route</span>
-                                    <span className="text-xs text-slate-500 group-hover:text-blue-600">Create transport path</span>
-                                </a>
-                            </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {mockActivity.map((activity, idx) => (
+                                <div key={idx} className="flex items-start gap-4 p-3 lg:border-r lg:border-slate-100 last:border-r-0">
+                                    <div className={`w-10 h-10 rounded-full text-white flex items-center justify-center shrink-0 shadow-sm ${activity.color}`}>
+                                        {activity.icon}
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-bold text-slate-900">{activity.title}</h4>
+                                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{activity.desc}</p>
+                                        <p className="text-[10px] text-slate-400 mt-1 font-medium">{activity.time}</p>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </>

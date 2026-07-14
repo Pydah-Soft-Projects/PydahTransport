@@ -15,7 +15,8 @@ import {
     Percent,
     Package,
     ChevronLeft,
-    ChevronRight
+    ChevronRight,
+    Settings
 } from 'lucide-react';
 
 const Layout = ({ children }) => {
@@ -47,113 +48,156 @@ const Layout = ({ children }) => {
         return false;
     };
 
-    // Define Items with Permissions
-    const allMenuItems = [
-        { path: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, permission: 'dashboard' },
-        { path: '/buses', label: 'Vehicle Management', permission: 'bus_management', icon: <Bus size={20} /> },
-        { path: '/routes', label: 'Route Management', permission: 'route_management', icon: <Map size={20} /> },
-        { path: '/fleet', label: 'Fleet & Passengers', permission: 'fleet_passengers', icon: <Users size={20} /> },
-        { path: '/raise-request', label: 'Raise Request', permission: 'raise_request', icon: <PlusCircle size={20} /> },
-        { path: '/transport-requests', label: 'Passenger Requests', permission: 'transport_requests', icon: <ClipboardList size={20} /> },
-        { path: '/concessions', label: 'Concessions', permission: 'concessions', icon: <Percent size={20} /> },
-        { path: '/transport-dues', label: 'Transport Dues', permission: 'transport_dues', icon: <CreditCard size={20} /> },
-        { path: '/inventory', label: 'Inventory Items', icon: <Package size={20} />, permission: 'inventory' },
-        { path: '/users', label: 'User Management', permission: 'user_management', icon: <UserCog size={20} /> },
+    // Define Items with Permissions and Categories
+    const menuCategories = [
+        {
+            title: "MAIN",
+            items: [
+                { path: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, permission: 'dashboard' }
+            ]
+        },
+        {
+            title: "MANAGEMENT",
+            items: [
+                { path: '/buses', label: 'Vehicle Management', permission: 'bus_management', icon: <Bus size={20} /> },
+                { path: '/routes', label: 'Route Management', permission: 'route_management', icon: <Map size={20} /> },
+                { path: '/fleet', label: 'Fleet & Passengers', permission: 'fleet_passengers', icon: <Users size={20} /> },
+            ]
+        },
+        {
+            title: "OPERATIONS",
+            items: [
+                { path: '/raise-request', label: 'Raise Request', permission: 'raise_request', icon: <PlusCircle size={20} /> },
+                { path: '/transport-requests', label: 'Passenger Requests', permission: 'transport_requests', icon: <ClipboardList size={20} /> },
+                { path: '/concessions', label: 'Concessions', permission: 'concessions', icon: <Percent size={20} /> },
+            ]
+        },
+        {
+            title: "FINANCE",
+            items: [
+                { path: '/transport-dues', label: 'Transport Dues', permission: 'transport_dues', icon: <CreditCard size={20} /> },
+            ]
+        },
+        {
+            title: "INVENTORY",
+            items: [
+                { path: '/inventory', label: 'Inventory Items', icon: <Package size={20} />, permission: 'inventory' },
+            ]
+        },
+        {
+            title: "ADMINISTRATION",
+            items: [
+                { path: '/users', label: 'User Management', permission: 'user_management', icon: <UserCog size={20} /> },
+            ]
+        }
     ];
 
-    const menuItems = allMenuItems.filter(item => hasPermission(item.permission));
+    const filteredCategories = menuCategories.map(category => ({
+        ...category,
+        items: category.items.filter(item => hasPermission(item.permission))
+    })).filter(category => category.items.length > 0);
 
     const isMenuActive = (path) => (
         location.pathname === path || location.pathname.startsWith(`${path}/`)
     );
 
-    const getMenuItemClasses = (path, collapsed = false) => {
+    const getMenuItemClasses = (path) => {
         const active = isMenuActive(path);
         if (active) {
-            return collapsed
-                ? 'bg-blue-600 border-blue-600 text-white shadow-sm font-semibold'
-                : 'bg-blue-600 border-blue-600 text-white shadow-sm font-semibold';
+            return 'bg-blue-100 text-blue-700 font-bold shadow-sm';
         }
-        return collapsed
-            ? 'border-transparent text-slate-600 hover:bg-white hover:border-slate-200 hover:text-slate-900 font-medium'
-            : 'border-transparent text-slate-600 hover:bg-white hover:border-slate-200 hover:text-slate-900 font-medium';
+        return 'border-transparent text-slate-300 hover:bg-white/10 hover:text-white font-medium';
     };
 
-    const getMenuIconClasses = (path, collapsed = false) => {
+    const getMenuIconClasses = (path) => {
         const active = isMenuActive(path);
-        if (active) return 'text-white';
-        return collapsed
-            ? 'text-slate-400 group-hover:text-slate-600'
-            : 'text-slate-400 group-hover:text-slate-600';
+        if (active) return 'text-blue-700';
+        return 'text-slate-300 group-hover:text-white';
     };
 
     return (
         <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
             {/* Sidebar (Desktop) */}
-            <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-white shadow-sm border-r border-slate-200 hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-hidden`}>
-                {/* Collapse Toggle Button */}
-                <button 
-                    onClick={() => setIsCollapsed(!isCollapsed)}
-                    className="absolute -right-3 top-24 bg-white border border-slate-200 rounded-full p-1 shadow-md z-30 hover:bg-slate-50 text-blue-600 group"
-                >
-                    {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-                </button>
-
-                <div className={`min-h-28 flex items-center ${isCollapsed ? 'justify-center px-3' : 'px-6'} py-5 transition-all duration-300 bg-gradient-to-r from-blue-600 to-blue-700 relative z-10 border-b border-blue-700/20`}>
+            <aside className={`${isCollapsed ? 'w-20' : 'w-72'} bg-[#0f172a] shadow-lg hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-hidden`}>
+                <div className={`min-h-24 flex items-center ${isCollapsed ? 'justify-center px-3' : 'px-6'} py-6 transition-all duration-300 relative z-10`}>
                     <img
                         src="/Gemini_Generated_Image_uu0hhduu0hhduu0h.png"
                         alt="Logo"
-                        className="h-11 w-11 object-cover rounded-full flex-shrink-0 border-2 border-white/80 shadow-sm"
+                        className="h-12 w-12 object-cover rounded-full flex-shrink-0 border-2 border-white/20 shadow-sm"
                     />
                     {!isCollapsed && (
                         <div className="ml-4 animate-in fade-in slide-in-from-left-2">
-                            <h1 className="text-2xl font-extrabold whitespace-nowrap tracking-wide text-white">
+                            <h1 className="text-xl font-bold whitespace-nowrap tracking-tight text-white">
                                 TRANSPORT
                             </h1>
-                            <p className="text-[10px] uppercase tracking-[0.18em] text-blue-100">
+                            <p className="text-[9px] uppercase tracking-[0.1em] text-slate-400 font-medium mt-0.5">
                                 Management System
                             </p>
                         </div>
                     )}
                 </div>
-                <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scrollbar relative z-10 bg-slate-50/60">
-                    {menuItems.map((item) => (
-                        <Link
-                            key={item.path}
-                            to={item.path}
-                            title={isCollapsed ? item.label : ""}
-                            className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'px-4'} py-3 rounded-xl transition-all duration-200 group relative overflow-hidden border ${getMenuItemClasses(item.path, isCollapsed)}`}
-                        >
-                            <span className={`${isCollapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${getMenuIconClasses(item.path, isCollapsed)}`}>
-                                {item.icon}
-                            </span>
-                            {!isCollapsed && <span className="truncate text-sm animate-in fade-in slide-in-from-left-2">{item.label}</span>}
-                        </Link>
+
+                <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar relative z-10 pb-6">
+                    {filteredCategories.map((category, idx) => (
+                        <div key={idx} className="mb-6 last:mb-0">
+                            {!isCollapsed && (
+                                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-2 mt-4">
+                                    {category.title}
+                                </h3>
+                            )}
+                            <div className="space-y-1.5">
+                                {category.items.map((item) => (
+                                    <Link
+                                        key={item.path}
+                                        to={item.path}
+                                        title={isCollapsed ? item.label : ""}
+                                        className={`flex items-center ${isCollapsed ? 'justify-center px-0' : 'px-4'} py-2.5 rounded-xl transition-all duration-200 group relative overflow-hidden ${getMenuItemClasses(item.path)}`}
+                                    >
+                                        <span className={`${isCollapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${getMenuIconClasses(item.path)}`}>
+                                            {item.icon}
+                                        </span>
+                                        {!isCollapsed && <span className="truncate text-[13px] animate-in fade-in slide-in-from-left-2">{item.label}</span>}
+                                    </Link>
+                                ))}
+                            </div>
+                        </div>
                     ))}
                 </nav>
-                <div className={`p-3 border-t border-slate-200 bg-white relative z-10 ${isCollapsed ? 'flex justify-center' : ''}`}>
-                    <div className={`flex items-center ${isCollapsed ? 'justify-center w-12 h-12' : 'gap-3 px-4 py-3 bg-slate-50'} rounded-2xl border border-slate-200 transition-all duration-300`}>
-                        <div className={`w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm border border-blue-200 flex-shrink-0 transition-all duration-300 ${isCollapsed ? 'scale-110' : ''}`}>
-                            {(adminInfo.name || adminInfo.username || 'U').charAt(0).toUpperCase()}
+
+                <div className={`p-4 relative z-10 ${isCollapsed ? 'flex justify-center' : ''}`}>
+                    <div className={`flex items-center justify-between ${isCollapsed ? 'flex-col gap-4' : 'gap-3 p-3 bg-slate-800/80'} rounded-2xl transition-all duration-300`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0 transition-all duration-300 ${isCollapsed ? 'scale-110' : ''}`}>
+                                {(adminInfo.name || adminInfo.username || 'S').charAt(0).toUpperCase()}
+                            </div>
+                            {!isCollapsed && (
+                                <div className="flex-1 min-w-0 animate-in fade-in duration-300">
+                                    <p className="text-[13px] font-bold text-white truncate leading-tight">
+                                        {adminInfo.name || adminInfo.username || 'Super Admin'}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                                        {adminInfo.role === 'admin' ? 'Administrator' : adminInfo.role || 'Administrator'}
+                                    </p>
+                                    <div className="flex items-center gap-1.5 mt-1">
+                                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
+                                        <span className="text-[10px] text-slate-400 font-medium">Online</span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         {!isCollapsed && (
-                            <>
-                                <div className="flex-1 min-w-0 animate-in fade-in duration-300">
-                                    <p className="text-[11px] font-bold text-slate-800 truncate leading-tight">
-                                        {adminInfo.name || adminInfo.username || 'User'}
-                                    </p>
-                                    <p className="text-[9px] uppercase font-semibold text-slate-500 truncate tracking-tighter">
-                                        {adminInfo.role || (adminInfo.roles && adminInfo.roles.join(', ')) || 'Guest'}
-                                    </p>
-                                </div>
+                            <div className="flex flex-col gap-1 pr-1 shrink-0">
+                                <button className="p-1.5 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-white/10">
+                                    <Settings size={16} />
+                                </button>
                                 <button
                                     onClick={handleLogout}
                                     title="Logout"
-                                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200 group"
+                                    className="p-1.5 text-slate-400 hover:text-red-400 transition-colors rounded-lg hover:bg-white/10"
                                 >
-                                    <LogOut size={16} className="group-hover:scale-110 transition-transform" />
+                                    <LogOut size={16} />
                                 </button>
-                            </>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -162,43 +206,77 @@ const Layout = ({ children }) => {
             {/* Mobile Sidebar Overlay */}
             {isMobileMenuOpen && (
                 <div
-                    className="fixed inset-0 bg-black opacity-50 z-30 md:hidden"
+                    className="fixed inset-0 bg-slate-900/80 z-30 md:hidden backdrop-blur-sm"
                     onClick={() => setIsMobileMenuOpen(false)}
                 ></div>
             )}
 
             {/* Sidebar (Mobile) */}
-            <aside className={`fixed inset-y-0 left-0 w-64 bg-white shadow-xl border-r border-slate-200 flex flex-col z-40 transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-                }`}>
-                <div className="min-h-24 flex justify-between items-center px-5 bg-gradient-to-r from-blue-600 to-blue-700 relative z-10 border-b border-blue-700/20">
+            <aside className={`fixed inset-y-0 left-0 w-72 bg-[#0f172a] shadow-xl flex flex-col z-40 transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                <div className="min-h-24 flex justify-between items-center px-6 relative z-10">
                     <div className="flex items-center gap-3 min-w-0">
                         <img
                             src="/Gemini_Generated_Image_uu0hhduu0hhduu0h.png"
                             alt="Logo"
-                            className="h-10 w-10 object-cover rounded-full border-2 border-white/80 shadow-sm"
+                            className="h-10 w-10 object-cover rounded-full border-2 border-white/20 shadow-sm"
                         />
                         <div className="min-w-0">
                             <h1 className="text-lg font-bold text-white truncate">TRANSPORT</h1>
-                            <p className="text-[9px] uppercase tracking-[0.18em] text-blue-100 truncate">Management System</p>
+                            <p className="text-[9px] uppercase tracking-[0.1em] text-slate-400 font-medium">Management System</p>
                         </div>
                     </div>
-                    <button onClick={() => setIsMobileMenuOpen(false)} className="text-blue-100 hover:text-white">
+                    <button onClick={() => setIsMobileMenuOpen(false)} className="text-slate-400 hover:text-white p-2">
                         <X size={24} />
                     </button>
                 </div>
-                <nav className="flex-1 p-4 space-y-1 bg-slate-50/60 relative z-10">
-                    {menuItems.map((item) => (
-                        <Link
-                            key={item.path}
-                            to={item.path}
-                            onClick={() => setIsMobileMenuOpen(false)}
-                            className={`flex items-center px-4 py-3 rounded-xl border transition-colors ${getMenuItemClasses(item.path)}`}
-                        >
-                            <span className={`mr-3 ${getMenuIconClasses(item.path)}`}>{item.icon}</span>
-                            <span className="truncate text-sm">{item.label}</span>
-                        </Link>
+                
+                <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar relative z-10 pb-6">
+                    {filteredCategories.map((category, idx) => (
+                        <div key={idx} className="mb-6 last:mb-0">
+                            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-2 mt-4">
+                                {category.title}
+                            </h3>
+                            <div className="space-y-1.5">
+                                {category.items.map((item) => (
+                                    <Link
+                                        key={item.path}
+                                        to={item.path}
+                                        onClick={() => setIsMobileMenuOpen(false)}
+                                        className={`flex items-center px-4 py-2.5 rounded-xl transition-all duration-200 ${getMenuItemClasses(item.path)}`}
+                                    >
+                                        <span className={`mr-3 ${getMenuIconClasses(item.path)}`}>{item.icon}</span>
+                                        <span className="truncate text-[13px]">{item.label}</span>
+                                    </Link>
+                                ))}
+                            </div>
+                        </div>
                     ))}
                 </nav>
+
+                <div className="p-4 relative z-10">
+                    <div className="flex items-center justify-between gap-3 p-3 bg-slate-800/80 rounded-2xl">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0">
+                                {(adminInfo.name || adminInfo.username || 'S').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-[13px] font-bold text-white truncate leading-tight">
+                                    {adminInfo.name || adminInfo.username || 'Super Admin'}
+                                </p>
+                                <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                                    {adminInfo.role === 'admin' ? 'Administrator' : adminInfo.role || 'Administrator'}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={handleLogout}
+                            title="Logout"
+                            className="p-2 text-slate-400 hover:text-red-400 transition-colors rounded-lg hover:bg-white/10 shrink-0"
+                        >
+                            <LogOut size={18} />
+                        </button>
+                    </div>
+                </div>
             </aside>
 
             {/* Main Content */}
@@ -209,13 +287,10 @@ const Layout = ({ children }) => {
                         <Menu size={24} />
                     </button>
                     <h1 className="text-lg font-bold text-slate-800 truncate">Pydah Transport</h1>
-                    <div className="w-10"></div> {/* Spacer for center alignment */}
+                    <div className="w-10"></div>
                 </header>
 
                 <main className="flex-1 overflow-x-hidden overflow-y-auto p-6 md:p-8 scroll-smooth w-full">
-                    {/* Removed max-w-7xl to allow full width as requested via "fit to screen" interpretation, 
-                        or user can re-add container class if "fit to under screen" meant centered. 
-                        Assuming full width fluid layout is desired for "professional" dashboard. */}
                     <div className="w-full max-w-[1600px] mx-auto">
                         {children}
                     </div>
@@ -225,4 +300,4 @@ const Layout = ({ children }) => {
     );
 };
 
-export default Layout;
+export default Layout;
