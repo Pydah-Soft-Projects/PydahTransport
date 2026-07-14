@@ -344,6 +344,7 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                     }
                     .id-card-half {
                         flex: 1 1 0;
+                        width: 0; /* force equal front/back halves even if photo is huge */
                         min-width: 0;
                         min-height: 0;
                         overflow: hidden;
@@ -511,6 +512,12 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                     }
                     .id-route-name-line {
                         font-weight: 500;
+                        max-width: 100%;
+                        overflow: hidden;
+                        display: -webkit-box;
+                        -webkit-line-clamp: 2;
+                        -webkit-box-orient: vertical;
+                        word-break: break-word;
                     }
                     .bus-id-page--5 .id-route-number {
                         font-size: 8.5pt;
@@ -524,39 +531,44 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                     .bus-id-page--6 .id-route-name-line {
                         font-size: 5.5pt;
                     }
+                    /* height:1px + absolute fill: cell size comes from rowspan rows;
+                       photo cannot expand layout or sit short in the cell */
                     .id-photo-cell {
                         width: 28%;
+                        height: 1px;
                         padding: 0 !important;
-                        vertical-align: middle;
-                        text-align: center;
+                        vertical-align: top;
                         overflow: hidden;
+                        position: relative;
                     }
                     .id-photo-frame {
+                        position: absolute;
+                        inset: 0;
                         width: 100%;
                         height: 100%;
-                        max-width: 100%;
-                        max-height: 100%;
                         margin: 0;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
+                        padding: 0;
                         overflow: hidden;
                         box-sizing: border-box;
+                        background: #f0f0f0;
+                        line-height: 0;
                     }
                     .id-photo {
+                        position: absolute;
+                        inset: 0;
                         width: 100%;
                         height: 100%;
-                        max-width: 100%;
-                        max-height: 100%;
                         object-fit: cover;
-                        object-position: center top;
+                        /* Many upload photos have subject low in frame; bias crop down */
+                        object-position: center 68%;
                         display: block;
-                        transform: scale(1.1); /* Zoom photo slightly to make subject larger */
+                        border: 0;
                     }
                     .id-photo-placeholder {
+                        position: absolute;
+                        inset: 0;
                         width: 100%;
                         height: 100%;
-                        max-height: 100%;
                         display: flex;
                         align-items: center;
                         justify-content: center;
@@ -565,6 +577,7 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                         color: #666;
                         background: #f5f5f5;
                         box-sizing: border-box;
+                        line-height: normal;
                     }
                     .id-helpline-label-cell {
                         text-align: center;
@@ -590,13 +603,16 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                     .id-card-back {
                         height: 100%;
                         width: 100%;
+                        overflow: hidden;
                     }
                     .id-back-layout {
                         display: flex;
                         flex-direction: row;
                         align-items: stretch;
+                        justify-content: flex-start;
                         height: 100%;
                         width: 100%;
+                        max-width: 100%;
                         padding: 0.6mm;
                         margin: 0;
                         box-sizing: border-box;
@@ -606,6 +622,7 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                         flex: 0 0 25%;
                         width: 25%;
                         max-width: 25%;
+                        min-width: 0;
                         height: 100%;
                         display: flex;
                         align-items: center;
@@ -614,19 +631,21 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                         padding: 1mm 1.2mm 1mm 0.8mm;
                         background: #fff;
                         border-right: 1px solid #000;
+                        overflow: hidden;
                     }
                     .id-back-qr-square,
                     .id-back-qr-image {
                         width: 100%;
                         height: auto;
                         max-width: 100%;
-                        max-height: 100%;
+                        max-height: calc(100% - 0.5mm);
                         aspect-ratio: 1 / 1;
                         border: 1px solid #000;
                         display: block;
                         box-sizing: border-box;
                         background: #fff;
                         object-fit: contain;
+                        flex-shrink: 1;
                     }
                     .id-back-qr-square {
                         display: flex;
