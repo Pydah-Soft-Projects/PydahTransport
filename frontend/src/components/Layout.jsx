@@ -152,14 +152,14 @@ const Layout = ({ children }) => {
                             }
                             toggleGroup(item.key);
                         }}
-                        className={`w-full flex items-center ${collapsed ? 'justify-center px-0' : 'px-4'} py-2.5 rounded-xl transition-all duration-200 group relative overflow-hidden ${getMenuItemClasses(groupActive && collapsed)}`}
+                        className={`w-full flex items-center ${collapsed ? 'justify-center px-0' : 'px-4'} py-1.5 rounded-xl transition-all duration-200 group relative overflow-hidden ${getMenuItemClasses(groupActive && collapsed)}`}
                     >
                         <span className={`${collapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${getMenuIconClasses(groupActive && collapsed)}`}>
                             {item.icon}
                         </span>
                         {!collapsed && (
                             <>
-                                <span className="truncate text-[13px] flex-1 text-left">{item.label}</span>
+                                <span className="truncate text-[11px] flex-1 text-left">{item.label}</span>
                                 <ChevronDown
                                     size={14}
                                     className={`transition-transform ${expanded ? 'rotate-180' : ''} ${groupActive ? 'text-blue-700' : 'text-slate-400'}`}
@@ -168,7 +168,7 @@ const Layout = ({ children }) => {
                         )}
                     </button>
                     {expanded && !collapsed && (
-                        <div className="ml-3 pl-3 border-l border-slate-700 space-y-1">
+                        <div className="ml-3 pl-3 border-l border-slate-700 space-y-0.5">
                             {item.children.map((child) => {
                                 const childActive = isPathActive(child.path);
                                 return (
@@ -176,7 +176,7 @@ const Layout = ({ children }) => {
                                         key={child.path}
                                         to={child.path}
                                         onClick={mobile ? () => setIsMobileMenuOpen(false) : undefined}
-                                        className={`flex items-center px-3 py-2 rounded-lg text-[13px] transition-all ${
+                                        className={`flex items-center px-3 py-1 rounded-lg text-[11px] transition-all ${
                                             childActive
                                                 ? 'bg-blue-100 text-blue-700 font-bold'
                                                 : 'text-slate-300 hover:bg-white/10 hover:text-white'
@@ -202,12 +202,12 @@ const Layout = ({ children }) => {
                 to={item.path}
                 title={collapsed ? item.label : ''}
                 onClick={mobile ? () => setIsMobileMenuOpen(false) : undefined}
-                className={`flex items-center ${collapsed ? 'justify-center px-0' : 'px-4'} py-2.5 rounded-xl transition-all duration-200 group relative overflow-hidden ${getMenuItemClasses(active)}`}
+                className={`flex items-center ${collapsed ? 'justify-center px-0' : 'px-4'} py-1.5 rounded-xl transition-all duration-200 group relative overflow-hidden ${getMenuItemClasses(active)}`}
             >
                 <span className={`${collapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${getMenuIconClasses(active)}`}>
                     {item.icon}
                 </span>
-                {!collapsed && <span className="truncate text-[13px] animate-in fade-in slide-in-from-left-2">{item.label}</span>}
+                {!collapsed && <span className="truncate text-[11px] animate-in fade-in slide-in-from-left-2">{item.label}</span>}
             </Link>
         );
     };
@@ -240,15 +240,15 @@ const Layout = ({ children }) => {
                     )}
                 </div>
 
-                <nav className="flex-1 px-4 space-y-1 overflow-y-auto sidebar-scrollbar relative z-10 pb-6">
+                <nav className="flex-1 px-4 space-y-0.5 overflow-y-auto sidebar-scrollbar relative z-10 pb-6">
                     {filteredCategories.map((category, idx) => (
-                        <div key={idx} className="mb-6 last:mb-0">
+                        <div key={idx} className="mb-3.5 last:mb-0">
                             {!isCollapsed && (
-                                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-2 mt-4">
+                                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 px-2 mt-2">
                                     {category.title}
                                 </h3>
                             )}
-                            <div className="space-y-1.5">
+                            <div className="space-y-0.5">
                                 {category.items.map((item) => renderNavItem(item, { collapsed: isCollapsed }))}
                             </div>
                         </div>

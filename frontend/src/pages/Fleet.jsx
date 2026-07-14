@@ -191,17 +191,20 @@ const Fleet = () => {
 
     return (
         <Layout>
-            <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="mb-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold text-slate-800 break-words tracking-tight">Fleet & Passengers</h2>
-                    <p className="text-slate-700 mt-2 font-medium">Manage transport requests and bus capacity.</p>
-                    <div className="mt-4 flex flex-wrap items-center gap-3">
-                        <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+                    <h2 className="text-xl font-black text-slate-900 tracking-tight">Fleet & Passengers</h2>
+                    <p className="text-xs text-slate-500 font-semibold mt-0.5">Manage transport requests and bus capacity.</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-sm w-full lg:w-auto justify-between lg:justify-start">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
                             <button
                                 type="button"
                                 onClick={() => setOccupancyMode('live')}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide transition-colors ${occupancyMode === 'live'
-                                    ? 'bg-emerald-600 text-white'
+                                className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'live'
+                                    ? 'bg-blue-600 text-white shadow-sm'
                                     : 'text-slate-500 hover:bg-slate-50'
                                     }`}
                             >
@@ -210,59 +213,60 @@ const Fleet = () => {
                             <button
                                 type="button"
                                 onClick={() => setOccupancyMode('academicYear')}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide transition-colors ${occupancyMode === 'academicYear'
-                                    ? 'bg-blue-600 text-white'
+                                className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'academicYear'
+                                    ? 'bg-blue-600 text-white shadow-sm'
                                     : 'text-slate-500 hover:bg-slate-50'
                                     }`}
                             >
                                 AY
                             </button>
                         </div>
-                        <label htmlFor="fleet-academic-year" className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                            Academic Year
-                        </label>
-                        <select
-                            id="fleet-academic-year"
-                            value={academicYear}
-                            onChange={(e) => setAcademicYear(e.target.value)}
-                            disabled={occupancyMode === 'live'}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                        >
-                            {academicYearOptions.map((year) => (
-                                <option key={year} value={year}>{year}</option>
-                            ))}
-                        </select>
+
+                        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm cursor-pointer">
+                            <label htmlFor="fleet-academic-year" className="text-[10px] font-black text-slate-400 uppercase tracking-wider cursor-pointer">AY</label>
+                            <select
+                                id="fleet-academic-year"
+                                value={academicYear}
+                                onChange={(e) => setAcademicYear(e.target.value)}
+                                disabled={occupancyMode === 'live'}
+                                className="bg-transparent text-xs font-bold text-slate-700 outline-none disabled:opacity-50 appearance-none pr-1 cursor-pointer"
+                            >
+                                {academicYearOptions.map((year) => (
+                                    <option key={year} value={year}>{year}</option>
+                                ))}
+                            </select>
+                        </div>
+
                         {allowedCampuses.length > 1 && (
-                            <>
-                                <label htmlFor="fleet-campus" className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                    Campus
-                                </label>
+                            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm cursor-pointer">
+                                <label htmlFor="fleet-campus" className="text-[10px] font-black text-slate-400 uppercase tracking-wider cursor-pointer">Campus</label>
                                 <select
                                     id="fleet-campus"
                                     value={selectedCampus}
                                     onChange={(e) => setSelectedCampus(e.target.value)}
-                                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500 min-w-[150px]"
+                                    className="bg-transparent text-xs font-bold text-slate-700 outline-none min-w-[120px] appearance-none pr-1 cursor-pointer"
                                 >
                                     <option value="">All Campuses</option>
                                     {allowedCampuses.map((campus) => (
                                         <option key={getCampusId(campus)} value={getCampusId(campus)}>
-                                            {campus.name} ({campus.code})
+                                            {campus.name}
                                         </option>
                                     ))}
                                 </select>
-                            </>
+                            </div>
                         )}
                     </div>
+
+                    <button
+                        type="button"
+                        onClick={openReportModal}
+                        disabled={isPrinting}
+                        className="inline-flex items-center text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-sm border-none whitespace-nowrap"
+                    >
+                        {isPrinting ? <Loader2 size={14} className="mr-1.5 text-white animate-spin" /> : <Download size={14} className="mr-1.5" />}
+                        {isPrinting ? 'Preparing...' : 'Download Report'}
+                    </button>
                 </div>
-                <button
-                    type="button"
-                    onClick={openReportModal}
-                    disabled={isPrinting}
-                    className="flex items-center bg-blue-600 text-white px-5 py-2.5 rounded-xl font-semibold shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-all flex-none whitespace-nowrap h-fit"
-                >
-                    {isPrinting ? <Loader2 size={18} className="mr-2 text-white animate-spin" /> : <Download size={18} className="mr-2" />}
-                    {isPrinting ? 'Preparing Report...' : 'Download Route-Wise Report'}
-                </button>
             </div>
 
             <Modal
@@ -333,27 +337,27 @@ const Fleet = () => {
             </Modal>
 
             {!loading && list.length > 0 && (
-                <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Occupancy Mode</p>
-                        <p className="text-lg font-black text-slate-800 mt-1">
+                <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Occupancy Mode</p>
+                        <p className="text-sm font-black text-slate-800 mt-0.5">
                             {occupancyMode === 'live' ? 'Live' : academicYear}
                         </p>
                         {selectedCampusLabel && (
-                            <p className="text-[10px] font-semibold text-slate-500 mt-1">{selectedCampusLabel}</p>
+                            <p className="text-[9px] font-semibold text-slate-500 mt-0.5 truncate">{selectedCampusLabel}</p>
                         )}
                     </div>
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Capacity</p>
-                        <p className="text-lg font-black text-slate-800 mt-1">{totalCapacity}</p>
+                    <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Capacity</p>
+                        <p className="text-sm font-black text-slate-800 mt-0.5">{totalCapacity}</p>
                     </div>
-                    <div className="bg-white rounded-xl border border-emerald-200 p-4 shadow-sm bg-emerald-50/40">
-                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Seats Filled</p>
-                        <p className="text-lg font-black text-emerald-700 mt-1">{totalSeatsFilled}</p>
+                    <div className="bg-white rounded-xl border border-emerald-200 p-3 shadow-sm bg-emerald-50/40">
+                        <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider">Seats Filled</p>
+                        <p className="text-sm font-black text-emerald-700 mt-0.5">{totalSeatsFilled}</p>
                     </div>
-                    <div className="bg-white rounded-xl border border-blue-200 p-4 shadow-sm bg-blue-50/40">
-                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Remaining · {fleetOccupancy}%</p>
-                        <p className="text-lg font-black text-blue-700 mt-1">{totalSeatsAvailable}</p>
+                    <div className="bg-white rounded-xl border border-blue-200 p-3 shadow-sm bg-blue-50/40">
+                        <p className="text-[9px] font-bold text-blue-600 uppercase tracking-wider">Remaining · {fleetOccupancy}%</p>
+                        <p className="text-sm font-black text-blue-700 mt-0.5">{totalSeatsAvailable}</p>
                     </div>
                 </div>
             )}
@@ -385,68 +389,67 @@ const Fleet = () => {
                         <ArrowRight size={16} className="ml-2" />
                     </Link>
                 </div>
-            ) : (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
+            ) : (                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
                     <div className="overflow-x-auto w-full">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="bg-slate-50 border-b border-slate-200 text-[11px] uppercase text-slate-500 font-bold tracking-wider">
-                                    <th className="px-4 py-2.5 w-48">Bus Details</th>
-                                    <th className="px-4 py-2.5">Route</th>
-                                    <th className="px-4 py-2.5">Capacity</th>
-                                    <th className="px-4 py-2.5">Seats Filled</th>
-                                    <th className="px-4 py-2.5 font-bold text-slate-700">Rem. Seats</th>
-                                    <th className="px-4 py-2.5">Occupancy</th>
-                                    <th className="px-4 py-2.5 text-right">Actions</th>
+                                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                    <th className="px-3 py-2 w-48">Bus Details</th>
+                                    <th className="px-3 py-2">Route</th>
+                                    <th className="px-3 py-2">Capacity</th>
+                                    <th className="px-3 py-2">Seats Filled</th>
+                                    <th className="px-3 py-2 font-bold text-slate-700">Rem. Seats</th>
+                                    <th className="px-3 py-2">Occupancy</th>
+                                    <th className="px-3 py-2 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {list.map((item) => (
                                     <tr key={item.bus._id} className="hover:bg-blue-50/30 transition-colors group">
-                                        <td className="px-4 py-2">
+                                        <td className="px-3 py-2">
                                             <div>
-                                                <p className="font-bold text-slate-800 text-sm">{item.bus.busNumber}</p>
-                                                <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">{item.bus.type}</p>
+                                                <p className="font-bold text-slate-800 text-xs">{item.bus.busNumber}</p>
+                                                <p className="text-[9px] text-slate-450 font-bold uppercase tracking-wide">{item.bus.type}</p>
                                             </div>
                                         </td>
-                                        <td className="px-4 py-2">
+                                        <td className="px-3 py-2">
                                             {item.route ? (
-                                                <div className="flex items-center text-slate-700">
-                                                    <MapPin size={14} className="text-slate-400 mr-2" />
-                                                    <span className="font-medium text-sm">{item.route.routeName}</span>
-                                                    <span className="ml-2 text-[10px] bg-slate-100 text-slate-500 px-1 py-0.5 rounded border border-slate-200 font-mono">
+                                                <div className="flex items-center text-slate-750">
+                                                    <MapPin size={12} className="text-slate-400 mr-1.5" />
+                                                    <span className="font-medium text-xs">{item.route.routeName}</span>
+                                                    <span className="ml-1.5 text-[9px] bg-slate-100 text-slate-550 px-1 py-0.5 rounded border border-slate-200 font-mono">
                                                         {item.route.routeId}
                                                     </span>
                                                 </div>
                                             ) : (
-                                                <span className="text-slate-400 italic text-xs flex items-center">
-                                                    <AlertCircle size={12} className="mr-1.5" />
+                                                <span className="text-slate-400 italic text-[11px] flex items-center">
+                                                    <AlertCircle size={10} className="mr-1" />
                                                     Not assigned
                                                 </span>
                                             )}
                                         </td>
-                                        <td className="px-4 py-2 text-slate-600 font-medium text-sm">{item.capacity}</td>
-                                        <td className="px-4 py-2">
-                                            <div className="flex items-center font-bold text-slate-700 text-sm">
-                                                <Users size={14} className="text-slate-400 mr-2" />
+                                        <td className="px-3 py-2 text-slate-600 font-medium text-xs">{item.capacity}</td>
+                                        <td className="px-3 py-2">
+                                            <div className="flex items-center font-bold text-slate-700 text-xs">
+                                                <Users size={12} className="text-slate-400 mr-1.5" />
                                                 {item.seatsFilled}
                                             </div>
                                         </td>
-                                        <td className="px-4 py-2">
-                                            <span className={`text-sm font-black ${item.seatsAvailable <= 5 ? 'text-red-500' : 'text-slate-700'}`}>
+                                        <td className="px-3 py-2">
+                                            <span className={`text-xs font-black ${item.seatsAvailable <= 5 ? 'text-red-500' : 'text-slate-700'}`}>
                                                 {item.seatsAvailable}
                                             </span>
                                         </td>
-                                        <td className="px-4 py-2">
-                                            <div className="flex flex-col gap-1 w-24">
+                                        <td className="px-3 py-2">
+                                            <div className="flex flex-col gap-0.5 w-24">
                                                 <div className="flex justify-between items-end">
-                                                    <span className={`text-[10px] font-bold ${item.occupancyPercent >= 100 ? 'text-red-600' :
+                                                    <span className={`text-[9px] font-bold ${item.occupancyPercent >= 100 ? 'text-red-600' :
                                                         item.occupancyPercent >= 80 ? 'text-amber-600' : 'text-emerald-600'
                                                         }`}>
                                                         {item.occupancyPercent}%
                                                     </span>
                                                 </div>
-                                                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
                                                     <div
                                                         className={`h-full rounded-full transition-all duration-500 ${item.occupancyPercent >= 100 ? 'bg-red-500' :
                                                             item.occupancyPercent >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
@@ -456,14 +459,14 @@ const Fleet = () => {
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="px-4 py-2 text-right">
-                                            <div className="flex items-center justify-end gap-2">
+                                        <td className="px-3 py-2 text-right">
+                                            <div className="flex items-center justify-end gap-1.5">
                                                 {item.bus.assignedRouteId && (
                                                     <button
                                                         type="button"
                                                         onClick={() => handleAutoAllocate(item.bus._id)}
                                                         disabled={allocatingId !== null || item.seatsFilled >= item.capacity}
-                                                        className="px-2 py-1 rounded bg-blue-600 text-white text-[10px] font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow transition-all active:scale-95 flex items-center"
+                                                        className="px-2 py-1 rounded bg-blue-600 text-white text-[9px] font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow transition-all active:scale-95 flex items-center"
                                                     >
                                                         {allocatingId === item.bus._id ? (
                                                             <>
@@ -482,7 +485,7 @@ const Fleet = () => {
                                                 )}
                                                 <Link
                                                     to={`/buses/${item.bus._id}`}
-                                                    className="px-2 py-1 rounded border border-slate-200 text-slate-600 text-[10px] font-semibold hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                                                    className="px-2 py-1 rounded border border-slate-200 text-slate-600 text-[9px] font-bold hover:bg-slate-50 hover:text-slate-900 transition-colors"
                                                 >
                                                     View details
                                                 </Link>

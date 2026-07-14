@@ -17,6 +17,7 @@ import {
     UserPlus,
     Milestone,
     Bus,
+    Loader2,
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
@@ -141,9 +142,11 @@ const BusDetails = () => {
     const [filterYear, setFilterYear] = useState('');
     const [filterStage, setFilterStage] = useState('');
     const [filterType, setFilterType] = useState('');
+    const [isPrinting, setIsPrinting] = useState(false);
 
     const handlePrint = async () => {
         if (!data?.bus?.busNumber) return;
+        setIsPrinting(true);
         try {
             const response = await apiFetch(`${API}/print`, {
                 method: 'POST',
@@ -167,6 +170,8 @@ const BusDetails = () => {
         } catch (error) {
             console.error('Error printing passenger report:', error);
             alert('Error preparing passenger report.');
+        } finally {
+            setIsPrinting(false);
         }
     };
 
@@ -437,10 +442,15 @@ const BusDetails = () => {
                     <button
                         type="button"
                         onClick={handlePrint}
-                        className="inline-flex items-center text-xs bg-white text-slate-700 px-3.5 py-1.5 rounded-lg font-semibold hover:bg-slate-50 transition-all border border-slate-200 shadow-sm"
+                        disabled={isPrinting}
+                        className="inline-flex items-center text-xs bg-white text-slate-700 px-3.5 py-1.5 rounded-lg font-semibold hover:bg-slate-50 transition-all border border-slate-200 shadow-sm disabled:opacity-50"
                     >
-                        <Download size={14} className="mr-1.5 text-blue-600" />
-                        Download Report
+                        {isPrinting ? (
+                            <Loader2 size={14} className="mr-1.5 animate-spin text-blue-600" />
+                        ) : (
+                            <Download size={14} className="mr-1.5 text-blue-600" />
+                        )}
+                        {isPrinting ? 'Preparing...' : 'Download Report'}
                     </button>
                     {route && (
                         <button
@@ -459,7 +469,7 @@ const BusDetails = () => {
                 <div className="flex flex-wrap items-center gap-2 mb-1.5">
                     <h1 className="text-2xl font-black text-slate-900 tracking-tight">{bus.busNumber}</h1>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                        bus.status === 'active' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'
+                        String(bus.status || 'active').toLowerCase() === 'active' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200'
                     }`}>
                         {bus.status || 'active'}
                     </span>
