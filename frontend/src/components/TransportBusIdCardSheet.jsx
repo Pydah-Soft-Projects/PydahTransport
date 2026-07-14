@@ -531,37 +531,38 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                     .bus-id-page--6 .id-route-name-line {
                         font-size: 5.5pt;
                     }
+                    /* height:1px + absolute fill: cell size comes from rowspan rows;
+                       photo cannot expand layout or sit short in the cell */
                     .id-photo-cell {
                         width: 28%;
-                        padding: 0 !important;
-                        vertical-align: middle;
-                        text-align: center;
-                        overflow: hidden;
-                        /* Prevent oversized photos from expanding the front half in print */
                         height: 1px;
+                        padding: 0 !important;
+                        vertical-align: top;
+                        overflow: hidden;
+                        position: relative;
                     }
                     .id-photo-frame {
-                        position: relative;
+                        position: absolute;
+                        inset: 0;
                         width: 100%;
                         height: 100%;
-                        min-height: 18mm;
-                        max-width: 100%;
-                        max-height: 100%;
                         margin: 0;
-                        display: block;
+                        padding: 0;
                         overflow: hidden;
                         box-sizing: border-box;
+                        background: #f0f0f0;
+                        line-height: 0;
                     }
                     .id-photo {
                         position: absolute;
                         inset: 0;
                         width: 100%;
                         height: 100%;
-                        max-width: 100%;
-                        max-height: 100%;
                         object-fit: cover;
-                        object-position: center top;
+                        /* Many upload photos have subject low in frame; bias crop down */
+                        object-position: center 68%;
                         display: block;
+                        border: 0;
                     }
                     .id-photo-placeholder {
                         position: absolute;
@@ -576,6 +577,7 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                         color: #666;
                         background: #f5f5f5;
                         box-sizing: border-box;
+                        line-height: normal;
                     }
                     .id-helpline-label-cell {
                         text-align: center;
