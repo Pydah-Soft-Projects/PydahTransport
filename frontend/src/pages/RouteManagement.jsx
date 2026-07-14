@@ -232,6 +232,8 @@ const RouteManagement = () => {
         ? routes.filter((route) => campusIdsMatch(getCampusId(route.campus), selectedCampusFilter))
         : routes;
 
+
+
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
     const userCampuses = adminInfo.campuses || [];
     const isSuperAdmin = adminInfo.role === 'admin' || (adminInfo.roles && adminInfo.roles.includes('superadmin'));
@@ -246,19 +248,19 @@ const RouteManagement = () => {
 
     return (
         <Layout>
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
                 <div>
-                    <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Route Network ({filteredRoutes.length})</h2>
-                    <p className="text-slate-600 mt-1">Design routes, manage stages, and set fares per academic year.</p>
+                    <h2 className="text-xl font-bold text-slate-800 tracking-tight">Route Network ({filteredRoutes.length})</h2>
+                    <p className="text-slate-500 text-xs mt-0.5">Design routes, manage stages, and set fares per academic year.</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                     {allowedCampuses.length > 1 && (
-                        <div>
-                            <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Campus</label>
+                        <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
+                            <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Campus</span>
                             <select
                                 value={selectedCampusFilter}
                                 onChange={(e) => setSelectedCampusFilter(e.target.value)}
-                                className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 min-w-[150px]"
+                                className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer outline-none"
                             >
                                 <option value="">All Campuses</option>
                                 {allowedCampuses.map((campus) => (
@@ -267,12 +269,12 @@ const RouteManagement = () => {
                             </select>
                         </div>
                     )}
-                    <div>
-                        <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Academic Year</label>
+                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
+                        <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Academic Year</span>
                         <select
                             value={academicYear}
                             onChange={(e) => setAcademicYear(e.target.value)}
-                            className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 min-w-[150px]"
+                            className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer outline-none"
                         >
                             {academicYearOptions.map((year) => (
                                 <option key={year} value={year}>{year}</option>
@@ -281,8 +283,9 @@ const RouteManagement = () => {
                     </div>
                     <button
                         onClick={() => setIsModalOpen(true)}
-                        className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group self-end"
+                        className="bg-blue-900 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group"
                     >
+                        <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
                         Create Route
                     </button>
                 </div>
@@ -317,16 +320,16 @@ const RouteManagement = () => {
                     )}
                 </div>
             ) : (
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-black tracking-widest">
-                                    <th className="px-6 py-4">Route Details</th>
-                                    <th className="px-6 py-4">Path (Start → End)</th>
-                                    <th className="px-6 py-4">Distance & Time</th>
-                                    <th className="px-6 py-4">Stages</th>
-                                    <th className="px-6 py-4 text-right">Actions</th>
+                                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                    <th className="px-3 py-2">Route Details</th>
+                                    <th className="px-3 py-2">Path (Start → End)</th>
+                                    <th className="px-3 py-2">Distance & Time</th>
+                                    <th className="px-3 py-2">Stages</th>
+                                    <th className="px-3 py-2 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -338,72 +341,72 @@ const RouteManagement = () => {
                                                 onClick={() => toggleRoute(route._id)}
                                                 className={`cursor-pointer transition-colors group ${isExpanded ? 'bg-blue-50/30' : 'hover:bg-slate-50'}`}
                                             >
-                                                <td className="px-6 py-4">
+                                                <td className="px-3 py-2">
                                                     <div className="flex flex-col gap-1">
                                                         <div className="flex items-center gap-2">
-                                                            <span className="font-bold text-slate-800 text-sm">{route.routeName}</span>
-                                                            <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs font-bold rounded border border-slate-200 font-mono">
+                                                            <span className="font-bold text-slate-800 text-xs">{route.routeName}</span>
+                                                            <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded border border-slate-200 font-mono">
                                                                 {route.routeId}
                                                             </span>
                                                         </div>
                                                         {route.campus && (
                                                             <div>
-                                                                <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-semibold rounded border border-blue-100">
+                                                                <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] font-semibold rounded border border-blue-100">
                                                                     Campus: {route.campus.name || route.campus}
                                                                 </span>
                                                             </div>
                                                         )}
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center text-sm text-slate-600 font-medium">
+                                                <td className="px-3 py-2">
+                                                    <div className="flex items-center text-xs text-slate-600 font-medium">
                                                         <span className="truncate max-w-[120px]" title={route.startPoint}>{route.startPoint}</span>
-                                                        <ArrowRight size={14} className="mx-2 text-slate-300" />
+                                                        <ArrowRight size={12} className="mx-2 text-slate-300" />
                                                         <span className="truncate max-w-[120px]" title={route.endPoint}>{route.endPoint}</span>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4">
+                                                <td className="px-3 py-2">
                                                     <div className="flex flex-col gap-0.5">
-                                                        <span className="text-sm font-bold text-slate-700">{route.totalDistance} <span className="text-xs text-slate-400 font-medium uppercase ml-0.5">KM</span></span>
-                                                        <div className="flex items-center gap-1 text-xs text-slate-500 font-medium">
-                                                            <Clock size={12} />
+                                                        <span className="text-xs font-bold text-slate-700">{route.totalDistance} <span className="text-[10px] text-slate-400 font-medium uppercase ml-0.5">KM</span></span>
+                                                        <div className="flex items-center gap-1 text-[10px] text-slate-500 font-medium">
+                                                            <Clock size={10} />
                                                             {route.estimatedTime}
                                                         </div>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4">
-                                                    <span className={`px-2 py-1 rounded-md text-xs font-bold border ${route.stages.length > 0 ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>
+                                                <td className="px-3 py-2">
+                                                    <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${route.stages.length > 0 ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>
                                                         {route.stages.length}
                                                     </span>
                                                 </td>
-                                                <td className="px-6 py-4 text-right">
+                                                <td className="px-3 py-2 text-right">
                                                     <div className="flex items-center justify-end gap-1">
                                                         <button
                                                             onClick={(e) => handleEdit(route, e)}
-                                                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                                            className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
                                                             title="Edit"
                                                         >
-                                                            <Edit size={16} />
+                                                            <Edit size={14} />
                                                         </button>
                                                         <button
                                                             onClick={(e) => handleDelete(route._id, e)}
-                                                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
                                                             title="Delete"
                                                         >
-                                                            <Trash2 size={16} />
+                                                            <Trash2 size={14} />
                                                         </button>
-                                                        <div className={`p-1.5 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-blue-600' : ''}`}>
-                                                            <ChevronDown size={18} />
+                                                        <div className={`p-1 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-blue-600' : ''}`}>
+                                                            <ChevronDown size={14} />
                                                         </div>
                                                     </div>
                                                 </td>
                                             </tr>
                                             {isExpanded && (
                                                 <tr>
-                                                    <td colSpan="5" className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                                                        <div className="flex items-center gap-2 mb-4">
-                                                            <Milestone size={16} className="text-blue-600" />
-                                                            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                                                    <td colSpan="5" className="px-3 py-2 bg-slate-50/50 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                        <div className="flex items-center gap-2 mb-3">
+                                                            <Milestone size={14} className="text-blue-600" />
+                                                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                                                                 Stages & Fare Distribution ({academicYear})
                                                             </h4>
                                                         </div>
@@ -414,23 +417,23 @@ const RouteManagement = () => {
                                                                 {route.stages.map((stage, index) => {
                                                                     const displayFare = resolveStageFareForYear(stage, academicYear);
                                                                     return (
-                                                                    <div key={index} className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group/stage hover:border-blue-200 transition-colors">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center font-bold text-xs group-hover/stage:bg-blue-600 group-hover/stage:text-white transition-colors">
+                                                                    <div key={index} className="bg-white p-2.5 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between group/stage hover:border-blue-200 transition-colors">
+                                                                        <div className="flex items-center gap-2.5">
+                                                                            <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center font-bold text-[10px] group-hover/stage:bg-blue-600 group-hover/stage:text-white transition-colors">
                                                                                 {index + 1}
                                                                             </span>
                                                                             <div>
-                                                                                <p className="font-bold text-slate-800 text-sm">{stage.stageName}</p>
-                                                                                <p className="text-xs text-slate-400 font-medium">{stage.distanceFromStart} km</p>
+                                                                                <p className="font-bold text-slate-800 text-xs">{stage.stageName}</p>
+                                                                                <p className="text-[10px] text-slate-400 font-medium">{stage.distanceFromStart} km</p>
                                                                             </div>
                                                                         </div>
-                                                                        <div className="text-sm font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100">
+                                                                        <div className="text-xs font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
                                                                             ₹{displayFare}
                                                                             {stage.hasYearOverride && stage.baseFare != null && stage.baseFare !== displayFare && (
-                                                                                <span className="block text-[10px] font-semibold text-slate-400 line-through">₹{stage.baseFare}</span>
+                                                                                <span className="block text-[9px] font-semibold text-slate-400 line-through">₹{stage.baseFare}</span>
                                                                             )}
                                                                             {!stage.hasYearOverride && (
-                                                                                <span className="block text-[10px] font-semibold text-slate-400">base fare</span>
+                                                                                <span className="block text-[9px] font-semibold text-slate-400">base fare</span>
                                                                             )}
                                                                         </div>
                                                                     </div>

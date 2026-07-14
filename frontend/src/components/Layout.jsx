@@ -214,7 +214,7 @@ const Layout = ({ children }) => {
 
     return (
         <div className="flex h-screen bg-[#EAF3FF] font-sans overflow-hidden">
-            <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-[#0B1E43] shadow-lg hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-visible`}>
+            <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-[#071B45] bg-gradient-to-b from-[#0A2558] to-[#051632] shadow-lg hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-visible`}>
                 <button 
                     onClick={() => setIsCollapsed(!isCollapsed)}
                     className="absolute -right-3 top-24 bg-white border border-slate-200 rounded-full p-1 shadow-md z-50 hover:bg-slate-50 text-blue-600 cursor-pointer"
@@ -295,7 +295,7 @@ const Layout = ({ children }) => {
                 ></div>
             )}
 
-            <aside className={`fixed inset-y-0 left-0 w-64 bg-[#0B1E43] shadow-xl flex flex-col z-40 transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            <aside className={`fixed inset-y-0 left-0 w-64 bg-[#071B45] bg-gradient-to-b from-[#0A2558] to-[#051632] shadow-xl flex flex-col z-40 transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                 <div className="min-h-24 flex justify-between items-center px-6 relative z-10">
                     <div className="flex items-center gap-3 min-w-0">
                         <img

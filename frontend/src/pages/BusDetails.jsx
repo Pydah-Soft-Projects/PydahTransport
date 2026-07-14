@@ -14,6 +14,9 @@ import {
     Armchair,
     User,
     MoreHorizontal,
+    UserPlus,
+    Milestone,
+    Bus,
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
@@ -426,65 +429,68 @@ const BusDetails = () => {
 
     return (
         <Layout>
-            <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <Link to="/fleet" className="text-blue-600 hover:underline text-sm font-semibold flex items-center gap-1 w-fit">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <Link to="/buses" className="text-blue-600 hover:underline text-xs font-bold flex items-center gap-1.5 w-fit">
                     <span>←</span> Back to Bus Fleet
                 </Link>
                 <div className="flex flex-wrap gap-2">
                     <button
                         type="button"
                         onClick={handlePrint}
-                        className="inline-flex items-center text-sm bg-white text-slate-700 px-4 py-2.5 rounded-xl font-semibold hover:bg-slate-50 transition-all border border-slate-200 shadow-sm"
+                        className="inline-flex items-center text-xs bg-white text-slate-700 px-3.5 py-1.5 rounded-lg font-semibold hover:bg-slate-50 transition-all border border-slate-200 shadow-sm"
                     >
-                        <Download size={16} className="mr-2 text-blue-600" />
+                        <Download size={14} className="mr-1.5 text-blue-600" />
                         Download Report
                     </button>
                     {route && (
                         <button
                             type="button"
                             onClick={openAssignModal}
-                            className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 shadow-sm transition-all"
+                            className="inline-flex items-center text-xs bg-blue-600 text-white px-3.5 py-1.5 rounded-lg font-semibold hover:bg-blue-700 shadow-sm transition-all border-none"
                         >
+                            <UserPlus size={14} className="mr-1.5" />
                             Assign Passengers
                         </button>
                     )}
                 </div>
             </div>
 
-            <div className="mb-6">
-                <div className="flex flex-wrap items-center gap-3 mb-2">
-                    <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight">{bus.busNumber}</h1>
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                        bus.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+            <div className="mb-5">
+                <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                    <h1 className="text-2xl font-black text-slate-900 tracking-tight">{bus.busNumber}</h1>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                        bus.status === 'active' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'
                     }`}>
                         {bus.status || 'active'}
                     </span>
                 </div>
-                <p className="text-sm text-slate-600 font-medium">
-                    {bus.type || 'Standard Bus'}
-                    {bus.vehicleModel ? ` · ${bus.vehicleModel}` : ''}
-                    {route ? (
-                        <>
-                            {' · Route: '}
-                            <span className="text-slate-800">{routePathLabel}</span>
-                        </>
-                    ) : (
-                        <span className="text-slate-400"> · No route assigned</span>
-                    )}
-                </p>
+                <div className="text-xs text-slate-500 font-medium flex items-start gap-1.5 flex-wrap">
+                    <MapPin size={14} className="text-blue-500 mt-0.5 shrink-0" />
+                    <span>
+                        <span className="font-bold text-slate-600">{bus.type || 'Standard Bus'}{bus.vehicleModel ? ` · ${bus.vehicleModel}` : ''}</span>
+                        {route ? (
+                            <>
+                                {' · Route: '}
+                                <span className="text-slate-800 font-semibold">{routePathLabel}</span>
+                            </>
+                        ) : (
+                            <span className="text-slate-400"> · No route assigned</span>
+                        )}
+                    </span>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
                 <StatCard title="Occupancy">
                     <div className="flex items-center gap-4">
                         <DonutChart percent={occupancyPercent} />
-                        <div className="space-y-2 text-xs font-semibold text-slate-600">
+                        <div className="space-y-1 text-xs font-semibold text-slate-500">
                             <div className="flex items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full bg-blue-600" />
+                                <span className="w-2 h-2 rounded-full bg-blue-600" />
                                 <span>{seatsFilled} Occupied</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full bg-slate-200" />
+                                <span className="w-2 h-2 rounded-full bg-slate-200" />
                                 <span>{seatsAvailable} Available</span>
                             </div>
                         </div>
@@ -493,65 +499,81 @@ const BusDetails = () => {
 
                 <StatCard title="Seat Capacity">
                     <div className="flex items-start gap-3">
-                        <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600">
-                            <Armchair size={22} />
+                        <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 shrink-0">
+                            <Bus size={22} />
                         </div>
-                        <div>
-                            <p className="text-3xl font-black text-slate-900 leading-none">
-                                {seatsFilled} <span className="text-lg text-slate-400 font-bold">/ {capacity}</span>
-                            </p>
-                            <p className="text-xs font-semibold text-emerald-600 mt-2">{seatsAvailable} Seats Available</p>
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-1">
+                                <span className="text-3xl font-black text-slate-900 leading-none">{seatsFilled}</span>
+                                <span className="text-sm text-slate-400 font-bold">/ {capacity}</span>
+                            </div>
+                            <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2.5 overflow-hidden">
+                                <div className="bg-blue-600 h-full rounded-full" style={{ width: `${occupancyPercent}%` }}></div>
+                            </div>
+                            <p className="text-[10px] font-bold text-emerald-600 mt-2">{seatsAvailable} Seats Available</p>
                         </div>
                     </div>
                 </StatCard>
 
-                <StatCard title="Route">
+                <StatCard title="Route Highlights">
                     {route ? (
-                        <div className="space-y-2 max-h-28 overflow-y-auto custom-scrollbar pr-1">
-                            {routeStops.map((stop, index) => (
-                                <div key={`${stop}-${index}`} className="flex items-center gap-2 text-sm text-slate-700">
-                                    <MapPin size={14} className="text-blue-500 shrink-0" />
-                                    <span className="font-medium">{stop}</span>
-                                </div>
-                            ))}
+                        <div className="max-h-[92px] overflow-y-auto custom-scrollbar pr-1">
+                            <div className="relative pl-3 border-l border-blue-100 ml-1.5 space-y-3 mt-1.5 py-0.5">
+                                {routeStops.map((stop, index) => (
+                                    <div key={index} className="relative flex items-center">
+                                        <div className="absolute -left-4 w-2 h-2 rounded-full border-2 border-blue-500 bg-white" />
+                                        <span className="text-[11px] font-bold text-slate-700 leading-none truncate max-w-[130px] inline-block" title={stop}>
+                                            {stop}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     ) : (
-                        <p className="text-sm text-slate-400 italic">No route assigned</p>
+                        <p className="text-xs text-slate-400 italic">No route assigned</p>
                     )}
                 </StatCard>
 
                 <StatCard title="Bus Staff">
-                    <div className="space-y-3">
-                        <div className="flex items-center justify-between gap-3">
+                    <div className="space-y-2.5">
+                        <div className="flex items-center justify-between border border-slate-100 rounded-xl p-2 bg-slate-50/30">
                             <div className="flex items-center gap-2 min-w-0">
-                                <User size={16} className="text-slate-400 shrink-0" />
+                                <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
+                                    <User size={14} />
+                                </div>
                                 <div className="min-w-0">
-                                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Driver</p>
-                                    <p className={`text-sm font-semibold truncate ${bus.driverName ? 'text-slate-800' : 'text-red-500'}`}>
+                                    <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Driver</p>
+                                    <p className={`text-xs font-bold truncate ${bus.driverName ? 'text-slate-800' : 'text-red-500'}`}>
                                         {bus.driverName || 'Not Assigned'}
                                     </p>
                                 </div>
                             </div>
-                            {!bus.driverName && (
-                                <Link to="/buses" className="text-[10px] font-bold text-blue-600 hover:underline whitespace-nowrap">
+                            {!bus.driverName ? (
+                                <Link to="/buses" className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-blue-600 hover:bg-slate-50 shadow-sm whitespace-nowrap">
                                     + Assign
                                 </Link>
+                            ) : (
+                                <span className="text-[9px] text-slate-400 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">Assigned</span>
                             )}
                         </div>
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center justify-between border border-slate-100 rounded-xl p-2 bg-slate-50/30">
                             <div className="flex items-center gap-2 min-w-0">
-                                <UserCheck size={16} className="text-slate-400 shrink-0" />
+                                <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
+                                    <UserCheck size={14} />
+                                </div>
                                 <div className="min-w-0">
-                                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Attendant</p>
-                                    <p className={`text-sm font-semibold truncate ${bus.attendantName ? 'text-slate-800' : 'text-red-500'}`}>
+                                    <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Attendant</p>
+                                    <p className={`text-xs font-bold truncate ${bus.attendantName ? 'text-slate-800' : 'text-red-500'}`}>
                                         {bus.attendantName || 'Not Assigned'}
                                     </p>
                                 </div>
                             </div>
-                            {!bus.attendantName && (
-                                <Link to="/buses" className="text-[10px] font-bold text-blue-600 hover:underline whitespace-nowrap">
+                            {!bus.attendantName ? (
+                                <Link to="/buses" className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-blue-600 hover:bg-slate-50 shadow-sm whitespace-nowrap">
                                     + Assign
                                 </Link>
+                            ) : (
+                                <span className="text-[9px] text-slate-400 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">Assigned</span>
                             )}
                         </div>
                     </div>
@@ -559,69 +581,110 @@ const BusDetails = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <StatCard title="Live Status">
-                    <div className="flex items-center gap-3">
+                <StatCard title="Live Status" className="relative overflow-hidden">
+                    <div className="flex items-center gap-2">
                         {occupancyMode === 'live' ? (
                             <>
-                                <span className="relative flex h-3 w-3">
+                                <span className="relative flex h-2 w-2">
                                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                                 </span>
                                 <div>
-                                    <p className="text-sm font-black text-emerald-700 uppercase tracking-wide">Live</p>
-                                    <p className="text-xs text-slate-500">Bus is active and running.</p>
+                                    <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Live</p>
+                                    <p className="text-[10px] text-slate-400 font-semibold">Bus is active and running.</p>
                                 </div>
                             </>
                         ) : (
                             <div>
-                                <p className="text-sm font-black text-blue-700 uppercase tracking-wide">Academic Year</p>
-                                <p className="text-xs text-slate-500">Showing {academicYear} occupancy.</p>
+                                <p className="text-xs font-bold text-blue-700 uppercase tracking-wide">Academic Year</p>
+                                <p className="text-[10px] text-slate-400 font-semibold">Showing {academicYear} occupancy.</p>
                             </div>
                         )}
                     </div>
-                    <div className="mt-4 inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                    <div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
                         <button
                             type="button"
                             onClick={() => setOccupancyMode('live')}
-                            className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-colors ${occupancyMode === 'live' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:bg-white'}`}
+                            className={`px-3 py-1 rounded-md text-[9px] font-bold uppercase tracking-wide transition-colors ${occupancyMode === 'live' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
                         >
                             Live
                         </button>
                         <button
                             type="button"
                             onClick={() => setOccupancyMode('academicYear')}
-                            className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-colors ${occupancyMode === 'academicYear' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-white'}`}
+                            className={`px-3 py-1 rounded-md text-[9px] font-bold uppercase tracking-wide transition-colors ${occupancyMode === 'academicYear' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
                         >
                             AY
                         </button>
                     </div>
+
+                    {/* SVG Skyline + Bus vector illustration */}
+                    <div className="absolute right-0 bottom-0 pointer-events-none opacity-30 select-none overflow-hidden h-14 w-36">
+                        <svg className="w-full h-full text-slate-200" viewBox="0 0 200 100" fill="currentColor">
+                            <rect x="10" y="50" width="15" height="50" />
+                            <rect x="30" y="30" width="20" height="70" />
+                            <rect x="55" y="40" width="18" height="60" />
+                            <rect x="78" y="20" width="22" height="80" />
+                            <rect x="105" y="45" width="15" height="55" />
+                            <rect x="125" y="35" width="25" height="65" />
+                        </svg>
+                        <div className="absolute bottom-0 right-1 text-blue-500">
+                            <svg className="w-14 h-7" viewBox="0 0 80 40" fill="currentColor">
+                                <rect x="5" y="10" width="70" height="20" rx="3" />
+                                <path d="M 65,10 H 75 V 20 H 65 Z" fill="white" opacity="0.8" />
+                                <rect x="10" y="13" width="8" height="6" rx="1" fill="white" opacity="0.8" />
+                                <rect x="21" y="13" width="8" height="6" rx="1" fill="white" opacity="0.8" />
+                                <rect x="32" y="13" width="8" height="6" rx="1" fill="white" opacity="0.8" />
+                                <rect x="43" y="13" width="8" height="6" rx="1" fill="white" opacity="0.8" />
+                                <rect x="54" y="13" width="8" height="6" rx="1" fill="white" opacity="0.8" />
+                                <circle cx="20" cy="30" r="5" fill="#334155" />
+                                <circle cx="20" cy="30" r="2" fill="#cbd5e1" />
+                                <circle cx="60" cy="30" r="5" fill="#334155" />
+                                <circle cx="60" cy="30" r="2" fill="#cbd5e1" />
+                            </svg>
+                        </div>
+                    </div>
                 </StatCard>
 
                 <StatCard title="Academic Year">
-                    <select
-                        value={academicYear}
-                        onChange={(e) => setAcademicYear(e.target.value)}
-                        disabled={occupancyMode === 'live'}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                    >
-                        {academicYearOptions.map((year) => (
-                            <option key={year} value={year}>{year}</option>
-                        ))}
-                    </select>
-                    <p className="text-xs text-slate-500 mt-3">
+                    <div className="relative">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 pointer-events-none" size={14} />
+                        <select
+                            value={academicYear}
+                            onChange={(e) => setAcademicYear(e.target.value)}
+                            disabled={occupancyMode === 'live'}
+                            className="w-full rounded-xl border border-slate-200 pl-8 pr-3 py-2 text-xs font-semibold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 appearance-none"
+                        >
+                            {academicYearOptions.map((year) => (
+                                <option key={year} value={year}>{year}</option>
+                            ))}
+                        </select>
+                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-500 w-0 h-0" />
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-bold mt-3">
                         {occupancyMode === 'live' ? 'Switch to AY mode to filter by academic year.' : `Passengers for ${academicYear}.`}
                     </p>
                 </StatCard>
 
                 <StatCard title="Passenger Mix">
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-center">
-                            <p className="text-2xl font-black text-blue-700">{studentCount}</p>
-                            <p className="text-[10px] font-bold uppercase tracking-wide text-blue-600 mt-1">Students</p>
+                    <div className="flex flex-col justify-center h-full gap-3 py-0.5">
+                        <div>
+                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-700 mb-1">
+                                <span>{studentCount} STUDENTS</span>
+                                <span>{passengers.length > 0 ? Math.round((studentCount / passengers.length) * 100) : 0}%</span>
+                            </div>
+                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                <div className="bg-blue-600 h-full rounded-full" style={{ width: `${passengers.length > 0 ? (studentCount / passengers.length) * 100 : 0}%` }}></div>
+                            </div>
                         </div>
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center">
-                            <p className="text-2xl font-black text-slate-800">{employeeCount}</p>
-                            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mt-1">Staff</p>
+                        <div>
+                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-700 mb-1">
+                                <span>{employeeCount} STAFF</span>
+                                <span>{passengers.length > 0 ? Math.round((employeeCount / passengers.length) * 100) : 0}%</span>
+                            </div>
+                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                <div className="bg-slate-300 h-full rounded-full" style={{ width: `${passengers.length > 0 ? (employeeCount / passengers.length) * 100 : 0}%` }}></div>
+                            </div>
                         </div>
                     </div>
                 </StatCard>
@@ -667,50 +730,48 @@ const BusDetails = () => {
 
                 {activeTab === 'passengers' ? (
                     <>
-                        <div className="p-5 border-b border-slate-100 space-y-4">
-                            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                                <h2 className="text-base font-bold text-slate-800 uppercase tracking-wide">
-                                    Passenger List ({filteredPassengers.length})
-                                </h2>
-                                {route && (
-                                    <button
-                                        type="button"
-                                        onClick={openAssignModal}
-                                        className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 w-fit"
-                                    >
-                                        Assign Passengers
-                                    </button>
-                                )}
+                        <div className="flex items-center justify-between p-3.5 border-b border-slate-100">
+                            <h2 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                                Passenger List ({filteredPassengers.length})
+                            </h2>
+                            {route && (
+                                <button
+                                    type="button"
+                                    onClick={openAssignModal}
+                                    className="inline-flex items-center text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-700 shadow-sm transition-all border-none"
+                                >
+                                    Assign Passengers
+                                </button>
+                            )}
+                        </div>
+                        <div className="p-3 border-b border-slate-100 flex flex-col md:flex-row gap-2 items-center">
+                            <div className="relative flex-1 w-full">
+                                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    placeholder="Search by name, ID number..."
+                                    className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                                />
                             </div>
-                            <div className="flex flex-col xl:flex-row gap-3">
-                                <div className="relative flex-1 min-w-[200px]">
-                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                    <input
-                                        type="text"
-                                        value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                        placeholder="Search by name..."
-                                        className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-1">
-                                    <select value={filterCourse} onChange={(e) => setFilterCourse(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
-                                        <option value="">Course</option>
-                                        {courseOptions.map((course) => <option key={course} value={course}>{course}</option>)}
-                                    </select>
-                                    <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
-                                        <option value="">Year</option>
-                                        {yearOptions.map((year) => <option key={year} value={year}>{formatYearLabel(year)}</option>)}
-                                    </select>
-                                    <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
-                                        <option value="">Stage</option>
-                                        {stageOptions.map((stage) => <option key={stage} value={stage}>{stage}</option>)}
-                                    </select>
-                                    <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
-                                        <option value="">Type</option>
-                                        {typeOptions.map((type) => <option key={type} value={type}>{type}</option>)}
-                                    </select>
-                                </div>
+                            <div className="flex flex-wrap gap-1.5 w-full md:w-auto">
+                                <select value={filterCourse} onChange={(e) => setFilterCourse(e.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 font-semibold outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                                    <option value="">Course</option>
+                                    {courseOptions.map((course) => <option key={course} value={course}>{course}</option>)}
+                                </select>
+                                <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 font-semibold outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                                    <option value="">Year</option>
+                                    {yearOptions.map((year) => <option key={year} value={year}>{formatYearLabel(year)}</option>)}
+                                </select>
+                                <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 font-semibold outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                                    <option value="">Stage</option>
+                                    {stageOptions.map((stage) => <option key={stage} value={stage}>{stage}</option>)}
+                                </select>
+                                <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 font-semibold outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                                    <option value="">Type</option>
+                                    {typeOptions.map((type) => <option key={type} value={type}>{type}</option>)}
+                                </select>
                             </div>
                         </div>
 
@@ -731,71 +792,71 @@ const BusDetails = () => {
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left border-collapse min-w-[980px]">
                                     <thead>
-                                        <tr className="bg-slate-50 border-b border-slate-200 text-[11px] uppercase text-slate-500 font-bold tracking-wider">
-                                            <th className="px-4 py-3 w-16">Seat No</th>
-                                            <th className="px-4 py-3">ID Number</th>
-                                            <th className="px-4 py-3">Name</th>
-                                            <th className="px-4 py-3">Type</th>
-                                            <th className="px-4 py-3">Course</th>
-                                            <th className="px-4 py-3">Year</th>
-                                            <th className="px-4 py-3">Stage</th>
-                                            <th className="px-4 py-3">Fare (₹)</th>
-                                            <th className="px-4 py-3 text-center">Admit Card</th>
-                                            <th className="px-4 py-3">Status</th>
-                                            <th className="px-4 py-3 text-center">Action</th>
+                                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                            <th className="px-3 py-2 w-16">Seat No</th>
+                                            <th className="px-3 py-2">ID Number</th>
+                                            <th className="px-3 py-2">Name</th>
+                                            <th className="px-3 py-2">Type</th>
+                                            <th className="px-3 py-2">Course</th>
+                                            <th className="px-3 py-2">Year</th>
+                                            <th className="px-3 py-2">Stage</th>
+                                            <th className="px-3 py-2">Fare (₹)</th>
+                                            <th className="px-3 py-2 text-center">Admit Card</th>
+                                            <th className="px-3 py-2">Status</th>
+                                            <th className="px-3 py-2 text-center">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                         {filteredPassengers.map((passenger, index) => (
                                             <tr key={passenger.id} className={`hover:bg-slate-50/80 ${passenger.is_expired ? 'opacity-70' : ''}`}>
-                                                <td className="px-4 py-3 text-sm font-semibold text-slate-500">{String(index + 1).padStart(2, '0')}</td>
-                                                <td className="px-4 py-3 text-sm font-medium text-slate-700">{passenger.admission_number || passenger.emp_no || '—'}</td>
-                                                <td className="px-4 py-3 text-sm font-semibold text-slate-900">{passenger.student_name || passenger.employee_name}</td>
-                                                <td className="px-4 py-3">
-                                                    <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${passenger.user_type === 'employee' ? 'bg-slate-100 text-slate-700' : 'bg-blue-50 text-blue-700'}`}>
+                                                <td className="px-3 py-2 text-xs font-semibold text-slate-450">{String(index + 1).padStart(2, '0')}</td>
+                                                <td className="px-3 py-2 text-xs font-medium text-slate-700">{passenger.admission_number || passenger.emp_no || '—'}</td>
+                                                <td className="px-3 py-2 text-xs font-semibold text-slate-900">{passenger.student_name || passenger.employee_name}</td>
+                                                <td className="px-3 py-2">
+                                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${passenger.user_type === 'employee' ? 'bg-slate-50 text-slate-600 border-slate-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
                                                         {passenger.user_type || 'student'}
                                                     </span>
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-700">
+                                                <td className="px-3 py-2 text-xs text-slate-700">
                                                     {passenger.user_type === 'employee' ? 'Employee' : (
                                                         <>
                                                             {passenger.course || '—'}
-                                                            {passenger.branch ? <span className="block text-[11px] text-slate-500">{passenger.branch}</span> : null}
+                                                            {passenger.branch ? <span className="block text-[10px] text-slate-500">{passenger.branch}</span> : null}
                                                         </>
                                                     )}
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-700">
+                                                <td className="px-3 py-2 text-xs text-slate-700">
                                                     {passenger.user_type === 'employee' ? '—' : formatYearLabel(passenger.year_of_study)}
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-700">{passenger.stage_name || '—'}</td>
-                                                <td className="px-4 py-3">
+                                                <td className="px-3 py-2 text-xs text-slate-700">{passenger.stage_name || '—'}</td>
+                                                <td className="px-3 py-2">
                                                     <FareDisplay passenger={passenger} compact />
                                                 </td>
-                                                <td className="px-4 py-3 text-center">
+                                                <td className="px-3 py-2 text-center">
                                                     <button
                                                         type="button"
                                                         disabled={fetchingPass}
                                                         onClick={() => handlePrintAdmitCardClick(passenger)}
-                                                        className="inline-flex items-center justify-center p-2 rounded-lg text-blue-700 bg-blue-50 hover:bg-blue-100 transition-all disabled:opacity-50"
+                                                        className="inline-flex items-center justify-center p-1 rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-100 transition-all disabled:opacity-50"
                                                         title="Print Admit Card"
                                                     >
-                                                        <FileText size={16} />
+                                                        <FileText size={14} />
                                                     </button>
                                                 </td>
-                                                <td className="px-4 py-3">
-                                                    <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${passenger.is_expired ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                                <td className="px-3 py-2">
+                                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${passenger.is_expired ? 'bg-red-50 text-red-700 border-red-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
                                                         {passenger.is_expired ? 'Expired' : 'Boarded'}
                                                     </span>
                                                 </td>
-                                                <td className="px-4 py-3 text-center">
+                                                <td className="px-3 py-2 text-center">
                                                     <button
                                                         type="button"
                                                         disabled={fetchingPass}
                                                         onClick={() => handlePrintAdmitCardClick(passenger)}
-                                                        className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                                        className="p-1 rounded-md text-slate-550 hover:bg-slate-100 hover:text-slate-700"
                                                         title="Actions"
                                                     >
-                                                        <MoreHorizontal size={16} />
+                                                        <MoreHorizontal size={14} />
                                                     </button>
                                                 </td>
                                             </tr>

@@ -18,7 +18,9 @@ import {
     X,
     History,
     AlertTriangle,
-    Truck
+    Truck,
+    ChevronLeft,
+    ChevronRight
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -786,25 +788,67 @@ const BusManagement = () => {
         }
     };
 
+    const getPaginatedData = (dataArray) => {
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        return dataArray.slice(startIndex, startIndex + itemsPerPage);
+    };
+
+    const renderPagination = (totalItems) => {
+        const totalPages = Math.ceil(totalItems / itemsPerPage);
+        if (totalPages <= 1) return null;
+        return (
+            <div className="flex items-center justify-between border-t border-slate-100 bg-white px-4 py-3 sm:px-6 rounded-b-xl mt-4">
+                <div className="flex flex-1 justify-between sm:hidden">
+                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="relative inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Previous</button>
+                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="relative ml-3 inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Next</button>
+                </div>
+                <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+                    <div>
+                        <p className="text-sm text-slate-700">
+                            Showing <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="font-medium">{Math.min(currentPage * itemsPerPage, totalItems)}</span> of <span className="font-medium">{totalItems}</span> results
+                        </p>
+                    </div>
+                    <div>
+                        <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="relative inline-flex items-center rounded-l-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50">
+                                <span className="sr-only">Previous</span>
+                                <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+                            </button>
+                            {[...Array(totalPages)].map((_, i) => (
+                                <button key={i + 1} onClick={() => setCurrentPage(i + 1)} className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold ${currentPage === i + 1 ? 'z-10 bg-blue-600 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600' : 'text-slate-900 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:z-20 focus:outline-offset-0'}`}>
+                                    {i + 1}
+                                </button>
+                            ))}
+                            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="relative inline-flex items-center rounded-r-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50">
+                                <span className="sr-only">Next</span>
+                                <ChevronRight className="h-5 w-5" aria-hidden="true" />
+                            </button>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <Layout>
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
                 <div>
-                    <h2 className="text-3xl font-bold text-slate-800 tracking-tight">
+                    <h2 className="text-xl font-bold text-slate-800 tracking-tight">
                         {activeTab === TABS.otherVehicles ? 'Vehicle Management' : 'Bus Management'}
                     </h2>
-                    <p className="text-slate-600 mt-1">
+                    <p className="text-slate-500 text-xs mt-0.5">
                         {activeTab === TABS.otherVehicles ? 'Manage other vehicles in the fleet and their taxes.' : 'Manage buses, routes, and staff assignments.'}
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                     {(activeTab === TABS.buses || activeTab === TABS.otherVehicles || activeTab === TABS.mapping || activeTab === TABS.staffMapping) && allowedCampuses.length > 1 && (
-                        <div>
-                            <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">Campus</label>
+                        <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
+                            <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Campus</span>
                             <select
                                 value={selectedCampusFilter}
                                 onChange={(e) => setSelectedCampusFilter(e.target.value)}
-                                className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 min-w-[150px]"
+                                className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer outline-none"
                             >
                                 <option value="">All Campuses</option>
                                 {allowedCampuses.map((campus) => (
@@ -813,90 +857,90 @@ const BusManagement = () => {
                             </select>
                         </div>
                     )}
-                    <div className="flex gap-2 self-end lg:self-auto">
+                    <div className="flex gap-2">
                         {activeTab === TABS.otherVehicles ? (
                             <button
                                 onClick={() => { setIsOtherVehicleMode(true); setFormData(f => ({ ...f, type: 'Car' })); setIsModalOpen(true); }}
-                                className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
+                                className="bg-blue-900 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group"
                             >
-                                <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
+                                <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
                                 Add New Vehicle
                             </button>
                         ) : (
                             <button
                                 onClick={() => { setIsOtherVehicleMode(false); setIsModalOpen(true); }}
-                                className="bg-blue-900 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
+                                className="bg-blue-900 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group"
                             >
-                                <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
+                                <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
                                 Add New Bus
                             </button>
                         )}
                         <button
                             onClick={() => handleOpenTaxHeaderModal()}
-                            className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center group"
+                            className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group"
                         >
-                            <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={20} />
+                            <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
                             Add Tax Header
                         </button>
                     </div>
                 </div>
             </div>
 
-            <div className="flex gap-2 mb-6 border-b border-gray-200 overflow-x-auto">
+            <div className="flex gap-1.5 mb-4 border-b border-gray-200 overflow-x-auto no-scrollbar">
                 <button
                     type="button"
                     onClick={() => setActiveTab(TABS.buses)}
-                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.buses ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                    className={`px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.buses ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
                 >
-                    <Bus size={18} className="mr-2" />
+                    <Bus size={14} className="mr-1.5" />
                     Buses ({buses.length})
                 </button>
                 <button
                     type="button"
                     onClick={() => setActiveTab(TABS.otherVehicles)}
-                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.otherVehicles ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                    className={`px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.otherVehicles ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
                 >
-                    <Truck size={18} className="mr-2" />
+                    <Truck size={14} className="mr-1.5" />
                     Other Vehicles ({otherVehicles.length})
                 </button>
                 <button
                     type="button"
                     onClick={() => setActiveTab(TABS.mapping)}
-                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.mapping ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                    className={`px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.mapping ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
                 >
-                    <MapPin size={18} className="mr-2" />
+                    <MapPin size={14} className="mr-1.5" />
                     Bus–Route mapping
                 </button>
                 <button
                     type="button"
                     onClick={() => setActiveTab(TABS.staffMapping)}
-                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.staffMapping ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                    className={`px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.staffMapping ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
                 >
-                    <UserCheck size={18} className="mr-2" />
+                    <UserCheck size={14} className="mr-1.5" />
                     Bus–Staff assignment
                 </button>
                 <button
                     type="button"
                     onClick={() => setActiveTab(TABS.staff)}
-                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.staff ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                    className={`px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.staff ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
                 >
-                    <Users size={18} className="mr-2" />
+                    <Users size={14} className="mr-1.5" />
                     Staff directory
                 </button>
                 <button
                     type="button"
                     onClick={() => setActiveTab(TABS.taxHeaders)}
-                    className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.taxHeaders ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
+                    className={`px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors flex items-center whitespace-nowrap ${activeTab === TABS.taxHeaders ? 'bg-white border border-b-0 border-gray-200 text-blue-700 shadow-sm -mb-px' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
                 >
                     Tax Headers
                 </button>
             </div>
 
             {activeTab === TABS.mapping && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
-                    <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-                        <h3 className="font-semibold text-slate-800">Assign each bus to a route</h3>
-                        <p className="text-sm text-slate-500 mt-0.5">Select a route per bus, set exit and assignment dates when changing, then click Save.</p>
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                    <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/50">
+                        <h3 className="text-sm font-semibold text-slate-800">Assign each bus to a route</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">Select a route per bus, set exit and assignment dates when changing, then click Save.</p>
                     </div>
                     {loading ? (
                         <div className="py-12">
@@ -910,15 +954,15 @@ const BusManagement = () => {
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
                                 <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
-                                        <th className="p-4 w-56">Bus Details</th>
-                                        <th className="p-4">Capacity</th>
-                                        <th className="p-4">Assigned Route</th>
-                                        <th className="p-4 w-32">Action</th>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                        <th className="px-3 py-2 w-56">Bus Details</th>
+                                        <th className="px-3 py-2">Capacity</th>
+                                        <th className="px-3 py-2">Assigned Route</th>
+                                        <th className="px-3 py-2 w-32">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {filteredBuses.map((bus) => {
+                                    {getPaginatedData(filteredBuses).map((bus) => {
                                         const draft = routeDrafts[bus._id] || buildRouteDraft(bus);
                                         const routeChanged = hasRouteDraftChanges(bus);
                                         const previousRouteId = bus.assignedRouteId || '';
@@ -926,19 +970,19 @@ const BusManagement = () => {
                                         return (
                                             <React.Fragment key={bus._id}>
                                                 <tr className="hover:bg-blue-50/30 transition-colors">
-                                                    <td className="p-4">
+                                                    <td className="px-3 py-2">
                                                         <div>
                                                             <p className="font-bold text-slate-800">{bus.busNumber}</p>
                                                             <p className="text-xs text-slate-500">{bus.type}</p>
                                                         </div>
                                                     </td>
-                                                    <td className="p-4 text-slate-600 font-medium">{bus.capacity}</td>
-                                                    <td className="p-4">
+                                                    <td className="px-3 py-2 text-slate-600 font-medium text-xs">{bus.capacity}</td>
+                                                    <td className="px-3 py-2">
                                                         <select
                                                             value={draft.routeId}
                                                             onChange={(e) => handleRouteDraftChange(bus._id, e.target.value)}
                                                             disabled={assigningBusId === bus._id}
-                                                            className="w-full max-w-xs text-sm rounded-lg border border-slate-300 py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white font-medium text-slate-700 transition-all font-sans"
+                                                            className="w-full max-w-xs text-xs rounded-md border border-slate-200 py-1.5 px-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white font-medium text-slate-700 transition-all font-sans"
                                                         >
                                                             <option value="">— Unassigned —</option>
                                                             {routes.map((r) => (
@@ -946,12 +990,12 @@ const BusManagement = () => {
                                                             ))}
                                                         </select>
                                                     </td>
-                                                    <td className="p-4">
+                                                    <td className="px-3 py-2">
                                                         <button
                                                             type="button"
                                                             onClick={() => handleRouteSaveClick(bus)}
                                                             disabled={assigningBusId === bus._id || !routeChanged}
-                                                            className="px-4 py-2 rounded-lg text-sm font-bold bg-blue-900 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap"
+                                                            className="px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-900 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap"
                                                         >
                                                             {assigningBusId === bus._id ? 'Saving…' : 'Save'}
                                                         </button>
@@ -1007,6 +1051,7 @@ const BusManagement = () => {
                                     })}
                                 </tbody>
                             </table>
+                            {renderPagination(filteredBuses.length)}
                         </div>
                     )
                     }
@@ -1014,10 +1059,10 @@ const BusManagement = () => {
             )}
 
             {activeTab === TABS.staffMapping && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
-                    <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-                        <h3 className="font-semibold text-slate-800">Assign driver and cleaner to each bus</h3>
-                        <p className="text-sm text-slate-500 mt-0.5">Select driver and cleaner per bus. Set previous exit date and new entry date when changing, then click Save.</p>
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                    <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/50">
+                        <h3 className="text-sm font-semibold text-slate-800">Assign driver and cleaner to each bus</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">Select driver and cleaner per bus. Set previous exit date and new entry date when changing, then click Save.</p>
                     </div>
                     {(driversLoading || cleanersLoading) ? (
                         <div className="py-12">
@@ -1031,15 +1076,15 @@ const BusManagement = () => {
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
                                 <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
-                                        <th className="p-4 w-56">Bus Details</th>
-                                        <th className="p-4">Assigned Driver</th>
-                                        <th className="p-4">Assigned Cleaner</th>
-                                        <th className="p-4 w-32">Action</th>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                        <th className="px-3 py-2 w-56">Bus Details</th>
+                                        <th className="px-3 py-2">Assigned Driver</th>
+                                        <th className="px-3 py-2">Assigned Cleaner</th>
+                                        <th className="px-3 py-2 w-32">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {filteredBuses.map((bus) => {
+                                    {getPaginatedData(filteredBuses).map((bus) => {
                                         const draft = staffDrafts[bus._id] || buildStaffDraft(bus);
                                         const hasChanges = hasStaffDraftChanges(bus);
                                         const driverChanged = normalizeStaffName(draft.driverName) !== normalizeStaffName(bus.driverName);
@@ -1048,16 +1093,16 @@ const BusManagement = () => {
                                         return (
                                             <React.Fragment key={bus._id}>
                                                 <tr className="hover:bg-blue-50/30 transition-colors">
-                                                    <td className="p-4">
+                                                    <td className="px-3 py-2">
                                                         <p className="font-bold text-slate-800">{bus.busNumber}</p>
                                                         <p className="text-xs text-slate-500">{bus.vehicleModel || bus.type}</p>
                                                     </td>
-                                                    <td className="p-4">
+                                                    <td className="px-3 py-2">
                                                         <select
                                                             value={draft.driverName}
                                                             onChange={(e) => handleStaffDraftChange(bus._id, 'driverName', e.target.value)}
                                                             disabled={assigningStaffBusId === bus._id}
-                                                            className="w-full max-w-xs text-sm rounded-lg border border-slate-300 py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white font-medium text-slate-700"
+                                                            className="w-full max-w-xs text-xs rounded-md border border-slate-200 py-1.5 px-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white font-medium text-slate-700"
                                                         >
                                                             <option value="">— Unassigned —</option>
                                                             {withCurrentStaffOption(drivers, draft.driverName).map((d) => (
@@ -1065,12 +1110,12 @@ const BusManagement = () => {
                                                             ))}
                                                         </select>
                                                     </td>
-                                                    <td className="p-4">
+                                                    <td className="px-3 py-2">
                                                         <select
                                                             value={draft.attendantName}
                                                             onChange={(e) => handleStaffDraftChange(bus._id, 'attendantName', e.target.value)}
                                                             disabled={assigningStaffBusId === bus._id}
-                                                            className="w-full max-w-xs text-sm rounded-lg border border-slate-300 py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white font-medium text-slate-700"
+                                                            className="w-full max-w-xs text-xs rounded-md border border-slate-200 py-1.5 px-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white font-medium text-slate-700"
                                                         >
                                                             <option value="">— Unassigned —</option>
                                                             {withCurrentStaffOption(cleaners, draft.attendantName).map((c) => (
@@ -1078,12 +1123,12 @@ const BusManagement = () => {
                                                             ))}
                                                         </select>
                                                     </td>
-                                                    <td className="p-4">
+                                                    <td className="px-3 py-2">
                                                         <button
                                                             type="button"
                                                             onClick={() => handleStaffSaveClick(bus)}
                                                             disabled={assigningStaffBusId === bus._id || !hasChanges}
-                                                            className="px-4 py-2 rounded-lg text-sm font-bold bg-blue-900 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap"
+                                                            className="px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-900 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap"
                                                         >
                                                             {assigningStaffBusId === bus._id ? 'Saving…' : 'Save'}
                                                         </button>
@@ -1190,28 +1235,29 @@ const BusManagement = () => {
                                     })}
                                 </tbody>
                             </table>
+                            {renderPagination(filteredBuses.length)}
                         </div>
                     )}
                 </div>
             )}
 
             {activeTab === TABS.staff && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
-                    <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                    <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                         <div>
-                            <h3 className="font-semibold text-slate-800">Staff directory</h3>
-                            <p className="text-sm text-slate-500 mt-0.5">List of all staff members from HRMS.</p>
+                            <h3 className="text-sm font-semibold text-slate-800">Staff directory</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">List of all staff members from HRMS.</p>
                         </div>
-                        <div className="bg-white p-1 rounded-lg border border-slate-200 flex items-center shadow-sm">
+                        <div className="bg-white p-0.5 rounded-lg border border-slate-200 flex items-center shadow-sm">
                             <button
                                 onClick={() => setStaffSubTab('drivers')}
-                                className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${staffSubTab === 'drivers' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                                className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${staffSubTab === 'drivers' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                             >
                                 DRIVERS ({drivers.length})
                             </button>
                             <button
                                 onClick={() => setStaffSubTab('cleaners')}
-                                className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${staffSubTab === 'cleaners' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                                className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${staffSubTab === 'cleaners' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                             >
                                 CLEANERS ({cleaners.length})
                             </button>
@@ -1227,17 +1273,17 @@ const BusManagement = () => {
                         <div className="overflow-x-auto w-full">
                             <table className="w-full text-left border-collapse">
                                 <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
-                                        <th className="px-4 py-3">Employee Details</th>
-                                        <th className="px-4 py-3">Employee ID</th>
-                                        <th className="px-4 py-3">Phone Number</th>
-                                        <th className="px-4 py-3">Status</th>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                        <th className="px-3 py-2">Employee Details</th>
+                                        <th className="px-3 py-2">Employee ID</th>
+                                        <th className="px-3 py-2">Phone Number</th>
+                                        <th className="px-3 py-2">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {(staffSubTab === 'drivers' ? drivers : cleaners).map((staff) => (
+                                    {getPaginatedData(staffSubTab === 'drivers' ? drivers : cleaners).map((staff) => (
                                         <tr key={staff._id} className="hover:bg-blue-50/30 transition-colors">
-                                            <td className="px-4 py-3">
+                                            <td className="px-3 py-2">
                                                 <div className="flex items-center">
                                                     <div className={`p-1.5 rounded-lg mr-3 ${staffSubTab === 'drivers' ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600'}`}>
                                                         <User size={18} />
@@ -1248,9 +1294,9 @@ const BusManagement = () => {
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="px-4 py-3 text-sm text-slate-600 font-medium">{staff.emp_no}</td>
-                                            <td className="px-4 py-3 text-sm text-slate-600">{staff.phone_number || <span className="text-slate-400 italic text-xs">--</span>}</td>
-                                            <td className="px-4 py-3">
+                                            <td className="px-3 py-2 text-xs text-slate-600 font-medium">{staff.emp_no}</td>
+                                            <td className="px-3 py-2 text-xs text-slate-600">{staff.phone_number || <span className="text-slate-400 italic text-xs">--</span>}</td>
+                                            <td className="px-3 py-2">
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex w-fit items-center ${staff.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
                                                     <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${staff.is_active ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
                                                     {staff.is_active ? 'Active' : 'Inactive'}
@@ -1260,16 +1306,17 @@ const BusManagement = () => {
                                     ))}
                                 </tbody>
                             </table>
+                            {renderPagination((staffSubTab === 'drivers' ? drivers : cleaners).length)}
                         </div>
                     )}
                 </div>
             )}
 
             {activeTab === TABS.taxHeaders && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-8">
-                    <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-                        <h3 className="font-semibold text-slate-800">Tax Headers Management</h3>
-                        <p className="text-sm text-slate-500 mt-0.5">Create and manage reusable tax headers that can be applied to buses.</p>
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                    <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/50">
+                        <h3 className="text-sm font-semibold text-slate-800">Tax Headers Management</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">Create and manage reusable tax headers that can be applied to buses.</p>
                     </div>
                     {taxHeadersLoading ? (
                         <div className="py-12">
@@ -1283,33 +1330,33 @@ const BusManagement = () => {
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
                                 <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
-                                        <th className="px-4 py-3">Tax Name</th>
-                                        <th className="px-4 py-3">Description</th>
-                                        <th className="px-4 py-3">Default Amount</th>
-                                        <th className="px-4 py-3">Status</th>
-                                        <th className="px-4 py-3 text-right">Actions</th>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                        <th className="px-3 py-2">Tax Name</th>
+                                        <th className="px-3 py-2">Description</th>
+                                        <th className="px-3 py-2">Default Amount</th>
+                                        <th className="px-3 py-2">Status</th>
+                                        <th className="px-3 py-2 text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {taxHeaders.map((header) => (
+                                {getPaginatedData(taxHeaders).map((header) => (
                                         <tr key={header._id} className="hover:bg-blue-50/30 transition-colors">
-                                            <td className="px-4 py-3">
+                                            <td className="px-3 py-2">
                                                 <p className="font-bold text-slate-800 text-sm">{header.taxName}</p>
                                             </td>
-                                            <td className="px-4 py-3 text-sm text-slate-600">
+                                            <td className="px-3 py-2 text-xs text-slate-600">
                                                 {header.description || <span className="text-slate-400 italic text-xs">--</span>}
                                             </td>
-                                            <td className="px-4 py-3 text-sm text-slate-600 font-medium">
+                                            <td className="px-3 py-2 text-xs text-slate-600 font-medium">
                                                 ₹{parseFloat(header.defaultAmount || 0).toFixed(2)}
                                             </td>
-                                            <td className="px-4 py-3">
+                                            <td className="px-3 py-2">
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex w-fit items-center ${header.isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
                                                     <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${header.isActive ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
                                                     {header.isActive ? 'Active' : 'Inactive'}
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-3 text-right">
+                                            <td className="px-3 py-2 text-right">
                                                 <div className="flex items-center justify-end gap-1">
                                                     <button
                                                         onClick={() => handleOpenTaxHeaderModal(header)}
@@ -1331,6 +1378,7 @@ const BusManagement = () => {
                                     ))}
                                 </tbody>
                             </table>
+                            {renderPagination(taxHeaders.length)}
                         </div>
                     )}
                 </div>
@@ -1371,26 +1419,26 @@ const BusManagement = () => {
                             <div className="overflow-x-auto w-full">
                                 <table className="w-full text-left border-collapse">
                                     <thead>
-                                        <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
-                                            <th className="px-4 py-3 w-56">Vehicle Details</th>
-                                            <th className="px-4 py-3">Model</th>
-                                            <th className="px-4 py-3">Reg. Date</th>
-                                            <th className="px-4 py-3">Capacity</th>
-                                            <th className="px-4 py-3">Driver</th>
-                                            <th className="px-4 py-3">Attendant</th>
-                                            <th className="px-4 py-3">Status</th>
-                                            <th className="px-4 py-3">Taxes Config</th>
-                                            <th className="px-4 py-3 text-right">Actions</th>
+                                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                            <th className="px-3 py-2 w-56">Vehicle Details</th>
+                                            <th className="px-3 py-2">Model</th>
+                                            <th className="px-3 py-2">Reg. Date</th>
+                                            <th className="px-3 py-2">Capacity</th>
+                                            <th className="px-3 py-2">Driver</th>
+                                            <th className="px-3 py-2">Attendant</th>
+                                            <th className="px-3 py-2">Status</th>
+                                            <th className="px-3 py-2">Taxes Config</th>
+                                            <th className="px-3 py-2 text-right">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                                                        {otherVehicles.filter(v => !selectedCampusFilter || campusIdsMatch(getCampusId(v.campus), selectedCampusFilter)).map((vehicle) => (
+                                        {getPaginatedData(otherVehicles.filter(v => !selectedCampusFilter || campusIdsMatch(getCampusId(v.campus), selectedCampusFilter))).map((vehicle) => (
                                             <tr
                                                 key={vehicle._id}
                                                 onClick={() => navigate(`/other-vehicles/${vehicle._id}`)}
                                                 className="hover:bg-blue-50/30 transition-colors cursor-pointer group"
                                             >
-                                                <td className="px-4 py-3">
+                                                <td className="px-3 py-2">
                                                     <div>
                                                         <p className="font-bold text-slate-800 text-sm">{vehicle.vehicleNumber}</p>
                                                         <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">{vehicle.type}</p>
@@ -1403,27 +1451,27 @@ const BusManagement = () => {
                                                         )}
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-600">
+                                                <td className="px-3 py-2 text-xs text-slate-600">
                                                     {vehicle.vehicleModel || <span className="text-slate-400 italic text-xs">--</span>}
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
+                                                <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">
                                                     {vehicle.registrationDate
                                                         ? new Date(vehicle.registrationDate).toLocaleDateString()
                                                         : <span className="text-slate-400 italic text-xs">--</span>}
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-600 font-medium">
+                                                <td className="px-3 py-2 text-xs text-slate-600 font-medium">
                                                     <div className="flex items-center">
                                                         <Armchair size={14} className="text-slate-400 mr-2" />
                                                         {vehicle.capacity}
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-600">
+                                                <td className="px-3 py-2 text-xs text-slate-600">
                                                     {vehicle.driverName || <span className="text-slate-400 italic text-xs">--</span>}
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-600">
+                                                <td className="px-3 py-2 text-xs text-slate-600">
                                                     {vehicle.attendantName || <span className="text-slate-400 italic text-xs">--</span>}
                                                 </td>
-                                                <td className="px-4 py-3">
+                                                <td className="px-3 py-2">
                                                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex w-fit items-center ${vehicle.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
                                                         vehicle.status === 'In Maintenance' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-red-50 text-red-700 border-red-100'
                                                         }`}>
@@ -1431,7 +1479,7 @@ const BusManagement = () => {
                                                         {vehicle.status}
                                                     </span>
                                                 </td>
-                                                <td className="px-4 py-3">
+                                                <td className="px-3 py-2">
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -1447,7 +1495,7 @@ const BusManagement = () => {
                                                         Taxes
                                                     </button>
                                                 </td>
-                                                <td className="px-4 py-3 text-right">
+                                                <td className="px-3 py-2 text-right">
                                                     <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                                         <button
                                                             onClick={(e) => {
@@ -1472,6 +1520,7 @@ const BusManagement = () => {
                                         ))}
                                     </tbody>
                                 </table>
+                                {renderPagination(otherVehicles.filter(v => !selectedCampusFilter || campusIdsMatch(getCampusId(v.campus), selectedCampusFilter)).length)}
                             </div>
                         </div>
                     )}
@@ -1513,27 +1562,27 @@ const BusManagement = () => {
                             <div className="overflow-x-auto w-full">
                                 <table className="w-full text-left border-collapse">
                                     <thead>
-                                        <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
-                                            <th className="px-4 py-3 w-56">Bus Details</th>
-                                            <th className="px-4 py-3">Model</th>
-                                            <th className="px-4 py-3">Reg. Date</th>
-                                            <th className="px-4 py-3">Capacity</th>
-                                            <th className="px-4 py-3">Driver</th>
-                                            <th className="px-4 py-3">Attendant</th>
-                                            <th className="px-4 py-3">Route</th>
-                                            <th className="px-4 py-3">Status</th>
-                                            <th className="px-4 py-3">Taxes Config</th>
-                                            <th className="px-4 py-3 text-right">Actions</th>
+                                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                            <th className="px-3 py-2 w-56">Bus Details</th>
+                                            <th className="px-3 py-2">Model</th>
+                                            <th className="px-3 py-2">Reg. Date</th>
+                                            <th className="px-3 py-2">Capacity</th>
+                                            <th className="px-3 py-2">Driver</th>
+                                            <th className="px-3 py-2">Attendant</th>
+                                            <th className="px-3 py-2">Route</th>
+                                            <th className="px-3 py-2">Status</th>
+                                            <th className="px-3 py-2">Taxes Config</th>
+                                            <th className="px-3 py-2 text-right">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {filteredBuses.map((bus) => (
+                                        {getPaginatedData(filteredBuses).map((bus) => (
                                             <tr
                                                 key={bus._id}
                                                 onClick={() => navigate(`/buses/${bus._id}`)}
                                                 className="hover:bg-blue-50/30 transition-colors cursor-pointer group"
                                             >
-                                                <td className="px-4 py-3">
+                                                <td className="px-3 py-2">
                                                     <div>
                                                         <p className="font-bold text-slate-800 text-sm">{bus.busNumber}</p>
                                                         <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">{bus.type}</p>
@@ -1546,27 +1595,27 @@ const BusManagement = () => {
                                                         )}
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-600">
+                                                <td className="px-3 py-2 text-xs text-slate-600">
                                                     {bus.vehicleModel || <span className="text-slate-400 italic text-xs">--</span>}
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
+                                                <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">
                                                     {bus.registrationDate
                                                         ? new Date(bus.registrationDate).toLocaleDateString()
                                                         : <span className="text-slate-400 italic text-xs">--</span>}
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-600 font-medium">
+                                                <td className="px-3 py-2 text-xs text-slate-600 font-medium">
                                                     <div className="flex items-center">
                                                         <Armchair size={14} className="text-slate-400 mr-2" />
                                                         {bus.capacity}
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-600">
+                                                <td className="px-3 py-2 text-xs text-slate-600">
                                                     {bus.driverName || <span className="text-slate-400 italic text-xs">--</span>}
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-600">
+                                                <td className="px-3 py-2 text-xs text-slate-600">
                                                     {bus.attendantName || <span className="text-slate-400 italic text-xs">--</span>}
                                                 </td>
-                                                <td className="px-4 py-3">
+                                                <td className="px-3 py-2">
                                                     {bus.assignedRouteId ? (
                                                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
                                                             <MapPin size={12} className="mr-1" />
@@ -1576,7 +1625,7 @@ const BusManagement = () => {
                                                         <span className="text-slate-400 italic text-xs">--</span>
                                                     )}
                                                 </td>
-                                                <td className="px-4 py-3">
+                                                <td className="px-3 py-2">
                                                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex w-fit items-center ${bus.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
                                                         bus.status === 'In Maintenance' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-red-50 text-red-700 border-red-100'
                                                         }`}>
@@ -1584,36 +1633,36 @@ const BusManagement = () => {
                                                         {bus.status}
                                                     </span>
                                                 </td>
-                                                <td className="px-4 py-3">
+                                                <td className="px-3 py-2">
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             handleOpenTaxesModal(bus);
                                                         }}
-                                                        className="px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-all flex items-center gap-1"
+                                                        className="px-2 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-md text-[10px] font-semibold hover:bg-purple-100 transition-all flex items-center gap-1"
                                                         title="Manage Taxes"
                                                     >
-                                                        <span className="bg-purple-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold">
+                                                        <span className="bg-purple-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-bold">
                                                             {(bus.taxes && bus.taxes.length) || 0}
                                                         </span>
                                                         Taxes
                                                     </button>
                                                 </td>
-                                                <td className="px-4 py-3 text-right">
+                                                <td className="px-3 py-2 text-right">
                                                     <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                                         <button
                                                             onClick={(e) => handleEdit(bus, e)}
-                                                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
+                                                            className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
                                                             title="Edit Bus"
                                                         >
-                                                            <Edit size={16} />
+                                                            <Edit size={14} />
                                                         </button>
                                                         <button
                                                             onClick={(e) => handleDelete(bus._id, e)}
-                                                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
+                                                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
                                                             title="Delete Bus"
                                                         >
-                                                            <Trash2 size={16} />
+                                                            <Trash2 size={14} />
                                                         </button>
                                                     </div>
                                                 </td>
@@ -1621,6 +1670,7 @@ const BusManagement = () => {
                                         ))}
                                     </tbody>
                                 </table>
+                                {renderPagination(filteredBuses.length)}
                             </div>
                         </div>
                     )}
