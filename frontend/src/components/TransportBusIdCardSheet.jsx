@@ -344,6 +344,7 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                     }
                     .id-card-half {
                         flex: 1 1 0;
+                        width: 0; /* force equal front/back halves even if photo is huge */
                         min-width: 0;
                         min-height: 0;
                         overflow: hidden;
@@ -511,6 +512,12 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                     }
                     .id-route-name-line {
                         font-weight: 500;
+                        max-width: 100%;
+                        overflow: hidden;
+                        display: -webkit-box;
+                        -webkit-line-clamp: 2;
+                        -webkit-box-orient: vertical;
+                        word-break: break-word;
                     }
                     .bus-id-page--5 .id-route-number {
                         font-size: 8.5pt;
@@ -530,20 +537,24 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                         vertical-align: middle;
                         text-align: center;
                         overflow: hidden;
+                        /* Prevent oversized photos from expanding the front half in print */
+                        height: 1px;
                     }
                     .id-photo-frame {
+                        position: relative;
                         width: 100%;
                         height: 100%;
+                        min-height: 18mm;
                         max-width: 100%;
                         max-height: 100%;
                         margin: 0;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
+                        display: block;
                         overflow: hidden;
                         box-sizing: border-box;
                     }
                     .id-photo {
+                        position: absolute;
+                        inset: 0;
                         width: 100%;
                         height: 100%;
                         max-width: 100%;
@@ -551,12 +562,12 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                         object-fit: cover;
                         object-position: center top;
                         display: block;
-                        transform: scale(1.1); /* Zoom photo slightly to make subject larger */
                     }
                     .id-photo-placeholder {
+                        position: absolute;
+                        inset: 0;
                         width: 100%;
                         height: 100%;
-                        max-height: 100%;
                         display: flex;
                         align-items: center;
                         justify-content: center;
@@ -590,13 +601,16 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                     .id-card-back {
                         height: 100%;
                         width: 100%;
+                        overflow: hidden;
                     }
                     .id-back-layout {
                         display: flex;
                         flex-direction: row;
                         align-items: stretch;
+                        justify-content: flex-start;
                         height: 100%;
                         width: 100%;
+                        max-width: 100%;
                         padding: 0.6mm;
                         margin: 0;
                         box-sizing: border-box;
@@ -606,6 +620,7 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                         flex: 0 0 25%;
                         width: 25%;
                         max-width: 25%;
+                        min-width: 0;
                         height: 100%;
                         display: flex;
                         align-items: center;
@@ -614,19 +629,21 @@ const TransportBusIdCardSheet = forwardRef(({ passengers = [], academicYear, car
                         padding: 1mm 1.2mm 1mm 0.8mm;
                         background: #fff;
                         border-right: 1px solid #000;
+                        overflow: hidden;
                     }
                     .id-back-qr-square,
                     .id-back-qr-image {
                         width: 100%;
                         height: auto;
                         max-width: 100%;
-                        max-height: 100%;
+                        max-height: calc(100% - 0.5mm);
                         aspect-ratio: 1 / 1;
                         border: 1px solid #000;
                         display: block;
                         box-sizing: border-box;
                         background: #fff;
                         object-fit: contain;
+                        flex-shrink: 1;
                     }
                     .id-back-qr-square {
                         display: flex;
