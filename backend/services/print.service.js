@@ -11,6 +11,7 @@ const Bus = require('../models/Bus');
 const OtherVehicle = require('../models/OtherVehicle');
 const Route = require('../models/Route');
 const InventoryAllocation = require('../models/InventoryAllocation');
+const MaintenanceBill = require('../models/MaintenanceBill');
 const Vendor = require('../models/Vendor');
 const { mysqlPool } = require('../config/db');
 const { resolveStudentPhoto } = require('../utils/studentPhoto');
@@ -437,13 +438,61 @@ const fetchPassengerReportData = async (data) => {
  */
 const fetchBillPrintData = async (data) => {
     const billNo = data.billNo || data.receiptId;
-    if (!billNo) {
+    const billId = data.billId || data._id;
+    if (!billNo && !billId) {
         const error = new Error('Missing billNo in data');
         error.statusCode = 400;
         throw error;
     }
 
-    // Find all inventory allocations that share this bill number
+    let maintenanceBill = null;
+    if (billId) {
+        maintenanceBill = await MaintenanceBill.findById(billId)
+            .populate('lines.itemId')
+            .populate('vendorId')
+            .populate('busId')
+            .lean();
+    }
+    if (!maintenanceBill && billNo) {
+        maintenanceBill = await MaintenanceBill.findOne({ billNo })
+            .sort({ updatedAt: -1 })
+            .populate('lines.itemId')
+            .populate('vendorId')
+            .populate('busId')
+            .lean();
+    }
+
+    if (maintenanceBill) {
+        const vendor = maintenanceBill.vendorId || null;
+        const vehicle = maintenanceBill.busId || null;
+        const items = (maintenanceBill.lines || []).map((line) => ({
+            ...line,
+            price: line.pricingMode === 'lumpSum'
+                ? (line.quantity > 0 ? line.amount / line.quantity : line.amount)
+                : line.unitPrice,
+            itemId: line.itemId
+        }));
+
+        return {
+            billData: {
+                ...maintenanceBill,
+                items,
+                date: maintenanceBill.date,
+                adminName: maintenanceBill.adminName || 'Admin',
+                subtotal: maintenanceBill.subtotal,
+                gstTotal: maintenanceBill.taxTotal,
+                taxTotal: maintenanceBill.taxTotal,
+                discountTotal: maintenanceBill.discountTotal,
+                totalAmount: maintenanceBill.grandTotal,
+                vendorId: vendor,
+                busId: vehicle
+            },
+            vendor,
+            bus: vehicle
+        };
+    }
+
+    // Legacy fallback: allocations sharing billNo
     const allocations = await InventoryAllocation.find({ billNo })
         .populate('itemId')
         .lean();
@@ -484,6 +533,8 @@ const fetchBillPrintData = async (data) => {
         billNo: first.billNo,
         date: first.createdAt || new Date(),
         adminName: first.adminName || 'Admin',
+        taxMode: 'lineLevel',
+        discountMode: 'none',
         subtotal: totals.subtotal,
         gstTotal: totals.gstTotal,
         totalAmount: totals.grandTotal,

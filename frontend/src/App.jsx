@@ -14,6 +14,7 @@ import UserManagement from './pages/UserManagement';
 import AdminRaiseRequest from './pages/AdminRaiseRequest';
 import Concessions from './pages/Concessions';
 import Inventory from './pages/Inventory';
+import RaiseBill from './pages/RaiseBill';
 import TransportVerify from './pages/TransportVerify';
 import './App.css';
 
@@ -37,6 +38,7 @@ function App() {
           <Route path="/raise-request" element={<ProtectedRoute><AdminRaiseRequest /></ProtectedRoute>} />
           <Route path="/concessions" element={<ProtectedRoute><Concessions /></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
+          <Route path="/inventory/raise-bill" element={<ProtectedRoute><RaiseBill /></ProtectedRoute>} />
         </Routes>
       </div>
     </Router>

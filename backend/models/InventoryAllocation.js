@@ -75,6 +75,29 @@ const inventoryAllocationSchema = new mongoose.Schema({
     billNo: {
         type: String,
         trim: true
+    },
+    maintenanceBillId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'MaintenanceBill',
+        default: null,
+        index: true
+    },
+    pricingMode: {
+        type: String,
+        enum: ['unitRate', 'lumpSum'],
+        default: 'unitRate'
+    },
+    amount: {
+        type: Number,
+        default: 0
+    },
+    discountAmount: {
+        type: Number,
+        default: 0
+    },
+    discountPercent: {
+        type: Number,
+        default: 0
     }
 }, {
     timestamps: true
