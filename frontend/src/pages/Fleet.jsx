@@ -338,26 +338,46 @@ const Fleet = () => {
 
             {!loading && list.length > 0 && (
                 <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Occupancy Mode</p>
-                        <p className="text-sm font-black text-slate-800 mt-0.5">
-                            {occupancyMode === 'live' ? 'Live' : academicYear}
-                        </p>
-                        {selectedCampusLabel && (
-                            <p className="text-[9px] font-semibold text-slate-500 mt-0.5 truncate">{selectedCampusLabel}</p>
-                        )}
+                    <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Occupancy Mode</p>
+                            <p className="text-sm font-black text-slate-800 leading-tight">
+                                {occupancyMode === 'live' ? 'Live' : academicYear}
+                            </p>
+                            {selectedCampusLabel && (
+                                <p className="text-[9px] font-semibold text-slate-500 truncate leading-none mt-0.5">{selectedCampusLabel}</p>
+                            )}
+                        </div>
+                        <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                            <Activity size={16} />
+                        </div>
                     </div>
-                    <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Capacity</p>
-                        <p className="text-sm font-black text-slate-800 mt-0.5">{totalCapacity}</p>
+                    <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Capacity</p>
+                            <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{totalCapacity}</p>
+                        </div>
+                        <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                            <Bus size={16} />
+                        </div>
                     </div>
-                    <div className="bg-white rounded-xl border border-emerald-200 p-3 shadow-sm bg-emerald-50/40">
-                        <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider">Seats Filled</p>
-                        <p className="text-sm font-black text-emerald-700 mt-0.5">{totalSeatsFilled}</p>
+                    <div className="bg-white rounded-xl border border-emerald-200 p-3 shadow-sm bg-emerald-50/40 flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider">Seats Filled</p>
+                            <p className="text-sm font-black text-emerald-700 leading-tight mt-0.5">{totalSeatsFilled}</p>
+                        </div>
+                        <div className="w-8 h-8 rounded-lg bg-emerald-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                            <Users size={16} />
+                        </div>
                     </div>
-                    <div className="bg-white rounded-xl border border-blue-200 p-3 shadow-sm bg-blue-50/40">
-                        <p className="text-[9px] font-bold text-blue-600 uppercase tracking-wider">Remaining · {fleetOccupancy}%</p>
-                        <p className="text-sm font-black text-blue-700 mt-0.5">{totalSeatsAvailable}</p>
+                    <div className="bg-white rounded-xl border border-blue-200 p-3 shadow-sm bg-blue-50/40 flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-[9px] font-bold text-blue-600 uppercase tracking-wider">Remaining · {fleetOccupancy}%</p>
+                            <p className="text-sm font-black text-blue-700 leading-tight mt-0.5">{totalSeatsAvailable}</p>
+                        </div>
+                        <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                            <Users size={16} />
+                        </div>
                     </div>
                 </div>
             )}

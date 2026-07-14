@@ -336,45 +336,45 @@ const UserManagement = () => {
 
     return (
         <Layout>
-            <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
                 <div>
-                    <h2 className="text-3xl font-bold text-gray-800 tracking-tight">User Management</h2>
-                    <p className="text-gray-500 mt-1">Manage system administration roles, page permissions, and campus/college-level data access restrictions.</p>
+                    <h2 className="text-xl font-bold text-slate-800 tracking-tight">User Management</h2>
+                    <p className="text-slate-500 text-xs mt-0.5">Manage system administration roles, page permissions, and campus/college-level data access restrictions.</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-3">
                     <button
                         type="button"
                         onClick={openAddAdminModal}
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-semibold text-sm shadow-sm transition-all"
+                        className="bg-blue-900 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group"
                     >
-                        <Plus size={18} />
+                        <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
                         Add Admin
                     </button>
                 </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                         <thead>
-                            <tr className="bg-slate-50 border-b border-slate-100 text-xs font-bold uppercase text-slate-500 tracking-wider">
-                                <th className="p-4">Employee</th>
-                                <th className="p-4">Campus Restrictions</th>
-                                <th className="p-4">Academic Restrictions</th>
-                                <th className="p-4">Status</th>
-                                <th className="p-4 text-right">Actions</th>
+                            <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                <th className="px-3 py-2">Employee</th>
+                                <th className="px-3 py-2">Campus Restrictions</th>
+                                <th className="px-3 py-2">Academic Restrictions</th>
+                                <th className="px-3 py-2">Status</th>
+                                <th className="px-3 py-2 text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                             {loading ? (
                                 <tr>
-                                    <td colSpan="5" className="p-12 text-center text-slate-400 font-medium">
+                                    <td colSpan="5" className="p-8 text-center text-slate-400 font-semibold text-xs animate-pulse">
                                         Loading system users...
                                     </td>
                                 </tr>
                             ) : users.length === 0 ? (
                                 <tr>
-                                    <td colSpan="5" className="p-12 text-center text-slate-400 font-medium">
+                                    <td colSpan="5" className="p-8 text-center text-slate-400 font-semibold text-xs">
                                         No system users found.
                                     </td>
                                 </tr>
@@ -388,14 +388,14 @@ const UserManagement = () => {
                                     return (
                                         <tr key={user._id} className="hover:bg-slate-50/60 transition-colors border-b border-slate-100/60">
                                             {/* Employee details */}
-                                            <td className="p-4">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/10 to-blue-500/10 border border-indigo-100/50 flex items-center justify-center font-bold text-indigo-700 text-sm tracking-wider shadow-sm shrink-0">
+                                            <td className="px-3 py-2">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500/10 to-blue-500/10 border border-indigo-100/50 flex items-center justify-center font-bold text-indigo-700 text-xs tracking-wider shadow-sm shrink-0">
                                                         {initials}
                                                     </div>
                                                     <div className="min-w-0">
-                                                        <p className="font-semibold text-slate-800 text-sm truncate">{user.employee_name}</p>
-                                                        <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                                        <p className="font-semibold text-slate-800 text-xs truncate">{user.employee_name}</p>
+                                                        <div className="flex flex-wrap items-center gap-1 mt-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">
                                                             <span>ID: {user.emp_no}</span>
                                                             {user.roles && user.roles.map(role => {
                                                                 const isSA = role === 'superadmin';
@@ -403,7 +403,7 @@ const UserManagement = () => {
                                                                 return (
                                                                     <React.Fragment key={role}>
                                                                         <span className="text-slate-300">•</span>
-                                                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-black capitalize border tracking-wider ${
+                                                                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-black capitalize border tracking-wider ${
                                                                             isSA
                                                                                 ? 'bg-purple-50 text-purple-700 border-purple-200/50'
                                                                                 : isMgr
@@ -419,36 +419,36 @@ const UserManagement = () => {
                                                     </div>
                                                 </div>
                                             </td>
-
+ 
                                             {/* Campus Restrictions */}
-                                            <td className="p-4">
+                                            <td className="px-3 py-2">
                                                 {user.campuses && user.campuses.length > 0 ? (
-                                                    <div className="flex flex-wrap gap-1.5 max-w-xs">
+                                                    <div className="flex flex-wrap gap-1 max-w-xs">
                                                         {user.campuses.map(cId => {
                                                             const campus = campuses.find(c => campusIdsMatch(getCampusId(c), cId));
                                                             return (
-                                                                <span key={String(cId)} className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-700 text-[11px] font-bold rounded-md border border-slate-200/60 shadow-sm">
-                                                                    <MapPin size={10} className="text-slate-400" />
+                                                                <span key={String(cId)} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 text-slate-700 text-[10px] font-bold rounded border border-slate-200 shadow-sm">
+                                                                    <MapPin size={9} className="text-slate-400" />
                                                                     {campus ? campus.name : 'Unknown Campus'}
                                                                 </span>
                                                             );
                                                         })}
                                                     </div>
                                                 ) : (
-                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-700 text-[11px] font-bold rounded-md border border-green-200/60">
+                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-50 text-green-700 text-[10px] font-bold rounded border border-green-200">
                                                         All Campuses
                                                     </span>
                                                 )}
                                             </td>
-
+ 
                                             {/* Academic Restrictions */}
-                                            <td className="p-4">
-                                                <div className="flex flex-col gap-1.5 max-w-xs">
+                                            <td className="px-3 py-2">
+                                                <div className="flex flex-col gap-1">
                                                     {user.colleges && user.colleges.length > 0 && (
-                                                        <div className="flex flex-wrap gap-1 items-center">
-                                                            <span className="text-[9px] text-indigo-400 font-black tracking-wider uppercase mr-1.5">COLLEGES:</span>
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <span className="text-[8px] text-indigo-400 font-black tracking-wider uppercase">COLLEGES:</span>
                                                             {user.colleges.map(cName => (
-                                                                <span key={cName} className="px-1.5 py-0.5 bg-indigo-50/50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-200/60">
+                                                                <span key={cName} className="px-1 py-0.5 bg-indigo-50 text-indigo-700 text-[9px] font-bold rounded border border-indigo-200 w-fit">
                                                                     {cName}
                                                                 </span>
                                                             ))}
@@ -456,10 +456,10 @@ const UserManagement = () => {
                                                     )}
 
                                                     {user.courses && user.courses.length > 0 && (
-                                                        <div className="flex flex-wrap gap-1 items-center">
-                                                            <span className="text-[9px] text-emerald-500 font-black tracking-wider uppercase mr-1.5">COURSES:</span>
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <span className="text-[8px] text-emerald-500 font-black tracking-wider uppercase">COURSES:</span>
                                                             {user.courses.map(cName => (
-                                                                <span key={cName} className="px-1.5 py-0.5 bg-emerald-50/50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200/60">
+                                                                <span key={cName} className="px-1 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-bold rounded border border-emerald-200 w-fit">
                                                                     {cName}
                                                                 </span>
                                                             ))}
@@ -467,46 +467,46 @@ const UserManagement = () => {
                                                     )}
 
                                                     {(!user.colleges || user.colleges.length === 0) && (!user.courses || user.courses.length === 0) && (
-                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[11px] font-bold rounded-md border border-emerald-200/60">
+                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200">
                                                             All Colleges & Courses
                                                         </span>
                                                     )}
                                                 </div>
                                             </td>
-
+ 
                                             {/* Account Status */}
-                                            <td className="p-4">
-                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border shadow-sm ${
+                                            <td className="px-3 py-2">
+                                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border shadow-sm ${
                                                     user.is_active
-                                                        ? 'bg-green-50/50 text-green-700 border-green-200/60'
-                                                        : 'bg-rose-50/50 text-rose-700 border-rose-200/60'
+                                                        ? 'bg-green-50 text-green-700 border-green-200'
+                                                        : 'bg-rose-50 text-rose-700 border-rose-200'
                                                 }`}>
-                                                    <span className={`w-1.5 h-1.5 rounded-full ${user.is_active ? 'bg-green-600' : 'bg-rose-600'}`} />
+                                                    <span className={`w-1 h-1 rounded-full ${user.is_active ? 'bg-green-600' : 'bg-rose-600'}`} />
                                                     {user.is_active ? 'Active' : 'Inactive'}
                                                 </span>
                                             </td>
-
+ 
                                             {/* Actions */}
-                                            <td className="p-4 text-right">
+                                            <td className="px-3 py-2 text-right">
                                                 {!isSuperAdmin ? (
-                                                    <div className="flex items-center justify-end gap-1.5">
+                                                    <div className="flex items-center justify-end gap-1">
                                                         <button
                                                             onClick={() => handleManageRole(user)}
-                                                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 font-semibold text-xs hover:bg-slate-50 hover:text-indigo-600 shadow-sm transition-all"
+                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-200 bg-white text-slate-700 font-bold text-[10px] hover:bg-slate-50 hover:text-indigo-600 shadow-sm transition-all"
                                                         >
-                                                            <Edit3 size={12} />
+                                                            <Edit3 size={10} />
                                                             Edit
                                                         </button>
                                                         <button
                                                             onClick={() => handleDeleteUser(user)}
-                                                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-200 bg-white text-red-600 font-semibold text-xs hover:bg-red-50 shadow-sm transition-all"
+                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-red-200 bg-white text-red-650 font-bold text-[10px] hover:bg-red-50 shadow-sm transition-all"
                                                         >
-                                                            <Trash2 size={12} />
+                                                            <Trash2 size={10} />
                                                             Delete
                                                         </button>
                                                     </div>
                                                 ) : (
-                                                    <span className="text-xs text-slate-400 font-semibold italic px-2">Superadmin Locked</span>
+                                                    <span className="text-[10px] text-slate-400 font-bold italic px-2">Superadmin Locked</span>
                                                 )}
                                             </td>
                                         </tr>

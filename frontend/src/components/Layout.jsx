@@ -90,8 +90,8 @@ const Layout = ({ children }) => {
                     icon: <Package size={20} />,
                     permission: 'inventory',
                     children: [
-                        { path: '/inventory', label: 'Items & History', icon: <Package size={16} /> },
-                        { path: '/inventory/raise-bill', label: 'Bills', icon: <Truck size={16} /> },
+                        { path: '/inventory', label: 'Items & History', icon: <Package size={20} /> },
+                        { path: '/inventory/raise-bill', label: 'Bills', icon: <Truck size={20} /> },
                     ]
                 },
             ]
@@ -168,7 +168,7 @@ const Layout = ({ children }) => {
                         )}
                     </button>
                     {expanded && !collapsed && (
-                        <div className="ml-3 pl-3 border-l border-slate-700 space-y-0.5">
+                        <div className="space-y-0.5">
                             {item.children.map((child) => {
                                 const childActive = isPathActive(child.path);
                                 return (
@@ -176,13 +176,13 @@ const Layout = ({ children }) => {
                                         key={child.path}
                                         to={child.path}
                                         onClick={mobile ? () => setIsMobileMenuOpen(false) : undefined}
-                                        className={`flex items-center px-3 py-1 rounded-lg text-[11px] transition-all ${
+                                        className={`flex items-center px-4 py-1.5 rounded-xl text-[11px] transition-all ${
                                             childActive
                                                 ? 'bg-blue-100 text-blue-700 font-bold'
                                                 : 'text-slate-300 hover:bg-white/10 hover:text-white'
                                         }`}
                                     >
-                                        <span className={`mr-2 ${childActive ? 'text-blue-700' : 'text-slate-400'}`}>
+                                        <span className={`mr-3 ${childActive ? 'text-blue-700' : 'text-slate-400'}`}>
                                             {child.icon}
                                         </span>
                                         <span className="truncate">{child.label}</span>
@@ -244,7 +244,7 @@ const Layout = ({ children }) => {
                     {filteredCategories.map((category, idx) => (
                         <div key={idx} className="mb-3.5 last:mb-0">
                             {!isCollapsed && (
-                                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 px-2 mt-2">
+                                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 px-4 mt-2">
                                     {category.title}
                                 </h3>
                             )}

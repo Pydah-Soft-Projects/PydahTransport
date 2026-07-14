@@ -43,15 +43,15 @@ const getFareSummary = (request) => {
 
 const FareDisplay = ({ request }) => {
     if (request?.user_type === 'employee') {
-        return <span className="text-gray-500 text-sm">Free (₹0)</span>;
+        return <span className="text-slate-500 text-xs font-semibold">Free (₹0)</span>;
     }
 
     const fare = getFareSummary(request);
     return (
-        <div className="space-y-0.5">
-            <p className="text-sm font-semibold text-gray-900">Normal: {fare.normal}</p>
+        <div className="space-y-0.5 text-xs">
+            <p className="font-semibold text-slate-800">Normal: {fare.normal}</p>
             {fare.hasAdjustment && (
-                <p className="text-[11px] font-bold text-emerald-700">
+                <p className="text-[10px] font-bold text-emerald-750">
                     {fare.label}: {fare.adjusted}
                 </p>
             )}
@@ -847,67 +847,67 @@ const TransportRequests = () => {
 
     return (
         <Layout>
-            <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
                 <div>
-                    <h2 className="text-3xl font-bold text-gray-800 tracking-tight">Transport Requests</h2>
-                    <p className="text-gray-500 mt-1">View, approve, or reject student transport requests. Approval creates the transport fee (TRN01) in Fee Management.</p>
+                    <h2 className="text-xl font-bold text-slate-800 tracking-tight">Transport Requests</h2>
+                    <p className="text-slate-500 text-xs mt-0.5">View, approve, or reject student transport requests. Approval creates the transport fee (TRN01) in Fee Management.</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-3">
                     <button
                         type="button"
                         onClick={openIdCardModal}
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 font-semibold text-sm hover:bg-slate-50 shadow-sm"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-900 text-white font-semibold text-xs hover:bg-blue-800 shadow-sm transition-all hover:shadow-md active:scale-95 cursor-pointer"
                     >
-                        <Printer size={18} />
+                        <Printer size={14} />
                         Print ID Cards
                     </button>
                     <button
                         type="button"
                         onClick={openCourseExpiryModal}
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 font-semibold text-sm hover:bg-slate-50 shadow-sm"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 text-white font-semibold text-xs hover:bg-purple-700 shadow-sm transition-all hover:shadow-md active:scale-95 cursor-pointer"
                     >
-                        <Calendar size={18} />
+                        <Calendar size={14} />
                         Course Expiry Settings
                     </button>
                 </div>
             </div>
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
-                    <div className="p-3 bg-blue-50 rounded-xl text-blue-600">
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
                     <div>
-                        <p className="text-sm font-medium text-gray-500">Total Requests</p>
-                        <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Requests</p>
+                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.total}</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <FileText size={16} />
                     </div>
                 </div>
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
-                    <div className="p-3 bg-green-50 rounded-xl text-green-600">
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                    </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
                     <div>
-                        <p className="text-sm font-medium text-gray-500">Active Approved</p>
-                        <p className="text-2xl font-bold text-gray-900">{stats.approved}</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Active Approved</p>
+                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.approved}</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <CheckCircle2 size={16} />
                     </div>
                 </div>
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
-                    <div className="p-3 bg-red-50 rounded-xl text-red-600">
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
                     <div>
-                        <p className="text-sm font-medium text-gray-500">Expired Passes</p>
-                        <p className="text-2xl font-bold text-gray-900">{stats.expired}</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Expired Passes</p>
+                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.expired}</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg bg-rose-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <Ban size={16} />
                     </div>
                 </div>
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
-                    <div className="p-3 bg-yellow-50 rounded-xl text-yellow-600">
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
                     <div>
-                        <p className="text-sm font-medium text-gray-500">Pending</p>
-                        <p className="text-2xl font-bold text-gray-900">{stats.pending}</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Pending</p>
+                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.pending}</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <Clock size={16} />
                     </div>
                 </div>
             </div>
@@ -918,12 +918,12 @@ const TransportRequests = () => {
                 </div>
             )}
 
-            <div className="flex w-full flex-wrap items-center gap-2 mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-                <div className="flex-1 min-w-[140px]">
+            <div className="flex w-full flex-wrap items-center gap-2 mb-4 bg-white p-3 rounded-xl shadow-sm border border-slate-200">
+                <div className="flex-1 min-w-[145px]">
                     <select
                         value={academicYear}
                         onChange={(e) => setAcademicYear(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200 px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-gray-700"
+                        className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all font-bold text-slate-700 bg-transparent cursor-pointer"
                     >
                         <option value="">All Academic Years</option>
                         {academicYearOptions.map((year) => (
@@ -933,13 +933,13 @@ const TransportRequests = () => {
                 </div>
 
                 <div className="flex-[2] min-w-[180px] relative">
-                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                     <input
                         type="text"
                         placeholder="Search name/ID..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-2 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
+                        className="w-full pl-8.5 pr-2 py-1.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-xs text-slate-800 placeholder-slate-400 font-medium"
                     />
                 </div>
 
@@ -947,7 +947,7 @@ const TransportRequests = () => {
                     <select
                         value={routeFilter}
                         onChange={(e) => setRouteFilter(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200 px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all text-ellipsis"
+                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent cursor-pointer"
                     >
                         <option value="">All Routes</option>
                         {routes.map((r) => (
@@ -960,7 +960,7 @@ const TransportRequests = () => {
                     <select
                         value={courseFilter}
                         onChange={(e) => setCourseFilter(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200 px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all text-ellipsis"
+                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent cursor-pointer"
                     >
                         <option value="">All Courses</option>
                         {courses.map((c) => (
@@ -973,7 +973,7 @@ const TransportRequests = () => {
                     <select
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200 px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all text-ellipsis"
+                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent cursor-pointer"
                     >
                         <option value="">All Status</option>
                         <option value="pending">Pending</option>
@@ -989,7 +989,7 @@ const TransportRequests = () => {
                     <div className="flex-shrink-0">
                         <button
                             onClick={() => { setRouteFilter(''); setCourseFilter(''); setStatusFilter(''); setSearchQuery(''); }}
-                            className="text-sm text-red-600 hover:text-red-700 font-semibold px-3 py-2 border border-red-100 bg-red-50 rounded-xl transition-all"
+                            className="text-xs text-red-650 hover:text-red-750 font-bold px-3 py-1.5 border border-red-100 bg-red-50 rounded-lg transition-all cursor-pointer"
                         >
                             Reset
                         </button>
@@ -1001,15 +1001,13 @@ const TransportRequests = () => {
                     <Loader text="Loading requests..." />
                 </div>
             ) : requests.length === 0 ? (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
-                    <p className="text-gray-500">
-                        No transport requests found{academicYear ? ` for academic year ${academicYear}` : ''}.
-                    </p>
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 text-center text-slate-400 font-semibold text-xs">
+                    No transport requests found{academicYear ? ` for academic year ${academicYear}` : ''}.
                 </div>
             ) : (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     {/* Pagination Controls */}
-                    <div className="p-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-4 bg-gray-50/80">
+                    <div className="p-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4 bg-slate-50/80">
                         <div className="flex items-center gap-2">
                             <span className="text-sm text-gray-600 font-medium">Rows per page:</span>
                             <select
@@ -1052,64 +1050,64 @@ const TransportRequests = () => {
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wider">
-                                    <th className="p-4">Pin Number</th>
-                                    <th className="p-4">Adm Number</th>
-                                    <th className="p-4">App No.</th>
-                                    <th className="p-4">Name</th>
-                                    <th className="p-4">Academic Info</th>
-                                    <th className="p-4">Fare</th>
-                                    <th className="p-4">Status</th>
+                                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                    <th className="px-3 py-2">Pin Number</th>
+                                    <th className="px-3 py-2">Adm Number</th>
+                                    <th className="px-3 py-2">App No.</th>
+                                    <th className="px-3 py-2">Name</th>
+                                    <th className="px-3 py-2">Academic Info</th>
+                                    <th className="px-3 py-2">Fare</th>
+                                    <th className="px-3 py-2">Status</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-50 text-sm text-gray-700">
+                            <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                                 {currentRequests.map((req) => (
                                     <tr
                                         key={req.id}
                                         onClick={() => openDetailModal(req)}
-                                        className="hover:bg-blue-50/60 transition-colors cursor-pointer"
+                                        className="hover:bg-slate-50/60 transition-colors border-b border-slate-100/60 cursor-pointer text-xs"
                                     >
-                                        <td className="p-4 font-semibold text-slate-700 text-xs">
+                                        <td className="px-3 py-2 font-semibold text-slate-700 text-xs">
                                             {req.user_type === 'employee' ? '—' : (req.pin_no || '—')}
                                         </td>
-                                        <td className="p-4 font-medium text-blue-600">{req.admission_number || req.emp_no}</td>
-                                        <td className="p-4 text-xs font-bold text-indigo-700">{req.application_number || '—'}</td>
-                                        <td className="p-4 font-medium text-gray-900">{req.student_name || req.employee_name}</td>
-                                        <td className="p-4">
+                                        <td className="px-3 py-2 font-semibold text-blue-600">{req.admission_number || req.emp_no}</td>
+                                        <td className="px-3 py-2 font-bold text-indigo-700">{req.application_number || '—'}</td>
+                                        <td className="px-3 py-2 font-semibold text-slate-900">{req.student_name || req.employee_name}</td>
+                                        <td className="px-3 py-2">
                                             {req.user_type === 'employee' ? (
-                                                <span className="text-slate-400 font-medium text-xs">Employee</span>
+                                                <span className="text-[10px] bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded text-slate-500 font-bold">Employee</span>
                                             ) : (
                                                 <div className="flex flex-col gap-0.5">
-                                                    <span className="text-xs font-semibold uppercase text-slate-700 tracking-wide">{req.course || '—'}</span>
-                                                    <div className="flex items-center gap-1 text-[10px] text-slate-500">
-                                                        <span className="bg-blue-50 text-blue-700 px-1 py-0.5 rounded font-bold">
+                                                    <span className="text-[11px] font-bold uppercase text-slate-800 tracking-wide">{req.course || '—'}</span>
+                                                    <div className="flex items-center gap-1 text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                                                        <span className="bg-blue-50 text-blue-700 px-1 py-0.5 rounded font-black border border-blue-200/50">
                                                             Y{req.year_of_study || '—'}
                                                         </span>
                                                         <span>•</span>
-                                                        <span className="font-medium">{req.academic_year || '—'}</span>
+                                                        <span className="font-semibold text-slate-500">{req.academic_year || '—'}</span>
                                                     </div>
                                                 </div>
                                             )}
                                         </td>
-                                        <td className="p-4 font-medium text-gray-900">
+                                        <td className="px-3 py-2 font-semibold text-slate-950">
                                             <FareDisplay request={req} />
                                         </td>
-                                        <td className="p-4">
+                                        <td className="px-3 py-2">
                                             {isExpiredPass(req) ? (
-                                                <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border border-red-200 bg-red-50 text-red-700">
                                                     Expired
                                                 </span>
                                             ) : (
-                                                <span className={`px-2 py-1 rounded-full text-xs font-bold ${(req.status || '').toLowerCase() === 'approved' ? 'bg-green-100 text-green-700' :
-                                                    (req.status || '').toLowerCase() === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                                                    (req.status || '').toLowerCase() === 'cancelled' ? 'bg-orange-100 text-orange-700' :
-                                                        'bg-gray-100 text-gray-600'
+                                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${(req.status || '').toLowerCase() === 'approved' ? 'bg-green-50 border-green-200 text-green-700' :
+                                                    (req.status || '').toLowerCase() === 'pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                                                    (req.status || '').toLowerCase() === 'cancelled' ? 'bg-orange-50 border-orange-200 text-orange-750' :
+                                                        'bg-slate-50 border-slate-200 text-slate-600'
                                                     }`}>
                                                     {statusDisplay(req.status)}
                                                 </span>
                                             )}
                                             {req.effective_expiry_date && req.user_type !== 'employee' && (
-                                                <p className="text-[10px] text-gray-400 mt-1">
+                                                <p className="text-[9px] text-slate-400 font-semibold mt-1">
                                                     Until {formatDate(req.effective_expiry_date)}
                                                     {req.course_expiry_date ? ` (course Y${req.year_of_study || '?'})` : ''}
                                                 </p>
