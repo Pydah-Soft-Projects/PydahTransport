@@ -1,11 +1,16 @@
-export const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
+/**
+ * Shared bill calculation rules for maintenance bills.
+ * Mirrors frontend/src/utils/billCalculations.js
+ */
 
-export const toNumber = (value, fallback = 0) => {
+const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
+
+const toNumber = (value, fallback = 0) => {
     const num = parseFloat(value);
     return Number.isFinite(num) ? num : fallback;
 };
 
-export const normalizeTaxEntries = (taxes = [], gstPercent) => {
+const normalizeTaxEntries = (taxes = [], gstPercent) => {
     if (Array.isArray(taxes) && taxes.length > 0) {
         return taxes
             .map((tax) => ({
@@ -19,7 +24,7 @@ export const normalizeTaxEntries = (taxes = [], gstPercent) => {
     return [];
 };
 
-export const applyDiscount = (base, discountAmount, discountPercent) => {
+const applyDiscount = (base, discountAmount, discountPercent) => {
     let taxable = Math.max(0, toNumber(base, 0));
     const pct = Math.max(0, toNumber(discountPercent, 0));
     const amt = Math.max(0, toNumber(discountAmount, 0));
@@ -31,7 +36,7 @@ export const applyDiscount = (base, discountAmount, discountPercent) => {
 const taxAmountFromEntries = (taxable, taxes) =>
     round2(taxes.reduce((sum, tax) => sum + (taxable * tax.rate) / 100, 0));
 
-export const getLineBase = (line = {}) => {
+const getLineBase = (line = {}) => {
     const pricingMode = line.pricingMode === 'lumpSum' ? 'lumpSum' : 'unitRate';
     if (pricingMode === 'lumpSum') {
         return round2(toNumber(line.amount ?? line.price, 0));
@@ -39,7 +44,10 @@ export const getLineBase = (line = {}) => {
     return round2(toNumber(line.quantity, 0) * toNumber(line.unitPrice ?? line.price, 0));
 };
 
-export const computeLine = (line = {}, { taxMode = 'lineLevel', discountMode = 'none' } = {}) => {
+/**
+ * Compute a single line given bill-level tax/discount modes.
+ */
+const computeLine = (line = {}, { taxMode = 'lineLevel', discountMode = 'none' } = {}) => {
     const pricingMode = line.pricingMode === 'lumpSum' ? 'lumpSum' : 'unitRate';
     const quantity = toNumber(line.quantity, 0);
     const unitPrice = pricingMode === 'unitRate' ? toNumber(line.unitPrice ?? line.price, 0) : 0;
@@ -75,7 +83,12 @@ export const computeLine = (line = {}, { taxMode = 'lineLevel', discountMode = '
     };
 };
 
-export const computeBillTotals = (bill = {}) => {
+/**
+ * Full bill totals.
+ * @param {object} bill
+ * @param {Array} bill.lines / bill.items
+ */
+const computeBillTotals = (bill = {}) => {
     const taxMode = ['none', 'billLevel', 'lineLevel'].includes(bill.taxMode) ? bill.taxMode : 'lineLevel';
     const discountMode = ['none', 'billLevel', 'lineLevel'].includes(bill.discountMode)
         ? bill.discountMode
@@ -122,7 +135,6 @@ export const computeBillTotals = (bill = {}) => {
         subtotal: linesSubtotal,
         discountTotal,
         taxTotal,
-        gstTotal: taxTotal,
         computedGrandTotal,
         grandTotalOverride,
         grandTotal,
@@ -130,33 +142,41 @@ export const computeBillTotals = (bill = {}) => {
     };
 };
 
-/** Legacy helpers — still used by older views */
-export const getLineSubtotal = (quantity, price) => round2(toNumber(quantity) * toNumber(price));
-
-export const getLineGstPercent = (gstPercent) => {
+/** Legacy helpers kept for older allocation-only payloads */
+const getLineSubtotal = (quantity, price) => round2(toNumber(quantity) * toNumber(price));
+const getLineGstPercent = (gstPercent) => {
     const num = toNumber(gstPercent, 0);
     return num >= 0 ? num : 0;
 };
-
-export const getLineGstAmount = (quantity, price, gstPercent) =>
+const getLineGstAmount = (quantity, price, gstPercent) =>
     round2(getLineSubtotal(quantity, price) * (getLineGstPercent(gstPercent) / 100));
-
-export const getLineTotal = (quantity, price, gstPercent) =>
+const getLineTotal = (quantity, price, gstPercent) =>
     round2(getLineSubtotal(quantity, price) + getLineGstAmount(quantity, price, gstPercent));
 
-export const getBillTotals = (items = []) => {
-    if (items.some((item) => item.pricingMode || item.unitPrice !== undefined || item.amount !== undefined)) {
-        return computeBillTotals({ items, taxMode: 'lineLevel', discountMode: 'none' });
-    }
-    return items.reduce(
+const getBillTotals = (items = []) =>
+    items.reduce(
         (acc, item) => {
-            const subtotal = getLineSubtotal(item.quantity, item.price);
-            const gstAmount = getLineGstAmount(item.quantity, item.price, item.gstPercent);
+            const subtotal = getLineSubtotal(item.quantity, item.price ?? item.unitPrice);
+            const gstAmount = getLineGstAmount(item.quantity, item.price ?? item.unitPrice, item.gstPercent);
             acc.subtotal += subtotal;
             acc.gstTotal += gstAmount;
             acc.grandTotal += subtotal + gstAmount;
             return acc;
         },
-        { subtotal: 0, gstTotal: 0, taxTotal: 0, discountTotal: 0, grandTotal: 0 }
+        { subtotal: 0, gstTotal: 0, grandTotal: 0 }
     );
+
+module.exports = {
+    round2,
+    toNumber,
+    normalizeTaxEntries,
+    applyDiscount,
+    getLineBase,
+    computeLine,
+    computeBillTotals,
+    getLineSubtotal,
+    getLineGstPercent,
+    getLineGstAmount,
+    getLineTotal,
+    getBillTotals
 };

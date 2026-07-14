@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "migrate:bills": "node scripts/migrateAllocationsToMaintenanceBills.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -16,6 +17,7 @@
     "express-async-handler": "^1.2.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^7.6.3",
+    "multer": "^2.2.0",
     "mysql2": "^3.16.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.7",

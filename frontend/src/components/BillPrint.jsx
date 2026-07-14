@@ -1,5 +1,11 @@
 import React from 'react';
-import { getBillTotals, getLineGstAmount, getLineGstPercent, getLineTotal } from '../utils/billCalculations';
+import {
+    computeBillTotals,
+    getLineGstAmount,
+    getLineGstPercent,
+    getLineTotal,
+    round2
+} from '../utils/billCalculations';
 
 const getItemDisplayName = (item) => {
     if (!item) return 'General Part';
@@ -8,6 +14,9 @@ const getItemDisplayName = (item) => {
 
 const getAllocatedItemDisplayName = (allocation) => {
     if (!allocation?.itemId) return 'General Part';
+    if (typeof allocation.itemId === 'string') {
+        return allocation.description || allocation.variantName || 'General Part';
+    }
     return allocation.variantName
         ? `${allocation.itemId.itemName} - ${allocation.variantName}`
         : getItemDisplayName(allocation.itemId);
@@ -21,12 +30,26 @@ const formatCurrency = (value) => Number(value || 0).toLocaleString('en-IN', {
 const BillPrint = ({ billData, vendor, bus }) => {
     if (!billData || !billData.items || billData.items.length === 0) return null;
 
-    const totals = getBillTotals(billData.items);
-    const subtotal = Number(billData.subtotal ?? totals.subtotal);
-    const gstTotal = Number(billData.gstTotal ?? totals.gstTotal);
-    const grandTotal = Number(billData.totalAmount ?? totals.grandTotal);
+    const taxMode = billData.taxMode || 'lineLevel';
+    const discountMode = billData.discountMode || 'none';
+    const computed = computeBillTotals({
+        ...billData,
+        taxMode,
+        discountMode,
+        lines: billData.lines || billData.items
+    });
 
-    const formattedDate = new Date(billData.date).toLocaleDateString('en-IN', {
+    const subtotal = Number(billData.subtotal ?? computed.subtotal);
+    const discountTotal = Number(billData.discountTotal ?? computed.discountTotal ?? 0);
+    const gstTotal = Number(billData.gstTotal ?? billData.taxTotal ?? computed.taxTotal ?? computed.gstTotal ?? 0);
+    const grandTotal = Number(billData.totalAmount ?? billData.grandTotal ?? computed.grandTotal);
+
+    const showLineGst = taxMode === 'lineLevel';
+    const showLineDiscount = discountMode === 'lineLevel';
+    const showUnitPrice = (billData.items || []).some(
+        (item) => (item.pricingMode || 'unitRate') !== 'lumpSum'
+    );
+    const formattedDate = new Date(billData.date || Date.now()).toLocaleDateString('en-IN', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric'
@@ -56,29 +79,70 @@ const BillPrint = ({ billData, vendor, bus }) => {
                 </div>
             </div>
 
+            {(billData.notes || billData.rawDescription) && (
+                <p className="text-sm mb-4 italic border border-black p-2">
+                    {billData.notes || billData.rawDescription}
+                </p>
+            )}
+
             <table className="w-full border-collapse border border-black text-sm">
                 <thead>
                     <tr className="bg-gray-100">
                         <th className="border border-black p-2 text-center w-12">S.No</th>
                         <th className="border border-black p-2 text-left">Item Details</th>
                         <th className="border border-black p-2 text-center w-16">Qty</th>
-                        <th className="border border-black p-2 text-right w-24">Unit Price</th>
-                        <th className="border border-black p-2 text-center w-16">GST %</th>
-                        <th className="border border-black p-2 text-right w-24">GST Amt</th>
+                        {showUnitPrice && (
+                            <th className="border border-black p-2 text-right w-24">Unit Price</th>
+                        )}
+                        <th className="border border-black p-2 text-right w-24">Amount</th>
+                        {showLineDiscount && (
+                            <th className="border border-black p-2 text-right w-20">Disc.</th>
+                        )}
+                        {showLineGst && (
+                            <>
+                                <th className="border border-black p-2 text-center w-16">GST %</th>
+                                <th className="border border-black p-2 text-right w-24">GST Amt</th>
+                            </>
+                        )}
                         <th className="border border-black p-2 text-right w-28">Overall Price</th>
                     </tr>
                 </thead>
                 <tbody>
                     {billData.items.map((item, index) => {
-                        const gstPercent = getLineGstPercent(item.gstPercent);
-                        const gstAmount = getLineGstAmount(item.quantity, item.price, item.gstPercent);
-                        const lineTotal = getLineTotal(item.quantity, item.price, item.gstPercent);
+                        const pricingMode = item.pricingMode || 'unitRate';
+                        const lineComputed = computed.lines?.[index];
+                        const baseAmount = pricingMode === 'lumpSum'
+                            ? Number(item.amount ?? item.price ?? 0)
+                            : Number(item.quantity || 0) * Number(item.unitPrice ?? item.price ?? 0);
+                        const gstPercent = showLineGst
+                            ? (lineComputed?.gstPercent ?? getLineGstPercent(item.gstPercent))
+                            : 0;
+                        const gstAmount = showLineGst
+                            ? (lineComputed?.taxAmount ?? getLineGstAmount(item.quantity, item.unitPrice ?? item.price, item.gstPercent))
+                            : 0;
+                        const lineTotal = lineComputed?.lineTotal
+                            ?? (showLineGst
+                                ? getLineTotal(item.quantity, item.unitPrice ?? item.price, item.gstPercent)
+                                : round2(baseAmount));
+                        const disc = showLineDiscount
+                            ? Number(item.discountAmount || 0) + (baseAmount * Number(item.discountPercent || 0) / 100)
+                            : 0;
 
                         return (
                             <tr key={index} className="align-top">
                                 <td className="border border-black p-2 text-center">{index + 1}</td>
                                 <td className="border border-black p-2">
                                     <div className="text-xs font-bold">{getAllocatedItemDisplayName(item)}</div>
+                                    {pricingMode === 'lumpSum' && (
+                                        <div className="text-[10px] mt-0.5 uppercase tracking-wide">Lump sum</div>
+                                    )}
+                                    {Array.isArray(item.subDescriptions) && item.subDescriptions.length > 0 && (
+                                        <ul className="text-xs mt-1 list-disc pl-4">
+                                            {item.subDescriptions.map((sub, i) => (
+                                                <li key={i}>{sub}</li>
+                                            ))}
+                                        </ul>
+                                    )}
                                     {item.tyrePosition && item.itemId?.category === 'Tires' && (
                                         <div className="text-xs mt-1">Tyre Position: {item.tyrePosition} | Reading: {item.kmReading || 0} KM</div>
                                     )}
@@ -87,13 +151,29 @@ const BillPrint = ({ billData, vendor, bus }) => {
                                     )}
                                 </td>
                                 <td className="border border-black p-2 text-center">{item.quantity}</td>
+                                {showUnitPrice && (
+                                    <td className="border border-black p-2 text-right">
+                                        {pricingMode === 'lumpSum'
+                                            ? '—'
+                                            : `₹${formatCurrency(item.unitPrice ?? item.price)}`}
+                                    </td>
+                                )}
                                 <td className="border border-black p-2 text-right">
-                                    ₹{formatCurrency(item.price)}
+                                    ₹{formatCurrency(baseAmount)}
                                 </td>
-                                <td className="border border-black p-2 text-center">{gstPercent}%</td>
-                                <td className="border border-black p-2 text-right">
-                                    ₹{formatCurrency(gstAmount)}
-                                </td>
+                                {showLineDiscount && (
+                                    <td className="border border-black p-2 text-right">
+                                        ₹{formatCurrency(disc)}
+                                    </td>
+                                )}
+                                {showLineGst && (
+                                    <>
+                                        <td className="border border-black p-2 text-center">{gstPercent}%</td>
+                                        <td className="border border-black p-2 text-right">
+                                            ₹{formatCurrency(gstAmount)}
+                                        </td>
+                                    </>
+                                )}
                                 <td className="border border-black p-2 text-right font-bold">
                                     ₹{formatCurrency(lineTotal)}
                                 </td>
@@ -109,10 +189,26 @@ const BillPrint = ({ billData, vendor, bus }) => {
                         <span className="font-bold">Subtotal:</span>{' '}
                         <span>₹{formatCurrency(subtotal)}</span>
                     </div>
-                    <div className="text-right whitespace-nowrap">
-                        <span className="font-bold">Total GST:</span>{' '}
-                        <span>₹{formatCurrency(gstTotal)}</span>
-                    </div>
+                    {discountTotal > 0 && (
+                        <div className="text-right whitespace-nowrap">
+                            <span className="font-bold">Discount:</span>{' '}
+                            <span>₹{formatCurrency(discountTotal)}</span>
+                        </div>
+                    )}
+                    {taxMode === 'billLevel' && Array.isArray(billData.taxes) && billData.taxes.length > 0 && (
+                        billData.taxes.map((tax, idx) => (
+                            <div key={idx} className="text-right whitespace-nowrap">
+                                <span className="font-bold">{tax.name} @{tax.rate}%:</span>{' '}
+                                <span>₹{formatCurrency((subtotal - discountTotal) * tax.rate / 100)}</span>
+                            </div>
+                        ))
+                    )}
+                    {gstTotal > 0 && taxMode !== 'none' && (
+                        <div className="text-right whitespace-nowrap">
+                            <span className="font-bold">Total Tax:</span>{' '}
+                            <span>₹{formatCurrency(gstTotal)}</span>
+                        </div>
+                    )}
                     <div className="bill-grand-total-row text-right whitespace-nowrap">
                         <span className="font-bold">Grand Total:</span>{' '}
                         <span className="font-bold">₹{formatCurrency(grandTotal)}</span>

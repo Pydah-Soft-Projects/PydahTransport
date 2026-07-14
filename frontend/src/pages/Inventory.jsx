@@ -1,21 +1,29 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
 import { 
     Package, Plus, Search, Edit, Trash2, History, Truck, 
     Calendar, Tag, User, Layers, Printer, ChevronDown, 
-    ChevronUp, LayoutGrid, List, AlertCircle, Filter 
+    ChevronUp, LayoutGrid, List, AlertCircle, Filter, Paperclip
 } from 'lucide-react';
 import BillPrint from '../components/BillPrint';
 import { apiFetch, API_BASE } from '../utils/api';
 import { printHtmlDocument } from '../utils/printHtml';
 import { hasPermission } from '../utils/permissions';
-import { getBillTotals, getLineTotal } from '../utils/billCalculations';
+import { getLineTotal, computeBillTotals } from '../utils/billCalculations';
 
 const API = API_BASE;
+const API_ORIGIN = String(API_BASE || '').replace(/\/api\/?$/, '');
 
-const TABS = { inventory: 'inventory', history: 'history', vendors: 'vendors', tyreRegistry: 'tyreRegistry' };
+const attachmentUrl = (url) => {
+    if (!url) return '';
+    if (/^https?:\/\//i.test(url)) return url;
+    return `${API_ORIGIN}${url.startsWith('/') ? url : `/${url}`}`;
+};
+
+const TABS = { inventory: 'inventory', vendors: 'vendors', tyreRegistry: 'tyreRegistry' };
 
 const CATEGORIES = [
     'General',
@@ -122,9 +130,14 @@ const emptyBillLineItem = {
     itemId: '',
     itemGroup: '',
     variantName: '',
+    pricingMode: 'unitRate',
     quantity: 1,
     price: '',
+    amount: '',
     gstPercent: '',
+    discountAmount: '',
+    discountPercent: '',
+    subDescriptions: '',
     remarks: '',
     tyrePosition: 'front right',
     kmReading: '',
@@ -135,6 +148,15 @@ const emptyBillFormData = {
     busId: '',
     vendorId: '',
     billNo: '',
+    taxMode: 'lineLevel',
+    discountMode: 'none',
+    billGstPercent: '',
+    billCgstPercent: '',
+    billSgstPercent: '',
+    discountAmount: '',
+    discountPercent: '',
+    grandTotalOverride: '',
+    notes: '',
     items: [{ ...emptyBillLineItem }]
 };
 
@@ -176,12 +198,14 @@ const preventNumberInputScroll = (event) => {
 };
 
 const Inventory = () => {
+    const navigate = useNavigate();
     const canEditBills = hasPermission('inventory_edit');
     const canDeleteBills = hasPermission('inventory_delete');
 
     const [activeTab, setActiveTab] = useState(TABS.inventory);
     const [items, setItems] = useState([]);
     const [history, setHistory] = useState([]);
+    const [maintenanceBills, setMaintenanceBills] = useState([]);
     const [vendors, setVendors] = useState([]);
     const [tyreRegistry, setTyreRegistry] = useState([]);
     const [buses, setBuses] = useState([]);
@@ -190,6 +214,7 @@ const Inventory = () => {
     const [historyLoading, setHistoryLoading] = useState(false);
     const [vendorsLoading, setVendorsLoading] = useState(false);
     const [registryLoading, setRegistryLoading] = useState(false);
+    const [pendingAttachments, setPendingAttachments] = useState([]);
     
     // Modals
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -252,6 +277,7 @@ const Inventory = () => {
     const resetBillForm = () => {
         setBillFormData(emptyBillFormData);
         setEditingBill(null);
+        setPendingAttachments([]);
     };
 
     const openNewBillModal = () => {
@@ -267,25 +293,54 @@ const Inventory = () => {
 
         const vehicleNumber = bill.busId?.busNumber || bill.busId?.vehicleNumber || '';
         const vendorId = bill.vendorId?._id || bill.vendorId || '';
+        const billTaxes = Array.isArray(bill.taxes) ? bill.taxes : [];
+        const cgst = billTaxes.find((t) => /cgst/i.test(t.name));
+        const sgst = billTaxes.find((t) => /sgst|utgst/i.test(t.name));
+        const singleGst = billTaxes.length === 1 ? billTaxes[0] : null;
 
-        setEditingBill({ originalBillNo: bill.billNo });
+        setEditingBill({
+            originalBillNo: bill.billNo,
+            billId: bill._id || bill.maintenanceBillId || null,
+            existingAttachments: bill.attachments || []
+        });
+        setPendingAttachments([]);
         setBillFormData({
             busId: vehicleNumber,
             vendorId: String(vendorId),
             billNo: bill.billNo || '',
-            items: bill.items.map((alloc) => ({
-                allocationId: alloc._id,
-                itemId: alloc.itemId?._id || alloc.itemId || '',
-                itemGroup: alloc.itemId?.itemName || '',
-                variantName: alloc.variantName || alloc.itemId?.variantName || '',
-                quantity: alloc.quantity,
-                price: alloc.price ?? '',
-                gstPercent: alloc.gstPercent ?? '',
-                remarks: alloc.remarks || '',
-                tyrePosition: alloc.tyrePosition || 'front right',
-                kmReading: alloc.kmReading ?? '',
-                tyreType: 'new tyre'
-            }))
+            taxMode: bill.taxMode || 'lineLevel',
+            discountMode: bill.discountMode || 'none',
+            billGstPercent: singleGst && !cgst && !sgst ? String(singleGst.rate) : '',
+            billCgstPercent: cgst ? String(cgst.rate) : '',
+            billSgstPercent: sgst ? String(sgst.rate) : '',
+            discountAmount: bill.discountAmount || '',
+            discountPercent: bill.discountPercent || '',
+            grandTotalOverride: bill.grandTotalOverride ?? '',
+            notes: bill.notes || bill.rawDescription || '',
+            items: (bill.items || bill.lines || []).map((alloc) => {
+                const itemDoc = alloc.itemId;
+                const pricingMode = alloc.pricingMode || 'unitRate';
+                return {
+                    allocationId: alloc.allocationId || alloc._id || '',
+                    itemId: itemDoc?._id || alloc.itemId || '',
+                    itemGroup: itemDoc?.itemName || '',
+                    variantName: alloc.variantName || itemDoc?.variantName || '',
+                    pricingMode,
+                    quantity: alloc.quantity,
+                    price: pricingMode === 'unitRate' ? (alloc.unitPrice ?? alloc.price ?? '') : '',
+                    amount: pricingMode === 'lumpSum' ? (alloc.amount ?? alloc.price ?? '') : '',
+                    gstPercent: alloc.gstPercent ?? '',
+                    discountAmount: alloc.discountAmount ?? '',
+                    discountPercent: alloc.discountPercent ?? '',
+                    subDescriptions: Array.isArray(alloc.subDescriptions)
+                        ? alloc.subDescriptions.join('\n')
+                        : '',
+                    remarks: alloc.remarks || '',
+                    tyrePosition: alloc.tyrePosition || 'front right',
+                    kmReading: alloc.kmReading ?? '',
+                    tyreType: alloc.tyreType || 'new tyre'
+                };
+            })
         });
         setIsBillModalOpen(true);
     };
@@ -324,9 +379,7 @@ const Inventory = () => {
     }, []);
 
     useEffect(() => {
-        if (activeTab === TABS.history) {
-            fetchHistory(selectedBusFilter);
-        } else if (activeTab === TABS.vendors) {
+        if (activeTab === TABS.vendors) {
             fetchVendors();
         } else if (activeTab === TABS.tyreRegistry) {
             fetchTyreRegistry(selectedBusFilter);
@@ -403,16 +456,101 @@ const Inventory = () => {
     const fetchHistory = async (busId) => {
         setHistoryLoading(true);
         try {
-            const url = busId === 'all' ? `${API}/inventory/history` : `${API}/inventory/history/${busId}`;
-            const response = await apiFetch(url);
-            const data = await response.json();
-            setHistory(Array.isArray(data) ? data : []);
+            const historyUrl = busId === 'all' ? `${API}/inventory/history` : `${API}/inventory/history/${busId}`;
+            const billsUrl = busId === 'all'
+                ? `${API}/inventory/bills`
+                : `${API}/inventory/bills?busId=${encodeURIComponent(busId)}`;
+
+            const [historyRes, billsRes] = await Promise.all([
+                apiFetch(historyUrl),
+                apiFetch(billsUrl)
+            ]);
+            const historyData = await historyRes.json();
+            const billsData = await billsRes.json();
+            setHistory(Array.isArray(historyData) ? historyData : []);
+            setMaintenanceBills(Array.isArray(billsData) ? billsData : []);
         } catch (error) {
             console.error('Error fetching history:', error);
         } finally {
             setHistoryLoading(false);
         }
     };
+
+    const uploadPendingAttachments = async (billId) => {
+        if (!billId || !pendingAttachments.length) return null;
+        const formData = new FormData();
+        pendingAttachments.forEach((file) => formData.append('attachments', file));
+        const response = await apiFetch(`${API}/inventory/bills/by-id/${billId}/attachments`, {
+            method: 'POST',
+            body: formData
+        });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.message || 'Failed to upload attachments');
+        }
+        return response.json();
+    };
+
+    const buildBillTaxesPayload = () => {
+        if (billFormData.taxMode !== 'billLevel') return [];
+        const taxes = [];
+        const cgst = parseFloat(billFormData.billCgstPercent);
+        const sgst = parseFloat(billFormData.billSgstPercent);
+        const gst = parseFloat(billFormData.billGstPercent);
+        if (Number.isFinite(cgst) && cgst > 0) taxes.push({ name: 'CGST', rate: cgst });
+        if (Number.isFinite(sgst) && sgst > 0) taxes.push({ name: 'SGST', rate: sgst });
+        if (taxes.length === 0 && Number.isFinite(gst) && gst > 0) {
+            taxes.push({ name: 'GST', rate: gst });
+        }
+        return taxes;
+    };
+
+    const buildHybridBillPayload = (adminName) => ({
+        busId: billFormData.busId,
+        vendorId: billFormData.vendorId,
+        billNo: billFormData.billNo,
+        adminName,
+        taxMode: billFormData.taxMode,
+        discountMode: billFormData.discountMode,
+        discountAmount: parseFloat(billFormData.discountAmount) || 0,
+        discountPercent: parseFloat(billFormData.discountPercent) || 0,
+        taxes: buildBillTaxesPayload(),
+        grandTotalOverride: billFormData.grandTotalOverride === '' || billFormData.grandTotalOverride == null
+            ? null
+            : parseFloat(billFormData.grandTotalOverride),
+        notes: billFormData.notes || '',
+        items: billFormData.items.map((item) => {
+            const pricingMode = item.pricingMode === 'lumpSum' ? 'lumpSum' : 'unitRate';
+            return {
+                allocationId: item.allocationId || undefined,
+                itemId: item.itemId,
+                itemIds: [item.itemId],
+                variantName: item.variantName || '',
+                pricingMode,
+                quantity: toBillQuantity(item.quantity),
+                unitPrice: pricingMode === 'unitRate' ? (parseFloat(item.price) || 0) : 0,
+                price: pricingMode === 'unitRate'
+                    ? (parseFloat(item.price) || 0)
+                    : (parseFloat(item.amount) || 0),
+                amount: pricingMode === 'lumpSum' ? (parseFloat(item.amount) || 0) : undefined,
+                gstPercent: billFormData.taxMode === 'lineLevel' ? (parseFloat(item.gstPercent) || 0) : 0,
+                discountAmount: billFormData.discountMode === 'lineLevel'
+                    ? (parseFloat(item.discountAmount) || 0)
+                    : 0,
+                discountPercent: billFormData.discountMode === 'lineLevel'
+                    ? (parseFloat(item.discountPercent) || 0)
+                    : 0,
+                subDescriptions: String(item.subDescriptions || '')
+                    .split(/\r?\n/)
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                remarks: item.remarks || '',
+                tyrePosition: item.tyrePosition,
+                kmReading: item.kmReading,
+                tyreType: item.tyreType
+            };
+        })
+    });
 
     const handleItemSubmit = async (e) => {
         e.preventDefault();
@@ -469,38 +607,44 @@ const Inventory = () => {
                 alert('Each item quantity must be at least 0.1 with up to 1 decimal place.');
                 return;
             }
-            const price = parseFloat(item.price);
-            if (!Number.isFinite(price) || price < 0) {
-                alert('Each item must have a valid unit price.');
+            if (!item.itemId) {
+                alert('Each row must have an inventory item selected.');
                 return;
+            }
+            const pricingMode = item.pricingMode === 'lumpSum' ? 'lumpSum' : 'unitRate';
+            if (pricingMode === 'unitRate') {
+                const price = parseFloat(item.price);
+                if (!Number.isFinite(price) || price < 0) {
+                    alert('Each unit-rate item must have a valid unit price.');
+                    return;
+                }
+            } else {
+                const amount = parseFloat(item.amount);
+                if (!Number.isFinite(amount) || amount < 0) {
+                    alert('Each lump-sum item must have a valid amount.');
+                    return;
+                }
             }
         }
 
         const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
-        const payload = {
-            busId: billFormData.busId,
-            vendorId: billFormData.vendorId,
-            billNo: billFormData.billNo,
-            adminName: adminInfo.name || adminInfo.username || 'Admin',
-            items: billFormData.items.map(item => ({
-                ...item,
-                quantity: toBillQuantity(item.quantity),
-                price: parseFloat(item.price) || 0,
-                gstPercent: parseFloat(item.gstPercent) || 0,
-                itemIds: [item.itemId]
-            }))
-        };
+        const payload = buildHybridBillPayload(adminInfo.name || adminInfo.username || 'Admin');
 
-        const isEditing = Boolean(editingBill?.originalBillNo);
+        const isEditing = Boolean(editingBill?.originalBillNo || editingBill?.billId);
         if (isEditing && !canEditBills) {
             alert('You do not have permission to edit bills.');
             return;
         }
 
-        const url = isEditing ? `${API}/inventory/update-bill` : `${API}/inventory/raise-bill`;
+        const useIdPath = Boolean(editingBill?.billId);
+        const url = isEditing
+            ? (useIdPath
+                ? `${API}/inventory/bills/by-id/${editingBill.billId}`
+                : `${API}/inventory/update-bill`)
+            : `${API}/inventory/bills`;
         const method = isEditing ? 'PUT' : 'POST';
 
-        if (isEditing) {
+        if (isEditing && !useIdPath) {
             payload.originalBillNo = editingBill.originalBillNo;
         }
 
@@ -512,14 +656,32 @@ const Inventory = () => {
             });
 
             if (response.ok) {
-                const printableBill = { ...buildPrintableBillData(), wasEdit: isEditing };
+                const data = await response.json().catch(() => ({}));
+                const savedBill = data.bill || null;
+                let attachments = savedBill?.attachments || editingBill?.existingAttachments || [];
+
+                if (pendingAttachments.length && savedBill?._id) {
+                    try {
+                        const uploadResult = await uploadPendingAttachments(savedBill._id);
+                        attachments = uploadResult?.attachments || uploadResult?.bill?.attachments || attachments;
+                    } catch (uploadError) {
+                        console.error(uploadError);
+                        alert(uploadError.message || 'Bill saved but attachment upload failed.');
+                    }
+                }
+
+                const printableBill = {
+                    ...buildPrintableBillData(),
+                    ...(savedBill || {}),
+                    attachments,
+                    wasEdit: isEditing
+                };
                 fetchItems();
                 fetchHistory(billFormData.busId);
                 setIsBillModalOpen(false);
                 setPrintBill(printableBill);
                 setIsBillSuccessModalOpen(true);
                 resetBillForm();
-                if (activeTab === TABS.history) fetchHistory(selectedBusFilter);
                 if (activeTab === TABS.tyreRegistry) fetchTyreRegistry(selectedBusFilter);
             } else {
                 const data = await response.json();
@@ -540,18 +702,21 @@ const Inventory = () => {
             alert('You do not have permission to delete bills.');
             return;
         }
-        if (!bill?.billNo) {
+        if (!bill?.billNo && !bill?._id) {
             alert('This bill cannot be deleted because it has no bill number.');
             return;
         }
 
         const vehicleLabel = bill.busId?.vehicleNumber || bill.busId?.busNumber || 'the vehicle';
-        if (!window.confirm(`Delete bill #${bill.billNo}? This will remove all item assignments from ${vehicleLabel}.`)) {
+        if (!window.confirm(`Delete bill #${bill.billNo || bill._id}? This will remove all item assignments from ${vehicleLabel}.`)) {
             return;
         }
 
         try {
-            const response = await apiFetch(`${API}/inventory/bills/${encodeURIComponent(bill.billNo)}`, {
+            const deleteUrl = bill._id
+                ? `${API}/inventory/bills/by-id/${bill._id}`
+                : `${API}/inventory/bills/${encodeURIComponent(bill.billNo)}`;
+            const response = await apiFetch(deleteUrl, {
                 method: 'DELETE'
             });
             if (response.ok) {
@@ -580,6 +745,7 @@ const Inventory = () => {
                     template: 'bill-print',
                     data: {
                         billNo: billData.billNo,
+                        billId: billData._id,
                         vendorId: billData.vendorId?._id || billData.vendorId,
                         busId: billData.busId?._id || billData.busId
                     }
@@ -589,11 +755,12 @@ const Inventory = () => {
                 const html = await response.text();
                 printHtmlDocument(html, `Transport-Maintenance-Bill-${billData.billNo}`);
             } else {
-                alert('Failed to generate bill print HTML.');
+                // Fallback: client-side print of BillPrint component
+                window.print();
             }
         } catch (error) {
             console.error('Error generating bill print:', error);
-            alert('Error preparing bill print.');
+            window.print();
         }
     };
 
@@ -660,29 +827,66 @@ const Inventory = () => {
         return lastAllocation ? lastAllocation.price : null;
     };
 
-    const billTotals = getBillTotals(billFormData.items);
+    const liveBillCalcInput = {
+        taxMode: billFormData.taxMode,
+        discountMode: billFormData.discountMode,
+        discountAmount: billFormData.discountAmount,
+        discountPercent: billFormData.discountPercent,
+        taxes: buildBillTaxesPayload(),
+        grandTotalOverride: billFormData.grandTotalOverride,
+        items: billFormData.items.map((item) => ({
+            ...item,
+            pricingMode: item.pricingMode || 'unitRate',
+            unitPrice: item.price,
+            amount: item.amount
+        }))
+    };
+    const billTotals = computeBillTotals(liveBillCalcInput);
 
     const buildPrintableBillData = () => {
-        const selectedBus = buses.find((bus) => bus.busNumber === billFormData.busId);
+        const selectedBus = buses.find((bus) => bus.busNumber === billFormData.busId)
+            || otherVehicles.find((v) => v.vehicleNumber === billFormData.busId);
         const selectedVendor = vendors.find((vendor) => vendor._id === billFormData.vendorId);
         const printableItems = billFormData.items
             .filter((line) => line.itemId)
             .map((line) => ({
                 ...line,
+                pricingMode: line.pricingMode || 'unitRate',
+                unitPrice: line.price,
+                amount: line.amount,
                 itemId: items.find((item) => item._id === line.itemId) || line.itemId,
                 allocatedDate: new Date(),
+                subDescriptions: String(line.subDescriptions || '')
+                    .split(/\r?\n/)
+                    .map((s) => s.trim())
+                    .filter(Boolean)
             }));
-        const totals = getBillTotals(printableItems);
+        const totals = computeBillTotals({
+            ...liveBillCalcInput,
+            items: printableItems
+        });
 
         return {
             billNo: billFormData.billNo,
             date: new Date(),
             vendorId: selectedVendor || billFormData.vendorId,
-            busId: selectedBus ? { ...selectedBus, busNumber: selectedBus.busNumber } : billFormData.busId,
+            busId: selectedBus
+                ? { ...selectedBus, busNumber: selectedBus.busNumber || selectedBus.vehicleNumber }
+                : billFormData.busId,
             adminName: JSON.parse(localStorage.getItem('adminInfo') || '{}').name || 'Admin',
+            taxMode: billFormData.taxMode,
+            discountMode: billFormData.discountMode,
+            taxes: buildBillTaxesPayload(),
+            discountAmount: billFormData.discountAmount,
+            discountPercent: billFormData.discountPercent,
+            notes: billFormData.notes,
             subtotal: totals.subtotal,
-            gstTotal: totals.gstTotal,
+            discountTotal: totals.discountTotal,
+            gstTotal: totals.taxTotal,
+            taxTotal: totals.taxTotal,
             totalAmount: totals.grandTotal,
+            grandTotal: totals.grandTotal,
+            attachments: editingBill?.existingAttachments || [],
             items: printableItems,
         };
     };
@@ -709,8 +913,18 @@ const Inventory = () => {
     };
 
     const getGroupedBills = () => {
+        if (maintenanceBills.length > 0) {
+            return maintenanceBills.map((bill) => ({
+                ...bill,
+                date: bill.date,
+                totalAmount: bill.grandTotal ?? bill.totalAmount ?? 0,
+                items: bill.items || bill.lines || [],
+                attachments: bill.attachments || []
+            }));
+        }
+
         if (!history || history.length === 0) return [];
-        
+
         const groups = history.reduce((acc, record) => {
             const billKey = record.billNo || `no-bill-${record._id}`;
             if (!acc[billKey]) {
@@ -720,11 +934,18 @@ const Inventory = () => {
                     vendorId: record.vendorId,
                     busId: record.busId,
                     adminName: record.adminName,
+                    taxMode: 'lineLevel',
+                    discountMode: 'none',
                     items: [],
+                    attachments: [],
                     totalAmount: 0
                 };
             }
-            acc[billKey].items.push(record);
+            acc[billKey].items.push({
+                ...record,
+                pricingMode: record.pricingMode || 'unitRate',
+                unitPrice: record.price
+            });
             acc[billKey].totalAmount += getLineTotal(record.quantity, record.price, record.gstPercent);
             return acc;
         }, {});
@@ -820,12 +1041,12 @@ const Inventory = () => {
                     >
                         <Plus size={16} /> Add Item / Variant
                     </button>
-                    <button 
-                        onClick={openNewBillModal}
+                    <Link
+                        to="/inventory/raise-bill"
                         className="bg-emerald-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 hover:bg-emerald-800 transition-all shadow-sm active:scale-95"
                     >
                         <Truck size={16} /> Raise Bill
-                    </button>
+                    </Link>
                     <button 
                         onClick={() => setActiveTab(TABS.tyreRegistry)}
                         className="bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 hover:bg-blue-800 transition-all shadow-sm active:scale-95"
@@ -841,18 +1062,12 @@ const Inventory = () => {
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 bg-gray-100 p-1 rounded border border-gray-200 mb-6 w-full gap-1">
+            <div className="grid grid-cols-3 bg-gray-100 p-1 rounded border border-gray-200 mb-6 w-full gap-1">
                 <button
                     onClick={() => setActiveTab(TABS.inventory)}
                     className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === TABS.inventory ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                     <Layers size={14} /> Master Inventory
-                </button>
-                <button
-                    onClick={() => setActiveTab(TABS.history)}
-                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === TABS.history ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    <History size={14} /> Bills
                 </button>
                 <button
                     onClick={() => setActiveTab(TABS.vendors)}
@@ -1024,171 +1239,6 @@ const Inventory = () => {
                         )}
                     </div>
                 </>
-            )}
-
-            {activeTab === TABS.history && (
-                <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-6">
-                    <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
-                        <div className="flex items-center gap-3 w-full md:w-auto bg-slate-50 p-1 rounded-md border border-slate-100">
-                            <Filter size={18} className="ml-3 text-slate-400" />
-                            <select 
-                                className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 pr-8"
-                                value={selectedBusFilter}
-                                onChange={(e) => setSelectedBusFilter(e.target.value)}
-                            >
-                                <option value="all">All Fleet Activity</option>
-                                <optgroup label="Buses">
-                                    {buses.map(b => (
-                                        <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="Other Vehicles">
-                                    {otherVehicles.map(o => (
-                                        <option key={o._id} value={o.vehicleNumber}>{o.vehicleNumber} ({o.type})</option>
-                                    ))}
-                                </optgroup>
-                            </select>
-                        </div>
-                    </div>
-
-                    {historyLoading ? (
-                        <div className="py-20 flex justify-center"><Loader text="Fetching history..." /></div>
-                    ) : history.length > 0 ? (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-slate-50/50 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                                        <th className="px-6 py-4">Bill Date</th>
-                                        <th className="px-6 py-4">Bill No</th>
-                                        <th className="px-6 py-4">Vendor & Bus</th>
-                                        <th className="px-6 py-4">Items Summary</th>
-                                        <th className="px-6 py-4">Total Amount</th>
-                                        <th className="px-6 py-4 text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {groupedBills.map(bill => {
-                                        const billKey = getBillKey(bill);
-                                        const isExpanded = expandedBillKey === billKey;
-
-                                        return (
-                                            <React.Fragment key={billKey}>
-                                                <tr className="hover:bg-slate-50 transition-colors group">
-                                                    <td className="px-6 py-5 whitespace-nowrap">
-                                                        <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
-                                                            <Calendar size={14} className="text-slate-400" />
-                                                            {new Date(bill.date).toLocaleDateString()}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-5 whitespace-nowrap">
-                                                        <span className="text-xs font-black text-blue-600 uppercase tracking-tighter">#{bill.billNo || 'N/A'}</span>
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        <div className="flex flex-col">
-                                                            <span className="font-bold text-slate-800 text-sm">{bill.vendorId?.name || 'Unknown'}</span>
-                                                            <span className="text-[10px] text-slate-400 font-black uppercase mt-0.5">Vehicle: {bill.busId?.vehicleNumber || bill.busId?.busNumber || 'N/A'}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setExpandedBillKey(isExpanded ? null : billKey)}
-                                                            className="flex items-center gap-2 text-left text-xs font-bold text-slate-600 hover:text-blue-600 transition-colors"
-                                                        >
-                                                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                                            <span>{bill.items.length} item(s)</span>
-                                                            {!isExpanded && (
-                                                                <span className="text-[10px] font-medium text-slate-400 normal-case">
-                                                                    — click to view details
-                                                                </span>
-                                                            )}
-                                                        </button>
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        <div className="flex flex-col">
-                                                            <span className="font-black text-blue-700">₹{formatCurrency(bill.totalAmount)}</span>
-                                                            <span className="text-[10px] text-slate-400 font-bold uppercase">{bill.items.length} item(s)</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-5 text-right">
-                                                        <div className="flex justify-end gap-1">
-                                                            {canEditBills && (
-                                                                <button 
-                                                                    onClick={() => openEditBillModal(bill)}
-                                                                    className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-all"
-                                                                    title="Edit Bill"
-                                                                >
-                                                                    <Edit size={16} />
-                                                                </button>
-                                                            )}
-                                                            {canDeleteBills && (
-                                                                <button 
-                                                                    onClick={() => handleDeleteBill(bill)}
-                                                                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
-                                                                    title="Delete Bill"
-                                                                >
-                                                                    <Trash2 size={16} />
-                                                                </button>
-                                                            )}
-                                                            <button 
-                                                                onClick={() => handlePrint(bill)}
-                                                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
-                                                                title="Print Full Bill"
-                                                            >
-                                                                <Printer size={16} />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                                {isExpanded && (
-                                                    <tr className="bg-slate-50/70">
-                                                        <td colSpan={6} className="px-6 py-4">
-                                                            <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-                                                                <table className="w-full text-left text-sm">
-                                                                    <thead>
-                                                                        <tr className="bg-slate-100 text-[10px] font-black uppercase text-slate-500 tracking-wider">
-                                                                            <th className="px-4 py-3">Item</th>
-                                                                            <th className="px-4 py-3 text-center">Qty</th>
-                                                                            <th className="px-4 py-3 text-right">Unit Price</th>
-                                                                            <th className="px-4 py-3 text-center">GST %</th>
-                                                                            <th className="px-4 py-3 text-right">Overall Price</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody className="divide-y divide-slate-100">
-                                                                        {bill.items.map((item) => {
-                                                                            const lineTotal = getLineTotal(item.quantity, item.price, item.gstPercent);
-                                                                            return (
-                                                                                <tr key={item._id} className="text-slate-700">
-                                                                                    <td className="px-4 py-3 font-semibold">{getAllocatedItemDisplayName(item)}</td>
-                                                                                    <td className="px-4 py-3 text-center">{item.quantity}</td>
-                                                                                    <td className="px-4 py-3 text-right">₹{formatCurrency(item.price)}</td>
-                                                                                    <td className="px-4 py-3 text-center">{item.gstPercent || 0}%</td>
-                                                                                    <td className="px-4 py-3 text-right font-bold text-blue-700">₹{formatCurrency(lineTotal)}</td>
-                                                                                </tr>
-                                                                            );
-                                                                        })}
-                                                                    </tbody>
-                                                                    <tfoot>
-                                                                        <tr className="bg-blue-50/60">
-                                                                            <td colSpan={4} className="px-4 py-3 text-right text-xs font-black uppercase text-slate-500">Grand Total</td>
-                                                                            <td className="px-4 py-3 text-right font-black text-blue-700">₹{formatCurrency(bill.totalAmount)}</td>
-                                                                        </tr>
-                                                                    </tfoot>
-                                                                </table>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                            </React.Fragment>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    ) : (
-                        <div className="py-20 text-center text-slate-400">No allocation history available.</div>
-                    )}
-                </div>
             )}
 
             {activeTab === TABS.vendors && (
@@ -1436,370 +1486,6 @@ const Inventory = () => {
                         {editingVendor ? 'Update Vendor' : 'Save Vendor'}
                     </button>
                 </form>
-            </Modal>
-
-            {/* Raise Bill Modal */}
-            <Modal
-                isOpen={isBillModalOpen}
-                onClose={closeBillModal}
-                title={editingBill ? `Edit Bill #${editingBill.originalBillNo}` : 'Raise Bills'}
-                maxWidth="max-w-7xl"
-                noScroll
-            >
-                <form onSubmit={handleBillSubmit} className="flex flex-col max-h-[calc(90vh-5.5rem)]">
-                    <div className="flex-1 overflow-y-auto min-h-0 pr-1 custom-scrollbar space-y-6">
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                        {/* Left Side: Form Inputs */}
-                        <div className="lg:col-span-8 space-y-6">
-                            {/* Header Section: Bus, Vendor, Bill No */}
-                            <div className="bg-gray-50 p-6 rounded-lg border border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-2 uppercase">1. Select Vehicle</label>
-                                    <select 
-                                        required 
-                                        className="w-full px-4 py-2.5 rounded border border-gray-300 bg-white font-medium text-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all" 
-                                        value={billFormData.busId} 
-                                        onChange={e => setBillFormData({...billFormData, busId: e.target.value})}
-                                    >
-                                        <option value="">-- Choose Vehicle --</option>
-                                        <optgroup label="Buses">
-                                            {buses.map(b => (
-                                                <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
-                                            ))}
-                                        </optgroup>
-                                        <optgroup label="Other Vehicles">
-                                            {otherVehicles.map(o => (
-                                                <option key={o._id} value={o.vehicleNumber}>{o.vehicleNumber} ({o.type})</option>
-                                            ))}
-                                        </optgroup>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-2 uppercase">2. Select Vendor</label>
-                                    <select 
-                                        required 
-                                        className="w-full px-4 py-2.5 rounded border border-gray-300 bg-white font-medium text-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all" 
-                                        value={billFormData.vendorId} 
-                                        onChange={e => setBillFormData({...billFormData, vendorId: e.target.value})}
-                                    >
-                                        <option value="">-- Choose Vendor --</option>
-                                        {vendors.map(v => <option key={v._id} value={v._id}>{v.name}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-2 uppercase">Bill Number</label>
-                                    <input 
-                                        type="text" required
-                                        placeholder="Invoice or Bill No"
-                                        className="w-full px-4 py-2.5 rounded border border-gray-300 bg-white font-medium text-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all" 
-                                        value={billFormData.billNo} 
-                                        onChange={e => setBillFormData({...billFormData, billNo: e.target.value})}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="space-y-4 pr-1">
-                                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-                                    <h4 className="text-sm font-bold text-gray-800 uppercase tracking-tight">3. Items to Allocate</h4>
-                                    <span className="text-[10px] font-black bg-gray-900 text-white px-3 py-1 rounded-full uppercase">{billFormData.items.length} row(s)</span>
-                                </div>
-                                
-                                {billFormData.items.map((lineItem, index) => (
-                                    <div key={index} className="relative p-6 bg-white rounded-lg border border-gray-200 shadow-sm transition-all mb-4 hover:border-blue-200">
-                                        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
-                                            {/* Item Selection */}
-                                            <div className="md:col-span-3">
-                                                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Select Category</label>
-                                                <select 
-                                                    required 
-                                                    className="w-full px-4 py-2 rounded border border-gray-200 bg-white text-sm font-medium text-gray-700 focus:border-blue-500 outline-none" 
-                                                    value={lineItem.itemGroup} 
-                                                    onChange={e => handleBillGroupChange(index, e.target.value)}
-                                                >
-                                                    <option value="">-- Choose Category --</option>
-                                                    {inventoryGroups.map(group => (
-                                                        <option key={group.key} value={group.itemName}>
-                                                            {group.itemName} ({group.category})
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-
-                                            <div className="md:col-span-3">
-                                                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Select Variant</label>
-                                                <select
-                                                    className="w-full px-4 py-2 rounded border border-gray-200 bg-white text-sm font-medium text-gray-700 focus:border-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-400"
-                                                    value={lineItem.variantName}
-                                                    disabled={!lineItem.itemGroup}
-                                                    onChange={e => handleBillVariantChange(index, e.target.value)}
-                                                >
-                                                    <option value="">-- {lineItem.itemGroup ? 'No Variant / Base Item' : 'Choose Category First'} --</option>
-                                                    {(getGroupByName(lineItem.itemGroup)?.variants || []).map(variant => (
-                                                        <option key={variant.name} value={variant.name}>
-                                                            {variant.name}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-
-                                            {/* Qty, Price & GST */}
-                                            <div className="md:col-span-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                                <div>
-                                                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
-                                                        Quantity {lineItem.itemId && `(${getSelectedInventoryItem(lineItem)?.unit || 'Pcs'})`}
-                                                    </label>
-                                                    <input 
-                                                        required type="number" min="0.1" step="0.1"
-                                                        className="w-full px-4 py-2 rounded border border-gray-200 bg-white text-sm font-medium" 
-                                                        value={lineItem.quantity} 
-                                                        onChange={e => handleQuantityChange(index, e.target.value)}
-                                                        onWheel={preventNumberInputScroll}
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide flex justify-between">
-                                                        Unit Price
-                                                        {lineItem.itemId && getLastPrice(lineItem.itemId) && (
-                                                            <span className="text-blue-600 font-bold lowercase italic opacity-80">
-                                                                Last: ₹{getLastPrice(lineItem.itemId)}
-                                                            </span>
-                                                        )}
-                                                    </label>
-                                                    <div className="relative">
-                                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-bold">₹</span>
-                                                        <input 
-                                                            required
-                                                            type="text"
-                                                            inputMode="decimal"
-                                                            placeholder="0.00"
-                                                            className="w-full pl-7 pr-4 py-2 rounded border border-gray-200 bg-white text-sm font-medium" 
-                                                            value={lineItem.price} 
-                                                            onChange={e => handlePriceChange(index, e.target.value)}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
-                                                        GST %
-                                                    </label>
-                                                    <div className="relative">
-                                                        <input
-                                                            type="text"
-                                                            inputMode="decimal"
-                                                            placeholder="0"
-                                                            className="w-full px-4 py-2 pr-8 rounded border border-gray-200 bg-white text-sm font-medium"
-                                                            value={lineItem.gstPercent}
-                                                            onChange={e => handleGstChange(index, e.target.value)}
-                                                        />
-                                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-bold">%</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Tyre Details */}
-                                        {lineItem.itemId && getSelectedInventoryItem(lineItem)?.category === 'Tires' && (
-                                            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded border border-gray-100 italic">
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase">Position</label>
-                                                    <select
-                                                        className="w-full px-3 py-1.5 rounded border border-gray-200 text-xs bg-white font-bold"
-                                                        value={lineItem.tyrePosition}
-                                                        onChange={(e) => updateBillItem(index, 'tyrePosition', e.target.value)}
-                                                    >
-                                                        {TYRE_POSITIONS.map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase">Type</label>
-                                                    <select
-                                                        className="w-full px-3 py-1.5 rounded border border-gray-200 text-xs bg-white font-bold"
-                                                        value={lineItem.tyreType}
-                                                        onChange={(e) => updateBillItem(index, 'tyreType', e.target.value)}
-                                                    >
-                                                        <option value="new tyre">New Tyre</option>
-                                                        <option value="old tyre">Old Tyre</option>
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase">Reading (KM)</label>
-                                                    <input
-                                                        type="number"
-                                                        className="w-full px-3 py-1.5 rounded border border-gray-200 text-xs bg-white font-bold"
-                                                        value={lineItem.kmReading}
-                                                        onChange={(e) => updateBillItem(index, 'kmReading', e.target.value)}
-                                                    />
-                                                </div>
-                                            </div>
-                                        )}
-                                        
-                                        <div className="mt-4 flex items-center gap-3">
-                                            <div className="flex-1">
-                                                <input 
-                                                    type="text" 
-                                                    placeholder="Add remarks for this item..."
-                                                    className="w-full px-4 py-2 rounded border border-gray-100 bg-gray-50/50 text-xs text-gray-600 focus:bg-white transition-all outline-none focus:border-blue-200" 
-                                                    value={lineItem.remarks} 
-                                                    onChange={e => updateBillItem(index, 'remarks', e.target.value)} 
-                                                />
-                                            </div>
-                                            {billFormData.items.length > 1 && (
-                                                <button 
-                                                    type="button" 
-                                                    onClick={() => removeBillItem(index)}
-                                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                                                    title="Remove this item"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                                <button 
-                                    type="button" 
-                                    onClick={addBillItem}
-                                    className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded border-2 border-dashed border-gray-300 text-gray-400 font-bold hover:bg-gray-50 hover:border-gray-400 transition-all text-xs uppercase tracking-widest"
-                                >
-                                    <Plus size={16} /> Add Another Item Row
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Right Side: Selected Bus Item History */}
-                        <div className="lg:col-span-4 sticky top-0 space-y-6">
-                            <div className="bg-white rounded-lg border-2 border-blue-600 shadow-lg overflow-hidden flex flex-col h-full max-h-[70vh]">
-                                <div className="bg-blue-600 text-white p-4">
-                                    <h3 className="text-xs font-black uppercase tracking-[0.2em] flex items-center gap-2">
-                                        <History size={16} className="text-white/80" /> Bus Item History
-                                    </h3>
-                                    <p className="text-[10px] text-blue-100 mt-1 font-semibold">
-                                        {billFormData.busId ? `Bus ${billFormData.busId}` : 'Select a bus to view assignment history'}
-                                    </p>
-                                </div>
-                                <div className="flex-1 p-6 overflow-y-auto space-y-4">
-                                    {!billFormData.busId ? (
-                                        <div className="py-12 text-center text-gray-300 italic text-xs">
-                                            Choose a bus first.
-                                        </div>
-                                    ) : getSelectedBillHistory().length > 0 ? (
-                                        getSelectedBillHistory().map((record) => (
-                                            <div key={record._id} className="border-b border-gray-100 pb-3">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <p className="text-xs font-black text-gray-800 truncate" title={getAllocatedItemDisplayName(record)}>
-                                                            {getAllocatedItemDisplayName(record)}
-                                                        </p>
-                                                        <p className="text-[10px] text-gray-400 mt-1 font-semibold">
-                                                            {new Date(record.allocatedDate).toLocaleDateString()} · Bill #{record.billNo || 'N/A'}
-                                                        </p>
-                                                        {record.remarks && (
-                                                            <p className="text-[10px] text-gray-500 mt-1 italic line-clamp-2">{record.remarks}</p>
-                                                        )}
-                                                    </div>
-                                                    <div className="text-right shrink-0">
-                                                        <p className="text-xs font-black text-blue-700">{record.quantity} {record.itemId?.unit || 'Pcs'}</p>
-                                                        <p className="text-[10px] text-gray-400">₹{record.price || 0}</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <div className="py-12 text-center text-gray-300 italic text-xs">
-                                            No previous assignment history for this bus.
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    </div>
-
-                    <div className="sticky bottom-0 z-20 shrink-0 mt-4 -mx-6 -mb-5 px-6 py-4 bg-white/95 backdrop-blur-sm border-t border-blue-100 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.15)]">
-                        <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1 w-full">
-                                <div className="text-center sm:text-left px-3 py-2 rounded-md bg-white/60 border border-blue-100">
-                                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">Subtotal</p>
-                                    <p className="text-lg font-black text-slate-700">₹{formatCurrency(billTotals.subtotal)}</p>
-                                </div>
-                                <div className="text-center sm:text-left px-3 py-2 rounded-md bg-white/60 border border-blue-100">
-                                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">Total GST</p>
-                                    <p className="text-lg font-black text-slate-700">₹{formatCurrency(billTotals.gstTotal)}</p>
-                                </div>
-                                <div className="text-center sm:text-left px-3 py-2 rounded-md bg-white border border-blue-200">
-                                    <p className="text-[10px] font-black uppercase text-blue-500 tracking-widest">Grand Total</p>
-                                    <p className="text-xl font-black text-blue-700 italic">₹{formatCurrency(billTotals.grandTotal)}</p>
-                                </div>
-                            </div>
-                            <button
-                                type="submit"
-                                className="lg:w-64 w-full bg-blue-600 text-white font-black py-4 rounded hover:bg-blue-700 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 uppercase text-xs tracking-widest shrink-0"
-                            >
-                                <Truck size={18} /> {editingBill ? 'Update Bill' : 'Raise Bill'}
-                            </button>
-                        </div>
-                    </div>
-                </form>
-            </Modal>
-
-            <Modal
-                isOpen={isBillSuccessModalOpen}
-                onClose={() => {
-                    setIsBillSuccessModalOpen(false);
-                    setPrintBill(null);
-                }}
-                title={printBill?.error ? (printBill?.wasEdit ? 'Bill Not Updated' : 'Bill Not Raised') : (printBill?.wasEdit ? 'Bill Updated Successfully' : 'Bill Raised Successfully')}
-                maxWidth="max-w-md"
-            >
-                {printBill?.error ? (
-                    <div className="space-y-4">
-                        <div className="p-4 rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm font-semibold">
-                            {printBill.error}
-                        </div>
-                        <div className="flex justify-end">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setIsBillSuccessModalOpen(false);
-                                    setPrintBill(null);
-                                }}
-                                className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-bold hover:bg-slate-800"
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="space-y-5">
-                        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
-                            <p className="text-sm font-black text-emerald-800">
-                                {printBill?.wasEdit ? 'Bill updated successfully.' : 'Bill raised and assigned to bus successfully.'}
-                            </p>
-                            <p className="text-xs text-emerald-700 mt-1">
-                                Bill #{printBill?.billNo || 'N/A'} · Total ₹{printBill?.totalAmount || 0}
-                            </p>
-                        </div>
-                        <div className="flex flex-col sm:flex-row gap-3">
-                            <button
-                                type="button"
-                                onClick={() => handlePrint(printBill)}
-                                className="flex-1 px-4 py-3 rounded-xl bg-blue-600 text-white text-sm font-black hover:bg-blue-700 flex items-center justify-center gap-2"
-                            >
-                                <Printer size={16} /> Print Bill
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setIsBillSuccessModalOpen(false);
-                                    setPrintBill(null);
-                                }}
-                                className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50"
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                )}
             </Modal>
 
             {/* Hidden Print Area */}
