@@ -95,6 +95,14 @@ const BusManagement = () => {
     const [taxHistoryData, setTaxHistoryData] = useState(null);        // { taxHeader, history[], stats{} }
     const [taxHistoryLoading, setTaxHistoryLoading] = useState(false);
 
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [activeTab, staffSubTab, selectedCampusFilter]);
+
     const fetchBuses = async () => {
         try {
             const response = await apiFetch(`${API}/buses`);

@@ -16,6 +16,8 @@ import {
     Package,
     Settings,
     ChevronDown,
+    ChevronLeft,
+    ChevronRight,
     Truck
 } from 'lucide-react';
 
@@ -211,8 +213,15 @@ const Layout = ({ children }) => {
     };
 
     return (
-        <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
-            <aside className={`${isCollapsed ? 'w-20' : 'w-72'} bg-[#0f172a] shadow-lg hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-hidden`}>
+        <div className="flex h-screen bg-[#EAF3FF] font-sans overflow-hidden">
+            <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-[#0B1E43] shadow-lg hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-visible`}>
+                <button 
+                    onClick={() => setIsCollapsed(!isCollapsed)}
+                    className="absolute -right-3 top-24 bg-white border border-slate-200 rounded-full p-1 shadow-md z-50 hover:bg-slate-50 text-blue-600 cursor-pointer"
+                >
+                    {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+                </button>
+
                 <div className={`min-h-24 flex items-center ${isCollapsed ? 'justify-center px-3' : 'px-6'} py-6 transition-all duration-300 relative z-10`}>
                     <img
                         src="/Gemini_Generated_Image_uu0hhduu0hhduu0h.png"
@@ -231,7 +240,7 @@ const Layout = ({ children }) => {
                     )}
                 </div>
 
-                <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar relative z-10 pb-6">
+                <nav className="flex-1 px-4 space-y-1 overflow-y-auto sidebar-scrollbar relative z-10 pb-6">
                     {filteredCategories.map((category, idx) => (
                         <div key={idx} className="mb-6 last:mb-0">
                             {!isCollapsed && (
@@ -260,18 +269,11 @@ const Layout = ({ children }) => {
                                     <p className="text-[10px] text-slate-400 truncate mt-0.5">
                                         {adminInfo.role === 'admin' ? 'Administrator' : adminInfo.role || 'Administrator'}
                                     </p>
-                                    <div className="flex items-center gap-1.5 mt-1">
-                                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                                        <span className="text-[10px] text-slate-400 font-medium">Online</span>
-                                    </div>
                                 </div>
                             )}
                         </div>
                         {!isCollapsed && (
                             <div className="flex flex-col gap-1 pr-1 shrink-0">
-                                <button type="button" className="p-1.5 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-white/10">
-                                    <Settings size={16} />
-                                </button>
                                 <button
                                     type="button"
                                     onClick={handleLogout}
@@ -293,7 +295,7 @@ const Layout = ({ children }) => {
                 ></div>
             )}
 
-            <aside className={`fixed inset-y-0 left-0 w-72 bg-[#0f172a] shadow-xl flex flex-col z-40 transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            <aside className={`fixed inset-y-0 left-0 w-64 bg-[#0B1E43] shadow-xl flex flex-col z-40 transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                 <div className="min-h-24 flex justify-between items-center px-6 relative z-10">
                     <div className="flex items-center gap-3 min-w-0">
                         <img
@@ -311,7 +313,7 @@ const Layout = ({ children }) => {
                     </button>
                 </div>
 
-                <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar relative z-10 pb-6">
+                <nav className="flex-1 px-4 space-y-1 overflow-y-auto sidebar-scrollbar relative z-10 pb-6">
                     {filteredCategories.map((category, idx) => (
                         <div key={idx} className="mb-6 last:mb-0">
                             <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-2 mt-4">
@@ -351,7 +353,7 @@ const Layout = ({ children }) => {
                 </div>
             </aside>
 
-            <div className="flex-1 flex flex-col h-screen overflow-hidden relative bg-slate-50 w-full">
+            <div className="flex-1 flex flex-col h-screen overflow-hidden relative bg-[#EAF3FF] w-full">
                 <header className="md:hidden bg-white shadow-sm border-b border-slate-200 h-16 flex items-center justify-between px-4 z-20">
                     <button type="button" onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-slate-600 rounded-lg hover:bg-slate-100">
                         <Menu size={24} />
@@ -360,8 +362,8 @@ const Layout = ({ children }) => {
                     <div className="w-10"></div>
                 </header>
 
-                <main className="flex-1 overflow-x-hidden overflow-y-auto p-6 md:p-8 scroll-smooth w-full">
-                    <div className="w-full max-w-[1600px] mx-auto">
+                <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 scroll-smooth w-full">
+                    <div className="w-full mx-auto">
                         {children}
                     </div>
                 </main>
