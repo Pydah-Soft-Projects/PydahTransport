@@ -419,6 +419,38 @@ const RaiseBill = () => {
         fetchBillsList(billFormData.busId);
     }, [billFormData.busId]);
 
+    // Sync bill-level discount when items or discount mode changes
+    useEffect(() => {
+        if (billFormData.discountMode === 'billLevel') {
+            const currentTotals = computeBillTotals({
+                taxMode: billFormData.taxMode,
+                discountMode: billFormData.discountMode,
+                discountAmount: billFormData.discountAmount,
+                discountPercent: billFormData.discountPercent,
+                items: billFormData.items.map((item) => ({
+                    ...item,
+                    pricingMode: item.pricingMode || 'unitRate',
+                    unitPrice: item.price,
+                    amount: item.amount
+                }))
+            });
+            const subtotal = currentTotals.subtotal || 0;
+            const pct = parseFloat(billFormData.discountPercent) || 0;
+            const amt = parseFloat(billFormData.discountAmount) || 0;
+            if (pct > 0 && subtotal > 0) {
+                const calculatedAmt = Math.round((subtotal * pct / 100) * 100) / 100;
+                if (String(calculatedAmt) !== billFormData.discountAmount) {
+                    setBillFormData(prev => ({ ...prev, discountAmount: String(calculatedAmt) }));
+                }
+            } else if (amt > 0 && subtotal > 0) {
+                const calculatedPct = Math.round((amt / subtotal * 100) * 100) / 100;
+                if (String(calculatedPct) !== billFormData.discountPercent) {
+                    setBillFormData(prev => ({ ...prev, discountPercent: String(calculatedPct) }));
+                }
+            }
+        }
+    }, [billFormData.items, billFormData.discountMode]);
+
     const addBillItem = () => {
         setBillFormData({
             ...billFormData,
@@ -435,7 +467,44 @@ const RaiseBill = () => {
 
     const updateBillItem = (index, field, value) => {
         const newItems = [...billFormData.items];
-        newItems[index] = { ...newItems[index], [field]: value };
+        const item = { ...newItems[index], [field]: value };
+
+        const getBase = (it) => {
+            const pm = it.pricingMode === 'lumpSum' ? 'lumpSum' : 'unitRate';
+            if (pm === 'lumpSum') {
+                return parseFloat(it.amount) || 0;
+            }
+            return (parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0);
+        };
+
+        if (billFormData.discountMode === 'lineLevel') {
+            const base = getBase(item);
+            if (field === 'discountPercent') {
+                if (value === '') {
+                    item.discountAmount = '';
+                } else {
+                    const pct = parseFloat(value) || 0;
+                    item.discountAmount = base > 0 ? String(Math.round((base * pct / 100) * 100) / 100) : '0';
+                }
+            } else if (field === 'discountAmount') {
+                if (value === '') {
+                    item.discountPercent = '';
+                } else {
+                    const amt = parseFloat(value) || 0;
+                    item.discountPercent = base > 0 ? String(Math.round((amt / base * 100) * 100) / 100) : '0';
+                }
+            } else if (field === 'price' || field === 'quantity' || field === 'amount' || field === 'pricingMode') {
+                const pct = parseFloat(item.discountPercent) || 0;
+                const amt = parseFloat(item.discountAmount) || 0;
+                if (pct > 0) {
+                    item.discountAmount = base > 0 ? String(Math.round((base * pct / 100) * 100) / 100) : '0';
+                } else if (amt > 0) {
+                    item.discountPercent = base > 0 ? String(Math.round((amt / base * 100) * 100) / 100) : '0';
+                }
+            }
+        }
+
+        newItems[index] = item;
         setBillFormData({ ...billFormData, items: newItems });
     };
 
@@ -1364,7 +1433,14 @@ const RaiseBill = () => {
                                                         onChange={(e) => {
                                                             const parsed = parseGstInput(e.target.value);
                                                             if (parsed === null) return;
-                                                            setBillFormData({ ...billFormData, discountPercent: parsed });
+                                                            if (parsed === '') {
+                                                                setBillFormData({ ...billFormData, discountPercent: '', discountAmount: '' });
+                                                            } else {
+                                                                const pct = parseFloat(parsed) || 0;
+                                                                const subtotal = billTotals.subtotal || 0;
+                                                                const amt = subtotal > 0 ? Math.round((subtotal * pct / 100) * 100) / 100 : 0;
+                                                                setBillFormData({ ...billFormData, discountPercent: parsed, discountAmount: String(amt) });
+                                                            }
                                                         }}
                                                     />
                                                 </div>
@@ -1378,7 +1454,14 @@ const RaiseBill = () => {
                                                         onChange={(e) => {
                                                             const parsed = parsePriceInput(e.target.value);
                                                             if (parsed === null) return;
-                                                            setBillFormData({ ...billFormData, discountAmount: parsed });
+                                                            if (parsed === '') {
+                                                                setBillFormData({ ...billFormData, discountAmount: '', discountPercent: '' });
+                                                            } else {
+                                                                const amt = parseFloat(parsed) || 0;
+                                                                const subtotal = billTotals.subtotal || 0;
+                                                                const pct = subtotal > 0 ? Math.round((amt / subtotal * 100) * 100) / 100 : 0;
+                                                                setBillFormData({ ...billFormData, discountAmount: parsed, discountPercent: String(pct) });
+                                                            }
                                                         }}
                                                     />
                                                 </div>

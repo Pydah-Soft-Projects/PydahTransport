@@ -28,8 +28,11 @@ const applyDiscount = (base, discountAmount, discountPercent) => {
     let taxable = Math.max(0, toNumber(base, 0));
     const pct = Math.max(0, toNumber(discountPercent, 0));
     const amt = Math.max(0, toNumber(discountAmount, 0));
-    if (pct > 0) taxable -= (taxable * pct) / 100;
-    if (amt > 0) taxable -= amt;
+    if (amt > 0) {
+        taxable -= amt;
+    } else if (pct > 0) {
+        taxable -= (taxable * pct) / 100;
+    }
     return round2(Math.max(0, taxable));
 };
 
