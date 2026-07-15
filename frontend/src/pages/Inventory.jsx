@@ -1,18 +1,19 @@
-﻿import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
 import { 
     Package, Plus, Search, Edit, Trash2, History, Truck, 
     Calendar, Tag, User, Layers, Printer, ChevronDown, 
-    ChevronUp, LayoutGrid, List, AlertCircle, Filter, Paperclip
+    ChevronUp, LayoutGrid, List, AlertCircle, Filter, Paperclip,
+    ChevronLeft, ChevronRight, Wrench, Zap, Disc, Droplet, Bus, Shield, Sparkles, MoreVertical, FileText
 } from 'lucide-react';
 import BillPrint from '../components/BillPrint';
 import { apiFetch, API_BASE } from '../utils/api';
 import { printHtmlDocument } from '../utils/printHtml';
 import { hasPermission } from '../utils/permissions';
-import { getLineTotal, computeBillTotals } from '../utils/billCalculations';
+import { getLineTotal } from '../utils/billCalculations';
 
 const API = API_BASE;
 const API_ORIGIN = String(API_BASE || '').replace(/\/api\/?$/, '');
@@ -23,26 +24,21 @@ const attachmentUrl = (url) => {
     return `${API_ORIGIN}${url.startsWith('/') ? url : `/${url}`}`;
 };
 
-const TABS = { inventory: 'inventory', vendors: 'vendors', tyreRegistry: 'tyreRegistry' };
+const TABS = { 
+    inventory: 'inventory', 
+    vendors: 'vendors', 
+    tyreRegistry: 'tyreRegistry' 
+};
 
 const CATEGORIES = [
     'General',
     'Mechanical',
     'Electrical',
-    'Tires', // Note: Category name used in logic
+    'Tires',
     'Lubricants',
     'Body & Interior',
     'Safety',
     'Cleaning'
-];
-
-const TYRE_POSITIONS = [
-    'front right',
-    'front left',
-    'back right',
-    'back left',
-    'rear left',
-    'rear right'
 ];
 
 const UNITS = [
@@ -58,13 +54,6 @@ const UNITS = [
 const getItemDisplayName = (item) => {
     if (!item) return 'Unselected Item';
     return item.variantName ? `${item.itemName} - ${item.variantName}` : item.itemName;
-};
-
-const getAllocatedItemDisplayName = (allocation) => {
-    if (!allocation?.itemId) return 'Unselected Item';
-    return allocation.variantName
-        ? `${allocation.itemId.itemName} - ${allocation.variantName}`
-        : getItemDisplayName(allocation.itemId);
 };
 
 const getItemVariants = (item) => {
@@ -125,82 +114,123 @@ const emptyItemFormData = {
     description: ''
 };
 
-const emptyBillLineItem = {
-    allocationId: '',
-    itemId: '',
-    itemGroup: '',
-    variantName: '',
-    pricingMode: 'unitRate',
-    quantity: 1,
-    price: '',
-    amount: '',
-    gstPercent: '',
-    discountAmount: '',
-    discountPercent: '',
-    subDescriptions: '',
-    remarks: '',
-    tyrePosition: 'front right',
-    kmReading: '',
-    tyreType: 'new tyre'
-};
-
-const emptyBillFormData = {
-    busId: '',
-    vendorId: '',
-    billNo: '',
-    taxMode: 'lineLevel',
-    discountMode: 'none',
-    billGstPercent: '',
-    billCgstPercent: '',
-    billSgstPercent: '',
-    discountAmount: '',
-    discountPercent: '',
-    grandTotalOverride: '',
-    notes: '',
-    items: [{ ...emptyBillLineItem }]
-};
-
-const parseQuantityInput = (rawValue) => {
-    if (rawValue === '' || rawValue === '.') return rawValue;
-    if (!/^\d+(\.\d{0,1})?$/.test(String(rawValue))) return null;
-    return rawValue;
-};
-
-const toBillQuantity = (value) => {
-    const num = parseFloat(value);
-    if (!Number.isFinite(num) || num < 0.1) return null;
-    return Math.round(num * 10) / 10;
-};
-
-const parsePriceInput = (rawValue) => {
-    if (rawValue === '' || rawValue === '.') return rawValue;
-    if (!/^\d+(\.\d{0,2})?$/.test(String(rawValue))) return null;
-    return rawValue;
-};
-
-const parseGstInput = (rawValue) => {
-    if (rawValue === '' || rawValue === '.') return rawValue;
-    if (!/^\d{1,3}(\.\d{0,2})?$/.test(String(rawValue))) return null;
-    const num = parseFloat(rawValue);
-    if (num > 100) return null;
-    return rawValue;
-};
-
 const formatCurrency = (value) => Number(value || 0).toLocaleString('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
 });
 
+const formatCurrencyIndian = (num) => {
+    if (!num) return '0';
+    const parts = Math.round(num).toString().split(".");
+    let lastThree = parts[0].substring(parts[0].length - 3);
+    const otherBits = parts[0].substring(0, parts[0].length - 3);
+    if (otherBits !== "") {
+        lastThree = "," + lastThree;
+    }
+    const res = otherBits.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + lastThree;
+    return res;
+};
+
 const getBillKey = (bill) => `${bill.billNo || 'no-bill'}-${bill.items?.[0]?._id || bill.date}`;
 
-const preventNumberInputScroll = (event) => {
-    event.currentTarget.blur();
+const getCategoryDisplayName = (cat) => {
+    switch (cat) {
+        case 'Mechanical': return 'Engine Parts';
+        case 'Body & Interior': return 'Body Parts';
+        case 'Tires': return 'Tyres';
+        default: return cat;
+    }
+};
+
+const getCategoryDetails = (category) => {
+    switch (category) {
+        case 'Mechanical':
+            return { label: 'Engine Parts', bg: 'bg-blue-50 text-blue-700 border-blue-100', color: '#2563EB' };
+        case 'Body & Interior':
+            return { label: 'Body Parts', bg: 'bg-emerald-50 text-emerald-700 border-emerald-100', color: '#10B981' };
+        case 'Tires':
+            return { label: 'Tyres', bg: 'bg-purple-50 text-purple-700 border-purple-100', color: '#8B5CF6' };
+        case 'Electrical':
+            return { label: 'Electrical', bg: 'bg-amber-50 text-amber-700 border-amber-100', color: '#F59E0B' };
+        case 'Lubricants':
+            return { label: 'Lubricants', bg: 'bg-sky-50 text-sky-700 border-sky-100', color: '#0EA5E9' };
+        case 'Safety':
+            return { label: 'Safety', bg: 'bg-rose-50 text-rose-700 border-rose-100', color: '#F43F5E' };
+        case 'Cleaning':
+            return { label: 'Cleaning', bg: 'bg-pink-50 text-pink-700 border-pink-100', color: '#EC4899' };
+        default:
+            return { label: category || 'General', bg: 'bg-slate-50 text-slate-705 border-slate-100', color: '#64748B' };
+    }
+};
+
+const getCategoryIcon = (category) => {
+    switch (category) {
+        case 'Mechanical':
+            return (
+                <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 shrink-0">
+                    <Wrench size={14} />
+                </div>
+            );
+        case 'Body & Interior':
+            return (
+                <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-100 shrink-0">
+                    <Bus size={14} />
+                </div>
+            );
+        case 'Tires':
+            return (
+                <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-600 border border-purple-100 shrink-0">
+                    <Disc size={14} />
+                </div>
+            );
+        case 'Electrical':
+            return (
+                <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-600 border border-amber-100 shrink-0">
+                    <Zap size={14} />
+                </div>
+            );
+        case 'Lubricants':
+            return (
+                <div className="w-8 h-8 rounded-full bg-sky-50 flex items-center justify-center text-sky-600 border border-sky-100 shrink-0">
+                    <Droplet size={14} />
+                </div>
+            );
+        case 'Safety':
+            return (
+                <div className="w-8 h-8 rounded-full bg-rose-50 flex items-center justify-center text-rose-600 border border-rose-100 shrink-0">
+                    <Shield size={14} />
+                </div>
+            );
+        case 'Cleaning':
+            return (
+                <div className="w-8 h-8 rounded-full bg-pink-50 flex items-center justify-center text-pink-600 border border-pink-100 shrink-0">
+                    <Sparkles size={14} />
+                </div>
+            );
+        default:
+            return (
+                <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-600 border border-slate-100 shrink-0">
+                    <Package size={14} />
+                </div>
+            );
+    }
+};
+
+const getCategoryBadge = (category) => {
+    const details = getCategoryDetails(category);
+    return (
+        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${details.bg}`}>
+            {details.label}
+        </span>
+    );
 };
 
 const Inventory = () => {
     const navigate = useNavigate();
     const canEditBills = hasPermission('inventory_edit');
     const canDeleteBills = hasPermission('inventory_delete');
+    const canEditItems = hasPermission('inventory_edit');
+    const canDeleteItems = hasPermission('inventory_delete');
 
     const [activeTab, setActiveTab] = useState(TABS.inventory);
     const [items, setItems] = useState([]);
@@ -211,157 +241,23 @@ const Inventory = () => {
     const [buses, setBuses] = useState([]);
     const [otherVehicles, setOtherVehicles] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [historyLoading, setHistoryLoading] = useState(false);
     const [vendorsLoading, setVendorsLoading] = useState(false);
     const [registryLoading, setRegistryLoading] = useState(false);
-    const [pendingAttachments, setPendingAttachments] = useState([]);
     
     // Modals
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isVendorModalOpen, setIsVendorModalOpen] = useState(false);
-    const [isBillModalOpen, setIsBillModalOpen] = useState(false);
-    const [isBillSuccessModalOpen, setIsBillSuccessModalOpen] = useState(false);
     const [printBill, setPrintBill] = useState(null);
     const [inventoryView, setInventoryView] = useState('card'); // 'card' or 'table'
     
     const [editingItem, setEditingItem] = useState(null);
     const [editingVendor, setEditingVendor] = useState(null);
-    const [editingBill, setEditingBill] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedBusFilter, setSelectedBusFilter] = useState('all');
+    const [selectedGroupFilter, setSelectedGroupFilter] = useState('all');
     const [expandedInventoryGroup, setExpandedInventoryGroup] = useState(null);
-    const [expandedBillKey, setExpandedBillKey] = useState(null);
 
     const [itemFormData, setItemFormData] = useState(emptyItemFormData);
-
-    const [billFormData, setBillFormData] = useState(emptyBillFormData);
-
-    const addBillItem = () => {
-        setBillFormData({
-            ...billFormData,
-            items: [...billFormData.items, { ...emptyBillLineItem }]
-        });
-    };
-
-    const removeBillItem = (index) => {
-        if (billFormData.items.length <= 1) return;
-        const newItems = [...billFormData.items];
-        newItems.splice(index, 1);
-        setBillFormData({ ...billFormData, items: newItems });
-    };
-
-    const updateBillItem = (index, field, value) => {
-        const newItems = [...billFormData.items];
-        newItems[index] = { ...newItems[index], [field]: value };
-        setBillFormData({ ...billFormData, items: newItems });
-    };
-
-    const handleQuantityChange = (index, rawValue) => {
-        const parsed = parseQuantityInput(rawValue);
-        if (parsed === null) return;
-        updateBillItem(index, 'quantity', parsed);
-    };
-
-    const handlePriceChange = (index, rawValue) => {
-        const parsed = parsePriceInput(rawValue);
-        if (parsed === null) return;
-        updateBillItem(index, 'price', parsed);
-    };
-
-    const handleGstChange = (index, rawValue) => {
-        const parsed = parseGstInput(rawValue);
-        if (parsed === null) return;
-        updateBillItem(index, 'gstPercent', parsed);
-    };
-
-    const resetBillForm = () => {
-        setBillFormData(emptyBillFormData);
-        setEditingBill(null);
-        setPendingAttachments([]);
-    };
-
-    const openNewBillModal = () => {
-        resetBillForm();
-        setIsBillModalOpen(true);
-    };
-
-    const openEditBillModal = (bill) => {
-        if (!canEditBills) {
-            alert('You do not have permission to edit bills.');
-            return;
-        }
-
-        const vehicleNumber = bill.busId?.busNumber || bill.busId?.vehicleNumber || '';
-        const vendorId = bill.vendorId?._id || bill.vendorId || '';
-        const billTaxes = Array.isArray(bill.taxes) ? bill.taxes : [];
-        const cgst = billTaxes.find((t) => /cgst/i.test(t.name));
-        const sgst = billTaxes.find((t) => /sgst|utgst/i.test(t.name));
-        const singleGst = billTaxes.length === 1 ? billTaxes[0] : null;
-
-        setEditingBill({
-            originalBillNo: bill.billNo,
-            billId: bill._id || bill.maintenanceBillId || null,
-            existingAttachments: bill.attachments || []
-        });
-        setPendingAttachments([]);
-        setBillFormData({
-            busId: vehicleNumber,
-            vendorId: String(vendorId),
-            billNo: bill.billNo || '',
-            taxMode: bill.taxMode || 'lineLevel',
-            discountMode: bill.discountMode || 'none',
-            billGstPercent: singleGst && !cgst && !sgst ? String(singleGst.rate) : '',
-            billCgstPercent: cgst ? String(cgst.rate) : '',
-            billSgstPercent: sgst ? String(sgst.rate) : '',
-            discountAmount: bill.discountAmount || '',
-            discountPercent: bill.discountPercent || '',
-            grandTotalOverride: bill.grandTotalOverride ?? '',
-            notes: bill.notes || bill.rawDescription || '',
-            items: (bill.items || bill.lines || []).map((alloc) => {
-                const itemDoc = alloc.itemId;
-                const pricingMode = alloc.pricingMode || 'unitRate';
-                return {
-                    allocationId: alloc.allocationId || alloc._id || '',
-                    itemId: itemDoc?._id || alloc.itemId || '',
-                    itemGroup: itemDoc?.itemName || '',
-                    variantName: alloc.variantName || itemDoc?.variantName || '',
-                    pricingMode,
-                    quantity: alloc.quantity,
-                    price: pricingMode === 'unitRate' ? (alloc.unitPrice ?? alloc.price ?? '') : '',
-                    amount: pricingMode === 'lumpSum' ? (alloc.amount ?? alloc.price ?? '') : '',
-                    gstPercent: alloc.gstPercent ?? '',
-                    discountAmount: alloc.discountAmount ?? '',
-                    discountPercent: alloc.discountPercent ?? '',
-                    subDescriptions: Array.isArray(alloc.subDescriptions)
-                        ? alloc.subDescriptions.join('\n')
-                        : '',
-                    remarks: alloc.remarks || '',
-                    tyrePosition: alloc.tyrePosition || 'front right',
-                    kmReading: alloc.kmReading ?? '',
-                    tyreType: alloc.tyreType || 'new tyre'
-                };
-            })
-        });
-        setIsBillModalOpen(true);
-    };
-
-    const closeBillModal = () => {
-        setIsBillModalOpen(false);
-        resetBillForm();
-    };
-
-    const toggleItemInBill = (index, itemId) => {
-        const newItems = [...billFormData.items];
-        const itemIds = [...newItems[index].itemIds];
-        const itemIdx = itemIds.indexOf(itemId);
-        if (itemIdx > -1) {
-            itemIds.splice(itemIdx, 1);
-        } else {
-            itemIds.push(itemId);
-        }
-        newItems[index].itemIds = itemIds;
-        setBillFormData({ ...billFormData, items: newItems });
-    };
 
     const [vendorFormData, setVendorFormData] = useState({
         name: '',
@@ -371,27 +267,31 @@ const Inventory = () => {
         address: ''
     });
 
+    // Pagination
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+    
+    // Actions Dropdowns
+    const [activeRowActionsDropdown, setActiveRowActionsDropdown] = useState(null);
+    const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
+    const [sortBy, setSortBy] = useState('name-asc'); // 'name-asc', 'name-desc', 'variants-desc', 'variants-asc'
+
+    // Vendor search input
+    const [vendorSearchTerm, setVendorSearchTerm] = useState('');
+
     useEffect(() => {
         fetchItems();
         fetchBuses();
         fetchOtherVehicles();
         fetchVendors();
+        fetchHistory('all');
     }, []);
 
     useEffect(() => {
-        if (activeTab === TABS.vendors) {
-            fetchVendors();
-        } else if (activeTab === TABS.tyreRegistry) {
+        if (activeTab === TABS.tyreRegistry) {
             fetchTyreRegistry(selectedBusFilter);
         }
     }, [activeTab, selectedBusFilter]);
-
-    // Fetch history for modal reference when bus is selected
-    useEffect(() => {
-        if (isBillModalOpen && billFormData.busId) {
-            fetchHistory(billFormData.busId);
-        }
-    }, [isBillModalOpen, billFormData.busId]);
 
     const fetchItems = async () => {
         setLoading(true);
@@ -454,7 +354,6 @@ const Inventory = () => {
     };
 
     const fetchHistory = async (busId) => {
-        setHistoryLoading(true);
         try {
             const historyUrl = busId === 'all' ? `${API}/inventory/history` : `${API}/inventory/history/${busId}`;
             const billsUrl = busId === 'all'
@@ -471,86 +370,8 @@ const Inventory = () => {
             setMaintenanceBills(Array.isArray(billsData) ? billsData : []);
         } catch (error) {
             console.error('Error fetching history:', error);
-        } finally {
-            setHistoryLoading(false);
         }
     };
-
-    const uploadPendingAttachments = async (billId) => {
-        if (!billId || !pendingAttachments.length) return null;
-        const formData = new FormData();
-        pendingAttachments.forEach((file) => formData.append('attachments', file));
-        const response = await apiFetch(`${API}/inventory/bills/by-id/${billId}/attachments`, {
-            method: 'POST',
-            body: formData
-        });
-        if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            throw new Error(data.message || 'Failed to upload attachments');
-        }
-        return response.json();
-    };
-
-    const buildBillTaxesPayload = () => {
-        if (billFormData.taxMode !== 'billLevel') return [];
-        const taxes = [];
-        const cgst = parseFloat(billFormData.billCgstPercent);
-        const sgst = parseFloat(billFormData.billSgstPercent);
-        const gst = parseFloat(billFormData.billGstPercent);
-        if (Number.isFinite(cgst) && cgst > 0) taxes.push({ name: 'CGST', rate: cgst });
-        if (Number.isFinite(sgst) && sgst > 0) taxes.push({ name: 'SGST', rate: sgst });
-        if (taxes.length === 0 && Number.isFinite(gst) && gst > 0) {
-            taxes.push({ name: 'GST', rate: gst });
-        }
-        return taxes;
-    };
-
-    const buildHybridBillPayload = (adminName) => ({
-        busId: billFormData.busId,
-        vendorId: billFormData.vendorId,
-        billNo: billFormData.billNo,
-        adminName,
-        taxMode: billFormData.taxMode,
-        discountMode: billFormData.discountMode,
-        discountAmount: parseFloat(billFormData.discountAmount) || 0,
-        discountPercent: parseFloat(billFormData.discountPercent) || 0,
-        taxes: buildBillTaxesPayload(),
-        grandTotalOverride: billFormData.grandTotalOverride === '' || billFormData.grandTotalOverride == null
-            ? null
-            : parseFloat(billFormData.grandTotalOverride),
-        notes: billFormData.notes || '',
-        items: billFormData.items.map((item) => {
-            const pricingMode = item.pricingMode === 'lumpSum' ? 'lumpSum' : 'unitRate';
-            return {
-                allocationId: item.allocationId || undefined,
-                itemId: item.itemId,
-                itemIds: [item.itemId],
-                variantName: item.variantName || '',
-                pricingMode,
-                quantity: toBillQuantity(item.quantity),
-                unitPrice: pricingMode === 'unitRate' ? (parseFloat(item.price) || 0) : 0,
-                price: pricingMode === 'unitRate'
-                    ? (parseFloat(item.price) || 0)
-                    : (parseFloat(item.amount) || 0),
-                amount: pricingMode === 'lumpSum' ? (parseFloat(item.amount) || 0) : undefined,
-                gstPercent: billFormData.taxMode === 'lineLevel' ? (parseFloat(item.gstPercent) || 0) : 0,
-                discountAmount: billFormData.discountMode === 'lineLevel'
-                    ? (parseFloat(item.discountAmount) || 0)
-                    : 0,
-                discountPercent: billFormData.discountMode === 'lineLevel'
-                    ? (parseFloat(item.discountPercent) || 0)
-                    : 0,
-                subDescriptions: String(item.subDescriptions || '')
-                    .split(/\r?\n/)
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                remarks: item.remarks || '',
-                tyrePosition: item.tyrePosition,
-                kmReading: item.kmReading,
-                tyreType: item.tyreType
-            };
-        })
-    });
 
     const handleItemSubmit = async (e) => {
         e.preventDefault();
@@ -595,172 +416,6 @@ const Inventory = () => {
             }
         } catch (error) {
             console.error('Error saving vendor:', error);
-        }
-    };
-
-    const handleBillSubmit = async (e) => {
-        e.preventDefault();
-
-        for (const item of billFormData.items) {
-            const qty = toBillQuantity(item.quantity);
-            if (qty === null) {
-                alert('Each item quantity must be at least 0.1 with up to 1 decimal place.');
-                return;
-            }
-            if (!item.itemId) {
-                alert('Each row must have an inventory item selected.');
-                return;
-            }
-            const pricingMode = item.pricingMode === 'lumpSum' ? 'lumpSum' : 'unitRate';
-            if (pricingMode === 'unitRate') {
-                const price = parseFloat(item.price);
-                if (!Number.isFinite(price) || price < 0) {
-                    alert('Each unit-rate item must have a valid unit price.');
-                    return;
-                }
-            } else {
-                const amount = parseFloat(item.amount);
-                if (!Number.isFinite(amount) || amount < 0) {
-                    alert('Each lump-sum item must have a valid amount.');
-                    return;
-                }
-            }
-        }
-
-        const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
-        const payload = buildHybridBillPayload(adminInfo.name || adminInfo.username || 'Admin');
-
-        const isEditing = Boolean(editingBill?.originalBillNo || editingBill?.billId);
-        if (isEditing && !canEditBills) {
-            alert('You do not have permission to edit bills.');
-            return;
-        }
-
-        const useIdPath = Boolean(editingBill?.billId);
-        const url = isEditing
-            ? (useIdPath
-                ? `${API}/inventory/bills/by-id/${editingBill.billId}`
-                : `${API}/inventory/update-bill`)
-            : `${API}/inventory/bills`;
-        const method = isEditing ? 'PUT' : 'POST';
-
-        if (isEditing && !useIdPath) {
-            payload.originalBillNo = editingBill.originalBillNo;
-        }
-
-        try {
-            const response = await apiFetch(url, {
-                method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (response.ok) {
-                const data = await response.json().catch(() => ({}));
-                const savedBill = data.bill || null;
-                let attachments = savedBill?.attachments || editingBill?.existingAttachments || [];
-
-                if (pendingAttachments.length && savedBill?._id) {
-                    try {
-                        const uploadResult = await uploadPendingAttachments(savedBill._id);
-                        attachments = uploadResult?.attachments || uploadResult?.bill?.attachments || attachments;
-                    } catch (uploadError) {
-                        console.error(uploadError);
-                        alert(uploadError.message || 'Bill saved but attachment upload failed.');
-                    }
-                }
-
-                const printableBill = {
-                    ...buildPrintableBillData(),
-                    ...(savedBill || {}),
-                    attachments,
-                    wasEdit: isEditing
-                };
-                fetchItems();
-                fetchHistory(billFormData.busId);
-                setIsBillModalOpen(false);
-                setPrintBill(printableBill);
-                setIsBillSuccessModalOpen(true);
-                resetBillForm();
-                if (activeTab === TABS.tyreRegistry) fetchTyreRegistry(selectedBusFilter);
-            } else {
-                const data = await response.json();
-                setPrintBill({
-                    error: data.message || (isEditing ? 'Failed to update bill' : 'Failed to raise bill'),
-                });
-                setIsBillSuccessModalOpen(true);
-            }
-        } catch (error) {
-            console.error(isEditing ? 'Error updating bill:' : 'Error raising bill:', error);
-            setPrintBill({ error: isEditing ? 'Error updating bill. Please try again.' : 'Error raising bill. Please try again.' });
-            setIsBillSuccessModalOpen(true);
-        }
-    };
-
-    const handleDeleteBill = async (bill) => {
-        if (!canDeleteBills) {
-            alert('You do not have permission to delete bills.');
-            return;
-        }
-        if (!bill?.billNo && !bill?._id) {
-            alert('This bill cannot be deleted because it has no bill number.');
-            return;
-        }
-
-        const vehicleLabel = bill.busId?.vehicleNumber || bill.busId?.busNumber || 'the vehicle';
-        if (!window.confirm(`Delete bill #${bill.billNo || bill._id}? This will remove all item assignments from ${vehicleLabel}.`)) {
-            return;
-        }
-
-        try {
-            const deleteUrl = bill._id
-                ? `${API}/inventory/bills/by-id/${bill._id}`
-                : `${API}/inventory/bills/${encodeURIComponent(bill.billNo)}`;
-            const response = await apiFetch(deleteUrl, {
-                method: 'DELETE'
-            });
-            if (response.ok) {
-                const busId = bill.busId?.busNumber || bill.busId?.vehicleNumber;
-                if (busId) fetchHistory(busId);
-                fetchHistory(selectedBusFilter);
-                if (activeTab === TABS.tyreRegistry) fetchTyreRegistry(selectedBusFilter);
-                if (expandedBillKey === getBillKey(bill)) {
-                    setExpandedBillKey(null);
-                }
-            } else {
-                const data = await response.json();
-                alert(data.message || 'Failed to delete bill');
-            }
-        } catch (error) {
-            console.error('Error deleting bill:', error);
-            alert('Error deleting bill. Please try again.');
-        }
-    };
-
-    const handlePrint = async (billData) => {
-        try {
-            const response = await apiFetch(`${API}/print`, {
-                method: 'POST',
-                body: JSON.stringify({
-                    template: 'bill-print',
-                    data: {
-                        billNo: billData.billNo,
-                        billId: billData._id,
-                        vendorId: billData.vendorId?._id || billData.vendorId,
-                        busId: billData.busId?._id || billData.busId
-                    }
-                })
-            });
-            if (response.ok) {
-                const html = await response.text();
-                printHtmlDocument(html, `Transport-Maintenance-Bill-${billData.billNo}`);
-            } else {
-                // Fallback: client-side print of BillPrint component
-                window.print();
-            }
-        } catch (error) {
-            console.error('Error generating bill print:', error);
-            window.print();
         }
     };
 
@@ -813,184 +468,6 @@ const Inventory = () => {
         setIsModalOpen(true);
     };
 
-    const inventoryGroups = getInventoryGroups(items);
-    const filteredGroups = inventoryGroups.filter(group =>
-        group.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        group.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        group.variants.some((variant) => variant.name.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-
-    const getLastPrice = (itemId) => {
-        if (!history || history.length === 0) return null;
-        // Find the most recent allocation for this itemId in history
-        const lastAllocation = history.find(h => (h.itemId?._id || h.itemId) === itemId);
-        return lastAllocation ? lastAllocation.price : null;
-    };
-
-    const liveBillCalcInput = {
-        taxMode: billFormData.taxMode,
-        discountMode: billFormData.discountMode,
-        discountAmount: billFormData.discountAmount,
-        discountPercent: billFormData.discountPercent,
-        taxes: buildBillTaxesPayload(),
-        grandTotalOverride: billFormData.grandTotalOverride,
-        items: billFormData.items.map((item) => ({
-            ...item,
-            pricingMode: item.pricingMode || 'unitRate',
-            unitPrice: item.price,
-            amount: item.amount
-        }))
-    };
-    const billTotals = computeBillTotals(liveBillCalcInput);
-
-    const buildPrintableBillData = () => {
-        const selectedBus = buses.find((bus) => bus.busNumber === billFormData.busId)
-            || otherVehicles.find((v) => v.vehicleNumber === billFormData.busId);
-        const selectedVendor = vendors.find((vendor) => vendor._id === billFormData.vendorId);
-        const printableItems = billFormData.items
-            .filter((line) => line.itemId)
-            .map((line) => ({
-                ...line,
-                pricingMode: line.pricingMode || 'unitRate',
-                unitPrice: line.price,
-                amount: line.amount,
-                itemId: items.find((item) => item._id === line.itemId) || line.itemId,
-                allocatedDate: new Date(),
-                subDescriptions: String(line.subDescriptions || '')
-                    .split(/\r?\n/)
-                    .map((s) => s.trim())
-                    .filter(Boolean)
-            }));
-        const totals = computeBillTotals({
-            ...liveBillCalcInput,
-            items: printableItems
-        });
-
-        return {
-            billNo: billFormData.billNo,
-            date: new Date(),
-            vendorId: selectedVendor || billFormData.vendorId,
-            busId: selectedBus
-                ? { ...selectedBus, busNumber: selectedBus.busNumber || selectedBus.vehicleNumber }
-                : billFormData.busId,
-            adminName: JSON.parse(localStorage.getItem('adminInfo') || '{}').name || 'Admin',
-            taxMode: billFormData.taxMode,
-            discountMode: billFormData.discountMode,
-            taxes: buildBillTaxesPayload(),
-            discountAmount: billFormData.discountAmount,
-            discountPercent: billFormData.discountPercent,
-            notes: billFormData.notes,
-            subtotal: totals.subtotal,
-            discountTotal: totals.discountTotal,
-            gstTotal: totals.taxTotal,
-            taxTotal: totals.taxTotal,
-            totalAmount: totals.grandTotal,
-            grandTotal: totals.grandTotal,
-            attachments: editingBill?.existingAttachments || [],
-            items: printableItems,
-        };
-    };
-
-    const getSelectedBillHistory = () => {
-        const selectedLines = billFormData.items.filter((line) => line.itemId || line.itemGroup);
-        if (!billFormData.busId) return [];
-        if (selectedLines.length === 0) return history.slice(0, 20);
-
-        return history.filter((record) => {
-            const recordItem = record.itemId;
-            const recordGroup = recordItem?.itemName || '';
-            const recordVariant = record.variantName || recordItem?.variantName || '';
-            return selectedLines.some((line) => {
-                if (line.variantName) {
-                    return recordGroup === line.itemGroup && recordVariant === line.variantName;
-                }
-                if (line.itemGroup) {
-                    return recordGroup === line.itemGroup;
-                }
-                return (recordItem?._id || record.itemId) === line.itemId;
-            });
-        });
-    };
-
-    const getGroupedBills = () => {
-        if (maintenanceBills.length > 0) {
-            return maintenanceBills.map((bill) => ({
-                ...bill,
-                date: bill.date,
-                totalAmount: bill.grandTotal ?? bill.totalAmount ?? 0,
-                items: bill.items || bill.lines || [],
-                attachments: bill.attachments || []
-            }));
-        }
-
-        if (!history || history.length === 0) return [];
-
-        const groups = history.reduce((acc, record) => {
-            const billKey = record.billNo || `no-bill-${record._id}`;
-            if (!acc[billKey]) {
-                acc[billKey] = {
-                    billNo: record.billNo,
-                    date: record.allocatedDate,
-                    vendorId: record.vendorId,
-                    busId: record.busId,
-                    adminName: record.adminName,
-                    taxMode: 'lineLevel',
-                    discountMode: 'none',
-                    items: [],
-                    attachments: [],
-                    totalAmount: 0
-                };
-            }
-            acc[billKey].items.push({
-                ...record,
-                pricingMode: record.pricingMode || 'unitRate',
-                unitPrice: record.price
-            });
-            acc[billKey].totalAmount += getLineTotal(record.quantity, record.price, record.gstPercent);
-            return acc;
-        }, {});
-
-        return Object.values(groups);
-    };
-
-    const groupedBills = getGroupedBills();
-    const itemGroupOptions = [...new Set(items.map((item) => item.itemName).filter(Boolean))].sort();
-    const filledVariantNames = itemFormData.variantNames.map((value) => value.trim()).filter(Boolean);
-    const creatingMultipleVariants = !editingItem && filledVariantNames.length > 1;
-
-    const getGroupByName = (name) => inventoryGroups.find((group) => group.itemName === name);
-    const getSelectedInventoryItem = (lineItem) => {
-        if (lineItem.itemId) return items.find((item) => item._id === lineItem.itemId);
-        const group = getGroupByName(lineItem.itemGroup);
-        return group?.primaryItem || null;
-    };
-
-    const handleBillGroupChange = (index, groupName) => {
-        const group = getGroupByName(groupName);
-        const firstVariant = group?.variants?.[0] || null;
-        const newItems = [...billFormData.items];
-        newItems[index] = {
-            ...newItems[index],
-            itemGroup: groupName,
-            itemId: firstVariant?.itemId || group?.primaryItem?._id || '',
-            variantName: firstVariant?.name || '',
-        };
-        setBillFormData({ ...billFormData, items: newItems });
-    };
-
-    const handleBillVariantChange = (index, variantName) => {
-        const lineItem = billFormData.items[index];
-        const group = getGroupByName(lineItem.itemGroup);
-        const variant = group?.variants?.find((candidate) => candidate.name === variantName);
-        const newItems = [...billFormData.items];
-        newItems[index] = {
-            ...newItems[index],
-            variantName,
-            itemId: variant?.itemId || group?.primaryItem?._id || '',
-        };
-        setBillFormData({ ...billFormData, items: newItems });
-    };
-
     const addVariantRow = () => {
         setItemFormData((prev) => ({
             ...prev,
@@ -1024,251 +501,623 @@ const Inventory = () => {
         });
     };
 
+    // Inventory Groups Calculations
+    const inventoryGroups = getInventoryGroups(items);
+    
+    // Filtering for items
+    const filteredGroups = inventoryGroups.filter(group => {
+        const matchesSearch = group.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            group.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            group.variants.some((variant) => variant.name.toLowerCase().includes(searchTerm.toLowerCase()));
+        
+        const matchesCategory = selectedGroupFilter === 'all' || group.category === selectedGroupFilter;
+        return matchesSearch && matchesCategory;
+    });
+
+    // Sorting items
+    let sortedGroups = [...filteredGroups];
+    if (sortBy === 'name-asc') {
+        sortedGroups.sort((a, b) => a.itemName.localeCompare(b.itemName));
+    } else if (sortBy === 'name-desc') {
+        sortedGroups.sort((a, b) => b.itemName.localeCompare(a.itemName));
+    } else if (sortBy === 'variants-desc') {
+        sortedGroups.sort((a, b) => b.variants.length - a.variants.length);
+    } else if (sortBy === 'variants-asc') {
+        sortedGroups.sort((a, b) => a.variants.length - b.variants.length);
+    }
+
+    // Dynamic stats calculations
+    const totalItemGroupsCount = inventoryGroups.length;
+    const totalVariantsCount = inventoryGroups.reduce((sum, group) => sum + group.variants.length, 0);
+    const totalBillsCountDynamic = maintenanceBills.length;
+    const totalAmountSpentDynamic = maintenanceBills.reduce((sum, bill) => sum + (bill.grandTotal ?? bill.totalAmount ?? 0), 0);
+
+    // Pagination for master items
+    const totalItemsCount = sortedGroups.length;
+    const totalPages = Math.ceil(totalItemsCount / itemsPerPage);
+    const paginatedGroups = sortedGroups.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+    const pageNumbers = [];
+    if (totalPages <= 5) {
+        for (let i = 1; i <= totalPages; i++) pageNumbers.push(i);
+    } else {
+        if (currentPage <= 3) {
+            pageNumbers.push(1, 2, 3, '...', totalPages);
+        } else if (currentPage >= totalPages - 2) {
+            pageNumbers.push(1, '...', totalPages - 2, totalPages - 1, totalPages);
+        } else {
+            pageNumbers.push(1, '...', currentPage, '...', totalPages);
+        }
+    }
+
+    // Vendor search filtering
+    const filteredVendors = vendors.filter(v => 
+        (v.name || '').toLowerCase().includes(vendorSearchTerm.toLowerCase()) ||
+        (v.contactPerson || '').toLowerCase().includes(vendorSearchTerm.toLowerCase()) ||
+        (v.phone || '').toLowerCase().includes(vendorSearchTerm.toLowerCase()) ||
+        (v.email || '').toLowerCase().includes(vendorSearchTerm.toLowerCase())
+    );
+
+    const itemGroupOptions = [...new Set(items.map((item) => item.itemName).filter(Boolean))].sort();
+    const filledVariantNames = itemFormData.variantNames.map((value) => value.trim()).filter(Boolean);
+    const creatingMultipleVariants = !editingItem && filledVariantNames.length > 1;
+
     return (
         <Layout>
-            <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h2 className="text-3xl font-bold text-slate-800 tracking-tight flex items-center gap-3">
-                        <Package className="text-blue-600" size={32} />
-                        Bus Inventory
-                    </h2>
-                    <p className="text-slate-500 mt-1">Manage parts, supplies, and their allocation to the fleet.</p>
+            {/* Header section */}
+            <div className="mb-8 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 shadow-sm shrink-0">
+                        <Package size={24} />
+                    </div>
+                    <div>
+                        <h2 className="text-2xl font-black text-slate-800 tracking-tight">
+                            Bus Inventory
+                        </h2>
+                        <p className="text-slate-550 text-xs font-semibold mt-0.5">Manage parts, supplies and raise bills for purchased items.</p>
+                    </div>
                 </div>
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                     <button 
                         onClick={() => { setEditingItem(null); setItemFormData(emptyItemFormData); setIsModalOpen(true); }}
-                        className="bg-gray-800 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 hover:bg-gray-700 transition-all shadow-sm active:scale-95"
+                        className="bg-[#071B45] hover:bg-[#0A2558] text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95 cursor-pointer"
                     >
-                        <Plus size={16} /> Add Item / Variant
+                        <Plus size={15} /> Add Item / Variant
                     </button>
-                    <Link
-                        to="/inventory/raise-bill"
-                        className="bg-emerald-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 hover:bg-emerald-800 transition-all shadow-sm active:scale-95"
+                    {/* <button
+                        onClick={() => navigate('/inventory/raise-bill')}
+                        className="bg-[#10B981] hover:bg-[#059669] text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95 cursor-pointer"
                     >
-                        <Truck size={16} /> Raise Bill
-                    </Link>
+                        <Truck size={15} /> Raise Bill
+                    </button> */}
                     <button 
                         onClick={() => setActiveTab(TABS.tyreRegistry)}
-                        className="bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 hover:bg-blue-800 transition-all shadow-sm active:scale-95"
+                        className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95 cursor-pointer"
                     >
-                        <Layers size={16} /> Tyre Registry
+                        <Disc size={15} /> Tyre Registry
                     </button>
                     <button 
                         onClick={() => { setEditingVendor(null); setVendorFormData({ name: '', contactPerson: '', phone: '', email: '', address: '' }); setIsVendorModalOpen(true); }}
-                        className="bg-gray-100 text-gray-700 px-4 py-2 rounded text-sm font-bold flex items-center gap-2 hover:bg-gray-200 transition-all border border-gray-300"
+                        className="bg-white hover:bg-slate-50 text-slate-705 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border border-slate-205 shadow-sm cursor-pointer"
                     >
-                        <Plus size={16} /> Manage Vendors
+                        <User size={15} /> Manage Vendors
                     </button>
                 </div>
             </div>
 
-            <div className="grid grid-cols-3 bg-gray-100 p-1 rounded border border-gray-200 mb-6 w-full gap-1">
+            {/* Dynamic statistics metrics row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                {/* Metric 1: TOTAL ITEMS */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all duration-300">
+                    <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 shrink-0">
+                        <Package size={22} />
+                    </div>
+                    <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Total Items</p>
+                        <h3 className="text-xl font-bold text-slate-800 mt-1 leading-none">{totalItemGroupsCount}</h3>
+                        <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">All Item Groups</p>
+                    </div>
+                </div>
+
+                {/* Metric 2: TOTAL VARIANTS */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all duration-300">
+                    <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-100 shrink-0">
+                        <Tag size={22} />
+                    </div>
+                    <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Total Variants</p>
+                        <h3 className="text-xl font-bold text-[#10B981] mt-1 leading-none">{totalVariantsCount}</h3>
+                        <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">Across all items</p>
+                    </div>
+                </div>
+
+                {/* Metric 3: TOTAL BILLS */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all duration-300">
+                    <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600 border border-purple-100 shrink-0">
+                        <FileText size={22} />
+                    </div>
+                    <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Total Bills</p>
+                        <h3 className="text-xl font-bold text-slate-800 mt-1 leading-none">{totalBillsCountDynamic}</h3>
+                        <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">This Academic Year</p>
+                    </div>
+                </div>
+
+                {/* Metric 4: TOTAL AMOUNT */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all duration-300">
+                    <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 border border-amber-100 shrink-0">
+                        <span className="text-lg font-black leading-none">₹</span>
+                    </div>
+                    <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Total Amount</p>
+                        <h3 className="text-xl font-bold text-slate-850 mt-1 leading-none">₹ {formatCurrencyIndian(totalAmountSpentDynamic)}</h3>
+                        <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">This Academic Year</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Switcher capsule tabs */}
+            <div className="flex flex-wrap gap-2 mb-6">
                 <button
-                    onClick={() => setActiveTab(TABS.inventory)}
-                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === TABS.inventory ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => { setActiveTab(TABS.inventory); setCurrentPage(1); }}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                        activeTab === TABS.inventory
+                            ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20'
+                            : 'bg-white text-slate-650 hover:text-slate-900 border border-slate-100 hover:bg-slate-50 shadow-sm'
+                    }`}
                 >
-                    <Layers size={14} /> Master Inventory
+                    <Package size={15} /> Master Items
                 </button>
                 <button
-                    onClick={() => setActiveTab(TABS.vendors)}
-                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === TABS.vendors ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => { setActiveTab(TABS.vendors); }}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                        activeTab === TABS.vendors
+                            ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20'
+                            : 'bg-white text-slate-650 hover:text-slate-900 border border-slate-100 hover:bg-slate-50 shadow-sm'
+                    }`}
                 >
-                    <Package size={14} /> Vendors
+                    <User size={15} /> Vendors
                 </button>
                 <button
                     onClick={() => setActiveTab(TABS.tyreRegistry)}
-                    className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === TABS.tyreRegistry ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                        activeTab === TABS.tyreRegistry
+                            ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20'
+                            : 'bg-white text-slate-650 hover:text-slate-900 border border-slate-100 hover:bg-slate-50 shadow-sm'
+                    }`}
                 >
-                    <Truck size={14} /> Tyre Registry
+                    <Disc size={15} /> Tyre Registry
                 </button>
             </div>
 
+            {/* CONTENT RENDERERS */}
+
+            {/* TAB: Master Items */}
             {activeTab === TABS.inventory && (
-                <>
-                    <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-6 mb-8">
-                        <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
-                            <div className="relative w-full md:w-96 group">
-                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={18} />
-                                <input
-                                    type="text"
-                                    placeholder="Search by item group, variant, or category..."
-                                    className="w-full pl-11 pr-4 py-3 rounded-md border border-slate-200 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all text-sm font-medium"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                    {/* Controls row */}
+                    <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
+                        {/* Search input */}
+                        <div className="relative w-full md:flex-1 max-w-md group">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={16} />
+                            <input
+                                type="text"
+                                placeholder="Search by item name, group or category..."
+                                className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-400 outline-none transition-all text-xs font-medium bg-white text-slate-700 shadow-sm"
+                                value={searchTerm}
+                                onChange={(e) => {
+                                    setSearchTerm(e.target.value);
+                                    setCurrentPage(1);
+                                }}
+                            />
+                        </div>
+                        {/* Dropdown Filters & Grid/List switcher */}
+                        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+                            {/* Category Filter */}
+                            <div className="relative flex items-center bg-white border border-slate-200 rounded-xl shadow-sm px-3 py-2 shrink-0">
+                                <Package size={15} className="text-slate-400 absolute left-3 pointer-events-none" />
+                                <select
+                                    value={selectedGroupFilter}
+                                    onChange={(e) => {
+                                        setSelectedGroupFilter(e.target.value);
+                                        setCurrentPage(1);
+                                    }}
+                                    className="pl-7 pr-6 bg-transparent border-none outline-none text-xs font-bold text-slate-705 cursor-pointer appearance-none"
+                                >
+                                    <option value="all">All Groups</option>
+                                    {CATEGORIES.map(cat => (
+                                        <option key={cat} value={cat}>{getCategoryDisplayName(cat)}</option>
+                                    ))}
+                                </select>
+                                <ChevronDown size={14} className="text-slate-400 absolute right-3 pointer-events-none" />
                             </div>
-                            <div className="flex bg-gray-100 p-1 rounded-lg border border-gray-200 shrink-0">
+
+                            {/* Sorting Filters Menu */}
+                            <div className="relative shrink-0">
+                                <button
+                                    onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
+                                    className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-xs font-bold text-slate-700 bg-white transition-all shadow-sm cursor-pointer"
+                                >
+                                    <Filter size={14} />
+                                    <span>Filters</span>
+                                    <ChevronDown size={13} className={`transition-transform duration-200 ${isFilterDropdownOpen ? 'rotate-180' : ''}`} />
+                                </button>
+                                {isFilterDropdownOpen && (
+                                    <>
+                                        <div 
+                                            className="fixed inset-0 z-40" 
+                                            onClick={() => setIsFilterDropdownOpen(false)}
+                                        ></div>
+                                        <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-100 rounded-xl shadow-lg py-2 z-50 animate-in fade-in slide-in-from-top-1">
+                                            <p className="text-[10px] font-black text-slate-450 uppercase tracking-widest px-4 py-1.5 border-b border-slate-55 mb-1">Sort options</p>
+                                            <button
+                                                onClick={() => { setSortBy('name-asc'); setIsFilterDropdownOpen(false); }}
+                                                className={`w-full text-left px-4 py-2 text-xs font-semibold transition-colors ${sortBy === 'name-asc' ? 'bg-blue-50 text-blue-755' : 'text-slate-600 hover:bg-slate-50'}`}
+                                            >
+                                                Name (A to Z)
+                                            </button>
+                                            <button
+                                                onClick={() => { setSortBy('name-desc'); setIsFilterDropdownOpen(false); }}
+                                                className={`w-full text-left px-4 py-2 text-xs font-semibold transition-colors ${sortBy === 'name-desc' ? 'bg-blue-50 text-blue-755' : 'text-slate-600 hover:bg-slate-50'}`}
+                                            >
+                                                Name (Z to A)
+                                            </button>
+                                            <button
+                                                onClick={() => { setSortBy('variants-desc'); setIsFilterDropdownOpen(false); }}
+                                                className={`w-full text-left px-4 py-2 text-xs font-semibold transition-colors ${sortBy === 'variants-desc' ? 'bg-blue-50 text-blue-760' : 'text-slate-600 hover:bg-slate-50'}`}
+                                            >
+                                                Most Variants
+                                            </button>
+                                            <button
+                                                onClick={() => { setSortBy('variants-asc'); setIsFilterDropdownOpen(false); }}
+                                                className={`w-full text-left px-4 py-2 text-xs font-semibold transition-colors ${sortBy === 'variants-asc' ? 'bg-blue-50 text-blue-765' : 'text-slate-600 hover:bg-slate-50'}`}
+                                            >
+                                                Least Variants
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+
+                            {/* Layout toggle switcher */}
+                            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
                                 <button 
                                     onClick={() => setInventoryView('card')}
-                                    className={`p-2 rounded-md transition-all ${inventoryView === 'card' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${inventoryView === 'card' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-650'}`}
                                     title="Card View"
                                 >
-                                    <LayoutGrid size={20} />
+                                    <LayoutGrid size={16} />
                                 </button>
                                 <button 
                                     onClick={() => setInventoryView('table')}
-                                    className={`p-2 rounded-md transition-all ${inventoryView === 'table' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${inventoryView === 'table' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-650'}`}
                                     title="Table View"
                                 >
-                                    <List size={20} />
+                                    <List size={16} />
                                 </button>
                             </div>
                         </div>
+                    </div>
 
-                        {loading ? (
-                            <div className="py-20 flex justify-center"><Loader text="Loading inventory..." /></div>
-                        ) : filteredGroups.length > 0 ? (
-                            inventoryView === 'table' ? (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse">
-                                        <thead>
-                                            <tr className="bg-slate-50 border-b border-slate-100 text-[11px] uppercase text-slate-400 font-black tracking-widest">
-                                                <th className="px-6 py-4">Item Details</th>
-                                                <th className="px-6 py-4">Description</th>
-                                                <th className="px-6 py-4 text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-50">
-                                            {filteredGroups.map(group => (
-                                                <tr
-                                                    key={group.key}
-                                                    onClick={() => setExpandedInventoryGroup(expandedInventoryGroup === group.key ? null : group.key)}
-                                                    className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
-                                                >
-                                                    <td className="px-6 py-5">
-                                                        <div>
-                                                            <p className="font-bold text-slate-800">{group.itemName}</p>
-                                                            <div className="flex items-center gap-2 mt-1">
-                                                                <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase">{group.category}</span>
-                                                                <span className="text-[10px] text-slate-400 font-medium">| {group.unit}</span>
-                                                                <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase">
-                                                                    {group.variants.length} variant(s)
-                                                                </span>
-                                                            </div>
-                                                            {expandedInventoryGroup === group.key && group.variants.length > 0 && (
-                                                                <div className="flex flex-wrap gap-1 mt-2">
-                                                                    {group.variants.map((variant) => (
-                                                                        <span key={variant.name} className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-                                                                            {variant.name}
-                                                                        </span>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        <p className="text-sm text-slate-500 line-clamp-1">{group.description || 'No description'}</p>
-                                                    </td>
-                                                    <td className="px-6 py-5 text-right">
-                                                        <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button onClick={(e) => { e.stopPropagation(); openEditModal(group.primaryItem, group); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"><Edit size={16} /></button>
-                                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteItem(group.primaryItem._id); }} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"><Trash2 size={16} /></button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                                    {filteredGroups.map(group => (
-                                        <div
-                                            key={group.key}
-                                            onClick={() => setExpandedInventoryGroup(expandedInventoryGroup === group.key ? null : group.key)}
-                                            className="group relative bg-white rounded-xl border border-blue-300 shadow-xl shadow-blue-500/5 transition-all p-5 flex flex-col justify-between overflow-hidden cursor-pointer"
-                                        >
-                                            {/* Accent Banner */}
-                                            <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-blue-500 to-indigo-600"></div>
+                    {loading ? (
+                        <div className="py-20 flex justify-center"><Loader text="Loading inventory..." /></div>
+                    ) : totalItemsCount > 0 ? (
+                        inventoryView === 'table' ? (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="border-b border-slate-100 text-[11px] uppercase text-slate-400 font-black tracking-widest bg-slate-50/50">
+                                            <th className="px-6 py-4 rounded-l-xl">Item Name</th>
+                                            <th className="px-6 py-4">Group</th>
+                                            <th className="px-6 py-4">Unit</th>
+                                            <th className="px-6 py-4">Variants</th>
+                                            <th className="px-6 py-4">Description</th>
+                                            <th className="px-6 py-4 text-right rounded-r-xl">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {paginatedGroups.map(group => {
+                                            const categoryDetails = getCategoryDetails(group.category);
+                                            const isExpanded = expandedInventoryGroup === group.key;
                                             
-                                            <div>
-                                                <div className="flex justify-between items-start mb-4">
-                                                    <div className="p-2.5 bg-blue-50 rounded-lg transition-colors">
-                                                        <Package className="text-blue-600 transition-colors" size={24} />
-                                                    </div>
-                                                    <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded text-[9px] font-black uppercase tracking-widest">{group.category}</span>
-                                                </div>
-                                                
-                                                <h3 className="text-lg font-black text-blue-700 leading-tight uppercase transition-colors line-clamp-1">{group.itemName}</h3>
-                                                {expandedInventoryGroup === group.key && group.variants.length > 0 && (
-                                                    <div className="mt-2 flex flex-wrap gap-1">
-                                                        {group.variants.map((variant) => (
-                                                            <span key={variant.name} className="text-[10px] font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">
-                                                                {variant.name}
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                                <div className="mt-2 text-xs font-black text-slate-400 uppercase tracking-tighter flex items-center gap-1.5 pt-2 border-t border-slate-50">
-                                                    Measured In: <span className="text-slate-800">{group.unit}</span>
-                                                </div>
-                                                
-                                                <p className="mt-4 text-xs font-medium text-slate-500 line-clamp-2 italic leading-relaxed h-8">
-                                                    {group.description || 'No detailed description provided for this item.'}
-                                                </p>
+                                            return (
+                                                <React.Fragment key={group.key}>
+                                                    <tr
+                                                        onClick={() => setExpandedInventoryGroup(isExpanded ? null : group.key)}
+                                                        className="hover:bg-slate-50/40 transition-colors group cursor-pointer"
+                                                    >
+                                                        <td className="px-6 py-4 font-bold text-slate-800 text-xs">
+                                                            <div className="flex items-center gap-3">
+                                                                {getCategoryIcon(group.category)}
+                                                                <span className="truncate">{group.itemName}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            {getCategoryBadge(group.category)}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-xs font-bold text-slate-600">
+                                                            {group.unit || 'PCS'}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-xs font-bold text-slate-750">
+                                                            {group.variants.length}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-xs text-slate-500 max-w-xs truncate font-medium">
+                                                            {group.description || 'No description provided.'}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="flex justify-end items-center gap-1.5">
+                                                                {canEditItems && (
+                                                                    <button 
+                                                                        onClick={() => openEditModal(group.primaryItem, group)} 
+                                                                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 rounded-lg transition-all bg-white shadow-sm cursor-pointer"
+                                                                        title="Edit Item"
+                                                                    >
+                                                                        <Edit size={13} />
+                                                                    </button>
+                                                                )}
+                                                                {canDeleteItems && (
+                                                                    <div className="relative">
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setActiveRowActionsDropdown(activeRowActionsDropdown === group.key ? null : group.key);
+                                                                            }}
+                                                                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 hover:text-slate-900 transition-colors text-slate-400 bg-white shadow-sm cursor-pointer"
+                                                                        >
+                                                                            <MoreVertical size={13} />
+                                                                        </button>
+                                                                        {activeRowActionsDropdown === group.key && (
+                                                                            <>
+                                                                                <div 
+                                                                                    className="fixed inset-0 z-40" 
+                                                                                    onClick={(e) => { e.stopPropagation(); setActiveRowActionsDropdown(null); }}
+                                                                                ></div>
+                                                                                <div className="absolute right-0 mt-1.5 w-32 bg-white border border-slate-100 rounded-xl shadow-lg py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
+                                                                                    <button
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            setActiveRowActionsDropdown(null);
+                                                                                            handleDeleteItem(group.primaryItem._id);
+                                                                                        }}
+                                                                                        className="w-full text-left px-3 py-1.5 text-xs text-red-650 hover:bg-red-50 hover:text-red-700 transition-colors font-bold flex items-center gap-1.5"
+                                                                                    >
+                                                                                        <Trash2 size={12} /> Delete Item
+                                                                                    </button>
+                                                                                </div>
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                    {isExpanded && group.variants.length > 0 && (
+                                                        <tr>
+                                                            <td colSpan={6} className="bg-slate-50/50 px-12 py-3 border-b border-slate-100">
+                                                                <div className="flex flex-col gap-1.5">
+                                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-0.5">Item Variants</span>
+                                                                    <div className="flex flex-wrap gap-1.5">
+                                                                        {group.variants.map((variant) => (
+                                                                            <span 
+                                                                                key={variant.name} 
+                                                                                className="inline-flex items-center text-[10px] font-bold bg-white text-slate-650 px-2.5 py-1 rounded-lg border border-slate-150 shadow-sm"
+                                                                            >
+                                                                                {variant.name}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </React.Fragment>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                {paginatedGroups.map(group => (
+                                    <div
+                                        key={group.key}
+                                        onClick={() => setExpandedInventoryGroup(expandedInventoryGroup === group.key ? null : group.key)}
+                                        className="group relative bg-white rounded-2xl border border-slate-150 shadow-sm hover:shadow-md transition-all p-5 flex flex-col justify-between overflow-hidden cursor-pointer"
+                                    >
+                                        <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
+                                        
+                                        <div>
+                                            <div className="flex justify-between items-start mb-4">
+                                                {getCategoryIcon(group.category)}
+                                                {getCategoryBadge(group.category)}
                                             </div>
+                                            
+                                            <h3 className="text-sm font-bold text-slate-800 transition-colors line-clamp-1">{group.itemName}</h3>
+                                            
+                                            {expandedInventoryGroup === group.key && group.variants.length > 0 && (
+                                                <div className="mt-2.5 flex flex-wrap gap-1">
+                                                    {group.variants.map((variant) => (
+                                                        <span key={variant.name} className="text-[9px] font-bold bg-slate-50 text-slate-650 px-2 py-0.5 rounded border border-slate-150">
+                                                            {variant.name}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            
+                                            <div className="mt-3 text-[10px] font-bold text-slate-400 uppercase tracking-tighter flex items-center gap-1.5 pt-2.5 border-t border-slate-50">
+                                                Measured In: <span className="text-slate-700">{group.unit || 'PCS'}</span>
+                                            </div>
+                                            
+                                            <p className="mt-3 text-xs text-slate-500 line-clamp-2 italic leading-relaxed h-8 font-medium">
+                                                {group.description || 'No detailed description provided for this item.'}
+                                            </p>
+                                        </div>
 
-                                            <div className="mt-6 pt-4 border-t border-slate-50 flex items-center justify-between">
-                                                <div className="flex gap-2">
+                                        <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between">
+                                            <div className="flex gap-2">
+                                                {canEditItems && (
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); openEditModal(group.primaryItem, group); }}
-                                                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all border border-slate-150 bg-white cursor-pointer"
                                                         title="Edit Item"
                                                     >
-                                                        <Edit size={16} />
+                                                        <Edit size={14} />
                                                     </button>
+                                                )}
+                                                {canDeleteItems && (
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); handleDeleteItem(group.primaryItem._id); }}
-                                                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                                        className="p-1.5 text-slate-400 hover:text-red-650 hover:bg-red-50 rounded-lg transition-all border border-slate-150 bg-white cursor-pointer"
                                                         title="Delete Item"
                                                     >
-                                                        <Trash2 size={16} />
+                                                        <Trash2 size={14} />
                                                     </button>
-                                                </div>
-                                                <span className="text-[10px] font-black text-slate-300 uppercase italic">{group.variants.length} variant(s)</span>
+                                                )}
                                             </div>
+                                            <span className="text-[10px] font-bold text-slate-350 uppercase italic">{group.variants.length} variant(s)</span>
                                         </div>
-                                    ))}
-                                </div>
-                            )
-                        ) : (
-                            <div className="py-20 text-center text-slate-400 bg-slate-50 rounded-lg border-2 border-dashed border-slate-100">
-                                <AlertCircle className="mx-auto mb-3 opacity-20" size={48} />
-                                <p className="font-medium">No items found matching your search.</p>
+                                    </div>
+                                ))}
                             </div>
-                        )}
-                    </div>
-                </>
+                        )
+                    ) : (
+                        <div className="py-20 text-center text-slate-400 bg-slate-50 rounded-lg border-2 border-dashed border-slate-100">
+                            <AlertCircle className="mx-auto mb-3 opacity-20" size={48} />
+                            <p className="font-medium">No items found matching your search.</p>
+                        </div>
+                    )}
+
+                    {/* Pagination footer */}
+                    {totalPages > 1 && (
+                        <div className="flex flex-col md:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t border-slate-100 text-xs font-semibold text-slate-500">
+                            <div>
+                                Showing {totalItemsCount > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} to {Math.min(currentPage * itemsPerPage, totalItemsCount)} of {totalItemsCount} items
+                            </div>
+                            
+                            <div className="flex items-center gap-1">
+                                <button
+                                    disabled={currentPage === 1}
+                                    onClick={() => setCurrentPage(currentPage - 1)}
+                                    className="p-1.5 rounded-lg border border-slate-205 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-slate-650 bg-white cursor-pointer"
+                                >
+                                    <ChevronLeft size={14} />
+                                </button>
+                                
+                                {pageNumbers.map((num, i) => (
+                                    num === '...' ? (
+                                        <span key={i} className="px-2 text-slate-400 font-bold">...</span>
+                                    ) : (
+                                        <button
+                                            key={i}
+                                            onClick={() => setCurrentPage(num)}
+                                            className={`w-7 h-7 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                currentPage === num
+                                                    ? 'bg-[#2563EB] text-white shadow-md'
+                                                    : 'border border-slate-205 hover:bg-slate-50 text-slate-650 bg-white'
+                                            }`}
+                                        >
+                                            {num}
+                                        </button>
+                                    )
+                                ))}
+                                
+                                <button
+                                    disabled={currentPage === totalPages || totalPages === 0}
+                                    onClick={() => setCurrentPage(currentPage + 1)}
+                                    className="p-1.5 rounded-lg border border-slate-205 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-slate-650 bg-white cursor-pointer"
+                                >
+                                    <ChevronRight size={14} />
+                                </button>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase font-bold text-slate-400">Rows:</span>
+                                <select
+                                    value={itemsPerPage}
+                                    onChange={(e) => {
+                                        setItemsPerPage(Number(e.target.value));
+                                        setCurrentPage(1);
+                                    }}
+                                    className="border border-slate-200 rounded-lg bg-white px-2 py-1.5 outline-none text-slate-650 cursor-pointer font-bold text-[11px]"
+                                >
+                                    <option value={5}>5 / page</option>
+                                    <option value={10}>10 / page</option>
+                                    <option value={20}>20 / page</option>
+                                    <option value={50}>50 / page</option>
+                                </select>
+                            </div>
+                        </div>
+                    )}
+                </div>
             )}
 
+            {/* TAB: Vendors */}
             {activeTab === TABS.vendors && (
-                <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 animate-in fade-in duration-200">
+                    {/* Controls row */}
+                    <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
+                        <div className="relative w-full md:w-96 group">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={16} />
+                            <input
+                                type="text"
+                                placeholder="Search vendors by name, email, phone..."
+                                className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-400 outline-none transition-all text-xs font-medium bg-white text-slate-700 shadow-sm"
+                                value={vendorSearchTerm}
+                                onChange={(e) => setVendorSearchTerm(e.target.value)}
+                            />
+                        </div>
+                    </div>
+
                     {vendorsLoading ? (
                         <div className="py-20 flex justify-center"><Loader text="Fetching vendors..." /></div>
-                    ) : vendors.length > 0 ? (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
+                    ) : filteredVendors.length > 0 ? (
+                        <div className="overflow-x-auto border border-slate-100 rounded-2xl">
+                            <table className="w-full text-left border-collapse text-xs">
                                 <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-100 text-[11px] uppercase text-slate-400 font-black tracking-widest">
-                                        <th className="px-6 py-4">Vendor Name</th>
+                                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase text-slate-450 font-black tracking-wider">
+                                        <th className="px-6 py-4 rounded-l-xl">Vendor</th>
                                         <th className="px-6 py-4">Contact Person</th>
-                                        <th className="px-6 py-4">Phone / Email</th>
-                                        <th className="px-6 py-4 text-right">Actions</th>
+                                        <th className="px-6 py-4">Phone & Email</th>
+                                        <th className="px-6 py-4">Address</th>
+                                        <th className="px-6 py-4 text-right rounded-r-xl">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
-                                    {vendors.map(v => (
-                                        <tr key={v._id} className="hover:bg-slate-50 transition-colors group">
-                                            <td className="px-6 py-5 font-bold text-slate-800 text-sm">{v.name}</td>
-                                            <td className="px-6 py-5 text-sm text-slate-600 font-medium">{v.contactPerson}</td>
-                                            <td className="px-6 py-5 text-sm text-slate-500">
-                                                <div>{v.phone}</div>
-                                                <div className="text-xs opacity-60">{v.email}</div>
+                                    {filteredVendors.map(v => (
+                                        <tr key={v._id} className="hover:bg-slate-50/50 transition-colors">
+                                            <td className="px-6 py-4">
+                                                <div className="font-bold text-slate-800">{v.name}</div>
                                             </td>
-                                            <td className="px-6 py-5 text-right">
-                                                <div className="flex justify-end gap-1">
-                                                    <button onClick={() => { setEditingVendor(v); setVendorFormData(v); setIsVendorModalOpen(true); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all" title="Edit Vendor"><Edit size={16} /></button>
-                                                    <button onClick={() => handleDeleteVendor(v._id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all" title="Delete Vendor"><Trash2 size={16} /></button>
+                                            <td className="px-6 py-4 text-slate-700 font-bold">
+                                                {v.contactPerson || 'N/A'}
+                                            </td>
+                                            <td className="px-6 py-4 text-slate-600 font-semibold">
+                                                <div>{v.phone || 'N/A'}</div>
+                                                <div className="text-[10px] opacity-60 mt-0.5">{v.email || ''}</div>
+                                            </td>
+                                            <td className="px-6 py-4 text-slate-500 font-medium max-w-xs truncate">
+                                                {v.address || 'N/A'}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex justify-end gap-1.5">
+                                                    <button 
+                                                        onClick={() => {
+                                                            setEditingVendor(v);
+                                                            setVendorFormData(v);
+                                                            setIsVendorModalOpen(true);
+                                                        }} 
+                                                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-150 bg-white rounded-lg transition-all cursor-pointer"
+                                                        title="Edit Vendor"
+                                                    >
+                                                        <Edit size={13} />
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDeleteVendor(v._id)} 
+                                                        className="p-1.5 text-slate-400 hover:text-red-650 hover:bg-red-50 border border-slate-150 bg-white rounded-lg transition-all cursor-pointer"
+                                                        title="Delete Vendor"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -1277,18 +1126,22 @@ const Inventory = () => {
                             </table>
                         </div>
                     ) : (
-                        <div className="py-20 text-center text-slate-400">No vendors found.</div>
+                        <div className="py-20 text-center text-slate-400 bg-slate-50 rounded-lg border-2 border-dashed border-slate-100">
+                            <AlertCircle className="mx-auto mb-3 opacity-20" size={48} />
+                            <p className="font-medium">No vendors found.</p>
+                        </div>
                     )}
                 </div>
             )}
 
+            {/* TAB: Tyre Registry */}
             {activeTab === TABS.tyreRegistry && (
-                <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 animate-in fade-in duration-200">
                     <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
-                        <div className="flex items-center gap-3 w-full md:w-auto bg-slate-50 p-1 rounded-md border border-slate-100">
-                            <Filter size={18} className="ml-3 text-slate-400" />
+                        <div className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 shrink-0">
+                            <Filter size={15} className="text-slate-400 absolute left-3 pointer-events-none" />
                             <select 
-                                className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 pr-8"
+                                className="pl-7 pr-6 bg-transparent border-none outline-none text-xs font-bold text-slate-705 cursor-pointer appearance-none"
                                 value={selectedBusFilter}
                                 onChange={(e) => setSelectedBusFilter(e.target.value)}
                             >
@@ -1304,61 +1157,71 @@ const Inventory = () => {
                                     ))}
                                 </optgroup>
                             </select>
+                            <ChevronDown size={14} className="text-slate-400 absolute right-3 pointer-events-none" />
                         </div>
                     </div>
 
                     {registryLoading ? (
                         <div className="py-20 flex justify-center"><Loader text="Fetching registry..." /></div>
                     ) : tyreRegistry.length > 0 ? (
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto border border-slate-100 rounded-2xl">
                             <table className="w-full text-left border-collapse">
                                 <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-100 text-[11px] uppercase text-slate-400 font-black tracking-widest">
-                                        <th className="px-6 py-4">Vehicle</th>
+                                    <tr className="border-b border-slate-100 text-[11px] uppercase text-slate-450 font-black tracking-widest bg-slate-50/50">
+                                        <th className="px-6 py-4 rounded-l-xl">Vehicle</th>
                                         <th className="px-6 py-4">Position</th>
                                         <th className="px-6 py-4">Type</th>
                                         <th className="px-6 py-4">Install KM</th>
-                                        <th className="px-6 py-4">Last Updated</th>
+                                        <th className="px-6 py-4 text-right rounded-r-xl">Last Updated</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
                                     {tyreRegistry.map(reg => (
-                                        <tr key={reg._id} className="hover:bg-slate-50 transition-colors">
-                                            <td className="px-6 py-5"><span className="font-black text-slate-900 text-xs px-2 py-1 bg-slate-100 rounded-lg">{reg.busId?.vehicleNumber || reg.busId?.busNumber || 'N/A'}</span></td>
-                                            <td className="px-6 py-5 uppercase font-bold text-xs text-blue-600">{reg.position}</td>
-                                            <td className="px-6 py-5 text-sm">
-                                                <span className={`px-2 py-0.5 rounded-full font-black text-[10px] uppercase ${reg.tyreType === 'new tyre' ? 'bg-green-50 text-green-600' : 'bg-yellow-50 text-yellow-600'}`}>
+                                        <tr key={reg._id} className="hover:bg-slate-50/50 transition-colors">
+                                            <td className="px-6 py-4 font-bold text-slate-800 text-xs">
+                                                <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg border border-slate-200">
+                                                    {reg.busId?.vehicleNumber || reg.busId?.busNumber || 'N/A'}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 uppercase font-bold text-xs text-blue-600">{reg.position}</td>
+                                            <td className="px-6 py-4 text-xs font-semibold">
+                                                <span className={`px-2.5 py-1 rounded-lg border ${reg.tyreType === 'new tyre' ? 'bg-green-50 text-green-705 border-green-100' : 'bg-amber-50 text-amber-705 border-amber-105'}`}>
                                                     {reg.tyreType}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-5 text-sm font-bold text-slate-700">{reg.installKm} KM</td>
-                                            <td className="px-6 py-5 text-xs text-slate-400">{new Date(reg.updatedAt).toLocaleString()}</td>
+                                            <td className="px-6 py-4 text-xs font-bold text-slate-750">{reg.installKm} KM</td>
+                                            <td className="px-6 py-4 text-xs text-slate-400 text-right font-medium">{new Date(reg.updatedAt).toLocaleString()}</td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
                     ) : (
-                        <div className="py-20 text-center text-slate-400">No active tyres found in registry.</div>
+                        <div className="py-20 text-center text-slate-400 bg-slate-50 rounded-lg border-2 border-dashed border-slate-100">
+                            <AlertCircle className="mx-auto mb-3 opacity-20" size={48} />
+                            <p className="font-medium">No active tyres found in registry.</p>
+                        </div>
                     )}
                 </div>
             )}
 
-            {/* Item Modal */}
+            {/* MODALS SECTION */}
+
+            {/* 1. Item Modal (Variants add / edit) */}
             <Modal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 title={editingItem ? 'Edit Inventory Item / Variant' : 'Add New Item Variants'}
             >
-                <form onSubmit={handleItemSubmit} className="space-y-5">
+                <form onSubmit={handleItemSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-xs font-black uppercase text-slate-400 mb-2 tracking-widest">Item Group / Category</label>
+                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">Item Group / Category</label>
                         <input
                             required
                             type="text"
                             placeholder="e.g. Mirror, Filter, Engine Oil"
                             list="inventory-item-groups"
-                            className="w-full px-4 py-3 rounded-md border border-slate-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium"
+                            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all font-medium text-xs bg-white text-slate-700"
                             value={itemFormData.itemName}
                             onChange={(e) => setItemFormData({ ...itemFormData, itemName: e.target.value })}
                         />
@@ -1367,17 +1230,17 @@ const Inventory = () => {
                                 <option key={name} value={name} />
                             ))}
                         </datalist>
-                        <p className="text-[11px] text-slate-400 mt-1 font-medium">Use this as the parent item name. Examples: Mirror, Filter, Tyre.</p>
+                        <p className="text-[10px] text-slate-400 mt-1 font-semibold">Use this as the parent item name. Examples: Mirror, Filter, Tyre.</p>
                     </div>
                     <div>
-                        <label className="block text-xs font-black uppercase text-slate-400 mb-2 tracking-widest">Variants</label>
+                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">Variants</label>
                         <div className="space-y-2">
                             {itemFormData.variantNames.map((variant, index) => (
                                 <div key={index} className="flex gap-2">
                                     <input
                                         type="text"
                                         placeholder={index === 0 ? 'e.g. Left Mirror' : 'Another variant'}
-                                        className="flex-1 px-4 py-3 rounded-md border border-slate-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium"
+                                        className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all font-medium text-xs bg-white text-slate-700"
                                         value={variant}
                                         onChange={(e) => updateVariantRow(index, e.target.value)}
                                     />
@@ -1385,10 +1248,10 @@ const Inventory = () => {
                                         <button
                                             type="button"
                                             onClick={() => removeVariantRow(index)}
-                                            className="px-3 rounded-md border border-red-100 text-red-500 hover:bg-red-50"
+                                            className="px-2.5 rounded-xl border border-red-100 text-red-500 hover:bg-red-50 hover:text-red-650 cursor-pointer transition-colors"
                                             title="Remove variant"
                                         >
-                                            <Trash2 size={16} />
+                                            <Trash2 size={14} />
                                         </button>
                                     )}
                                 </div>
@@ -1396,21 +1259,21 @@ const Inventory = () => {
                             <button
                                 type="button"
                                 onClick={addVariantRow}
-                                className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-blue-50 text-blue-700 text-xs font-black uppercase tracking-wide hover:bg-blue-100"
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-[10px] font-bold uppercase tracking-wide hover:bg-blue-100 cursor-pointer transition-colors"
                             >
-                                <Plus size={14} /> Add Variant
+                                <Plus size={13} /> Add Variant
                             </button>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-1 font-medium">
+                        <p className="text-[10px] text-slate-400 mt-1 font-semibold">
                             Add one row per variant. Leave all variants blank to keep only the item group.
                         </p>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-black uppercase text-slate-400 mb-2 tracking-widest">Inventory Type</label>
+                            <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">Inventory Type</label>
                             <select
                                 required
-                                className="w-full px-4 py-3 rounded-md border border-slate-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium bg-white"
+                                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all font-bold text-xs bg-white text-slate-700 cursor-pointer"
                                 value={itemFormData.category}
                                 onChange={(e) => setItemFormData({ ...itemFormData, category: e.target.value })}
                             >
@@ -1420,10 +1283,10 @@ const Inventory = () => {
                             </select>
                         </div>
                         <div>
-                            <label className="block text-xs font-black uppercase text-slate-400 mb-2 tracking-widest">Unit</label>
+                            <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">Unit</label>
                             <select
                                 required
-                                className="w-full px-4 py-3 rounded-md border border-slate-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium bg-white"
+                                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all font-bold text-xs bg-white text-slate-700 cursor-pointer"
                                 value={itemFormData.unit}
                                 onChange={(e) => setItemFormData({ ...itemFormData, unit: e.target.value })}
                             >
@@ -1434,63 +1297,113 @@ const Inventory = () => {
                         </div>
                     </div>
                     <div>
-                        <label className="block text-xs font-black uppercase text-slate-400 mb-2 tracking-widest">Description</label>
+                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">Description</label>
                         <textarea
                             rows="2"
                             placeholder="Optional notes..."
-                            className="w-full px-4 py-3 rounded-md border border-slate-200 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium"
+                            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all font-medium text-xs bg-white text-slate-700"
                             value={itemFormData.description}
                             onChange={(e) => setItemFormData({ ...itemFormData, description: e.target.value })}
                         />
                     </div>
-                    <div className="flex gap-3 pt-4">
-                        <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-3 rounded-md border border-slate-200 font-bold text-slate-600 hover:bg-slate-50 transition-all">Cancel</button>
-                        <button type="submit" className="flex-1 px-4 py-3 rounded-md bg-slate-900 text-white font-bold hover:bg-slate-800 transition-all shadow-lg active:scale-95">
+                    <div className="flex gap-3 pt-3">
+                        <button 
+                            type="button" 
+                            onClick={() => setIsModalOpen(false)} 
+                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50 transition-all text-xs cursor-pointer"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            type="submit" 
+                            className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800 transition-all shadow-lg active:scale-95 text-xs cursor-pointer"
+                        >
                             {creatingMultipleVariants ? `Save ${filledVariantNames.length} Variants` : 'Save Item'}
                         </button>
                     </div>
                 </form>
             </Modal>
 
-
-            {/* Vendor Modal */}
+            {/* 2. Vendor Modal */}
             <Modal
                 isOpen={isVendorModalOpen}
-                onClose={() => setIsVendorModalOpen(false)}
+                onClose={() => {
+                    setIsVendorModalOpen(false);
+                    setEditingVendor(null);
+                    setVendorFormData({ name: '', contactPerson: '', phone: '', email: '', address: '' });
+                }}
                 title={editingVendor ? 'Edit Vendor' : 'Add New Vendor'}
             >
                 <form onSubmit={handleVendorSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-xs font-black uppercase text-slate-400 mb-1">Vendor Name</label>
-                        <input required className="w-full px-4 py-2 rounded-md border border-slate-200" value={vendorFormData.name} onChange={e => setVendorFormData({...vendorFormData, name: e.target.value})} />
+                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">Vendor Name</label>
+                        <input 
+                            required 
+                            type="text"
+                            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all font-medium text-xs bg-white text-slate-700" 
+                            value={vendorFormData.name} 
+                            onChange={e => setVendorFormData({...vendorFormData, name: e.target.value})} 
+                        />
                     </div>
                     <div>
-                        <label className="block text-xs font-black uppercase text-slate-400 mb-1">Contact Person</label>
-                        <input className="w-full px-4 py-2 rounded-md border border-slate-200" value={vendorFormData.contactPerson} onChange={e => setVendorFormData({...vendorFormData, contactPerson: e.target.value})} />
+                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">Contact Person</label>
+                        <input 
+                            type="text"
+                            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all font-medium text-xs bg-white text-slate-700" 
+                            value={vendorFormData.contactPerson} 
+                            onChange={e => setVendorFormData({...vendorFormData, contactPerson: e.target.value})} 
+                        />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-black uppercase text-slate-400 mb-1">Phone</label>
-                            <input className="w-full px-4 py-2 rounded-md border border-slate-200" value={vendorFormData.phone} onChange={e => setVendorFormData({...vendorFormData, phone: e.target.value})} />
+                            <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">Phone</label>
+                            <input 
+                                type="text"
+                                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all font-medium text-xs bg-white text-slate-700" 
+                                value={vendorFormData.phone} 
+                                onChange={e => setVendorFormData({...vendorFormData, phone: e.target.value})} 
+                            />
                         </div>
                         <div>
-                            <label className="block text-xs font-black uppercase text-slate-400 mb-1">Email</label>
-                            <input type="email" className="w-full px-4 py-2 rounded-md border border-slate-200" value={vendorFormData.email} onChange={e => setVendorFormData({...vendorFormData, email: e.target.value})} />
+                            <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">Email</label>
+                            <input 
+                                type="email" 
+                                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all font-medium text-xs bg-white text-slate-700" 
+                                value={vendorFormData.email} 
+                                onChange={e => setVendorFormData({...vendorFormData, email: e.target.value})} 
+                            />
                         </div>
                     </div>
                     <div>
-                        <label className="block text-xs font-black uppercase text-slate-400 mb-1">Address</label>
-                        <textarea className="w-full px-4 py-2 rounded-md border border-slate-200" value={vendorFormData.address} onChange={e => setVendorFormData({...vendorFormData, address: e.target.value})} />
+                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5 tracking-wider">Address</label>
+                        <textarea 
+                            rows="2"
+                            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all font-medium text-xs bg-white text-slate-700" 
+                            value={vendorFormData.address} 
+                            onChange={e => setVendorFormData({...vendorFormData, address: e.target.value})} 
+                        />
                     </div>
-                    <button type="submit" className="w-full bg-slate-900 text-white font-bold py-3 rounded-md hover:bg-slate-800 transition-all shadow-lg active:scale-95">
-                        {editingVendor ? 'Update Vendor' : 'Save Vendor'}
-                    </button>
+                    <div className="flex gap-3 pt-3">
+                        <button 
+                            type="button" 
+                            onClick={() => setIsVendorModalOpen(false)} 
+                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-650 hover:bg-slate-50 transition-all text-xs cursor-pointer"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            type="submit" 
+                            className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl transition-all shadow-lg active:scale-95 text-xs cursor-pointer"
+                        >
+                            {editingVendor ? 'Update Vendor' : 'Save Vendor'}
+                        </button>
+                    </div>
                 </form>
             </Modal>
 
             {/* Hidden Print Area */}
             <div className="hidden print:block absolute top-0 left-0 w-full">
-                {printBill && !printBill.error && (
+                {printBill && (
                     <div id="print-container">
                         <BillPrint 
                             billData={printBill} 

@@ -4,7 +4,7 @@ import Layout from '../components/Layout';
 import Loader from '../components/Loader';
 import {
     Plus, Trash2, History, Truck, Printer, AlertCircle,
-    Edit, Calendar, ChevronDown, ChevronUp, Filter
+    Edit, Calendar, ChevronDown, ChevronUp, Filter, FileText, ChevronRight, Package, User, Tag, Bus
 } from 'lucide-react';
 import BillPrint from '../components/BillPrint';
 import { apiFetch, API_BASE } from '../utils/api';
@@ -13,6 +13,7 @@ import { hasPermission } from '../utils/permissions';
 import { computeBillTotals, getLineTotal } from '../utils/billCalculations';
 
 const API = API_BASE;
+const API_ORIGIN = String(API_BASE || '').replace(/\/api\/?$/, '');
 
 const PAGE_TABS = { raise: 'raise', view: 'view' };
 
@@ -23,6 +24,18 @@ const formatCurrency = (value) => Number(value || 0).toLocaleString('en-IN', {
     maximumFractionDigits: 2
 });
 
+const formatCurrencyIndian = (num) => {
+    if (!num) return '0';
+    const parts = Math.round(num).toString().split(".");
+    let lastThree = parts[0].substring(parts[0].length - 3);
+    const otherBits = parts[0].substring(0, parts[0].length - 3);
+    if (otherBits !== "") {
+        lastThree = "," + lastThree;
+    }
+    const res = otherBits.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + lastThree;
+    return res;
+};
+
 const TYRE_POSITIONS = [
     'front right',
     'front left',
@@ -31,6 +44,26 @@ const TYRE_POSITIONS = [
     'rear left',
     'rear right'
 ];
+
+const CATEGORIES = [
+    'General',
+    'Mechanical',
+    'Electrical',
+    'Tires',
+    'Lubricants',
+    'Body & Interior',
+    'Safety',
+    'Cleaning'
+];
+
+const getCategoryDisplayName = (cat) => {
+    switch (cat) {
+        case 'Mechanical': return 'Engine Parts';
+        case 'Body & Interior': return 'Body Parts';
+        case 'Tires': return 'Tyres';
+        default: return cat;
+    }
+};
 
 const getItemDisplayName = (item) => {
     if (!item) return 'Unselected Item';
@@ -129,15 +162,15 @@ const emptyBillFormData = {
 };
 
 const parseQuantityInput = (rawValue) => {
-    if (rawValue === '' || rawValue === '.') return rawValue;
-    if (!/^\d+(\.\d{0,1})?$/.test(String(rawValue))) return null;
+    if (rawValue === '') return rawValue;
+    if (!/^\d+$/.test(String(rawValue))) return null;
     return rawValue;
 };
 
 const toBillQuantity = (value) => {
-    const num = parseFloat(value);
-    if (!Number.isFinite(num) || num < 0.1) return null;
-    return Math.round(num * 10) / 10;
+    const num = parseInt(value, 10);
+    if (!Number.isInteger(num) || num < 1) return null;
+    return num;
 };
 
 const parsePriceInput = (rawValue) => {
@@ -232,8 +265,10 @@ const RaiseBill = () => {
     const [submitting, setSubmitting] = useState(false);
     const [editingBill, setEditingBill] = useState(null);
     const [billFormData, setBillFormData] = useState(emptyBillFormData);
+    const [showActionModal, setShowActionModal] = useState(false);
+    const [showPreviewModal, setShowPreviewModal] = useState(false);
+    const [errorMsg, setErrorMsg] = useState('');
     const [printBill, setPrintBill] = useState(null);
-    const [showSuccess, setShowSuccess] = useState(false);
     const [loadError, setLoadError] = useState('');
     const [selectedBusFilter, setSelectedBusFilter] = useState('all');
     const [expandedBillKey, setExpandedBillKey] = useState(null);
@@ -242,11 +277,12 @@ const RaiseBill = () => {
 
     const switchTab = (tab) => {
         setPageTab(tab);
-        setShowSuccess(false);
+        setShowActionModal(false);
+        setShowPreviewModal(false);
+        setErrorMsg('');
         if (tab === PAGE_TABS.view) {
             setSearchParams({ tab: 'view' });
         } else if (billIdParam || billNoParam) {
-            // keep edit params when staying on raise for edit
             const next = {};
             if (billIdParam) next.billId = billIdParam;
             if (billNoParam) next.billNo = billNoParam;
@@ -380,6 +416,7 @@ const RaiseBill = () => {
             }
         };
         fetchHistory();
+        fetchBillsList(billFormData.busId);
     }, [billFormData.busId]);
 
     const addBillItem = () => {
@@ -420,13 +457,12 @@ const RaiseBill = () => {
         updateBillItem(index, 'gstPercent', parsed);
     };
 
-    const getGroupByName = (name) => inventoryGroups.find((group) => group.itemName === name);
-
     const getSelectedInventoryItem = (lineItem) => {
         if (lineItem.itemId) return items.find((item) => item._id === lineItem.itemId);
-        const group = getGroupByName(lineItem.itemGroup);
-        return group?.primaryItem || null;
+        return null;
     };
+
+    const getGroupByName = (name) => inventoryGroups.find((group) => group.itemName === name);
 
     const handleBillGroupChange = (index, groupName) => {
         const group = getGroupByName(groupName);
@@ -452,6 +488,37 @@ const RaiseBill = () => {
             itemId: variant?.itemId || group?.primaryItem?._id || '',
         };
         setBillFormData({ ...billFormData, items: newItems });
+    };
+
+    const getCategoryItemsAndVariants = (category) => {
+        const list = [];
+        items.forEach(item => {
+            if (category === 'all' || item.category === category) {
+                const variants = getItemVariants(item);
+                if (variants.length > 0) {
+                    variants.forEach(v => {
+                        list.push({
+                            id: `${item._id}|${v.name}`,
+                            itemId: item._id,
+                            variantName: v.name,
+                            displayName: `${item.itemName} - ${v.name}`,
+                            unit: item.unit,
+                            category: item.category
+                        });
+                    });
+                } else {
+                    list.push({
+                        id: `${item._id}|`,
+                        itemId: item._id,
+                        variantName: '',
+                        displayName: item.itemName,
+                        unit: item.unit,
+                        category: item.category
+                    });
+                }
+            }
+        });
+        return list.sort((a, b) => a.displayName.localeCompare(b.displayName));
     };
 
     const buildBillTaxesPayload = () => {
@@ -761,9 +828,10 @@ const RaiseBill = () => {
         setPageTab(PAGE_TABS.raise);
     };
 
-    const handleBillSubmit = async (e) => {
+    const handleBillSubmit = (e) => {
         e.preventDefault();
 
+        // 1. Run validation
         for (const item of billFormData.items) {
             const qty = toBillQuantity(item.quantity);
             if (qty === null) {
@@ -790,15 +858,15 @@ const RaiseBill = () => {
             }
         }
 
+        // 2. Open confirmation modal
+        setErrorMsg('');
+        setShowActionModal(true);
+    };
+
+    const saveAndPrintBill = async () => {
         const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
         const payload = buildHybridBillPayload(adminInfo.name || adminInfo.username || 'Admin');
-
         const isEditing = Boolean(editingBill?.originalBillNo || editingBill?.billId);
-        if (isEditing && !canEditBills) {
-            alert('You do not have permission to edit bills.');
-            return;
-        }
-
         const useIdPath = Boolean(editingBill?.billId);
         const url = isEditing
             ? (useIdPath
@@ -812,6 +880,7 @@ const RaiseBill = () => {
         }
 
         setSubmitting(true);
+        setErrorMsg('');
         try {
             const response = await apiFetch(url, {
                 method,
@@ -822,30 +891,31 @@ const RaiseBill = () => {
             if (response.ok) {
                 const data = await response.json().catch(() => ({}));
                 const savedBill = data.bill || null;
-
                 const printableBill = {
                     ...buildPrintableBillData(),
                     ...(savedBill || {}),
                     wasEdit: isEditing
                 };
-                setPrintBill(printableBill);
-                setShowSuccess(true);
+                
+                // Close modals
+                setShowActionModal(false);
+                setShowPreviewModal(false);
+                
+                // Reset form
                 resetBillForm();
+                
+                // Switch tab and refresh list
+                switchTab(PAGE_TABS.view);
+                
+                // Trigger print dialog
+                await handlePrint(printableBill);
             } else {
                 const data = await response.json().catch(() => ({}));
-                setPrintBill({
-                    error: data.message || (isEditing ? 'Failed to update bill' : 'Failed to raise bill'),
-                    wasEdit: isEditing
-                });
-                setShowSuccess(true);
+                setErrorMsg(data.message || (isEditing ? 'Failed to update bill' : 'Failed to save bill'));
             }
         } catch (error) {
-            console.error(isEditing ? 'Error updating bill:' : 'Error raising bill:', error);
-            setPrintBill({
-                error: isEditing ? 'Error updating bill. Please try again.' : 'Error raising bill. Please try again.',
-                wasEdit: isEditing
-            });
-            setShowSuccess(true);
+            console.error(isEditing ? 'Error updating:' : 'Error saving:', error);
+            setErrorMsg(isEditing ? 'Error updating bill.' : 'Error saving bill.');
         } finally {
             setSubmitting(false);
         }
@@ -855,117 +925,61 @@ const RaiseBill = () => {
         ? `Edit Bill #${editingBill.originalBillNo}`
         : 'Raise Bill';
 
-    if (showSuccess) {
-        return (
-            <Layout>
-                <div className="max-w-lg mx-auto mt-12">
-                    <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-8 space-y-5">
-                        <h2 className="text-2xl font-bold text-slate-800">
-                            {printBill?.error
-                                ? (printBill?.wasEdit ? 'Bill Not Updated' : 'Bill Not Raised')
-                                : (printBill?.wasEdit ? 'Bill Updated Successfully' : 'Bill Raised Successfully')}
-                        </h2>
-                        {printBill?.error ? (
-                            <div className="p-4 rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm font-semibold">
-                                {printBill.error}
-                            </div>
-                        ) : (
-                            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
-                                <p className="text-sm font-black text-emerald-800">
-                                    {printBill?.wasEdit
-                                        ? 'Bill updated successfully.'
-                                        : 'Bill raised and assigned to bus successfully.'}
-                                </p>
-                                <p className="text-xs text-emerald-700 mt-1">
-                                    Bill #{printBill?.billNo || 'N/A'} · Total ₹{printBill?.totalAmount ?? printBill?.grandTotal ?? 0}
-                                </p>
-                            </div>
-                        )}
-                        <div className="flex flex-col sm:flex-row gap-3">
-                            {!printBill?.error && (
-                                <button
-                                    type="button"
-                                    onClick={() => handlePrint(printBill)}
-                                    className="flex-1 px-4 py-3 rounded-xl bg-blue-600 text-white text-sm font-black hover:bg-blue-700 flex items-center justify-center gap-2"
-                                >
-                                    <Printer size={16} /> Print Bill
-                                </button>
-                            )}
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setShowSuccess(false);
-                                    setPrintBill(null);
-                                    switchTab(PAGE_TABS.view);
-                                }}
-                                className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-700 text-sm font-bold hover:bg-slate-50"
-                            >
-                                View Bills
-                            </button>
-                        </div>
-                    </div>
-                    <div className="hidden print:block absolute top-0 left-0 w-full">
-                        {printBill && !printBill.error && (
-                            <div id="print-container">
-                                <BillPrint
-                                    billData={printBill}
-                                    vendor={vendors.find((v) => (v._id?.toString() || v._id) === (printBill.vendorId?._id?.toString() || printBill.vendorId?.toString() || printBill.vendorId))}
-                                    bus={buses.find((b) => b.busNumber === (printBill.busId?.busNumber || printBill.busId))
-                                        || otherVehicles.find((v) => v.vehicleNumber === (printBill.busId?.busNumber || printBill.busId?.vehicleNumber || printBill.busId))}
-                                />
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </Layout>
-        );
-    }
+    const selectedVehicleObj = buses.find(b => b.busNumber === billFormData.busId)
+        || otherVehicles.find(o => o.vehicleNumber === billFormData.busId);
 
     return (
         <Layout>
-            <div className="mb-6 flex flex-col md:flex-row md:items-start justify-between gap-4">
+            {/* Title / Tab Switching capsule row */}
+            <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold text-slate-800 tracking-tight flex items-center gap-3">
-                        <Truck className="text-emerald-600" size={32} />
+                    <h2 className="text-xl font-black text-slate-805 tracking-tight flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 shrink-0">
+                            <Truck size={18} />
+                        </div>
                         {pageTab === PAGE_TABS.view ? 'View Bills' : pageTitle}
                     </h2>
-                    <p className="text-slate-500 mt-1">
+                    <p className="text-slate-500 mt-0.5 text-[11px] font-semibold">
                         {pageTab === PAGE_TABS.view
                             ? 'Browse raised maintenance bills across the fleet.'
                             : (isEditMode
                                 ? 'Update an existing maintenance bill and vehicle allocations.'
-                                : 'Raise a maintenance bill and allocate items to a vehicle.')}
+                                : 'Create a maintenance bill and allocate items to the selected vehicle.')}
                     </p>
                 </div>
-                <div className="flex bg-gray-100 p-1 rounded border border-gray-200 shrink-0 self-start">
+                <div className="flex items-center gap-2 shrink-0 self-start">
                     <button
                         type="button"
                         onClick={() => switchTab(PAGE_TABS.raise)}
-                        className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
-                            pageTab === PAGE_TABS.raise ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                            pageTab === PAGE_TABS.raise
+                                ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20'
+                                : 'bg-white text-slate-655 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 shadow-sm'
                         }`}
                     >
-                        <Truck size={14} /> Raise Bill
+                        <Truck size={13} /> Raise Bill
                     </button>
                     <button
                         type="button"
                         onClick={() => switchTab(PAGE_TABS.view)}
-                        className={`px-4 py-2 rounded text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
-                            pageTab === PAGE_TABS.view ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                            pageTab === PAGE_TABS.view
+                                ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20'
+                                : 'bg-white text-slate-655 hover:text-slate-900 border border-slate-200 hover:bg-slate-50 shadow-sm'
                         }`}
                     >
-                        <History size={14} /> View Bills
+                        <History size={13} /> View Bills
                     </button>
                 </div>
             </div>
 
             {pageTab === PAGE_TABS.view && (
-                <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-6">
-                    <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
-                        <div className="flex items-center gap-3 w-full md:w-auto bg-slate-50 p-1 rounded-md border border-slate-100">
-                            <Filter size={18} className="ml-3 text-slate-400" />
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 animate-in fade-in duration-200">
+                    <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-5">
+                        <div className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shrink-0">
+                            <Filter size={14} className="text-slate-400 absolute left-3 pointer-events-none" />
                             <select
-                                className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 pr-8"
+                                className="pl-6 pr-5 bg-transparent border-none outline-none text-xs font-bold text-slate-705 cursor-pointer appearance-none"
                                 value={selectedBusFilter}
                                 onChange={(e) => setSelectedBusFilter(e.target.value)}
                             >
@@ -981,117 +995,118 @@ const RaiseBill = () => {
                                     ))}
                                 </optgroup>
                             </select>
+                            <ChevronDown size={13} className="text-slate-400 absolute right-3 pointer-events-none" />
                         </div>
                         <button
                             type="button"
                             onClick={() => switchTab(PAGE_TABS.raise)}
-                            className="bg-emerald-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 hover:bg-emerald-800"
+                            className="bg-[#2563EB] text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:bg-blue-700 shadow-sm transition-all active:scale-95 cursor-pointer"
                         >
-                            <Plus size={16} /> New Bill
+                            <Plus size={14} /> New Bill
                         </button>
                     </div>
 
                     {billsLoading ? (
                         <div className="py-20 flex justify-center"><Loader text="Fetching bills..." /></div>
                     ) : groupedBills.length > 0 ? (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
+                        <div className="overflow-x-auto border border-slate-100 rounded-2xl">
+                            <table className="w-full text-left border-collapse text-xs">
                                 <thead>
-                                    <tr className="bg-slate-50/50 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                                        <th className="px-6 py-4">Bill Date</th>
-                                        <th className="px-6 py-4">Bill No</th>
-                                        <th className="px-6 py-4">Vendor & Bus</th>
-                                        <th className="px-6 py-4">Items Summary</th>
-                                        <th className="px-6 py-4">Total Amount</th>
-                                        <th className="px-6 py-4 text-right">Actions</th>
+                                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase text-slate-450 font-black tracking-wider">
+                                        <th className="px-5 py-3 rounded-l-xl">Bill Date</th>
+                                        <th className="px-5 py-3">Bill No</th>
+                                        <th className="px-5 py-3">Vendor & Bus</th>
+                                        <th className="px-5 py-3">Items Summary</th>
+                                        <th className="px-5 py-3">Total Amount</th>
+                                        <th className="px-5 py-3 text-right rounded-r-xl">Actions</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-50">
+                                <tbody className="divide-y divide-slate-50 font-medium text-slate-700">
                                     {groupedBills.map((bill) => {
                                         const billKey = getBillKey(bill);
                                         const isExpanded = expandedBillKey === billKey;
 
                                         return (
                                             <React.Fragment key={billKey}>
-                                                <tr className="hover:bg-slate-50 transition-colors group">
-                                                    <td className="px-6 py-5 whitespace-nowrap">
-                                                        <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
-                                                            <Calendar size={14} className="text-slate-400" />
+                                                <tr className="hover:bg-slate-50/50 transition-colors">
+                                                    <td className="px-5 py-3.5 whitespace-nowrap">
+                                                        <div className="flex items-center gap-2 text-slate-800 font-bold">
+                                                            <Calendar size={13} className="text-slate-400" />
                                                             {new Date(bill.date).toLocaleDateString()}
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-5 whitespace-nowrap">
-                                                        <span className="text-xs font-black text-blue-600 uppercase tracking-tighter">#{bill.billNo || 'N/A'}</span>
+                                                    <td className="px-5 py-3.5 whitespace-nowrap font-black text-blue-600">
+                                                        #{bill.billNo || 'N/A'}
                                                     </td>
-                                                    <td className="px-6 py-5">
+                                                    <td className="px-5 py-3.5">
                                                         <div className="flex flex-col">
-                                                            <span className="font-bold text-slate-800 text-sm">{bill.vendorId?.name || 'Unknown'}</span>
-                                                            <span className="text-[10px] text-slate-400 font-black uppercase mt-0.5">
+                                                            <span className="font-bold text-slate-800">{bill.vendorId?.name || 'Unknown'}</span>
+                                                            <span className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">
                                                                 Vehicle: {bill.busId?.vehicleNumber || bill.busId?.busNumber || 'N/A'}
                                                             </span>
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-5">
+                                                    <td className="px-5 py-3.5">
                                                         <button
                                                             type="button"
                                                             onClick={() => setExpandedBillKey(isExpanded ? null : billKey)}
-                                                            className="flex items-center gap-2 text-left text-xs font-bold text-slate-600 hover:text-blue-600 transition-colors"
+                                                            className="flex items-center gap-1.5 text-left font-bold text-slate-600 hover:text-blue-600 transition-colors cursor-pointer"
                                                         >
-                                                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                                            {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                                                             <span>{bill.items.length} item(s)</span>
                                                         </button>
                                                     </td>
-                                                    <td className="px-6 py-5">
-                                                        <span className="font-black text-blue-700">₹{formatCurrency(bill.totalAmount)}</span>
+                                                    <td className="px-5 py-3.5 font-bold text-blue-700 text-sm">
+                                                        ₹{formatCurrency(bill.totalAmount)}
                                                     </td>
-                                                    <td className="px-6 py-5 text-right">
+                                                    <td className="px-5 py-3.5 text-right">
                                                         <div className="flex justify-end gap-1">
                                                             {canEditBills && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => openEditBill(bill)}
-                                                                    className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-all"
+                                                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 bg-white rounded-lg transition-all shadow-sm cursor-pointer"
                                                                     title="Edit Bill"
                                                                 >
-                                                                    <Edit size={16} />
+                                                                    <Edit size={13} />
                                                                 </button>
                                                             )}
                                                             {canDeleteBills && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => handleDeleteBill(bill)}
-                                                                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
+                                                                    className="p-1.5 text-slate-400 hover:text-red-655 hover:bg-red-50 border border-slate-200 bg-white rounded-lg transition-all shadow-sm cursor-pointer"
                                                                     title="Delete Bill"
                                                                 >
-                                                                    <Trash2 size={16} />
+                                                                    <Trash2 size={13} />
                                                                 </button>
                                                             )}
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handlePrint(bill)}
-                                                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
+                                                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 bg-white rounded-lg transition-all shadow-sm cursor-pointer"
                                                                 title="Print Full Bill"
                                                             >
-                                                                <Printer size={16} />
+                                                                <Printer size={13} />
                                                             </button>
                                                         </div>
                                                     </td>
                                                 </tr>
                                                 {isExpanded && (
-                                                    <tr className="bg-slate-50/70">
-                                                        <td colSpan={6} className="px-6 py-4">
-                                                            <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-                                                                <table className="w-full text-left text-sm">
+                                                    <tr className="bg-slate-50/50">
+                                                        <td colSpan={6} className="px-5 py-3">
+                                                            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                                                                <table className="w-full text-left text-xs font-semibold">
                                                                     <thead>
-                                                                        <tr className="bg-slate-100 text-[10px] font-black uppercase text-slate-500 tracking-wider">
-                                                                            <th className="px-4 py-3">Item</th>
-                                                                            <th className="px-4 py-3 text-center">Qty</th>
-                                                                            <th className="px-4 py-3 text-right">Price / Amount</th>
-                                                                            <th className="px-4 py-3 text-center">GST %</th>
-                                                                            <th className="px-4 py-3 text-right">Overall Price</th>
+                                                                        <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase text-slate-455 tracking-wider">
+                                                                            <th className="px-4 py-2.5">Item</th>
+                                                                            <th className="px-4 py-2.5 text-center">Qty</th>
+                                                                            <th className="px-4 py-2.5 text-right">Price / Amount</th>
+                                                                            <th className="px-4 py-2.5 text-center">GST %</th>
+                                                                            <th className="px-4 py-2.5 text-right">Overall Price</th>
                                                                         </tr>
                                                                     </thead>
-                                                                    <tbody className="divide-y divide-slate-100">
+                                                                    <tbody className="divide-y divide-slate-100 text-slate-750">
                                                                         {bill.items.map((item, idx) => {
                                                                             const pricingMode = item.pricingMode || 'unitRate';
                                                                             const lineTotal = item.lineTotal != null
@@ -1101,27 +1116,27 @@ const RaiseBill = () => {
                                                                                 ? item.amount ?? item.price
                                                                                 : item.unitPrice ?? item.price;
                                                                             return (
-                                                                                <tr key={item._id || item.allocationId || idx} className="text-slate-700">
-                                                                                    <td className="px-4 py-3 font-semibold">
+                                                                                <tr key={item._id || item.allocationId || idx}>
+                                                                                    <td className="px-4 py-2.5 font-semibold">
                                                                                         {getAllocatedItemDisplayName(item)}
                                                                                         {pricingMode === 'lumpSum' && (
-                                                                                            <span className="ml-2 text-[10px] uppercase text-slate-400">Lump sum</span>
+                                                                                            <span className="ml-2 text-[9px] uppercase text-slate-400 font-bold">Lump sum</span>
                                                                                         )}
                                                                                     </td>
-                                                                                    <td className="px-4 py-3 text-center">{item.quantity}</td>
-                                                                                    <td className="px-4 py-3 text-right">₹{formatCurrency(amountLabel)}</td>
-                                                                                    <td className="px-4 py-3 text-center">
+                                                                                    <td className="px-4 py-2.5 text-center">{item.quantity}</td>
+                                                                                    <td className="px-4 py-2.5 text-right">₹{formatCurrency(amountLabel)}</td>
+                                                                                    <td className="px-4 py-2.5 text-center">
                                                                                         {bill.taxMode === 'none' ? '—' : `${item.gstPercent || 0}%`}
                                                                                     </td>
-                                                                                    <td className="px-4 py-3 text-right font-bold text-blue-700">₹{formatCurrency(lineTotal)}</td>
+                                                                                    <td className="px-4 py-2.5 text-right font-black text-blue-700">₹{formatCurrency(lineTotal)}</td>
                                                                                 </tr>
                                                                             );
                                                                         })}
                                                                     </tbody>
                                                                     <tfoot>
-                                                                        <tr className="bg-blue-50/60">
-                                                                            <td colSpan={4} className="px-4 py-3 text-right text-xs font-black uppercase text-slate-500">Grand Total</td>
-                                                                            <td className="px-4 py-3 text-right font-black text-blue-700">₹{formatCurrency(bill.totalAmount)}</td>
+                                                                        <tr className="bg-blue-50/40 border-t border-blue-100">
+                                                                            <td colSpan={4} className="px-4 py-2.5 text-right text-[10px] font-black uppercase text-slate-450 tracking-wider">Grand Total</td>
+                                                                            <td className="px-4 py-2.5 text-right font-black text-blue-700 text-xs">₹{formatCurrency(bill.totalAmount)}</td>
                                                                         </tr>
                                                                     </tfoot>
                                                                 </table>
@@ -1136,543 +1151,801 @@ const RaiseBill = () => {
                             </table>
                         </div>
                     ) : (
-                        <div className="py-20 text-center text-slate-400">No bills available.</div>
+                        <div className="py-20 text-center text-slate-400 bg-slate-50 rounded-lg border-2 border-dashed border-slate-100">
+                            <AlertCircle className="mx-auto mb-3 opacity-20" size={48} />
+                            <p className="font-medium">No bills available.</p>
+                        </div>
                     )}
                 </div>
             )}
 
             {pageTab === PAGE_TABS.raise && (
                 <>
-            {(loading || billLoading) && (
-                <div className="py-20 flex justify-center"><Loader text={billLoading ? 'Loading bill...' : 'Loading form...'} /></div>
-            )}
+                    {(loading || billLoading) && (
+                        <div className="py-20 flex justify-center"><Loader text={billLoading ? 'Loading bill...' : 'Loading form...'} /></div>
+                    )}
 
-            {!loading && !billLoading && loadError && (
-                <div className="max-w-xl mx-auto py-16 text-center space-y-4">
-                    <AlertCircle className="mx-auto text-red-400" size={48} />
-                    <p className="text-red-700 font-semibold">{loadError}</p>
-                    <button
-                        type="button"
-                        onClick={() => switchTab(PAGE_TABS.view)}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-bold"
-                    >
-                        <History size={16} /> View Bills
-                    </button>
-                </div>
-            )}
+                    {!loading && !billLoading && loadError && (
+                        <div className="max-w-xl mx-auto py-16 text-center space-y-4">
+                            <AlertCircle className="mx-auto text-red-400 opacity-80" size={48} />
+                            <p className="text-red-700 font-bold">{loadError}</p>
+                            <button
+                                type="button"
+                                onClick={() => switchTab(PAGE_TABS.view)}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
+                            >
+                                <History size={15} /> View Bills
+                            </button>
+                        </div>
+                    )}
 
-            {!loading && !billLoading && !loadError && (
-                <form onSubmit={handleBillSubmit} className="flex flex-col gap-6">
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                        <div className="lg:col-span-8 space-y-6">
-                            <div className="bg-gray-50 p-6 rounded-lg border border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-2 uppercase">1. Select Vehicle</label>
-                                    <select
-                                        required
-                                        className="w-full px-4 py-2.5 rounded border border-gray-300 bg-white font-medium text-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
-                                        value={billFormData.busId}
-                                        onChange={(e) => setBillFormData({ ...billFormData, busId: e.target.value })}
-                                    >
-                                        <option value="">-- Choose Vehicle --</option>
-                                        <optgroup label="Buses">
-                                            {buses.map((b) => (
-                                                <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
-                                            ))}
-                                        </optgroup>
-                                        <optgroup label="Other Vehicles">
-                                            {otherVehicles.map((o) => (
-                                                <option key={o._id} value={o.vehicleNumber}>{o.vehicleNumber} ({o.type})</option>
-                                            ))}
-                                        </optgroup>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-2 uppercase">2. Select Vendor</label>
-                                    <select
-                                        required
-                                        className="w-full px-4 py-2.5 rounded border border-gray-300 bg-white font-medium text-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
-                                        value={billFormData.vendorId}
-                                        onChange={(e) => setBillFormData({ ...billFormData, vendorId: e.target.value })}
-                                    >
-                                        <option value="">-- Choose Vendor --</option>
-                                        {vendors.map((v) => <option key={v._id} value={v._id}>{v.name}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-600 mb-2 uppercase">Bill Number</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        placeholder="Invoice or Bill No"
-                                        className="w-full px-4 py-2.5 rounded border border-gray-300 bg-white font-medium text-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
-                                        value={billFormData.billNo}
-                                        onChange={(e) => setBillFormData({ ...billFormData, billNo: e.target.value })}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="bg-white p-4 rounded-lg border border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div>
-                                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Tax Mode</label>
-                                    <select
-                                        className="w-full px-3 py-2 rounded border border-gray-200 text-sm font-medium"
-                                        value={billFormData.taxMode}
-                                        onChange={(e) => setBillFormData({ ...billFormData, taxMode: e.target.value })}
-                                    >
-                                        <option value="none">No Tax</option>
-                                        <option value="lineLevel">Per Line (GST %)</option>
-                                        <option value="billLevel">On Bill Total</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Discount Mode</label>
-                                    <select
-                                        className="w-full px-3 py-2 rounded border border-gray-200 text-sm font-medium"
-                                        value={billFormData.discountMode}
-                                        onChange={(e) => setBillFormData({ ...billFormData, discountMode: e.target.value })}
-                                    >
-                                        <option value="none">No Discount</option>
-                                        <option value="lineLevel">Per Line</option>
-                                        <option value="billLevel">On Bill Total</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Grand Total Override</label>
-                                    <input
-                                        type="text"
-                                        inputMode="decimal"
-                                        placeholder="Optional — match paper bill"
-                                        className="w-full px-3 py-2 rounded border border-gray-200 text-sm font-medium"
-                                        value={billFormData.grandTotalOverride}
-                                        onChange={(e) => {
-                                            const parsed = parsePriceInput(e.target.value);
-                                            if (parsed === null) return;
-                                            setBillFormData({ ...billFormData, grandTotalOverride: parsed });
-                                        }}
-                                    />
-                                </div>
-                                {billFormData.taxMode === 'billLevel' && (
-                                    <>
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">CGST %</label>
-                                            <input
-                                                type="text"
-                                                inputMode="decimal"
-                                                className="w-full px-3 py-2 rounded border border-gray-200 text-sm"
-                                                value={billFormData.billCgstPercent}
-                                                onChange={(e) => {
-                                                    const parsed = parseGstInput(e.target.value);
-                                                    if (parsed === null) return;
-                                                    setBillFormData({ ...billFormData, billCgstPercent: parsed });
-                                                }}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">SGST %</label>
-                                            <input
-                                                type="text"
-                                                inputMode="decimal"
-                                                className="w-full px-3 py-2 rounded border border-gray-200 text-sm"
-                                                value={billFormData.billSgstPercent}
-                                                onChange={(e) => {
-                                                    const parsed = parseGstInput(e.target.value);
-                                                    if (parsed === null) return;
-                                                    setBillFormData({ ...billFormData, billSgstPercent: parsed });
-                                                }}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Or Single GST %</label>
-                                            <input
-                                                type="text"
-                                                inputMode="decimal"
-                                                className="w-full px-3 py-2 rounded border border-gray-200 text-sm"
-                                                value={billFormData.billGstPercent}
-                                                onChange={(e) => {
-                                                    const parsed = parseGstInput(e.target.value);
-                                                    if (parsed === null) return;
-                                                    setBillFormData({ ...billFormData, billGstPercent: parsed });
-                                                }}
-                                            />
-                                        </div>
-                                    </>
-                                )}
-                                {billFormData.discountMode === 'billLevel' && (
-                                    <>
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Bill Disc %</label>
-                                            <input
-                                                type="text"
-                                                inputMode="decimal"
-                                                className="w-full px-3 py-2 rounded border border-gray-200 text-sm"
-                                                value={billFormData.discountPercent}
-                                                onChange={(e) => {
-                                                    const parsed = parseGstInput(e.target.value);
-                                                    if (parsed === null) return;
-                                                    setBillFormData({ ...billFormData, discountPercent: parsed });
-                                                }}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Bill Disc Amount</label>
-                                            <input
-                                                type="text"
-                                                inputMode="decimal"
-                                                className="w-full px-3 py-2 rounded border border-gray-200 text-sm"
-                                                value={billFormData.discountAmount}
-                                                onChange={(e) => {
-                                                    const parsed = parsePriceInput(e.target.value);
-                                                    if (parsed === null) return;
-                                                    setBillFormData({ ...billFormData, discountAmount: parsed });
-                                                }}
-                                            />
-                                        </div>
-                                    </>
-                                )}
-                                <div className="md:col-span-3">
-                                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Notes / Grouped Description</label>
-                                    <input
-                                        type="text"
-                                        placeholder="Optional free-text description for this bill"
-                                        className="w-full px-3 py-2 rounded border border-gray-200 text-sm"
-                                        value={billFormData.notes}
-                                        onChange={(e) => setBillFormData({ ...billFormData, notes: e.target.value })}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="space-y-4">
-                                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-                                    <h4 className="text-sm font-bold text-gray-800 uppercase tracking-tight">3. Items to Allocate</h4>
-                                    <span className="text-[10px] font-black bg-gray-900 text-white px-3 py-1 rounded-full uppercase">{billFormData.items.length} row(s)</span>
-                                </div>
-
-                                {billFormData.items.map((lineItem, index) => (
-                                    <div key={index} className="relative p-6 bg-white rounded-lg border border-gray-200 shadow-sm transition-all mb-4 hover:border-blue-200">
-                                        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
-                                            <div className="md:col-span-3">
-                                                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Select Category</label>
-                                                <select
-                                                    required
-                                                    className="w-full px-4 py-2 rounded border border-gray-200 bg-white text-sm font-medium text-gray-700 focus:border-blue-500 outline-none"
-                                                    value={lineItem.itemGroup}
-                                                    onChange={(e) => handleBillGroupChange(index, e.target.value)}
-                                                >
-                                                    <option value="">-- Choose Category --</option>
-                                                    {inventoryGroups.map((group) => (
-                                                        <option key={group.key} value={group.itemName}>
-                                                            {group.itemName} ({group.category})
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-
-                                            <div className="md:col-span-3">
-                                                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">Select Variant</label>
-                                                <select
-                                                    className="w-full px-4 py-2 rounded border border-gray-200 bg-white text-sm font-medium text-gray-700 focus:border-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-400"
-                                                    value={lineItem.variantName}
-                                                    disabled={!lineItem.itemGroup}
-                                                    onChange={(e) => handleBillVariantChange(index, e.target.value)}
-                                                >
-                                                    <option value="">-- {lineItem.itemGroup ? 'No Variant / Base Item' : 'Choose Category First'} --</option>
-                                                    {(getGroupByName(lineItem.itemGroup)?.variants || []).map((variant) => (
-                                                        <option key={variant.name} value={variant.name}>
-                                                            {variant.name}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-
-                                            <div className="md:col-span-6 grid grid-cols-1 sm:grid-cols-4 gap-4">
-                                                <div>
-                                                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
-                                                        Pricing
-                                                    </label>
+                    {!loading && !billLoading && !loadError && (
+                        <form onSubmit={handleBillSubmit} className="animate-in fade-in duration-200">
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                                {/* Left Side Form Container */}
+                                <div className="lg:col-span-8 space-y-5">
+                                    {/* 1. Basic Details Card */}
+                                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
+                                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2.5">
+                                            <span className="text-blue-600 font-black">1.</span> Basic Details
+                                        </h3>
+                                        
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div>
+                                                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Select Vehicle *</label>
+                                                <div className="relative">
+                                                    <Bus size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                                     <select
-                                                        className="w-full px-3 py-2 rounded border border-gray-200 bg-white text-sm font-medium"
-                                                        value={lineItem.pricingMode || 'unitRate'}
-                                                        onChange={(e) => updateBillItem(index, 'pricingMode', e.target.value)}
-                                                    >
-                                                        <option value="unitRate">Unit Rate</option>
-                                                        <option value="lumpSum">Lump Sum</option>
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
-                                                        Quantity {lineItem.itemId && `(${getSelectedInventoryItem(lineItem)?.unit || 'Pcs'})`}
-                                                    </label>
-                                                    <input
                                                         required
-                                                        type="number"
-                                                        min="0.1"
-                                                        step="0.1"
-                                                        className="w-full px-4 py-2 rounded border border-gray-200 bg-white text-sm font-medium"
-                                                        value={lineItem.quantity}
-                                                        onChange={(e) => handleQuantityChange(index, e.target.value)}
-                                                        onWheel={preventNumberInputScroll}
+                                                        className="w-full pl-9 pr-6 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all cursor-pointer appearance-none"
+                                                        value={billFormData.busId}
+                                                        onChange={(e) => setBillFormData({ ...billFormData, busId: e.target.value })}
+                                                    >
+                                                        <option value="">-- Choose Vehicle --</option>
+                                                        <optgroup label="Buses">
+                                                            {buses.map((b) => (
+                                                                <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
+                                                            ))}
+                                                        </optgroup>
+                                                        <optgroup label="Other Vehicles">
+                                                            {otherVehicles.map((o) => (
+                                                                <option key={o._id} value={o.vehicleNumber}>{o.vehicleNumber} ({o.type})</option>
+                                                            ))}
+                                                        </optgroup>
+                                                    </select>
+                                                    <ChevronDown size={13} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Select Vendor *</label>
+                                                <div className="relative">
+                                                    <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                    <select
+                                                        required
+                                                        className="w-full pl-9 pr-6 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all cursor-pointer appearance-none"
+                                                        value={billFormData.vendorId}
+                                                        onChange={(e) => setBillFormData({ ...billFormData, vendorId: e.target.value })}
+                                                    >
+                                                        <option value="">-- Choose Vendor --</option>
+                                                        {vendors.map((v) => <option key={v._id} value={v._id}>{v.name}</option>)}
+                                                    </select>
+                                                    <ChevronDown size={13} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Bill / Invoice No *</label>
+                                                <div className="relative">
+                                                    <FileText size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                    <input
+                                                        type="text"
+                                                        required
+                                                        placeholder="Invoice / Bill No"
+                                                        className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all"
+                                                        value={billFormData.billNo}
+                                                        onChange={(e) => setBillFormData({ ...billFormData, billNo: e.target.value })}
                                                     />
                                                 </div>
-                                                {(lineItem.pricingMode || 'unitRate') === 'unitRate' ? (
-                                                    <div>
-                                                        <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide flex justify-between">
-                                                            Unit Price
-                                                            {lineItem.itemId && getLastPrice(lineItem.itemId) != null && (
-                                                                <span className="text-blue-600 font-bold lowercase italic opacity-80">
-                                                                    Last: ₹{getLastPrice(lineItem.itemId)}
-                                                                </span>
-                                                            )}
-                                                        </label>
-                                                        <div className="relative">
-                                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-bold">₹</span>
-                                                            <input
-                                                                required
-                                                                type="text"
-                                                                inputMode="decimal"
-                                                                placeholder="0.00"
-                                                                className="w-full pl-7 pr-4 py-2 rounded border border-gray-200 bg-white text-sm font-medium"
-                                                                value={lineItem.price}
-                                                                onChange={(e) => handlePriceChange(index, e.target.value)}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div>
-                                                        <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
-                                                            Lump Amount
-                                                        </label>
-                                                        <div className="relative">
-                                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-bold">₹</span>
-                                                            <input
-                                                                required
-                                                                type="text"
-                                                                inputMode="decimal"
-                                                                placeholder="0.00"
-                                                                className="w-full pl-7 pr-4 py-2 rounded border border-gray-200 bg-white text-sm font-medium"
-                                                                value={lineItem.amount}
-                                                                onChange={(e) => {
-                                                                    const parsed = parsePriceInput(e.target.value);
-                                                                    if (parsed === null) return;
-                                                                    updateBillItem(index, 'amount', parsed);
-                                                                }}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                {billFormData.taxMode === 'lineLevel' && (
-                                                    <div>
-                                                        <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
-                                                            GST %
-                                                        </label>
-                                                        <div className="relative">
-                                                            <input
-                                                                type="text"
-                                                                inputMode="decimal"
-                                                                placeholder="0"
-                                                                className="w-full px-4 py-2 pr-8 rounded border border-gray-200 bg-white text-sm font-medium"
-                                                                value={lineItem.gstPercent}
-                                                                onChange={(e) => handleGstChange(index, e.target.value)}
-                                                            />
-                                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-bold">%</span>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                            {billFormData.discountMode === 'lineLevel' && (
-                                                <div className="md:col-span-12 grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
-                                                    <div>
-                                                        <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Line Disc %</label>
-                                                        <input
-                                                            type="text"
-                                                            inputMode="decimal"
-                                                            className="w-full px-3 py-2 rounded border border-gray-200 text-sm"
-                                                            value={lineItem.discountPercent}
-                                                            onChange={(e) => {
-                                                                const parsed = parseGstInput(e.target.value);
-                                                                if (parsed === null) return;
-                                                                updateBillItem(index, 'discountPercent', parsed);
-                                                            }}
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Line Disc Amount</label>
-                                                        <input
-                                                            type="text"
-                                                            inputMode="decimal"
-                                                            className="w-full px-3 py-2 rounded border border-gray-200 text-sm"
-                                                            value={lineItem.discountAmount}
-                                                            onChange={(e) => {
-                                                                const parsed = parsePriceInput(e.target.value);
-                                                                if (parsed === null) return;
-                                                                updateBillItem(index, 'discountAmount', parsed);
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            )}
-                                            <div className="md:col-span-12 mt-2">
-                                                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Sub-descriptions (one per line)</label>
-                                                <textarea
-                                                    rows={2}
-                                                    placeholder="e.g. Vehicle reg nos under a grouped service"
-                                                    className="w-full px-3 py-2 rounded border border-gray-100 bg-gray-50/50 text-xs"
-                                                    value={lineItem.subDescriptions || ''}
-                                                    onChange={(e) => updateBillItem(index, 'subDescriptions', e.target.value)}
-                                                />
                                             </div>
                                         </div>
 
-                                        {lineItem.itemId && getSelectedInventoryItem(lineItem)?.category === 'Tires' && (
-                                            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded border border-gray-100 italic">
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase">Position</label>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-50 pt-3.5">
+                                            <div>
+                                                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Tax Mode</label>
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-black">%</span>
                                                     <select
-                                                        className="w-full px-3 py-1.5 rounded border border-gray-200 text-xs bg-white font-bold"
-                                                        value={lineItem.tyrePosition}
-                                                        onChange={(e) => updateBillItem(index, 'tyrePosition', e.target.value)}
+                                                        className="w-full pl-9 pr-6 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all cursor-pointer appearance-none"
+                                                        value={billFormData.taxMode}
+                                                        onChange={(e) => setBillFormData({ ...billFormData, taxMode: e.target.value })}
                                                     >
-                                                        {TYRE_POSITIONS.map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+                                                        <option value="none">No Tax</option>
+                                                        <option value="lineLevel">Per Line (GST %)</option>
+                                                        <option value="billLevel">On Bill Total</option>
                                                     </select>
+                                                    <ChevronDown size={13} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                                                 </div>
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase">Type</label>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Discount Mode</label>
+                                                <div className="relative">
+                                                    <Tag size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                                     <select
-                                                        className="w-full px-3 py-1.5 rounded border border-gray-200 text-xs bg-white font-bold"
-                                                        value={lineItem.tyreType}
-                                                        onChange={(e) => updateBillItem(index, 'tyreType', e.target.value)}
+                                                        className="w-full pl-9 pr-6 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all cursor-pointer appearance-none"
+                                                        value={billFormData.discountMode}
+                                                        onChange={(e) => setBillFormData({ ...billFormData, discountMode: e.target.value })}
                                                     >
-                                                        <option value="new tyre">New Tyre</option>
-                                                        <option value="old tyre">Old Tyre</option>
+                                                        <option value="none">No Discount</option>
+                                                        <option value="lineLevel">Per Line</option>
+                                                        <option value="billLevel">On Bill Total</option>
                                                     </select>
+                                                    <ChevronDown size={13} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                                                 </div>
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase">Reading (KM)</label>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Grand Total Override</label>
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">₹</span>
                                                     <input
-                                                        type="number"
-                                                        className="w-full px-3 py-1.5 rounded border border-gray-200 text-xs bg-white font-bold"
-                                                        value={lineItem.kmReading}
-                                                        onChange={(e) => updateBillItem(index, 'kmReading', e.target.value)}
+                                                        type="text"
+                                                        inputMode="decimal"
+                                                        placeholder="Match paper bill"
+                                                        className="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-705 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all"
+                                                        value={billFormData.grandTotalOverride}
+                                                        onChange={(e) => {
+                                                            const parsed = parsePriceInput(e.target.value);
+                                                            if (parsed === null) return;
+                                                            setBillFormData({ ...billFormData, grandTotalOverride: parsed });
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {billFormData.taxMode === 'billLevel' && (
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-50 pt-3.5">
+                                                <div>
+                                                    <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">CGST %</label>
+                                                    <input
+                                                        type="text"
+                                                        inputMode="decimal"
+                                                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all"
+                                                        value={billFormData.billCgstPercent}
+                                                        onChange={(e) => {
+                                                            const parsed = parseGstInput(e.target.value);
+                                                            if (parsed === null) return;
+                                                            setBillFormData({ ...billFormData, billCgstPercent: parsed });
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">SGST %</label>
+                                                    <input
+                                                        type="text"
+                                                        inputMode="decimal"
+                                                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all"
+                                                        value={billFormData.billSgstPercent}
+                                                        onChange={(e) => {
+                                                            const parsed = parseGstInput(e.target.value);
+                                                            if (parsed === null) return;
+                                                            setBillFormData({ ...billFormData, billSgstPercent: parsed });
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Single GST %</label>
+                                                    <input
+                                                        type="text"
+                                                        inputMode="decimal"
+                                                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all"
+                                                        value={billFormData.billGstPercent}
+                                                        onChange={(e) => {
+                                                            const parsed = parseGstInput(e.target.value);
+                                                            if (parsed === null) return;
+                                                            setBillFormData({ ...billFormData, billGstPercent: parsed });
+                                                        }}
                                                     />
                                                 </div>
                                             </div>
                                         )}
 
-                                        <div className="mt-4 flex items-center gap-3">
-                                            <div className="flex-1">
-                                                <input
-                                                    type="text"
-                                                    placeholder="Add remarks for this item..."
-                                                    className="w-full px-4 py-2 rounded border border-gray-100 bg-gray-50/50 text-xs text-gray-600 focus:bg-white transition-all outline-none focus:border-blue-200"
-                                                    value={lineItem.remarks}
-                                                    onChange={(e) => updateBillItem(index, 'remarks', e.target.value)}
-                                                />
+                                        {billFormData.discountMode === 'billLevel' && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-50 pt-3.5">
+                                                <div>
+                                                    <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Bill Disc %</label>
+                                                    <input
+                                                        type="text"
+                                                        inputMode="decimal"
+                                                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all"
+                                                        value={billFormData.discountPercent}
+                                                        onChange={(e) => {
+                                                            const parsed = parseGstInput(e.target.value);
+                                                            if (parsed === null) return;
+                                                            setBillFormData({ ...billFormData, discountPercent: parsed });
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Bill Disc Amount</label>
+                                                    <input
+                                                        type="text"
+                                                        inputMode="decimal"
+                                                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-705 outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all"
+                                                        value={billFormData.discountAmount}
+                                                        onChange={(e) => {
+                                                            const parsed = parsePriceInput(e.target.value);
+                                                            if (parsed === null) return;
+                                                            setBillFormData({ ...billFormData, discountAmount: parsed });
+                                                        }}
+                                                    />
+                                                </div>
                                             </div>
-                                            {billFormData.items.length > 1 && (
+                                        )}
+
+                                        <div className="border-t border-slate-50 pt-3.5">
+                                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Notes / Description</label>
+                                            <textarea
+                                                rows="2"
+                                                maxLength="200"
+                                                placeholder="Add notes or remarks for this bill..."
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all"
+                                                value={billFormData.notes}
+                                                onChange={(e) => setBillFormData({ ...billFormData, notes: e.target.value })}
+                                            />
+                                            <div className="text-right text-[8px] text-slate-400 font-bold mt-0.5">
+                                                {billFormData.notes?.length || 0} / 200
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* 2. Items to Allocate Card */}
+                                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
+                                        <div className="flex items-center justify-between border-b border-slate-55 pb-2.5">
+                                            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                                <span className="text-blue-600 font-black">2.</span> Items to Allocate
+                                            </h3>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[9px] font-black bg-slate-100 text-slate-650 px-2 py-0.5 rounded border border-slate-200 uppercase">
+                                                    {billFormData.items.length} Row(s)
+                                                </span>
                                                 <button
                                                     type="button"
-                                                    onClick={() => removeBillItem(index)}
-                                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                                                    title="Remove this item"
+                                                    onClick={addBillItem}
+                                                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#2563EB] hover:bg-blue-750 text-white text-[9px] font-bold uppercase transition-all shadow-sm cursor-pointer active:scale-95 animate-in fade-in"
                                                 >
-                                                    <Trash2 size={16} />
+                                                    <Plus size={11} /> Add Row
                                                 </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left border-collapse text-xs font-semibold">
+                                                <thead>
+                                                    <tr className="border-b border-slate-100 text-[9px] uppercase text-slate-400 font-black tracking-wider bg-slate-50/50">
+                                                        <th className="px-1 py-2 w-6">#</th>
+                                                        <th className="px-3 py-2">Category *</th>
+                                                        <th className="px-3 py-2">Variant / Item *</th>
+                                                        <th className="px-3 py-2 w-28">Qty *</th>
+                                                        <th className="px-3 py-2 w-28">Mode</th>
+                                                        <th className="px-3 py-2">Unit Price / Amt (₹)</th>
+                                                        {billFormData.taxMode === 'lineLevel' && <th className="px-3 py-2 w-20">GST %</th>}
+                                                        <th className="px-3 py-2 text-right">Amount (₹)</th>
+                                                        <th className="px-3 py-2 text-right w-10">Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-50">
+                                                    {billFormData.items.map((lineItem, index) => {
+                                                        const lineTotal = billTotals.lines[index]?.lineTotal || 0;
+                                                        const isTire = lineItem.itemId && getSelectedInventoryItem(lineItem)?.category === 'Tires';
+                                                        const isLineDiscount = billFormData.discountMode === 'lineLevel';
+                                                        const lastRowClass = (!isLineDiscount && !isTire) ? "border-b-4 border-slate-100" : "";
+                                                        
+                                                        return (
+                                                            <React.Fragment key={index}>
+                                                                <tr className={`hover:bg-slate-50/55 transition-colors ${lastRowClass}`}>
+                                                                    <td className="px-1 py-2 text-center">
+                                                                        <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-[9px] font-black border border-slate-200 shadow-sm mx-auto">
+                                                                            {index + 1}
+                                                                        </span>
+                                                                    </td>
+                                                                                                                      <td className="px-2 py-2">
+                                                                        <select
+                                                                            required
+                                                                            className="w-full pl-2.5 pr-6 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-705 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all cursor-pointer"
+                                                                            value={lineItem.itemGroup}
+                                                                            onChange={(e) => handleBillGroupChange(index, e.target.value)}
+                                                                        >
+                                                                            <option value="">-- Choose Item --</option>
+                                                                            {inventoryGroups.map((group) => (
+                                                                                <option key={group.key} value={group.itemName}>
+                                                                                    {group.itemName} ({getCategoryDisplayName(group.category)})
+                                                                                </option>
+                                                                            ))}
+                                                                        </select>
+                                                                    </td>
+ 
+                                                                    <td className="px-2 py-2">
+                                                                        <select
+                                                                            className="w-full pl-2.5 pr-6 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-705 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all cursor-pointer disabled:bg-slate-50 disabled:text-slate-400"
+                                                                            value={lineItem.variantName}
+                                                                            onChange={(e) => handleBillVariantChange(index, e.target.value)}
+                                                                        >
+                                                                            <option value="">-- {lineItem.itemGroup ? 'Base Variant / No Variant' : 'Choose Item First'} --</option>
+                                                                            {(getGroupByName(lineItem.itemGroup)?.variants || []).map((variant) => (
+                                                                                <option key={variant.name} value={variant.name}>
+                                                                                    {variant.name}
+                                                                                </option>
+                                                                            ))}
+                                                                        </select>
+                                                                    </td>
+
+                                                                    <td className="px-2 py-2">
+                                                                        <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white max-w-[95px] shadow-sm">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    const currentVal = parseInt(lineItem.quantity, 10) || 0;
+                                                                                    if (currentVal > 1) {
+                                                                                        const nextVal = currentVal - 1;
+                                                                                        updateBillItem(index, 'quantity', nextVal);
+                                                                                    }
+                                                                                }}
+                                                                                className="px-2 py-1.5 hover:bg-slate-50 text-slate-400 font-extrabold transition-colors cursor-pointer text-[10px] shrink-0 select-none border-r border-slate-100"
+                                                                            >
+                                                                                —
+                                                                            </button>
+                                                                            <input
+                                                                                required
+                                                                                type="number"
+                                                                                min="1"
+                                                                                step="1"
+                                                                                className="w-full text-center py-1.5 text-[11px] font-bold text-slate-700 bg-transparent border-none outline-none appearance-none select-none shrink"
+                                                                                value={lineItem.quantity}
+                                                                                onChange={(e) => handleQuantityChange(index, e.target.value)}
+                                                                                onWheel={preventNumberInputScroll}
+                                                                            />
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    const currentVal = parseInt(lineItem.quantity, 10) || 0;
+                                                                                    const nextVal = currentVal + 1;
+                                                                                    updateBillItem(index, 'quantity', nextVal);
+                                                                                }}
+                                                                                className="px-2 py-1.5 hover:bg-slate-50 text-slate-400 font-extrabold transition-colors cursor-pointer text-[10px] shrink-0 select-none border-l border-slate-100"
+                                                                            >
+                                                                                +
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+
+                                                                    <td className="px-2 py-2 w-28">
+                                                                        <select
+                                                                            className="w-full px-2 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-705 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all cursor-pointer"
+                                                                            value={lineItem.pricingMode || 'unitRate'}
+                                                                            onChange={(e) => updateBillItem(index, 'pricingMode', e.target.value)}
+                                                                        >
+                                                                            <option value="unitRate">Unit Rate</option>
+                                                                            <option value="lumpSum">Lump Sum</option>
+                                                                        </select>
+                                                                    </td>
+
+                                                                    <td className="px-2 py-2">
+                                                                        {(lineItem.pricingMode || 'unitRate') === 'unitRate' ? (
+                                                                            <div className="relative">
+                                                                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold">₹</span>
+                                                                                <input
+                                                                                    required
+                                                                                    type="text"
+                                                                                    inputMode="decimal"
+                                                                                    placeholder="0.00"
+                                                                                    className="w-full pl-5 pr-2 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-705 outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all"
+                                                                                    value={lineItem.price}
+                                                                                    onChange={(e) => handlePriceChange(index, e.target.value)}
+                                                                                />
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="relative">
+                                                                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold">₹</span>
+                                                                                <input
+                                                                                    required
+                                                                                    type="text"
+                                                                                    inputMode="decimal"
+                                                                                    placeholder="0.00"
+                                                                                    className="w-full pl-5 pr-2 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-705 outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all"
+                                                                                    value={lineItem.amount}
+                                                                                    onChange={(e) => {
+                                                                                        const parsed = parsePriceInput(e.target.value);
+                                                                                        if (parsed === null) return;
+                                                                                        updateBillItem(index, 'amount', parsed);
+                                                                                    }}
+                                                                                />
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+
+                                                                    {billFormData.taxMode === 'lineLevel' && (
+                                                                        <td className="px-2 py-2">
+                                                                            <div className="relative">
+                                                                                <input
+                                                                                    type="text"
+                                                                                    inputMode="decimal"
+                                                                                    placeholder="0"
+                                                                                    className="w-full pr-5 pl-2.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-705 outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all text-right"
+                                                                                    value={lineItem.gstPercent}
+                                                                                    onChange={(e) => {
+                                                                                        const parsed = parseGstInput(e.target.value);
+                                                                                        if (parsed === null) return;
+                                                                                        updateBillItem(index, 'gstPercent', parsed);
+                                                                                    }}
+                                                                                />
+                                                                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold pointer-events-none">%</span>
+                                                                            </div>
+                                                                        </td>
+                                                                    )}
+
+                                                                    <td className="px-3 py-2 text-right font-black text-slate-805 text-xs">
+                                                                        ₹{formatCurrency(lineTotal)}
+                                                                    </td>
+
+                                                                    <td className="px-3 py-2 text-right">
+                                                                        {billFormData.items.length > 1 && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => removeBillItem(index)}
+                                                                                className="p-1.5 text-slate-400 hover:text-red-655 hover:bg-red-50 rounded-lg transition-all border border-slate-200 bg-white shadow-sm cursor-pointer"
+                                                                                title="Remove row"
+                                                                            >
+                                                                                <Trash2 size={12} />
+                                                                            </button>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                                {billFormData.discountMode === 'lineLevel' && (
+                                                                    <tr className={`bg-slate-50/20 ${isTire ? "border-b border-slate-100/50" : "border-b-4 border-slate-100"}`}>
+                                                                        <td colSpan={8 + (billFormData.taxMode === 'lineLevel' ? 1 : 0)} className="px-5 py-2">
+                                                                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full border-l-2 border-blue-500 pl-3">
+                                                                                <span className="text-[9px] font-black text-slate-800 uppercase tracking-wider shrink-0">Line Discount:</span>
+                                                                                <div className="grid grid-cols-2 gap-3 flex-1 w-full">
+                                                                                    <div className="relative">
+                                                                                        <input
+                                                                                            type="text"
+                                                                                            inputMode="decimal"
+                                                                                            placeholder="Discount Percent (%)"
+                                                                                            className="w-full pr-6 pl-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-705 outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all text-right"
+                                                                                            value={lineItem.discountPercent}
+                                                                                            onChange={(e) => {
+                                                                                                const parsed = parseGstInput(e.target.value);
+                                                                                                if (parsed === null) return;
+                                                                                                updateBillItem(index, 'discountPercent', parsed);
+                                                                                            }}
+                                                                                        />
+                                                                                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold pointer-events-none">%</span>
+                                                                                    </div>
+                                                                                    <div className="relative">
+                                                                                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold pointer-events-none">₹</span>
+                                                                                        <input
+                                                                                            type="text"
+                                                                                            inputMode="decimal"
+                                                                                            placeholder="Discount Amount"
+                                                                                            className="w-full pl-6 pr-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-705 outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all text-right"
+                                                                                            value={lineItem.discountAmount}
+                                                                                            onChange={(e) => {
+                                                                                                const parsed = parsePriceInput(e.target.value);
+                                                                                                if (parsed === null) return;
+                                                                                                updateBillItem(index, 'discountAmount', parsed);
+                                                                                            }}
+                                                                                        />
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                                {lineItem.itemId && getSelectedInventoryItem(lineItem)?.category === 'Tires' && (
+                                                                    <tr className="bg-slate-50/50 border-b-4 border-slate-100">
+                                                                        <td colSpan={8 + (billFormData.taxMode === 'lineLevel' ? 1 : 0)} className="px-5 py-2">
+                                                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-sm max-w-lg border-l-2 border-amber-500 pl-3">
+                                                                                <div>
+                                                                                    <label className="block text-[8px] font-black uppercase text-slate-400 mb-0.5 tracking-wider">Position</label>
+                                                                                    <select
+                                                                                        className="w-full px-2 py-1 rounded-lg border border-slate-200 text-[10px] bg-white font-bold text-slate-700 outline-none cursor-pointer"
+                                                                                        value={lineItem.tyrePosition}
+                                                                                        onChange={(e) => updateBillItem(index, 'tyrePosition', e.target.value)}
+                                                                                    >
+                                                                                        {TYRE_POSITIONS.map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+                                                                                    </select>
+                                                                                </div>
+                                                                                <div>
+                                                                                    <label className="block text-[8px] font-black uppercase text-slate-400 mb-0.5 tracking-wider">Type</label>
+                                                                                    <select
+                                                                                        className="w-full px-2 py-1 rounded-lg border border-slate-200 text-[10px] bg-white font-bold text-slate-700 outline-none cursor-pointer"
+                                                                                        value={lineItem.tyreType}
+                                                                                        onChange={(e) => updateBillItem(index, 'tyreType', e.target.value)}
+                                                                                    >
+                                                                                        <option value="new tyre">New Tyre</option>
+                                                                                        <option value="old tyre">Old Tyre</option>
+                                                                                    </select>
+                                                                                </div>
+                                                                                <div>
+                                                                                    <label className="block text-[8px] font-black uppercase text-slate-400 mb-0.5 tracking-wider">Reading (KM)</label>
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        className="w-full px-2 py-1 rounded-lg border border-slate-200 text-[10px] bg-white font-bold text-slate-700 outline-none"
+                                                                                        value={lineItem.kmReading}
+                                                                                        onChange={(e) => updateBillItem(index, 'kmReading', e.target.value)}
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                            </React.Fragment>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={addBillItem}
+                                            className="w-full flex items-center justify-center gap-1.5 px-6 py-2.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 font-bold hover:bg-slate-50 hover:border-slate-350 transition-all text-[11px] uppercase tracking-wider cursor-pointer mt-2"
+                                        >
+                                            <Plus size={13} /> Add another item
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Right Side Sidebar */}
+                                <div className="lg:col-span-4 space-y-5">
+                                    {/* Sidebar Card 1: BUS ITEM HISTORY */}
+                                    <div className="bg-white rounded-2xl border border-slate-150 shadow-sm overflow-hidden flex flex-col">
+                                        <div className="bg-[#2563EB] text-white p-4">
+                                            <h3 className="text-xs font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                                                <History size={15} className="text-white/80" /> BUS ITEM HISTORY
+                                            </h3>
+                                            <p className="text-[10px] text-blue-100 mt-1 font-semibold">
+                                                Select a bus to view assignment history
+                                            </p>
+                                        </div>
+                                        <div className="p-4">
+                                            {historyLoading ? (
+                                                <div className="py-6 flex justify-center"><Loader text="Loading history..." /></div>
+                                            ) : !billFormData.busId ? (
+                                                <div className="py-6 text-center text-slate-350 italic text-[11px] font-medium">
+                                                    Choose a bus first.
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    {/* Selected Vehicle details badge */}
+                                                    {selectedVehicleObj && (
+                                                        <div className="flex items-center justify-between p-3 bg-blue-50/50 border border-blue-100 rounded-xl">
+                                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                                <div className="w-8.5 h-8.5 rounded-xl bg-blue-100/50 flex items-center justify-center text-blue-600 shrink-0 border border-blue-100/80">
+                                                                    <Bus size={15} />
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-black text-slate-805 truncate">{selectedVehicleObj.busNumber || selectedVehicleObj.vehicleNumber}</p>
+                                                                    <div className="flex items-center gap-1 mt-0.5">
+                                                                        <span className="text-[9px] font-bold text-slate-400">{selectedVehicleObj.type || 'Vehicle'}</span>
+                                                                        <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+                                                                        <span className={`text-[9px] font-black ${selectedVehicleObj.status === 'Active' ? 'text-[#10B981]' : 'text-amber-500'}`}>
+                                                                            {selectedVehicleObj.status || 'Active'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <ChevronRight size={13} className="text-slate-400 shrink-0" />
+                                                        </div>
+                                                    )}
+
+                                                    {/* Recent Bills loop */}
+                                                    <div className="mt-3.5 pt-3.5 border-t border-slate-100 space-y-2.5">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[9px] font-black text-slate-405 uppercase tracking-wider">Recent Bills</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => switchTab(PAGE_TABS.view)}
+                                                                className="text-[9px] font-bold text-blue-600 hover:text-blue-700"
+                                                            >
+                                                                View All
+                                                            </button>
+                                                        </div>
+                                                        
+                                                        {maintenanceBills.length > 0 ? (
+                                                            <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                                                                {maintenanceBills.slice(0, 3).map((bill) => (
+                                                                    <div key={bill._id} className="flex items-center justify-between p-2 rounded-xl border border-slate-50 hover:bg-slate-50/50 transition-colors">
+                                                                        <div className="flex items-center gap-2 min-w-0">
+                                                                            <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 shrink-0 border border-blue-50">
+                                                                                <FileText size={13} />
+                                                                            </div>
+                                                                            <div className="min-w-0">
+                                                                                <p className="text-[11px] font-black text-slate-800 truncate">#{bill.billNo}</p>
+                                                                                <p className="text-[8px] font-semibold text-slate-400 mt-0.5">{new Date(bill.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</p>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-1.5 shrink-0">
+                                                                            <span className="text-[11px] font-bold text-slate-800">₹{formatCurrencyIndian(bill.grandTotal ?? bill.totalAmount)}</span>
+                                                                            <span className="text-[8px] font-black bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-100 uppercase">Paid</span>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        ) : (
+                                                            <p className="text-[9px] text-slate-400 italic text-center py-3">No recent bills found.</p>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             )}
                                         </div>
                                     </div>
-                                ))}
-                                <button
-                                    type="button"
-                                    onClick={addBillItem}
-                                    className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded border-2 border-dashed border-gray-300 text-gray-400 font-bold hover:bg-gray-50 hover:border-gray-400 transition-all text-xs uppercase tracking-widest"
-                                >
-                                    <Plus size={16} /> Add Another Item Row
-                                </button>
-                            </div>
-                        </div>
 
-                        <div className="lg:col-span-4 sticky top-4 space-y-6">
-                            <div className="bg-white rounded-lg border-2 border-blue-600 shadow-lg overflow-hidden flex flex-col max-h-[70vh]">
-                                <div className="bg-blue-600 text-white p-4">
-                                    <h3 className="text-xs font-black uppercase tracking-[0.2em] flex items-center gap-2">
-                                        <History size={16} className="text-white/80" /> Bus Item History
-                                    </h3>
-                                    <p className="text-[10px] text-blue-100 mt-1 font-semibold">
-                                        {billFormData.busId ? `Bus ${billFormData.busId}` : 'Select a bus to view assignment history'}
-                                    </p>
-                                </div>
-                                <div className="flex-1 p-6 overflow-y-auto space-y-4">
-                                    {historyLoading ? (
-                                        <div className="py-8 flex justify-center"><Loader text="Loading history..." /></div>
-                                    ) : !billFormData.busId ? (
-                                        <div className="py-12 text-center text-gray-300 italic text-xs">
-                                            Choose a bus first.
-                                        </div>
-                                    ) : getSelectedBillHistory().length > 0 ? (
-                                        getSelectedBillHistory().map((record) => (
-                                            <div key={record._id} className="border-b border-gray-100 pb-3">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <p className="text-xs font-black text-gray-800 truncate" title={getAllocatedItemDisplayName(record)}>
-                                                            {getAllocatedItemDisplayName(record)}
-                                                        </p>
-                                                        <p className="text-[10px] text-gray-400 mt-1 font-semibold">
-                                                            {new Date(record.allocatedDate).toLocaleDateString()} · Bill #{record.billNo || 'N/A'}
-                                                        </p>
-                                                        {record.remarks && (
-                                                            <p className="text-[10px] text-gray-500 mt-1 italic line-clamp-2">{record.remarks}</p>
-                                                        )}
-                                                    </div>
-                                                    <div className="text-right shrink-0">
-                                                        <p className="text-xs font-black text-blue-700">{record.quantity} {record.itemId?.unit || 'Pcs'}</p>
-                                                        <p className="text-[10px] text-gray-400">₹{record.price || 0}</p>
-                                                    </div>
-                                                </div>
+                                    {/* Sidebar Card 2: Bill Summary */}
+                                    <div className="bg-white rounded-2xl border border-slate-150 shadow-sm p-4 space-y-3.5">
+                                        <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-450 border-b border-slate-100 pb-2 flex items-center gap-2">
+                                            <FileText size={14} /> Bill Summary
+                                        </h3>
+                                        
+                                        <div className="space-y-2 text-xs font-semibold text-slate-655">
+                                            <div className="flex justify-between">
+                                                <span>Sub Total</span>
+                                                <span className="text-slate-800 font-bold">₹{formatCurrency(billTotals.subtotal)}</span>
                                             </div>
-                                        ))
-                                    ) : (
-                                        <div className="py-12 text-center text-gray-300 italic text-xs">
-                                            No previous assignment history for this bus.
+                                            <div className="flex justify-between">
+                                                <span>Discount</span>
+                                                <span className="text-red-500">- ₹{formatCurrency(billTotals.discountTotal || 0)}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span>Total Tax (GST)</span>
+                                                <span className="text-slate-800 font-bold">₹{formatCurrency(billTotals.taxTotal ?? billTotals.gstTotal ?? 0)}</span>
+                                            </div>
                                         </div>
-                                    )}
+                                        
+                                        <div className="border-t border-slate-100 pt-2.5">
+                                            <p className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Grand Total</p>
+                                            <p className="text-xl font-black text-blue-700 italic mt-0.5 leading-none">
+                                                ₹{formatCurrency(billTotals.grandTotal)}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Submit action button directly below summary card */}
+                                    <button
+                                        type="submit"
+                                        disabled={submitting}
+                                        className="w-full bg-[#2563EB] text-white font-black py-3 rounded-xl hover:bg-blue-755 transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 uppercase text-xs tracking-widest shrink-0 disabled:opacity-60 cursor-pointer"
+                                    >
+                                        <Truck size={16} /> {submitting ? 'Saving...' : (editingBill ? 'Update Bill' : 'Raise Bill')}
+                                    </button>
                                 </div>
+                            </div>
+                        </form>
+                    )}
+                </>
+            )}
+
+            {/* 1. Action Confirmation Modal with Blurred Background */}
+            {showActionModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 max-w-md w-full space-y-4 animate-in zoom-in duration-150 relative">
+                        <h3 className="text-sm font-black text-slate-805 uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3">
+                            <AlertCircle size={16} className="text-blue-600 animate-pulse" /> Confirm Bill Actions
+                        </h3>
+                        
+                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2.5 text-xs font-semibold text-slate-655">
+                            <div className="flex justify-between">
+                                <span>Vehicle / Bus:</span>
+                                <span className="text-slate-800 font-bold">{billFormData.busId}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span>Vendor:</span>
+                                <span className="text-slate-800 font-bold truncate max-w-[200px]">
+                                    {vendors.find(v => v._id === billFormData.vendorId)?.name || 'Unknown'}
+                                </span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span>Bill Number:</span>
+                                <span className="text-slate-800 font-bold">#{billFormData.billNo || 'N/A'}</span>
+                            </div>
+                            <div className="flex justify-between border-t border-slate-200 pt-2 font-black text-sm">
+                                <span className="text-slate-850">Grand Total:</span>
+                                <span className="text-blue-700">₹{formatCurrency(billTotals.grandTotal)}</span>
                             </div>
                         </div>
-                    </div>
 
-                    <div className="sticky bottom-0 z-20 -mx-6 md:-mx-8 px-6 md:px-8 py-4 border-t border-blue-100 bg-slate-50/95 backdrop-blur-sm shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.12)]">
-                        <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 flex-1 w-full">
-                                <div className="text-center sm:text-left px-3 py-2 rounded-md bg-white/60 border border-blue-100">
-                                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">Subtotal</p>
-                                    <p className="text-lg font-black text-slate-700">₹{formatCurrency(billTotals.subtotal)}</p>
-                                </div>
-                                <div className="text-center sm:text-left px-3 py-2 rounded-md bg-white/60 border border-blue-100">
-                                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">Discount</p>
-                                    <p className="text-lg font-black text-slate-700">₹{formatCurrency(billTotals.discountTotal || 0)}</p>
-                                </div>
-                                <div className="text-center sm:text-left px-3 py-2 rounded-md bg-white/60 border border-blue-100">
-                                    <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest">Total Tax</p>
-                                    <p className="text-lg font-black text-slate-700">₹{formatCurrency(billTotals.taxTotal ?? billTotals.gstTotal ?? 0)}</p>
-                                </div>
-                                <div className="text-center sm:text-left px-3 py-2 rounded-md bg-white border border-blue-200">
-                                    <p className="text-[10px] font-black uppercase text-blue-500 tracking-widest">Grand Total</p>
-                                    <p className="text-xl font-black text-blue-700 italic">₹{formatCurrency(billTotals.grandTotal)}</p>
-                                </div>
+                        {errorMsg && (
+                            <div className="p-3 rounded-lg bg-red-50 border border-red-100 text-red-700 text-xs font-bold leading-relaxed">
+                                {errorMsg}
                             </div>
+                        )}
+
+                        <div className="flex flex-col gap-2 pt-2">
                             <button
-                                type="submit"
+                                type="button"
+                                onClick={saveAndPrintBill}
                                 disabled={submitting}
-                                className="lg:w-64 w-full bg-blue-600 text-white font-black py-4 rounded hover:bg-blue-700 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 uppercase text-xs tracking-widest shrink-0 disabled:opacity-60"
+                                className="w-full bg-[#2563EB] text-white font-black py-2.5 rounded-xl hover:bg-blue-700 flex items-center justify-center gap-1.5 uppercase text-xs tracking-wider cursor-pointer shadow-md disabled:opacity-60 transition-all active:scale-98"
                             >
-                                <Truck size={18} /> {submitting ? 'Saving...' : (editingBill ? 'Update Bill' : 'Raise Bill')}
+                                {submitting ? 'Saving Bill...' : 'Save & Print'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowPreviewModal(true)}
+                                className="w-full bg-slate-900 text-white font-black py-2.5 rounded-xl hover:bg-slate-800 flex items-center justify-center gap-1.5 uppercase text-xs tracking-wider cursor-pointer shadow-md transition-all active:scale-98"
+                            >
+                                <Printer size={13} /> Preview Bill Layout
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowActionModal(false)}
+                                className="w-full border border-slate-200 text-slate-700 font-bold py-2 rounded-xl hover:bg-slate-50 text-xs cursor-pointer bg-white transition-colors"
+                            >
+                                Cancel & Back to Edit
                             </button>
                         </div>
                     </div>
-                </form>
+                </div>
             )}
-                </>
+
+            {/* 2. Print Preview Modal with Blurred Background */}
+            {showPreviewModal && (
+                <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-4xl w-full flex flex-col overflow-hidden max-h-[90vh] animate-in zoom-in duration-200">
+                        {/* Header toolbar */}
+                        <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100 bg-white sticky top-0 z-10">
+                            <h3 className="text-xs font-black text-slate-805 uppercase tracking-widest flex items-center gap-2">
+                                <Printer size={15} className="text-slate-400" /> Bill Print Preview
+                            </h3>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPreviewModal(false)}
+                                    className="px-3.5 py-1.5 rounded-xl border border-slate-200 text-slate-700 font-bold hover:bg-slate-50 text-xs cursor-pointer bg-white transition-colors"
+                                >
+                                    Close Preview
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={saveAndPrintBill}
+                                    disabled={submitting}
+                                    className="px-4 py-1.5 rounded-xl bg-[#2563EB] text-white font-black hover:bg-blue-700 text-xs cursor-pointer flex items-center gap-1.5 transition-colors disabled:opacity-60"
+                                >
+                                    {submitting ? 'Saving...' : 'Save & Print'}
+                                </button>
+                            </div>
+                        </div>
+                        {/* Scrollable Printable sheet */}
+                        <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                            <div className="p-8 border border-slate-100 rounded-xl bg-white shadow-sm max-w-3xl mx-auto">
+                                <BillPrint
+                                    billData={buildPrintableBillData()}
+                                    vendor={vendors.find((v) => v._id === billFormData.vendorId)}
+                                    bus={buses.find((b) => b.busNumber === billFormData.busId)
+                                        || otherVehicles.find((v) => v.vehicleNumber === billFormData.busId)}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
             )}
+
+            {/* 3. Hidden Print Fallback Element */}
+            <div className="hidden print:block absolute top-0 left-0 w-full bg-white z-[9999]">
+                {printBill && (
+                    <div id="print-container">
+                        <BillPrint
+                            billData={printBill}
+                            vendor={vendors.find((v) => (v._id?.toString() || v._id) === (printBill.vendorId?._id?.toString() || printBill.vendorId?.toString() || printBill.vendorId))}
+                            bus={buses.find((b) => b.busNumber === (printBill.busId?.busNumber || printBill.busId))
+                                || otherVehicles.find((v) => v.vehicleNumber === (printBill.busId?.busNumber || printBill.busId?.vehicleNumber || printBill.busId))}
+                        />
+                    </div>
+                )}
+            </div>
         </Layout>
     );
 };

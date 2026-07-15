@@ -4,18 +4,15 @@ const Bus = require('../models/Bus');
 const OtherVehicle = require('../models/OtherVehicle');
 const Vendor = require('../models/Vendor');
 const TyreRegistry = require('../models/TyreRegistry');
+const MaintenanceBill = require('../models/MaintenanceBill');
 const maintenanceBillController = require('./maintenanceBillController');
 
 const parseBillQuantity = (value) => {
-    const num = parseFloat(value);
-    if (!Number.isFinite(num) || num < 0.1) {
-        throw new Error('Quantity must be at least 0.1');
+    const num = parseInt(value, 10);
+    if (!Number.isInteger(num) || num < 1) {
+        throw new Error('Quantity must be a whole number of at least 1');
     }
-    const rounded = Math.round(num * 10) / 10;
-    if (Math.abs(num - rounded) > 0.001) {
-        throw new Error('Quantity can have at most 1 decimal place');
-    }
-    return rounded;
+    return num;
 };
 
 const parseGstPercent = (value) => {
@@ -103,6 +100,27 @@ exports.createItem = async (req, res) => {
             payload.variantName = '';
         }
 
+        // Check if an item with the same itemName (case-insensitive) already exists
+        const existingItem = await InventoryItem.findOne({
+            itemName: { $regex: new RegExp(`^${payload.itemName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i') }
+        });
+
+        if (existingItem) {
+            // Merge variants avoiding duplicates
+            const existingNames = existingItem.variants.map(v => v.name.toLowerCase());
+            const newVariants = payload.variants.filter(v => !existingNames.includes(v.name.toLowerCase()));
+            
+            existingItem.variants.push(...newVariants);
+            
+            if (payload.category) existingItem.category = payload.category;
+            if (payload.unit) existingItem.unit = payload.unit;
+            if (payload.description) existingItem.description = payload.description;
+            existingItem.variantName = '';
+
+            await existingItem.save();
+            return res.status(201).json({ message: 'Variants added to existing item group successfully', item: existingItem });
+        }
+
         const newItem = new InventoryItem(payload);
         await newItem.save();
         res.status(201).json({ message: 'Item created successfully', item: newItem });
@@ -114,6 +132,9 @@ exports.createItem = async (req, res) => {
 exports.updateItem = async (req, res) => {
     try {
         const { id } = req.params;
+        const currentItem = await InventoryItem.findById(id);
+        if (!currentItem) return res.status(404).json({ message: 'Item not found' });
+
         const payload = normalizeInventoryItemPayload(req.body);
         if (!payload.itemName) {
             return res.status(400).json({ message: 'Item group / category is required' });
@@ -121,8 +142,35 @@ exports.updateItem = async (req, res) => {
         if (payload.variants.length > 0) {
             payload.variantName = '';
         }
+
+        // Find sibling documents that share the same item group name
+        const siblings = await InventoryItem.find({
+            itemName: currentItem.itemName,
+            _id: { $ne: id }
+        });
+
+        // Update the main document
         const updatedItem = await InventoryItem.findByIdAndUpdate(id, payload, { new: true });
-        if (!updatedItem) return res.status(404).json({ message: 'Item not found' });
+
+        // Update allocations, bills, and delete siblings
+        for (const sibling of siblings) {
+            // Update Allocations
+            await InventoryAllocation.updateMany(
+                { itemId: sibling._id },
+                { itemId: id }
+            );
+
+            // Update Bills
+            await MaintenanceBill.updateMany(
+                { "lines.itemId": sibling._id },
+                { $set: { "lines.$[elem].itemId": id } },
+                { arrayFilters: [{ "elem.itemId": sibling._id }] }
+            );
+
+            // Delete Sibling
+            await InventoryItem.findByIdAndDelete(sibling._id);
+        }
+
         res.status(200).json({ message: 'Item updated successfully', item: updatedItem });
     } catch (error) {
         res.status(400).json({ message: 'Error updating inventory item', error: error.message });

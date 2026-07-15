@@ -10,15 +10,11 @@ const { computeBillTotals, normalizeTaxEntries, toNumber } = require('../utils/b
 const { uploadDir } = require('../middleware/billUpload');
 
 const parseBillQuantity = (value) => {
-    const num = parseFloat(value);
-    if (!Number.isFinite(num) || num < 0.1) {
-        throw new Error('Quantity must be at least 0.1');
+    const num = parseInt(value, 10);
+    if (!Number.isInteger(num) || num < 1) {
+        throw new Error('Quantity must be a whole number of at least 1');
     }
-    const rounded = Math.round(num * 10) / 10;
-    if (Math.abs(num - rounded) > 0.001) {
-        throw new Error('Quantity can have at most 1 decimal place');
-    }
-    return rounded;
+    return num;
 };
 
 const resolveVehicle = async (busId) => {
