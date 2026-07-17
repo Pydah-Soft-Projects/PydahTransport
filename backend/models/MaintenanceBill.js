@@ -46,6 +46,9 @@ const billLineSchema = new mongoose.Schema({
     taxableAmount: { type: Number, default: 0 },
     taxAmount: { type: Number, default: 0 },
     lineTotal: { type: Number, default: 0 },
+    baseAmount: { type: Number, default: 0 },
+    gstAmount: { type: Number, default: 0 },
+    finalAmount: { type: Number, default: 0 },
     tyrePosition: {
         type: String,
         enum: ['front right', 'front left', 'back right', 'back left', 'rear left', 'rear right'],
@@ -104,6 +107,7 @@ const maintenanceBillSchema = new mongoose.Schema({
     discountTotal: { type: Number, default: 0 },
     taxTotal: { type: Number, default: 0 },
     computedGrandTotal: { type: Number, default: 0 },
+    insuranceClaimAmount: { type: Number, default: 0 },
     grandTotalOverride: { type: Number, default: null },
     grandTotal: { type: Number, default: 0 },
     notes: { type: String, trim: true, default: '' },

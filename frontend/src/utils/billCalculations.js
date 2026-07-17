@@ -74,7 +74,10 @@ export const computeLine = (line = {}, { taxMode = 'lineLevel', discountMode = '
         taxes: lineTaxes,
         taxableAmount,
         taxAmount,
-        lineTotal
+        lineTotal,
+        baseAmount: base,
+        gstAmount: taxAmount,
+        finalAmount: lineTotal
     };
 };
 
@@ -85,50 +88,92 @@ export const computeBillTotals = (bill = {}) => {
         : 'none';
     const lines = Array.isArray(bill.lines) ? bill.lines : (Array.isArray(bill.items) ? bill.items : []);
 
-    const computedLines = lines.map((line) => computeLine(line, { taxMode, discountMode }));
+    const lineBases = lines.map((line) => getLineBase(line));
+    const totalBase = round2(lineBases.reduce((sum, b) => sum + b, 0));
 
-    const linesSubtotal = round2(computedLines.reduce((sum, line) => sum + line.taxableAmount, 0));
-    const lineTaxTotal = round2(computedLines.reduce((sum, line) => sum + line.taxAmount, 0));
-    const lineDiscountTotal = discountMode === 'lineLevel'
-        ? round2(computedLines.reduce((sum, line) => {
-            const base = line.pricingMode === 'lumpSum' ? line.amount : round2(line.quantity * line.unitPrice);
-            return sum + Math.max(0, base - line.taxableAmount);
-        }, 0))
-        : 0;
+    const billDiscVal = toNumber(bill.discountAmount, 0);
+    let distributedDiscountSum = 0;
+    const billLineDiscounts = lines.map((line, idx) => {
+        if (idx === lines.length - 1) {
+            return Math.max(0, round2(billDiscVal - distributedDiscountSum));
+        }
+        const lineDisc = totalBase > 0 ? round2((lineBases[idx] / totalBase) * billDiscVal) : 0;
+        distributedDiscountSum = round2(distributedDiscountSum + lineDisc);
+        return lineDisc;
+    });
 
-    let afterBillDiscount = linesSubtotal;
-    let billDiscountTotal = 0;
-    if (discountMode === 'billLevel') {
-        const before = linesSubtotal;
-        afterBillDiscount = applyDiscount(before, bill.discountAmount, bill.discountPercent);
-        billDiscountTotal = round2(before - afterBillDiscount);
-    }
+    const computedLines = lines.map((line, idx) => {
+        let lineDiscountAmount = 0;
+        let lineDiscountPercent = 0;
+        let resolvedDiscountMode = discountMode;
 
-    const billTaxes = taxMode === 'billLevel'
-        ? normalizeTaxEntries(bill.taxes, bill.gstPercent)
-        : [];
-    const billTaxTotal = taxMode === 'billLevel' ? taxAmountFromEntries(afterBillDiscount, billTaxes) : 0;
+        if (discountMode === 'lineLevel') {
+            lineDiscountAmount = toNumber(line.discountAmount, 0);
+            lineDiscountPercent = toNumber(line.discountPercent, 0);
+        } else if (discountMode === 'billLevel') {
+            resolvedDiscountMode = 'lineLevel';
+            if (bill.discountPercent > 0) {
+                lineDiscountPercent = toNumber(bill.discountPercent, 0);
+                lineDiscountAmount = round2((lineBases[idx] * lineDiscountPercent) / 100);
+            } else if (bill.discountAmount > 0) {
+                lineDiscountAmount = billLineDiscounts[idx];
+                lineDiscountPercent = lineBases[idx] > 0 ? round2((lineDiscountAmount / lineBases[idx]) * 100) : 0;
+            }
+        }
 
-    const taxTotal = taxMode === 'lineLevel' ? lineTaxTotal : billTaxTotal;
-    const discountTotal = discountMode === 'lineLevel' ? lineDiscountTotal : billDiscountTotal;
-    const computedGrandTotal = round2(afterBillDiscount + taxTotal);
+        let lineTaxes = [];
+        let lineGstPercent = 0;
+        let resolvedTaxMode = taxMode;
+
+        if (taxMode === 'lineLevel') {
+            lineTaxes = line.taxes;
+            lineGstPercent = line.gstPercent;
+        } else if (taxMode === 'billLevel') {
+            resolvedTaxMode = 'lineLevel';
+            lineTaxes = bill.taxes;
+            lineGstPercent = bill.gstPercent;
+        }
+
+        return computeLine({
+            ...line,
+            discountAmount: lineDiscountAmount,
+            discountPercent: lineDiscountPercent,
+            taxes: lineTaxes,
+            gstPercent: lineGstPercent
+        }, {
+            taxMode: resolvedTaxMode,
+            discountMode: resolvedDiscountMode
+        });
+    });
+
+    const subtotal = round2(computedLines.reduce((sum, line) => sum + line.taxableAmount, 0));
+    const discountTotal = round2(computedLines.reduce((sum, line) => sum + line.discountAmount, 0));
+    const taxTotal = round2(computedLines.reduce((sum, line) => sum + line.gstAmount, 0));
+    const computedGrandTotal = round2(computedLines.reduce((sum, line) => sum + line.finalAmount, 0));
+
+    const insuranceClaimAmount = toNumber(bill.insuranceClaimAmount, 0);
 
     const overrideRaw = bill.grandTotalOverride;
     const hasOverride = overrideRaw !== null && overrideRaw !== undefined && overrideRaw !== '';
     const grandTotalOverride = hasOverride ? round2(toNumber(overrideRaw, computedGrandTotal)) : null;
-    const grandTotal = grandTotalOverride !== null ? grandTotalOverride : computedGrandTotal;
+    const grandTotal = round2((grandTotalOverride !== null ? grandTotalOverride : computedGrandTotal) - insuranceClaimAmount);
+
+    const billTaxes = taxMode === 'billLevel'
+        ? normalizeTaxEntries(bill.taxes, bill.gstPercent)
+        : [];
 
     return {
         taxMode,
         discountMode,
         lines: computedLines,
-        subtotal: linesSubtotal,
+        subtotal,
         discountTotal,
         taxTotal,
         gstTotal: taxTotal,
         computedGrandTotal,
         grandTotalOverride,
         grandTotal,
+        insuranceClaimAmount,
         billTaxes
     };
 };

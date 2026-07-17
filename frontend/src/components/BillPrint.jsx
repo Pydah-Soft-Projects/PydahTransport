@@ -42,6 +42,8 @@ const BillPrint = ({ billData, vendor, bus }) => {
     const subtotal = Number(billData.subtotal ?? computed.subtotal);
     const discountTotal = Number(billData.discountTotal ?? computed.discountTotal ?? 0);
     const gstTotal = Number(billData.gstTotal ?? billData.taxTotal ?? computed.taxTotal ?? computed.gstTotal ?? 0);
+    const computedGrandTotal = Number(billData.computedGrandTotal ?? computed.computedGrandTotal ?? (subtotal + gstTotal));
+    const insuranceClaimAmount = Number(billData.insuranceClaimAmount ?? computed.insuranceClaimAmount ?? 0);
     const grandTotal = Number(billData.totalAmount ?? billData.grandTotal ?? computed.grandTotal);
 
     const showLineGst = taxMode === 'lineLevel';
@@ -209,10 +211,27 @@ const BillPrint = ({ billData, vendor, bus }) => {
                             <span>₹{formatCurrency(gstTotal)}</span>
                         </div>
                     )}
-                    <div className="bill-grand-total-row text-right whitespace-nowrap">
-                        <span className="font-bold">Grand Total:</span>{' '}
-                        <span className="font-bold">₹{formatCurrency(grandTotal)}</span>
-                    </div>
+                    {insuranceClaimAmount > 0 ? (
+                        <>
+                            <div className="bill-grand-total-row text-right whitespace-nowrap">
+                                <span className="font-bold">Grand Total:</span>{' '}
+                                <span>₹{formatCurrency(computedGrandTotal)}</span>
+                            </div>
+                            <div className="text-right whitespace-nowrap text-red-600">
+                                <span className="font-bold">Insurance Claim:</span>{' '}
+                                <span>- ₹{formatCurrency(insuranceClaimAmount)}</span>
+                            </div>
+                            <div className="bill-net-payable-row text-right whitespace-nowrap font-bold border-t border-black pt-1 mt-1">
+                                <span className="font-bold">Net Payable:</span>{' '}
+                                <span className="font-bold text-lg text-blue-700">₹{formatCurrency(grandTotal)}</span>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="bill-grand-total-row text-right whitespace-nowrap">
+                            <span className="font-bold">Grand Total:</span>{' '}
+                            <span className="font-bold">₹{formatCurrency(grandTotal)}</span>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -247,6 +266,7 @@ const BillPrint = ({ billData, vendor, bus }) => {
                         tbody tr { page-break-inside: auto; }
                         .bill-grand-total-table,
                         .bill-grand-total-row,
+                        .bill-net-payable-row,
                         .bill-footer-section {
                             page-break-inside: avoid !important;
                             break-inside: avoid !important;

@@ -151,6 +151,7 @@ const buildBillDocument = async ({ body, vehicle, vehicleType, existingAttachmen
         taxes: body.taxes,
         gstPercent: body.gstPercent,
         grandTotalOverride: body.grandTotalOverride,
+        insuranceClaimAmount: body.insuranceClaimAmount,
         lines: incomingLines
     });
 
@@ -179,6 +180,9 @@ const buildBillDocument = async ({ body, vehicle, vehicleType, existingAttachmen
             taxableAmount: computed.taxableAmount,
             taxAmount: computed.taxAmount,
             lineTotal: computed.lineTotal,
+            baseAmount: computed.baseAmount,
+            gstAmount: computed.gstAmount,
+            finalAmount: computed.finalAmount,
             tyrePosition: line.tyrePosition,
             kmReading: line.kmReading || 0,
             tyreType: line.tyreType || '',
@@ -198,6 +202,7 @@ const buildBillDocument = async ({ body, vehicle, vehicleType, existingAttachmen
         taxes: totals.billTaxes,
         discountAmount: toNumber(body.discountAmount, 0),
         discountPercent: toNumber(body.discountPercent, 0),
+        insuranceClaimAmount: totals.insuranceClaimAmount,
         subtotal: totals.subtotal,
         discountTotal: totals.discountTotal,
         taxTotal: totals.taxTotal,

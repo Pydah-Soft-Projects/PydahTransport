@@ -157,6 +157,7 @@ const emptyBillFormData = {
     discountAmount: '',
     discountPercent: '',
     grandTotalOverride: '',
+    insuranceClaimAmount: '',
     notes: '',
     items: [{ ...emptyBillLineItem }]
 };
@@ -213,6 +214,7 @@ const mapBillToFormData = (bill) => {
         discountPercent: bill.discountPercent || '',
         grandTotalOverride: bill.grandTotalOverride ?? '',
         notes: bill.notes || bill.rawDescription || '',
+        insuranceClaimAmount: bill.insuranceClaimAmount ?? '',
         items: (bill.items || bill.lines || []).map((alloc) => {
             const itemDoc = alloc.itemId;
             const pricingMode = alloc.pricingMode || 'unitRate';
@@ -652,6 +654,7 @@ const RaiseBill = () => {
         discountMode: billFormData.discountMode,
         discountAmount: parseFloat(billFormData.discountAmount) || 0,
         discountPercent: parseFloat(billFormData.discountPercent) || 0,
+        insuranceClaimAmount: parseFloat(billFormData.insuranceClaimAmount) || 0,
         taxes: buildBillTaxesPayload(),
         grandTotalOverride: billFormData.grandTotalOverride === '' || billFormData.grandTotalOverride == null
             ? null
@@ -695,6 +698,7 @@ const RaiseBill = () => {
         discountMode: billFormData.discountMode,
         discountAmount: billFormData.discountAmount,
         discountPercent: billFormData.discountPercent,
+        insuranceClaimAmount: billFormData.insuranceClaimAmount,
         taxes: buildBillTaxesPayload(),
         grandTotalOverride: billFormData.grandTotalOverride,
         items: billFormData.items.map((item) => ({
@@ -742,11 +746,13 @@ const RaiseBill = () => {
             taxes: buildBillTaxesPayload(),
             discountAmount: billFormData.discountAmount,
             discountPercent: billFormData.discountPercent,
+            insuranceClaimAmount: billFormData.insuranceClaimAmount,
             notes: billFormData.notes,
             subtotal: totals.subtotal,
             discountTotal: totals.discountTotal,
             gstTotal: totals.taxTotal,
             taxTotal: totals.taxTotal,
+            computedGrandTotal: totals.computedGrandTotal,
             totalAmount: totals.grandTotal,
             grandTotal: totals.grandTotal,
             items: printableItems,
@@ -1384,8 +1390,7 @@ const RaiseBill = () => {
                                                 </div>
                                             </div>
                                         </div>
-
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-50 pt-3.5">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 border-t border-slate-50 pt-3.5">
                                             <div>
                                                 <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Tax Mode</label>
                                                 <div className="relative">
@@ -1434,6 +1439,25 @@ const RaiseBill = () => {
                                                             const parsed = parsePriceInput(e.target.value);
                                                             if (parsed === null) return;
                                                             setBillFormData({ ...billFormData, grandTotalOverride: parsed });
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Insurance Claim / Adjustment</label>
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">₹</span>
+                                                    <input
+                                                        type="text"
+                                                        inputMode="decimal"
+                                                        placeholder="Deducted from total"
+                                                        className="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-705 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all"
+                                                        value={billFormData.insuranceClaimAmount}
+                                                        onChange={(e) => {
+                                                            const parsed = parsePriceInput(e.target.value);
+                                                            if (parsed === null) return;
+                                                            setBillFormData({ ...billFormData, insuranceClaimAmount: parsed });
                                                         }}
                                                     />
                                                 </div>
@@ -1956,6 +1980,12 @@ const RaiseBill = () => {
                                                 <span>Total Tax (GST)</span>
                                                 <span className="text-slate-800 font-bold">₹{formatCurrency(billTotals.taxTotal ?? billTotals.gstTotal ?? 0)}</span>
                                             </div>
+                                            {billTotals.insuranceClaimAmount > 0 && (
+                                                <div className="flex justify-between text-amber-600 font-bold">
+                                                    <span>Insurance Claim</span>
+                                                    <span>- ₹{formatCurrency(billTotals.insuranceClaimAmount)}</span>
+                                                </div>
+                                            )}
                                         </div>
                                         
                                         <div className="border-t border-slate-100 pt-2.5">
@@ -2004,8 +2034,20 @@ const RaiseBill = () => {
                                 <span>Bill Number:</span>
                                 <span className="text-slate-800 font-bold">#{billFormData.billNo || 'N/A'}</span>
                             </div>
+                            {billTotals.insuranceClaimAmount > 0 && (
+                                <div className="flex justify-between text-slate-500 font-semibold">
+                                    <span>Invoice Total:</span>
+                                    <span>₹{formatCurrency(billTotals.computedGrandTotal)}</span>
+                                </div>
+                            )}
+                            {billTotals.insuranceClaimAmount > 0 && (
+                                <div className="flex justify-between text-red-655 font-semibold">
+                                    <span>Insurance Claim:</span>
+                                    <span>- ₹{formatCurrency(billTotals.insuranceClaimAmount)}</span>
+                                </div>
+                            )}
                             <div className="flex justify-between border-t border-slate-200 pt-2 font-black text-sm">
-                                <span className="text-slate-850">Grand Total:</span>
+                                <span className="text-slate-850">Net Payable:</span>
                                 <span className="text-blue-700">₹{formatCurrency(billTotals.grandTotal)}</span>
                             </div>
                         </div>
