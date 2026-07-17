@@ -162,14 +162,15 @@ const emptyBillFormData = {
 };
 
 const parseQuantityInput = (rawValue) => {
-    if (rawValue === '') return rawValue;
-    if (!/^\d+$/.test(String(rawValue))) return null;
+    if (rawValue === '' || rawValue === '.') return rawValue;
+    if (!/^\d+(\.\d{0,1})?$/.test(String(rawValue))) return null;
     return rawValue;
 };
 
 const toBillQuantity = (value) => {
-    const num = parseInt(value, 10);
-    if (!Number.isInteger(num) || num < 1) return null;
+    const num = parseFloat(value);
+    if (!Number.isFinite(num) || num < 0.1) return null;
+    if (Math.round(num * 10) !== num * 10) return null;
     return num;
 };
 
@@ -265,6 +266,7 @@ const RaiseBill = () => {
     const [submitting, setSubmitting] = useState(false);
     const [editingBill, setEditingBill] = useState(null);
     const [billFormData, setBillFormData] = useState(emptyBillFormData);
+    const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
     const [showActionModal, setShowActionModal] = useState(false);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
@@ -333,6 +335,43 @@ const RaiseBill = () => {
         };
         loadMasters();
     }, []);
+
+    // Restore draft from localStorage on initial load when master data finishes loading
+    useEffect(() => {
+        if (!loading && !isEditMode) {
+            const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+            const username = adminInfo.username || adminInfo.name || 'guest';
+            const savedDraft = localStorage.getItem(`bill_draft_new_${username}`);
+            if (savedDraft) {
+                try {
+                    const parsed = JSON.parse(savedDraft);
+                    if (parsed && typeof parsed === 'object') {
+                        setBillFormData(parsed);
+                        setHasLoadedDraft(true);
+                    }
+                } catch (e) {
+                    console.error('Error parsing bill draft:', e);
+                }
+            }
+        }
+    }, [loading, isEditMode]);
+
+    // Auto-save billFormData to localStorage when it changes
+    useEffect(() => {
+        if (loading || isEditMode) return;
+
+        const isDefault = JSON.stringify(billFormData) === JSON.stringify(emptyBillFormData);
+        if (isDefault) {
+            const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+            const username = adminInfo.username || adminInfo.name || 'guest';
+            localStorage.removeItem(`bill_draft_new_${username}`);
+            return;
+        }
+
+        const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+        const username = adminInfo.username || adminInfo.name || 'guest';
+        localStorage.setItem(`bill_draft_new_${username}`, JSON.stringify(billFormData));
+    }, [billFormData, isEditMode, loading]);
 
     useEffect(() => {
         if (!isEditMode) {
@@ -969,9 +1008,15 @@ const RaiseBill = () => {
                 // Close modals
                 setShowActionModal(false);
                 setShowPreviewModal(false);
-                
+
                 // Reset form
                 resetBillForm();
+                
+                // Clear draft
+                const adminInfoLocal = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+                const usernameLocal = adminInfoLocal.username || adminInfoLocal.name || 'guest';
+                localStorage.removeItem(`bill_draft_new_${usernameLocal}`);
+                setHasLoadedDraft(false);
                 
                 // Switch tab and refresh list
                 switchTab(PAGE_TABS.view);
@@ -1250,6 +1295,27 @@ const RaiseBill = () => {
 
                     {!loading && !billLoading && !loadError && (
                         <form onSubmit={handleBillSubmit} className="animate-in fade-in duration-200">
+                            {hasLoadedDraft && (
+                                <div className="mb-4 flex items-center justify-between p-3.5 bg-blue-50/70 border border-blue-100 rounded-xl text-xs font-semibold text-blue-800 animate-in fade-in duration-200 shadow-sm">
+                                    <div className="flex items-center gap-2">
+                                        <AlertCircle size={15} className="text-blue-600 shrink-0" />
+                                        <span>We restored a draft of this bill from your last session.</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+                                            const username = adminInfo.username || adminInfo.name || 'guest';
+                                            localStorage.removeItem(`bill_draft_new_${username}`);
+                                            resetBillForm();
+                                            setHasLoadedDraft(false);
+                                        }}
+                                        className="text-blue-600 hover:text-blue-700 font-extrabold underline cursor-pointer bg-transparent border-none outline-none"
+                                    >
+                                        Clear Draft
+                                    </button>
+                                </div>
+                            )}
                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                                 {/* Left Side Form Container */}
                                 <div className="lg:col-span-8 space-y-5">
@@ -1570,10 +1636,15 @@ const RaiseBill = () => {
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => {
-                                                                                    const currentVal = parseInt(lineItem.quantity, 10) || 0;
+                                                                                    const currentVal = parseFloat(lineItem.quantity) || 0;
                                                                                     if (currentVal > 1) {
-                                                                                        const nextVal = currentVal - 1;
+                                                                                        const nextVal = Math.round((currentVal - 1) * 10) / 10;
                                                                                         updateBillItem(index, 'quantity', nextVal);
+                                                                                    } else if (currentVal > 0.1) {
+                                                                                        const nextVal = Math.max(0.1, Math.round((currentVal - 1) * 10) / 10);
+                                                                                        if (nextVal !== currentVal) {
+                                                                                            updateBillItem(index, 'quantity', nextVal);
+                                                                                        }
                                                                                     }
                                                                                 }}
                                                                                 className="px-2 py-1.5 hover:bg-slate-50 text-slate-400 font-extrabold transition-colors cursor-pointer text-[10px] shrink-0 select-none border-r border-slate-100"
@@ -1582,9 +1653,8 @@ const RaiseBill = () => {
                                                                             </button>
                                                                             <input
                                                                                 required
-                                                                                type="number"
-                                                                                min="1"
-                                                                                step="1"
+                                                                                type="text"
+                                                                                inputMode="decimal"
                                                                                 className="w-full text-center py-1.5 text-[11px] font-bold text-slate-700 bg-transparent border-none outline-none appearance-none select-none shrink"
                                                                                 value={lineItem.quantity}
                                                                                 onChange={(e) => handleQuantityChange(index, e.target.value)}
@@ -1593,8 +1663,8 @@ const RaiseBill = () => {
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => {
-                                                                                    const currentVal = parseInt(lineItem.quantity, 10) || 0;
-                                                                                    const nextVal = currentVal + 1;
+                                                                                    const currentVal = parseFloat(lineItem.quantity) || 0;
+                                                                                    const nextVal = Math.round((currentVal + 1) * 10) / 10;
                                                                                     updateBillItem(index, 'quantity', nextVal);
                                                                                 }}
                                                                                 className="px-2 py-1.5 hover:bg-slate-50 text-slate-400 font-extrabold transition-colors cursor-pointer text-[10px] shrink-0 select-none border-l border-slate-100"
