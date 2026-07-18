@@ -77,6 +77,7 @@ const PassengerReport = forwardRef(({
     occupancyMode = 'live',
     academicYear = '',
     campusName = '',
+    isRequestsReport = false,
 }, ref) => {
     const groupedData = useMemo(() => (passengers || []).reduce((acc, passenger) => {
         const routeName = passenger.route_name || 'Unassigned Route';
@@ -339,10 +340,11 @@ const PassengerReport = forwardRef(({
                         border-top: 2px solid #000;
                     }
                     .col-sno { width: 5%; text-align: center; }
-                    .col-name { width: 32%; text-align: left; font-weight: 600; }
-                    .col-id { width: 16%; text-align: center; font-family: ui-monospace, monospace; font-size: 7px; }
-                    .col-type { width: 10%; text-align: center; }
-                    .col-course { width: 37%; text-align: left; }
+                    .col-name { width: 24%; text-align: left; font-weight: 600; }
+                    .col-id { width: 9%; text-align: center; font-family: ui-monospace, monospace; font-size: 7px; }
+                    .col-type { width: 7%; text-align: center; }
+                    .col-course { width: 15%; text-align: left; }
+                    .col-route { width: 40%; text-align: left; }
                     .type-student,
                     .type-employee {
                         color: #000;
@@ -378,152 +380,192 @@ const PassengerReport = forwardRef(({
                 </p>
             </div>
 
-            {showAbstract && (
-                <div className={`abstract-section ${showDetailed ? 'page-break' : ''}`}>
-                    {routeSummaries.length === 0 ? (
-                        <div className="empty-state">No approved passengers available to report.</div>
-                    ) : (
-                        <table className="report-table">
-                            <thead>
-                                <tr>
-                                    <th className="abstract-col-sno">#</th>
-                                    <th className="abstract-col-route">Route Name</th>
-                                    <th className="abstract-col-id">Route ID</th>
-                                    <th className="abstract-col-stages">Stages</th>
-                                    <th className="abstract-col-total">Total</th>
-                                    <th className="abstract-col-stu">Students</th>
-                                    <th className="abstract-col-emp">Employees</th>
+            {isRequestsReport ? (
+                <div className="requests-flat-report mt-2">
+                    <table className="passenger-table">
+                        <thead>
+                            <tr>
+                                <th className="col-sno">#</th>
+                                <th className="col-name">Passenger Name</th>
+                                <th className="col-id">ID / Admission</th>
+                                <th className="col-type">Type</th>
+                                <th className="col-course">Course</th>
+                                <th className="col-route">Route</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {(passengers || []).map((p, idx) => (
+                                <tr key={p.id || p._id || idx}>
+                                    <td className="col-sno">{idx + 1}</td>
+                                    <td className="col-name">{p.student_name || p.employee_name || '—'}</td>
+                                    <td className="col-id">{p.admission_no || p.admission_number || p.emp_no || '—'}</td>
+                                    <td className="col-type">
+                                        <span className={p.user_type === 'employee' ? 'type-employee' : 'type-student'}>
+                                            {p.user_type || 'Student'}
+                                        </span>
+                                    </td>
+                                    <td className="col-course">
+                                        {p.course || p.department || '—'}
+                                        {p.branch ? ` (${p.branch})` : ''}
+                                    </td>
+                                    <td className="col-route">
+                                        {p.route_name || '—'}
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {routeSummaries.map((route, index) => (
-                                    <tr key={route.routeName}>
-                                        <td className="abstract-col-sno">{index + 1}</td>
-                                        <td className="abstract-col-route">{route.routeName}</td>
-                                        <td className="abstract-col-id">{route.routeId || '—'}</td>
-                                        <td className="abstract-col-stages">{route.stageCount}</td>
-                                        <td className="abstract-col-total">{route.total}</td>
-                                        <td className="abstract-col-stu">{route.students}</td>
-                                        <td className="abstract-col-emp">{route.employees}</td>
-                                    </tr>
-                                ))}
-                                <tr className="abstract-total-row">
-                                    <td className="abstract-col-sno" colSpan={3}>Grand Total</td>
-                                    <td className="abstract-col-stages">{grandTotals.stages}</td>
-                                    <td className="abstract-col-total">{grandTotals.total}</td>
-                                    <td className="abstract-col-stu">{grandTotals.students}</td>
-                                    <td className="abstract-col-emp">{grandTotals.employees}</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            ) : (
+                <>
+                    {showAbstract && (
+                        <div className={`abstract-section ${showDetailed ? 'page-break' : ''}`}>
+                            {routeSummaries.length === 0 ? (
+                                <div className="empty-state">No approved passengers available to report.</div>
+                            ) : (
+                                <table className="report-table">
+                                    <thead>
+                                        <tr>
+                                            <th className="abstract-col-sno">#</th>
+                                            <th className="abstract-col-route">Route Name</th>
+                                            <th className="abstract-col-id">Route ID</th>
+                                            <th className="abstract-col-stages">Stages</th>
+                                            <th className="abstract-col-total">Total</th>
+                                            <th className="abstract-col-stu">Students</th>
+                                            <th className="abstract-col-emp">Employees</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {routeSummaries.map((route, index) => (
+                                            <tr key={route.routeName}>
+                                                <td className="abstract-col-sno">{index + 1}</td>
+                                                <td className="abstract-col-route">{route.routeName}</td>
+                                                <td className="abstract-col-id">{route.routeId || '—'}</td>
+                                                <td className="abstract-col-stages">{route.stageCount}</td>
+                                                <td className="abstract-col-total">{route.total}</td>
+                                                <td className="abstract-col-stu">{route.students}</td>
+                                                <td className="abstract-col-emp">{route.employees}</td>
+                                            </tr>
+                                        ))}
+                                        <tr className="abstract-total-row">
+                                            <td className="abstract-col-sno" colSpan={3}>Grand Total</td>
+                                            <td className="abstract-col-stages">{grandTotals.stages}</td>
+                                            <td className="abstract-col-total">{grandTotals.total}</td>
+                                            <td className="abstract-col-stu">{grandTotals.students}</td>
+                                            <td className="abstract-col-emp">{grandTotals.employees}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            )}
+
+                            <CourseStatsTable rows={globalCourseStats} />
+                        </div>
                     )}
 
-                    <CourseStatsTable rows={globalCourseStats} />
-                </div>
-            )}
+                    {showDetailed && sortedRoutes.map((route, rIdx) => {
+                        const stages = groupedData[route];
+                        const sortedStages = Object.keys(stages).sort();
+                        const routeSummary = routeSummaries.find((item) => item.routeName === route);
 
-            {showDetailed && sortedRoutes.map((route, rIdx) => {
-                const stages = groupedData[route];
-                const sortedStages = Object.keys(stages).sort();
-                const routeSummary = routeSummaries.find((item) => item.routeName === route);
+                        let routeTotal = 0;
+                        let routeStudents = 0;
+                        let routeEmployees = 0;
 
-                let routeTotal = 0;
-                let routeStudents = 0;
-                let routeEmployees = 0;
+                        Object.values(stages).forEach((sp) => {
+                            routeTotal += sp.length;
+                            routeStudents += sp.filter((p) => !p.user_type || p.user_type === 'student').length;
+                            routeEmployees += sp.filter((p) => p.user_type === 'employee').length;
+                        });
 
-                Object.values(stages).forEach((sp) => {
-                    routeTotal += sp.length;
-                    routeStudents += sp.filter((p) => !p.user_type || p.user_type === 'student').length;
-                    routeEmployees += sp.filter((p) => p.user_type === 'employee').length;
-                });
+                        const routeBusIds = [...new Set(
+                            Object.values(stages)
+                                .flat()
+                                .map((passenger) => passenger.bus_id)
+                                .filter(Boolean)
+                        )].sort();
 
-                const routeBusIds = [...new Set(
-                    Object.values(stages)
-                        .flat()
-                        .map((passenger) => passenger.bus_id)
-                        .filter(Boolean)
-                )].sort();
-
-                return (
-                    <div key={route} className={`route-block ${rIdx < sortedRoutes.length - 1 ? 'page-break' : ''}`}>
-                        {showAbstract && rIdx === 0 && (
-                            <h2 className="section-heading">Detailed Breakdown</h2>
-                        )}
-                        <div className="route-header">
-                            <h2>
-                                <span className="route-number">{String(rIdx + 1).padStart(2, '0')}</span>
-                                <span className="route-id">{routeSummary?.routeId || '—'}</span>
-                                <span className="route-name">{route}</span>
-                                {routeBusIds.length > 0 && (
-                                    <span className="route-bus">Bus: {routeBusIds.join(', ')}</span>
+                        return (
+                            <div key={route} className={`route-block ${rIdx < sortedRoutes.length - 1 ? 'page-break' : ''}`}>
+                                {showAbstract && rIdx === 0 && (
+                                    <h2 className="section-heading">Detailed Breakdown</h2>
                                 )}
-                            </h2>
-                            <div className="route-stats">
-                                Total: {routeTotal} | Stu: {routeStudents} | Emp: {routeEmployees}
-                            </div>
-                        </div>
-
-                        <CourseStatsTable
-                            rows={routeCourseStatsMap[route] || []}
-                            showHeading
-                        />
-
-                        {sortedStages.map((stage) => {
-                            const stagePassengers = stages[stage];
-                            const numStudents = stagePassengers.filter((p) => !p.user_type || p.user_type === 'student').length;
-                            const numEmployees = stagePassengers.filter((p) => p.user_type === 'employee').length;
-
-                            return (
-                                <div key={stage} className="stage-block no-break">
-                                    <div className="stage-header">
-                                        <h3>Stage: {stage}</h3>
-                                        <div className="stage-stats">
-                                            Total: {stagePassengers.length} | Stu: {numStudents} | Emp: {numEmployees}
-                                        </div>
+                                <div className="route-header">
+                                    <h2>
+                                        <span className="route-number">{String(rIdx + 1).padStart(2, '0')}</span>
+                                        <span className="route-id">{routeSummary?.routeId || '—'}</span>
+                                        <span className="route-name">{route}</span>
+                                        {routeBusIds.length > 0 && (
+                                            <span className="route-bus">Bus: {routeBusIds.join(', ')}</span>
+                                        )}
+                                    </h2>
+                                    <div className="route-stats">
+                                        Total: {routeTotal} | Stu: {routeStudents} | Emp: {routeEmployees}
                                     </div>
-
-                                    <table className="passenger-table">
-                                        <thead>
-                                            <tr>
-                                                <th className="col-sno">#</th>
-                                                <th className="col-name">Passenger Name</th>
-                                                <th className="col-id">ID / Admission</th>
-                                                <th className="col-type">Type</th>
-                                                <th className="col-course">Course / Dept</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {stagePassengers.map((p, pIdx) => (
-                                                <tr key={p.id || p._id || pIdx}>
-                                                    <td className="col-sno">{pIdx + 1}</td>
-                                                    <td className="col-name">{p.student_name || p.employee_name || '—'}</td>
-                                                    <td className="col-id">{p.admission_no || p.admission_number || p.emp_no || '—'}</td>
-                                                    <td className="col-type">
-                                                        <span className={p.user_type === 'employee' ? 'type-employee' : 'type-student'}>
-                                                            {p.user_type || 'Student'}
-                                                        </span>
-                                                    </td>
-                                                    <td className="col-course">
-                                                        {p.course || p.department || '—'}
-                                                        {p.branch ? ` (${p.branch})` : ''}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
                                 </div>
-                            );
-                        })}
-                    </div>
-                );
-            })}
 
-            {!showAbstract && !showDetailed && (
-                <div className="empty-state">No report sections selected.</div>
-            )}
+                                <CourseStatsTable
+                                    rows={routeCourseStatsMap[route] || []}
+                                    showHeading
+                                />
 
-            {!showAbstract && showDetailed && sortedRoutes.length === 0 && (
-                <div className="empty-state">No approved passengers available to report.</div>
+                                {sortedStages.map((stage) => {
+                                    const stagePassengers = stages[stage];
+                                    const numStudents = stagePassengers.filter((p) => !p.user_type || p.user_type === 'student').length;
+                                    const numEmployees = stagePassengers.filter((p) => p.user_type === 'employee').length;
+
+                                    return (
+                                        <div key={stage} className="stage-block no-break">
+                                            <div className="stage-header">
+                                                <h3>Stage: {stage}</h3>
+                                                <div className="stage-stats">
+                                                    Total: {stagePassengers.length} | Stu: {numStudents} | Emp: {numEmployees}
+                                                </div>
+                                            </div>
+
+                                            <table className="passenger-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th className="col-sno">#</th>
+                                                        <th className="col-name">Passenger Name</th>
+                                                        <th className="col-id">ID / Admission</th>
+                                                        <th className="col-type">Type</th>
+                                                        <th className="col-course">Course / Dept</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {stagePassengers.map((p, pIdx) => (
+                                                        <tr key={p.id || p._id || pIdx}>
+                                                            <td className="col-sno">{pIdx + 1}</td>
+                                                            <td className="col-name">{p.student_name || p.employee_name || '—'}</td>
+                                                            <td className="col-id">{p.admission_no || p.admission_number || p.emp_no || '—'}</td>
+                                                            <td className="col-type">
+                                                                <span className={p.user_type === 'employee' ? 'type-employee' : 'type-student'}>
+                                                                    {p.user_type || 'Student'}
+                                                                </span>
+                                                            </td>
+                                                            <td className="col-course">
+                                                                {p.course || p.department || '—'}
+                                                                {p.branch ? ` (${p.branch})` : ''}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })}
+
+                    {!showAbstract && !showDetailed && (
+                        <div className="empty-state">No report sections selected.</div>
+                    )}
+
+                    {!showAbstract && showDetailed && sortedRoutes.length === 0 && (
+                        <div className="empty-state">No approved passengers available to report.</div>
+                    )}
+                </>
             )}
         </div>
     );

@@ -103,6 +103,12 @@ const TransportRequests = () => {
     const [idCardPrintLoading, setIdCardPrintLoading] = useState(false);
     const [fetchingIdCard, setFetchingIdCard] = useState(false);
     const [idCardPreviewCount, setIdCardPreviewCount] = useState(null);
+    const [downloadingReport, setDownloadingReport] = useState(false);
+    const [selectedRequestIds, setSelectedRequestIds] = useState([]);
+    // Stores the full row data for every selected ID so names remain visible
+    // even after the filter/search changes and that row is no longer in `requests`.
+    const [selectedRequestsMap, setSelectedRequestsMap] = useState({});
+    const [idCardPrintMode, setIdCardPrintMode] = useState('range');
     const academicYearOptions = getAcademicYearOptions();
 
     const admitCardRef = useRef();
@@ -181,6 +187,83 @@ const TransportRequests = () => {
         }
     };
 
+    const handleDownloadReport = async () => {
+        if (downloadingReport || requests.length === 0) return;
+        setDownloadingReport(true);
+        try {
+            const requestIds = requests.map(r => r.id || r._id);
+            const response = await apiFetch(`${API_BASE}/print`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    template: 'passenger-report',
+                    data: {
+                        requestIds,
+                        academicYear: academicYear || undefined,
+                        includeAbstract: false,
+                        includeDetailed: true,
+                        isRequestsReport: true,
+                    }
+                })
+            });
+            if (response.ok) {
+                const html = await response.text();
+                printHtmlDocument(html, `Transport-Requests-Report-${academicYear || 'All'}`);
+            } else {
+                alert('Failed to generate report.');
+            }
+        } catch (error) {
+            console.error('Error generating report:', error);
+            alert('Error generating report.');
+        } finally {
+            setDownloadingReport(false);
+        }
+    };
+
+    const toggleSelectRequest = (req, e) => {
+        e.stopPropagation();
+        if ((req.status || '').toLowerCase() !== 'approved') {
+            alert('Selection is only available for approved requests.');
+            return;
+        }
+        const id = req.id;
+        setSelectedRequestIds((prev) =>
+            prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+        );
+        setSelectedRequestsMap((prev) => {
+            if (prev[id]) {
+                // deselecting — remove from map
+                const next = { ...prev };
+                delete next[id];
+                return next;
+            }
+            // selecting — store the row
+            return { ...prev, [id]: req };
+        });
+    };
+
+    const handleSelectAll = (e) => {
+        const visibleApproved = requests.filter(r => (r.status || '').toLowerCase() === 'approved');
+        const visibleApprovedIds = visibleApproved.map(r => r.id);
+        if (e.target.checked) {
+            setSelectedRequestIds((prev) => [...new Set([...prev, ...visibleApprovedIds])]);
+            setSelectedRequestsMap((prev) => {
+                const next = { ...prev };
+                visibleApproved.forEach(r => { next[r.id] = r; });
+                return next;
+            });
+        } else {
+            setSelectedRequestIds((prev) => prev.filter(id => !visibleApprovedIds.includes(id)));
+            setSelectedRequestsMap((prev) => {
+                const next = { ...prev };
+                visibleApprovedIds.forEach(id => { delete next[id]; });
+                return next;
+            });
+        }
+    };
+
+
+
     const idCardCollegeOptions = [...new Set(
         idCardAllApplications.map((app) => app.college_code).filter(Boolean)
     )].sort();
@@ -252,6 +335,7 @@ const TransportRequests = () => {
     const openIdCardModal = () => {
         setIdCardAcademicYear(academicYear);
         setIdCardPreviewCount(null);
+        setIdCardPrintMode(selectedRequestIds.length > 0 ? 'selected' : 'range');
         setIdCardModalOpen(true);
     };
 
@@ -310,28 +394,46 @@ const TransportRequests = () => {
     };
 
     const handleConfirmPrintIdCards = async () => {
-        const range = validateIdCardRange();
-        if (!range) return;
-        const { fromSerial, toSerial } = range;
+        let requestIds = [];
+        
+        if (idCardPrintMode === 'selected') {
+            if (!selectedRequestIds.length) {
+                setMessage({ text: 'No passengers selected for printing.', type: 'error' });
+                return;
+            }
+            requestIds = selectedRequestIds;
+        } else {
+            const range = validateIdCardRange();
+            if (!range) return;
+            const { fromSerial, toSerial } = range;
+            setIdCardPrintLoading(true);
+            try {
+                const response = await apiFetch(
+                    `${API_BASE}/transport-requests/id-cards-print?${buildIdCardQuery(fromSerial, toSerial)}`
+                );
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    setMessage({ text: data.message || 'Failed to load ID cards for printing.', type: 'error' });
+                    setIdCardPrintLoading(false);
+                    return;
+                }
+                const passengers = data.passengers || [];
+                if (!passengers.length) {
+                    setMessage({ text: 'No approved passengers found in that application number range.', type: 'error' });
+                    setIdCardPrintLoading(false);
+                    return;
+                }
+                requestIds = passengers.map(p => p.id || p._id);
+            } catch (error) {
+                console.error('Error printing ID cards:', error);
+                setMessage({ text: 'Error preparing ID cards for print.', type: 'error' });
+                setIdCardPrintLoading(false);
+                return;
+            }
+        }
+
         setIdCardPrintLoading(true);
         try {
-            const response = await apiFetch(
-                `${API_BASE}/transport-requests/id-cards-print?${buildIdCardQuery(fromSerial, toSerial)}`
-            );
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                setMessage({ text: data.message || 'Failed to load ID cards for printing.', type: 'error' });
-                setIdCardPrintLoading(false);
-                return;
-            }
-            const passengers = data.passengers || [];
-            if (!passengers.length) {
-                setMessage({ text: 'No approved passengers found in that application number range.', type: 'error' });
-                setIdCardPrintLoading(false);
-                return;
-            }
-            const requestIds = passengers.map(p => p.id || p._id);
-            
             // Request printed ID Card Sheet HTML from the backend Print Service
             const printResponse = await apiFetch(`${API_BASE}/print`, {
                 method: 'POST',
@@ -350,6 +452,8 @@ const TransportRequests = () => {
                 const html = await printResponse.text();
                 printHtmlDocument(html, `Bus-ID-Cards-Range-${academicYear}`);
                 setIdCardModalOpen(false);
+                setSelectedRequestIds([]); // Clear selections after successful printing
+                setSelectedRequestsMap({});
             } else {
                 setMessage({ text: 'Failed to generate ID card sheet HTML.', type: 'error' });
             }
@@ -855,6 +959,15 @@ const TransportRequests = () => {
                 <div className="flex flex-wrap items-center gap-3">
                     <button
                         type="button"
+                        onClick={handleDownloadReport}
+                        disabled={downloadingReport || loading || requests.length === 0}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 shadow-sm transition-all hover:shadow-md active:scale-95 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed"
+                    >
+                        <FileText size={14} />
+                        {downloadingReport ? 'Preparing...' : 'Download Report'}
+                    </button>
+                    <button
+                        type="button"
                         onClick={openIdCardModal}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-900 text-white font-semibold text-xs hover:bg-blue-800 shadow-sm transition-all hover:shadow-md active:scale-95 cursor-pointer"
                     >
@@ -1051,6 +1164,20 @@ const TransportRequests = () => {
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                    <th className="px-3 py-2 w-8">
+                                        <input
+                                            type="checkbox"
+                                            checked={
+                                                requests.length > 0 &&
+                                                requests
+                                                    .filter(r => (r.status || '').toLowerCase() === 'approved')
+                                                    .every(r => selectedRequestIds.includes(r.id))
+                                                && requests.some(r => (r.status || '').toLowerCase() === 'approved')
+                                            }
+                                            onChange={handleSelectAll}
+                                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                        />
+                                    </th>
                                     <th className="px-3 py-2">Pin Number</th>
                                     <th className="px-3 py-2">Adm Number</th>
                                     <th className="px-3 py-2">App No.</th>
@@ -1067,6 +1194,22 @@ const TransportRequests = () => {
                                         onClick={() => openDetailModal(req)}
                                         className="hover:bg-slate-50/60 transition-colors border-b border-slate-100/60 cursor-pointer text-xs"
                                     >
+                                        <td className="px-3 py-2 w-8" onClick={(e) => e.stopPropagation()}>
+                                            {(req.status || '').toLowerCase() === 'approved' ? (
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedRequestIds.includes(req.id)}
+                                                    onChange={(e) => toggleSelectRequest(req, e)}
+                                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                />
+                                            ) : (
+                                                <input
+                                                    type="checkbox"
+                                                    disabled
+                                                    className="opacity-20 cursor-not-allowed"
+                                                />
+                                            )}
+                                        </td>
                                         <td className="px-3 py-2 font-semibold text-slate-700 text-xs">
                                             {req.user_type === 'employee' ? '—' : (req.pin_no || '—')}
                                         </td>
@@ -1674,112 +1817,178 @@ const TransportRequests = () => {
                 <div className="space-y-4">
                     <div>
                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                            Academic Year
+                            Print Mode
                         </label>
-                        <select
-                            value={idCardAcademicYear}
-                            onChange={(e) => setIdCardAcademicYear(e.target.value)}
-                            disabled={idCardPrintLoading}
-                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
-                        >
-                            {academicYearOptions.map((year) => (
-                                <option key={year} value={year}>{year}</option>
-                            ))}
-                        </select>
+                        <div className="flex gap-6 p-3 bg-slate-50 rounded-xl border border-slate-200/60 mb-2">
+                            <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                                <input
+                                    type="radio"
+                                    name="idCardPrintMode"
+                                    value="range"
+                                    checked={idCardPrintMode === 'range'}
+                                    onChange={() => setIdCardPrintMode('range')}
+                                    className="cursor-pointer"
+                                />
+                                By Application Range
+                            </label>
+                            <label className={`inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer ${selectedRequestIds.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                                <input
+                                    type="radio"
+                                    name="idCardPrintMode"
+                                    value="selected"
+                                    checked={idCardPrintMode === 'selected'}
+                                    onChange={() => {
+                                        if (selectedRequestIds.length > 0) {
+                                            setIdCardPrintMode('selected');
+                                        }
+                                    }}
+                                    disabled={selectedRequestIds.length === 0}
+                                    className="cursor-pointer disabled:cursor-not-allowed"
+                                />
+                                Selected Candidates ({selectedRequestIds.length})
+                            </label>
+                        </div>
                     </div>
 
-                    {idCardAllApplications.length > 0 && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                    College Code
-                                </label>
-                                <select
-                                    value={idCardCollegeCode}
-                                    onChange={(e) => {
-                                        setIdCardCollegeCode(e.target.value);
-                                        setIdCardCourseCode('');
-                                    }}
-                                    disabled={idCardPrintLoading}
-                                    className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
-                                >
-                                    <option value="">All Colleges</option>
-                                    {idCardCollegeOptions.map((code) => (
-                                        <option key={code} value={code}>{code}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                    Course Code
-                                </label>
-                                <select
-                                    value={idCardCourseCode}
-                                    onChange={(e) => setIdCardCourseCode(e.target.value)}
-                                    disabled={idCardPrintLoading}
-                                    className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
-                                >
-                                    <option value="">All Courses</option>
-                                    {idCardCourseOptions.map((code) => (
-                                        <option key={code} value={code}>{code}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-                    )}
-
-                    {!idCardApplications.length ? (
-                        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
-                            No approved transport application numbers found for {idCardAcademicYear}.
+                    {idCardPrintMode === 'selected' ? (
+                        <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 space-y-3">
+                            <p className="text-sm font-semibold text-blue-900">
+                                Will print ID cards for the <strong>{selectedRequestIds.length}</strong> passenger(s) selected from the list.
+                            </p>
+                            <ul className="divide-y divide-blue-100 rounded-lg border border-blue-100 bg-white overflow-hidden max-h-48 overflow-y-auto">
+                                {selectedRequestIds.map((id) => {
+                                    const req = selectedRequestsMap[id] || requests.find(r => r.id === id);
+                                    const name = req?.student_name || req?.employee_name || `ID: ${id}`;
+                                    const appNo = req?.application_number;
+                                    const admNo = req?.admission_number || req?.emp_no;
+                                    return (
+                                        <li key={id} className="flex items-center justify-between px-3 py-2 text-xs">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-[9px] shrink-0">
+                                                    {(name[0] || '?').toUpperCase()}
+                                                </span>
+                                                <span className="font-semibold text-slate-800 truncate">{name}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0 ml-2">
+                                                {appNo && <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{appNo}</span>}
+                                                {admNo && <span className="text-[10px] text-slate-400 font-medium">{admNo}</span>}
+                                            </div>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
                         </div>
                     ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                From Transport Application No.
-                            </label>
-                            <select
-                                value={idCardFromSerial}
-                                onChange={(e) => handleIdCardFromChange(e.target.value)}
-                                disabled={idCardPrintLoading}
-                                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
-                            >
-                                {idCardApplications.map((app) => (
-                                    <option key={`from-${app.id}-${app.application_serial}`} value={app.application_serial}>
-                                        {app.application_number} — {app.student_name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                To Transport Application No.
-                            </label>
-                            <select
-                                value={idCardToSerial}
-                                onChange={(e) => {
-                                    setIdCardToSerial(e.target.value);
-                                    setIdCardPreviewCount(null);
-                                }}
-                                disabled={idCardPrintLoading}
-                                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
-                            >
-                                {idCardToOptions.map((app) => (
-                                    <option key={`to-${app.id}-${app.application_serial}`} value={app.application_serial}>
-                                        {app.application_number} — {app.student_name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
+                        <>
+                            <div>
+                                <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                    Academic Year
+                                </label>
+                                <select
+                                    value={idCardAcademicYear}
+                                    onChange={(e) => setIdCardAcademicYear(e.target.value)}
+                                    disabled={idCardPrintLoading}
+                                    className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
+                                >
+                                    {academicYearOptions.map((year) => (
+                                        <option key={year} value={year}>{year}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {idCardAllApplications.length > 0 && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                            College Code
+                                        </label>
+                                        <select
+                                            value={idCardCollegeCode}
+                                            onChange={(e) => {
+                                                setIdCardCollegeCode(e.target.value);
+                                                setIdCardCourseCode('');
+                                            }}
+                                            disabled={idCardPrintLoading}
+                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
+                                        >
+                                            <option value="">All Colleges</option>
+                                            {idCardCollegeOptions.map((code) => (
+                                                <option key={code} value={code}>{code}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                            Course Code
+                                        </label>
+                                        <select
+                                            value={idCardCourseCode}
+                                            onChange={(e) => setIdCardCourseCode(e.target.value)}
+                                            disabled={idCardPrintLoading}
+                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
+                                        >
+                                            <option value="">All Courses</option>
+                                            {idCardCourseOptions.map((code) => (
+                                                <option key={code} value={code}>{code}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
+
+                            {!idCardApplications.length ? (
+                                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+                                    No approved transport application numbers found for {idCardAcademicYear}.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                            From Transport Application No.
+                                        </label>
+                                        <select
+                                            value={idCardFromSerial}
+                                            onChange={(e) => handleIdCardFromChange(e.target.value)}
+                                            disabled={idCardPrintLoading}
+                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
+                                        >
+                                            {idCardApplications.map((app) => (
+                                                <option key={`from-${app.id}-${app.application_serial}`} value={app.application_serial}>
+                                                    {app.application_number} — {app.student_name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                            To Transport Application No.
+                                        </label>
+                                        <select
+                                            value={idCardToSerial}
+                                            onChange={(e) => {
+                                                setIdCardToSerial(e.target.value);
+                                                setIdCardPreviewCount(null);
+                                            }}
+                                            disabled={idCardPrintLoading}
+                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
+                                        >
+                                            {idCardToOptions.map((app) => (
+                                                <option key={`to-${app.id}-${app.application_serial}`} value={app.application_serial}>
+                                                    {app.application_number} — {app.student_name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
+                        </>
                     )}
 
                     <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
-                        {/* <span className="font-semibold text-slate-700 block mb-0.5">Layout Note:</span> */}
                         ID cards will be printed in a 6 cards per A4 page layout (front + back layout) to match the official template.
                     </div>
 
-                    {idCardPreviewCount != null && (
+                    {idCardPrintMode === 'range' && idCardPreviewCount != null && (
                         <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
                             <strong>{idCardPreviewCount}</strong> approved passenger{idCardPreviewCount === 1 ? '' : 's'} found in this range.
                             {idCardPreviewCount > 0 && (
@@ -1794,7 +2003,7 @@ const TransportRequests = () => {
                     <button
                         type="button"
                         onClick={handleConfirmPrintIdCards}
-                        disabled={idCardPrintLoading || idCardApplicationsLoading || !idCardApplications.length}
+                        disabled={idCardPrintLoading || (idCardPrintMode === 'selected' ? selectedRequestIds.length === 0 : (idCardApplicationsLoading || !idCardApplications.length))}
                         className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <Printer size={18} />
