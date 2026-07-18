@@ -1493,6 +1493,23 @@ const createTransportRequest = async (req, res) => {
 
     const resolvedAcademicYear = resolveAcademicYear({ academic_year, academicYear });
 
+    const resolvedRaisedBy = req.user
+        ? (req.user.employee_name || req.user.name || req.user.username || 'admin')
+        : (raised_by || 'admin');
+
+    let resolvedRaisedById = null;
+    if (req.user) {
+        if (req.user.emp_no && !isNaN(parseInt(req.user.emp_no, 10))) {
+            resolvedRaisedById = parseInt(req.user.emp_no, 10);
+        } else if (raised_by_id && !isNaN(parseInt(raised_by_id, 10))) {
+            resolvedRaisedById = parseInt(raised_by_id, 10);
+        } else {
+            resolvedRaisedById = 1;
+        }
+    } else {
+        resolvedRaisedById = parseInt(raised_by_id, 10) || null;
+    }
+
     if (!admission_number) {
         return res.status(400).json({ message: 'Admission / employee number is required.' });
     }
@@ -1526,8 +1543,8 @@ const createTransportRequest = async (req, res) => {
                 stage_name,
                 fare: 0,
                 status: 'pending',
-                raised_by,
-                raised_by_id,
+                raised_by: resolvedRaisedBy,
+                raised_by_id: resolvedRaisedById ? String(resolvedRaisedById) : null,
                 academic_year: resolvedAcademicYear,
             });
             await newReq.save();
@@ -1587,8 +1604,8 @@ const createTransportRequest = async (req, res) => {
             route_name,
             stage_name,
             fare,
-            raised_by,
-            raised_by_id,
+            resolvedRaisedBy,
+            resolvedRaisedById,
             yearOfStudy,
             resolvedAcademicYear,
         ]);

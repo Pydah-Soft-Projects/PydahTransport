@@ -124,8 +124,8 @@ const AdminRaiseRequest = () => {
     // Get logged in admin info
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
     const admin = { 
-        name: adminInfo.name || 'Admin', 
-        id: adminInfo.id || adminInfo.userId || 1 
+        name: adminInfo.name || adminInfo.username || 'Admin', 
+        id: adminInfo.id || adminInfo.userId || (!isNaN(parseInt(adminInfo.username, 10)) ? parseInt(adminInfo.username, 10) : 1) 
     };
 
 

@@ -1206,6 +1206,7 @@ const TransportRequests = () => {
                                             <DetailItem icon={Calendar} label="Academic Year" value={req.academic_year || '—'} />
                                             <DetailItem icon={FileText} label="Application No." value={req.application_number || '—'} />
                                             <DetailItem icon={Clock} label="Requested" value={formatDate(req.request_date)} />
+                                            <DetailItem icon={User} label="Raised By" value={req.raised_by ? `${req.raised_by}${req.raised_by_id ? ` (${req.raised_by_id})` : ''}` : '—'} />
                                         </div>
                                     </div>
 
