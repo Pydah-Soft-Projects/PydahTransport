@@ -3,6 +3,7 @@ const { getDefaultAcademicYear, resolveAcademicYear } = require('./transportRequ
 const { resolveStudentPhoto } = require('../utils/studentPhoto');
 const { validateStudentAcademicContext } = require('../utils/studentAcademicValidation');
 const { getCollegesForCampuses } = require('./campusController');
+const TransportRequest = require('../models/TransportRequest');
 
 const getRestrictedCollegesForUser = async (user, selectedCampusId = null) => {
     const isSuperAdmin = user && user.roles && user.roles.includes('superadmin');
@@ -183,9 +184,9 @@ const getCourseExpiry = async (req, res) => {
                         WHEN cte.expiry_date IS NOT NULL AND CURDATE() > cte.expiry_date THEN 1
                         ELSE 0
                     END AS is_past,
-                    COALESCE(pc.passenger_count, 0) AS passenger_count,
-                    COALESCE(pc.active_passenger_count, 0) AS active_passenger_count,
-                    COALESCE(pc.expired_passenger_count, 0) AS expired_passenger_count
+                    0 AS passenger_count,
+                    0 AS active_passenger_count,
+                    0 AS expired_passenger_count
              FROM courses c
              JOIN (
                SELECT 1 AS year_of_study UNION ALL SELECT 2 UNION ALL SELECT 3
@@ -195,64 +196,72 @@ const getCourseExpiry = async (req, res) => {
                ON cte.course_id = c.id
               AND cte.academic_year = ?
               AND cte.year_of_study = yrs.year_of_study
-             LEFT JOIN (
-               SELECT
-                 c2.id AS course_id,
-                 COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1) AS year_of_study,
-                 COUNT(*) AS passenger_count,
-                 SUM(CASE
-                   WHEN (COALESCE(cte2.expiry_date, sem2.end_date) IS NULL OR CURDATE() <= COALESCE(cte2.expiry_date, sem2.end_date))
-                    AND NOT (
-                      COALESCE(cte2.expiry_date, sem2.end_date) IS NULL
-                      AND STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay2.year_label, '-', -1), '-06-30'), '%Y-%m-%d') IS NOT NULL
-                      AND CURDATE() > STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay2.year_label, '-', -1), '-06-30'), '%Y-%m-%d')
-                    )
-                   THEN 1 ELSE 0
-                 END) AS active_passenger_count,
-                 SUM(CASE
-                   WHEN (
-                      COALESCE(cte2.expiry_date, sem2.end_date) IS NOT NULL
-                      AND CURDATE() > COALESCE(cte2.expiry_date, sem2.end_date)
-                    ) OR (
-                      COALESCE(cte2.expiry_date, sem2.end_date) IS NULL
-                      AND STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay2.year_label, '-', -1), '-06-30'), '%Y-%m-%d') IS NOT NULL
-                      AND CURDATE() > STR_TO_DATE(CONCAT(SUBSTRING_INDEX(ay2.year_label, '-', -1), '-06-30'), '%Y-%m-%d')
-                    )
-                   THEN 1 ELSE 0
-                 END) AS expired_passenger_count
-               FROM transport_requests tr
-               LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
-               LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
-               LEFT JOIN colleges coll ON coll.name = COALESCE(s1.college, s2.college) COLLATE utf8mb4_unicode_ci
-               INNER JOIN courses c2 ON c2.name = COALESCE(s1.course, s2.course) AND c2.college_id = coll.id AND c2.is_active = 1
-               LEFT JOIN academic_years ay2
-                 ON ay2.year_label = COALESCE(tr.academic_year, ?)
-               LEFT JOIN course_transport_expiry cte2
-                 ON cte2.course_id = c2.id
-                AND cte2.academic_year = ay2.year_label
-                AND cte2.year_of_study = COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)
-               LEFT JOIN semesters sem2
-                 ON sem2.id = tr.semester_id
-                AND sem2.course_id = c2.id
-                AND sem2.academic_year_id = ay2.id
-                AND CAST(sem2.batch AS CHAR) = CAST(COALESCE(s1.batch, s2.batch) AS CHAR)
-                AND sem2.year_of_study = COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)
-               WHERE tr.status = 'approved'
-                 AND COALESCE(tr.academic_year, ?) = ?
-               GROUP BY c2.id, COALESCE(s1.current_year, s2.current_year, tr.year_of_study, 1)
-             ) pc ON pc.course_id = c.id AND pc.year_of_study = yrs.year_of_study
              WHERE c.is_active = 1
              ORDER BY c.name ASC, yrs.year_of_study ASC`,
-            [academicYear, fallbackAcademicYear, fallbackAcademicYear, academicYear]
+            [academicYear]
         );
+
+        const approvedMongoReqs = await TransportRequest.find({ status: 'approved' }).lean();
+        const filteredMongoReqs = approvedMongoReqs.filter(r => (r.academic_year || fallbackAcademicYear) === academicYear);
+
+        const admissionNos = [...new Set(filteredMongoReqs.map(r => r.admission_number).filter(Boolean))];
+        let studentMap = {};
+        if (admissionNos.length > 0) {
+            const [studentRows] = await mysqlPool.query(
+                `SELECT admission_number, admission_no, course, current_year FROM students WHERE admission_number IN (?) OR admission_no IN (?)`,
+                [admissionNos, admissionNos]
+            );
+            for (const s of studentRows) {
+                if (s.admission_number) studentMap[s.admission_number] = s;
+                if (s.admission_no) studentMap[s.admission_no] = s;
+            }
+        }
+
+        const countsMap = {};
+        const now = new Date();
+
+        for (const r of filteredMongoReqs) {
+            const student = (r.admission_number && studentMap[r.admission_number]) || {};
+            const courseName = student.course;
+            const yearOfStudy = r.year_of_study || student.current_year || 1;
+            if (!courseName) continue;
+
+            const key = `${courseName}_${yearOfStudy}`;
+            if (!countsMap[key]) {
+                countsMap[key] = { passenger_count: 0, active_passenger_count: 0, expired_passenger_count: 0 };
+            }
+            countsMap[key].passenger_count += 1;
+
+            let isExpired = false;
+            if (r.expiry_date) {
+                isExpired = new Date(r.expiry_date) < now;
+            } else if (r.semester_end_date) {
+                isExpired = new Date(r.semester_end_date) < now;
+            }
+
+            if (isExpired) {
+                countsMap[key].expired_passenger_count += 1;
+            } else {
+                countsMap[key].active_passenger_count += 1;
+            }
+        }
+
+        const formattedCourses = rows.map((row) => {
+            const key = `${row.course_name}_${row.year_of_study}`;
+            const counts = countsMap[key] || { passenger_count: 0, active_passenger_count: 0, expired_passenger_count: 0 };
+            return {
+                ...row,
+                year_of_study: Number(row.year_of_study),
+                passenger_count: counts.passenger_count,
+                active_passenger_count: counts.active_passenger_count,
+                expired_passenger_count: counts.expired_passenger_count,
+            };
+        });
 
         const yearWiseKeyOk = await courseExpirySupportsYearOfStudy();
         res.json({
             academicYear,
-            courses: rows.map((row) => ({
-                ...row,
-                year_of_study: Number(row.year_of_study),
-            })),
+            courses: formattedCourses,
             yearWiseKeyOk,
             ...(yearWiseKeyOk ? {} : { migrationHint: COURSE_EXPIRY_MIGRATION_MSG }),
         });
@@ -558,14 +567,11 @@ const getAcademicValidation = async (req, res) => {
         const admNo = studentRecord.admission_number || studentRecord.admission_no || admission_number || admission_no;
         const fallbackYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
 
-        const [existingRequests] = await mysqlPool.query(
-            `SELECT id, status, route_name, stage_name FROM transport_requests
-             WHERE admission_number = ?
-               AND status IN ('pending', 'approved')
-               AND COALESCE(academic_year, ?) = ?
-             LIMIT 1`,
-            [admNo, fallbackYear, academicYear]
-        );
+        const mongoReqs = await TransportRequest.find({
+            admission_number: admNo,
+            status: { $in: ['pending', 'approved'] }
+        }).lean();
+        const existingRequests = mongoReqs.filter(r => (r.academic_year || fallbackYear) === academicYear);
 
         if (existingRequests.length > 0) {
             return res.json({

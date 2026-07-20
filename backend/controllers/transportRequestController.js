@@ -4,6 +4,7 @@ const Bus = require('../models/Bus');
 const Route = require('../models/Route');
 const mongoose = require('mongoose');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
+const TransportRequest = require('../models/TransportRequest');
 const { validateStudentAcademicContext, getExpectedYearForBatch } = require('../utils/studentAcademicValidation');
 const { assignTransportApplicationNumber, peekNextTransportApplicationNumber, formatApplicationCode } = require('../utils/transportApplicationNumber');
 const { resolveApplicationNumberContext } = require('../utils/applicationNumberContext');
@@ -389,19 +390,11 @@ async function findExistingTransportRequestForYear({ admissionNumber, academicYe
         return rows.find((r) => (r.academic_year || fallbackYear) === resolvedYear) || null;
     }
 
-    if (!mysqlPool) return null;
-
-    const [rows] = await mysqlPool.query(
-        `SELECT id, status, route_name, stage_name, academic_year, admission_number
-         FROM transport_requests
-         WHERE admission_number = ?
-           AND status IN ('pending', 'approved')
-           AND COALESCE(academic_year, ?) = ?
-         ORDER BY request_date DESC
-         LIMIT 1`,
-        [admissionNumber, fallbackYear, resolvedYear]
-    );
-    return rows[0] || null;
+    const rows = await TransportRequest.find({
+        admission_number: admissionNumber,
+        status: { $in: ['pending', 'approved'] },
+    }).sort({ request_date: -1 }).lean();
+    return rows.find((r) => (r.academic_year || fallbackYear) === resolvedYear) || null;
 }
 
 function buildDuplicateRequestMessage(existing, academicYear, userType) {
@@ -502,6 +495,26 @@ async function getApplicationNumberForApprovalPreview(mysqlPool, requestRow) {
     }
 }
 
+async function findTransportRequest(requestId) {
+    if (!requestId) return null;
+    let doc = null;
+
+    if (mongoose.isValidObjectId(requestId)) {
+        doc = await TransportRequest.findById(requestId).lean();
+        if (doc) return { doc, type: 'student' };
+
+        doc = await EmployeeTransportRequest.findById(requestId).lean();
+        if (doc) return { doc, type: 'employee' };
+    }
+
+    if (!isNaN(requestId)) {
+        doc = await TransportRequest.findOne({ id: Number(requestId) }).lean();
+        if (doc) return { doc, type: 'student' };
+    }
+
+    return null;
+}
+
 // @desc    Get expiry for a transport request (last sem of student's year – for approve popup)
 // @route   GET /api/transport-requests/:id/semester-options
 // @access  Private/Admin
@@ -509,33 +522,37 @@ const getSemesterOptions = async (req, res) => {
     const requestId = req.params.id;
     
     try {
-        if (isMongoId(requestId)) {
-            const reqRow = await EmployeeTransportRequest.findById(requestId).lean();
-            if (!reqRow) return res.status(404).json({ message: 'Request not found' });
-            
-            const routeId = reqRow.route_id;
+        const reqMatch = await findTransportRequest(requestId);
+        if (!reqMatch) {
+            return res.status(404).json({ message: 'Transport request not found' });
+        }
+
+        const { doc: transportRequest, type } = reqMatch;
+
+        if (type === 'employee') {
+            const routeId = transportRequest.route_id;
             let busesOnRoute = [];
             if (routeId) {
                 busesOnRoute = await getBusesWithSeatsForRoute(routeId);
             }
 
-            let applicationPreview = { academic_year: reqRow.academic_year || getDefaultAcademicYear() };
+            let applicationPreview = { academic_year: transportRequest.academic_year || getDefaultAcademicYear() };
             if (mysqlPool) {
-                applicationPreview = await getApplicationNumberForApprovalPreview(mysqlPool, reqRow);
-            } else if (reqRow.application_number) {
-                applicationPreview.application_number = reqRow.application_number;
+                applicationPreview = await getApplicationNumberForApprovalPreview(mysqlPool, transportRequest);
+            } else if (transportRequest.application_number) {
+                applicationPreview.application_number = transportRequest.application_number;
             }
 
             return res.json({
-                requestId: String(reqRow._id),
-                studentName: reqRow.employee_name,
-                admissionNumber: reqRow.emp_no,
+                requestId: String(transportRequest._id),
+                studentName: transportRequest.employee_name,
+                admissionNumber: transportRequest.emp_no,
                 course: 'Employee',
                 yearOfStudy: null,
                 route_id: routeId,
-                route_name: reqRow.route_name,
-                stage_name: reqRow.stage_name,
-                fare: Number(reqRow.fare) || 0,
+                route_name: transportRequest.route_name,
+                stage_name: transportRequest.stage_name,
+                fare: Number(transportRequest.fare) || 0,
                 resolved_fare: 0,
                 fare_mismatch: false,
                 busesOnRoute,
@@ -545,24 +562,22 @@ const getSemesterOptions = async (req, res) => {
             });
         }
 
-        if (!mysqlPool) {
-            return res.status(500).json({ message: 'MySQL connection not established' });
-        }
-        const [reqRows] = await mysqlPool.query('SELECT * FROM transport_requests WHERE id = ?', [requestId]);
-        const transportRequest = reqRows[0];
-        if (!transportRequest) {
-            return res.status(404).json({ message: 'Transport request not found' });
-        }
         const admissionNumber = transportRequest.admission_number || transportRequest.admission_no;
         if (!admissionNumber) {
             return res.status(400).json({ message: 'Request has no admission number.' });
         }
-        const lastSem = await getLastSemesterForRequest(mysqlPool, transportRequest);
-        const [studentRows] = await mysqlPool.query(
-            'SELECT course, current_year FROM students WHERE admission_number = ? OR admission_no = ? LIMIT 1',
-            [admissionNumber, admissionNumber]
-        );
-        const student = studentRows[0] || {};
+
+        let student = {};
+        let lastSem = null;
+        if (mysqlPool) {
+            lastSem = await getLastSemesterForRequest(mysqlPool, transportRequest);
+            const [studentRows] = await mysqlPool.query(
+                'SELECT course, current_year FROM students WHERE admission_number = ? OR admission_no = ? LIMIT 1',
+                [admissionNumber, admissionNumber]
+            );
+            student = studentRows[0] || {};
+        }
+
         const routeId = transportRequest.route_id;
         const routeName = transportRequest.route_name;
         let busesOnRoute = [];
@@ -581,11 +596,12 @@ const getSemesterOptions = async (req, res) => {
         const storedFare = Number(transportRequest.fare);
 
         return res.json({
-            requestId: Number(requestId),
+            requestId: transportRequest.id != null ? Number(transportRequest.id) : String(transportRequest._id),
+            _id: String(transportRequest._id),
             studentName: transportRequest.student_name,
             admissionNumber,
-            course: student.course,
-            yearOfStudy: student.current_year != null ? Number(student.current_year) : 1,
+            course: student.course || 'N/A',
+            yearOfStudy: student.current_year != null ? Number(student.current_year) : (transportRequest.year_of_study || 1),
             route_id: routeId,
             route_name: routeName,
             stage_name: transportRequest.stage_name,
@@ -599,18 +615,15 @@ const getSemesterOptions = async (req, res) => {
                     expiry_date: lastSem.end_date,
                     year_of_study: lastSem.year_of_study,
                     semester_number: lastSem.semester_number,
-                    label: `End of Year ${lastSem.year_of_study}, Sem ${lastSem.semester_number}`,
                     semester_id: lastSem.id,
                     semester_start_date: lastSem.start_date,
                     semester_end_date: lastSem.end_date,
                     academic_year_id: lastSem.academic_year_id,
                 }
                 : null,
+            user_type: 'student'
         });
     } catch (error) {
-        if (error.code === 'ER_NO_SUCH_TABLE') {
-            return res.status(503).json({ message: 'Semesters table not found. Please create it and run alter-transport-requests-semester.sql.' });
-        }
         console.error('Error fetching semester options:', error);
         return res.status(500).json({ message: error.message || 'Failed to fetch expiry' });
     }
@@ -621,12 +634,8 @@ const getSemesterOptions = async (req, res) => {
 // @access  Private/Admin
 const getTransportRequests = async (req, res) => {
     try {
-        if (!mysqlPool) {
-            return res.status(500).json({ message: 'MySQL connection not established' });
-        }
         const { route_id, status, bus_id, course, search } = req.query;
         const explicitAcademicYear = req.query.academicYear || req.query.academic_year;
-        const parts = getActivePassengerSqlParts(resolveAcademicYear(req.query));
         const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
         const filterAcademicYear = explicitAcademicYear
             ? resolveAcademicYear(req.query)
@@ -635,56 +644,6 @@ const getTransportRequests = async (req, res) => {
         const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
         const hasCampusRestriction = req.user && !isSuperAdmin && req.user.campuses && req.user.campuses.length > 0;
 
-        let sql = `
-            SELECT tr.*,
-                   COALESCE(tr.year_of_study, s1.current_year, s2.current_year) as year_of_study,
-                   COALESCE(s1.course, s2.course) as course,
-                   COALESCE(s1.branch, s2.branch) as branch,
-                   COALESCE(s1.pin_no, s2.pin_no) as pin_no,
-                   ${parts.effectiveExpiryExpr} as effective_expiry_date,
-                   cte.expiry_date as course_expiry_date,
-                   ${parts.isExpiredExpr} as is_expired
-            FROM transport_requests tr
-            ${parts.studentJoins}
-            ${parts.expiryJoins}
-        `;
-        const params = [...parts.expiryParams];
-
-        sql += ' WHERE 1=1';
-
-        if (route_id) {
-            sql += ' AND tr.route_id = ?';
-            params.push(route_id);
-        }
-        if (status === 'expired') {
-            sql += " AND tr.status = 'approved' AND " + parts.isExpiredExpr;
-        } else if (status === 'active') {
-            sql += " AND tr.status = 'approved' AND " + parts.activeWhere;
-        } else if (status) {
-            sql += ' AND tr.status = ?';
-            params.push(status);
-        }
-        if (bus_id !== undefined) {
-            if (bus_id === '' || bus_id === 'unassigned') {
-                sql += ' AND (tr.bus_id IS NULL OR tr.bus_id = \'\')';
-            } else {
-                sql += ' AND tr.bus_id = ?';
-                params.push(bus_id);
-            }
-        }
-        if (course) {
-            sql += ' AND COALESCE(s1.course, s2.course) = ?';
-            params.push(course);
-        }
-        if (search) {
-            sql += ' AND (tr.student_name LIKE ? OR tr.admission_number LIKE ?)';
-            const searchPattern = `%${search}%`;
-            params.push(searchPattern, searchPattern);
-        }
-        if (filterAcademicYear) {
-            sql += ' AND COALESCE(tr.academic_year, ?) = ?';
-            params.push(fallbackAcademicYear, filterAcademicYear);
-        }
         let allowedRouteIds = [];
         let filterByCampusRoutes = false;
         let queryCampusId = campusService.normalizeCampusId(req.query.campus);
@@ -699,30 +658,119 @@ const getTransportRequests = async (req, res) => {
             filterByCampusRoutes = true;
         }
 
-        if (filterByCampusRoutes) {
-            if (allowedRouteIds.length > 0) {
-                const routePlaceholders = allowedRouteIds.map(() => '?').join(',');
-                sql += ` AND tr.route_id IN (${routePlaceholders})`;
-                params.push(...allowedRouteIds);
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+
+        // Build MongoDB query for student transport requests
+        const studentMongoQuery = {};
+        if (route_id) studentMongoQuery.route_id = route_id;
+        if (status === 'expired' || status === 'active') {
+            studentMongoQuery.status = 'approved';
+        } else if (status) {
+            studentMongoQuery.status = status;
+        }
+        if (bus_id !== undefined) {
+            if (bus_id === '' || bus_id === 'unassigned') {
+                studentMongoQuery.$or = [{ bus_id: null }, { bus_id: '' }];
             } else {
-                sql += ' AND 1=0';
+                studentMongoQuery.bus_id = bus_id;
+            }
+        }
+        if (search) {
+            const searchRegex = new RegExp(search, 'i');
+            const searchConditions = [
+                { student_name: searchRegex },
+                { admission_number: searchRegex }
+            ];
+            if (studentMongoQuery.$or) {
+                studentMongoQuery.$and = [
+                    { $or: studentMongoQuery.$or },
+                    { $or: searchConditions }
+                ];
+                delete studentMongoQuery.$or;
+            } else {
+                studentMongoQuery.$or = searchConditions;
             }
         }
 
-        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
-
-        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
-        if (restrictedColleges !== null) {
-            sql += ' AND COALESCE(s1.college, s2.college) IN (?)';
-            params.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
+        if (filterByCampusRoutes) {
+            if (allowedRouteIds.length > 0) {
+                if (studentMongoQuery.route_id) {
+                    if (!allowedRouteIds.includes(studentMongoQuery.route_id)) {
+                        studentMongoQuery.route_id = '__NONE__';
+                    }
+                } else {
+                    studentMongoQuery.route_id = { $in: allowedRouteIds };
+                }
+            } else {
+                studentMongoQuery.route_id = '__NONE__';
+            }
         }
-        if (hasCourseRestriction) {
-            sql += ' AND COALESCE(s1.course, s2.course) IN (?)';
-            params.push(req.user.courses);
+
+        const rawStudentMongoRows = await TransportRequest.find(studentMongoQuery).lean();
+
+        const filteredStudentMongoRows = filterAcademicYear
+            ? rawStudentMongoRows.filter(
+                (r) => (r.academic_year || fallbackAcademicYear) === filterAcademicYear
+            )
+            : rawStudentMongoRows;
+
+        // Fetch student info from MySQL students table for course, branch, college, pin_no
+        const admissionNos = [...new Set(filteredStudentMongoRows.map(r => r.admission_number).filter(Boolean))];
+        let studentMap = {};
+        if (mysqlPool && admissionNos.length > 0) {
+            const [studentRows] = await mysqlPool.query(
+                `SELECT admission_number, admission_no, course, branch, pin_no, college, current_year
+                 FROM students
+                 WHERE admission_number IN (?) OR admission_no IN (?)`,
+                [admissionNos, admissionNos]
+            );
+            for (const s of studentRows) {
+                if (s.admission_number) studentMap[s.admission_number] = s;
+                if (s.admission_no) studentMap[s.admission_no] = s;
+            }
         }
 
-        sql += ' ORDER BY tr.request_date DESC';
-        const [mysqlRows] = await mysqlPool.query(sql, params);
+        const now = new Date();
+        const formattedStudentRows = [];
+
+        for (const r of filteredStudentMongoRows) {
+            const admNo = r.admission_number;
+            const student = (admNo && studentMap[admNo]) || {};
+
+            const itemCourse = student.course || 'N/A';
+            const itemBranch = student.branch || 'N/A';
+            const itemCollege = student.college || null;
+            const itemPinNo = student.pin_no || 'N/A';
+            const itemYear = r.year_of_study || student.current_year || 1;
+
+            if (course && itemCourse !== course) continue;
+            if (restrictedColleges !== null && (!itemCollege || !restrictedColleges.includes(itemCollege))) continue;
+            if (hasCourseRestriction && (!itemCourse || !req.user.courses.includes(itemCourse))) continue;
+
+            let isExpired = false;
+            if (r.expiry_date) {
+                isExpired = new Date(r.expiry_date) < now;
+            } else if (r.semester_end_date) {
+                isExpired = new Date(r.semester_end_date) < now;
+            }
+
+            if (status === 'expired' && (!isExpired || r.status !== 'approved')) continue;
+            if (status === 'active' && (isExpired || r.status !== 'approved')) continue;
+
+            formattedStudentRows.push({
+                ...r,
+                id: r.id != null ? r.id : String(r._id),
+                _id: String(r._id),
+                user_type: 'student',
+                year_of_study: itemYear,
+                course: itemCourse,
+                branch: itemBranch,
+                pin_no: itemPinNo,
+                effective_expiry_date: r.expiry_date || r.semester_end_date || null,
+                is_expired: isExpired,
+            });
+        }
 
         // Fetch Employee requests from MongoDB
         const mongoQuery = {};
@@ -756,8 +804,6 @@ const getTransportRequests = async (req, res) => {
         }
 
         let mongoRows = [];
-        // Employee requests don't have a course, if course filter is set, employees are typically excluded 
-        // unless course exactly matches "Employee"
         if (!course || course === 'Employee') {
             const rawMongoRows = await EmployeeTransportRequest.find(mongoQuery).lean();
             const filteredMongoRows = filterAcademicYear
@@ -788,13 +834,9 @@ const getTransportRequests = async (req, res) => {
             }));
         }
 
-        const enrichedMysqlRows = await enrichTransportFareAdjustments(mysqlPool, mysqlRows.map(r => ({
-            ...r,
-            user_type: 'student',
-            is_expired: Boolean(r.is_expired),
-        })));
+        const enrichedStudentRows = await enrichTransportFareAdjustments(mysqlPool, formattedStudentRows);
 
-        const combined = [...enrichedMysqlRows, ...mongoRows];
+        const combined = [...enrichedStudentRows, ...mongoRows];
         combined.sort((a, b) => {
             const appA = a.application_number;
             const appB = b.application_number;
@@ -803,7 +845,7 @@ const getTransportRequests = async (req, res) => {
             }
             if (appA) return -1;
             if (appB) return 1;
-            return new Date(b.request_date) - new Date(a.request_date);
+            return new Date(b.request_date || 0) - new Date(a.request_date || 0);
         });
 
         res.json(combined);
@@ -822,20 +864,34 @@ const updateTransportRequest = async (req, res) => {
     try {
         if (isMongoId(requestId)) {
             const reqRow = await EmployeeTransportRequest.findById(requestId);
-            if (!reqRow) return res.status(404).json({ message: 'Request not found' });
-            reqRow.bus_id = bus_id || null;
-            await reqRow.save();
+            if (reqRow) {
+                reqRow.bus_id = bus_id || null;
+                await reqRow.save();
+                return res.json({
+                    id: reqRow._id.toString(),
+                    admission_number: reqRow.emp_no,
+                    student_name: reqRow.employee_name,
+                    route_id: reqRow.route_id ? reqRow.route_id.toString() : null,
+                    route_name: reqRow.route_name,
+                    stage_name: reqRow.stage_name,
+                    fare: reqRow.fare,
+                    status: reqRow.status,
+                    bus_id: reqRow.bus_id,
+                    user_type: 'employee'
+                });
+            }
+        }
+
+        const studentReqQuery = { $or: [{ id: Number(requestId) }] };
+        if (isMongoId(requestId)) studentReqQuery.$or.push({ _id: requestId });
+        const studentReq = await TransportRequest.findOne(studentReqQuery);
+        if (studentReq) {
+            studentReq.bus_id = bus_id || null;
+            await studentReq.save();
             return res.json({
-                id: reqRow._id.toString(),
-                admission_number: reqRow.emp_no,
-                student_name: reqRow.employee_name,
-                route_id: reqRow.route_id ? reqRow.route_id.toString() : null,
-                route_name: reqRow.route_name,
-                stage_name: reqRow.stage_name,
-                fare: reqRow.fare,
-                status: reqRow.status,
-                bus_id: reqRow.bus_id,
-                user_type: 'employee'
+                ...studentReq.toObject(),
+                id: studentReq.id != null ? studentReq.id : String(studentReq._id),
+                user_type: 'student'
             });
         }
 
@@ -861,52 +917,51 @@ const updateTransportRequest = async (req, res) => {
 const getPassengerFullDetails = async (req, res) => {
     const requestId = req.params.id;
     try {
-        if (isMongoId(requestId)) {
-            const reqRow = await EmployeeTransportRequest.findById(requestId).lean();
-            if (!reqRow) return res.status(404).json({ message: 'Request not found' });
+        const reqMatch = await findTransportRequest(requestId);
+        if (!reqMatch) {
+            return res.status(404).json({ message: 'Transport request not found' });
+        }
+
+        const { doc: reqDoc, type } = reqMatch;
+        const { resolveStudentPhoto } = require('../utils/studentPhoto');
+
+        if (type === 'employee') {
             return res.json({
-                ...reqRow,
-                id: reqRow._id.toString(),
-                admission_number: reqRow.emp_no,
-                student_name: reqRow.employee_name,
+                ...reqDoc,
+                id: reqDoc._id.toString(),
+                admission_number: reqDoc.emp_no,
+                student_name: reqDoc.employee_name,
                 user_type: 'employee',
                 course: 'Employee'
             });
         }
 
-        if (!mysqlPool) {
-            return res.status(500).json({ message: 'MySQL connection not established' });
+        let studentInfo = {};
+        const admissionNumber = reqDoc.admission_number;
+        if (mysqlPool && admissionNumber) {
+            const [rows] = await mysqlPool.query(
+                `SELECT s1.current_year as student_year, s1.course, s1.branch, s1.student_photo, s1.student_data, s1.pin_no, s1.student_mobile, s1.parent_mobile1, s1.student_address, s1.father_name
+                 FROM students s1
+                 WHERE s1.admission_number = ? OR s1.admission_no = ?
+                 LIMIT 1`,
+                [admissionNumber, admissionNumber]
+            );
+            studentInfo = rows[0] || {};
         }
 
-        const { resolveStudentPhoto } = require('../utils/studentPhoto');
-
-        const [rows] = await mysqlPool.query(
-            `SELECT tr.*, 
-                    COALESCE(tr.year_of_study, s1.current_year, s2.current_year) as year_of_study,
-                    COALESCE(s1.course, s2.course) as course,
-                    COALESCE(s1.branch, s2.branch) as branch,
-                    COALESCE(s1.student_photo, s2.student_photo) as student_photo,
-                    COALESCE(s1.student_data, s2.student_data) as student_data,
-                    COALESCE(s1.pin_no, s2.pin_no) as pin_no,
-                    COALESCE(s1.student_mobile, s2.student_mobile) as student_mobile,
-                    COALESCE(s1.parent_mobile1, s2.parent_mobile1) as parent_mobile1,
-                    COALESCE(s1.student_address, s2.student_address) as student_address,
-                    COALESCE(s1.father_name, s2.father_name) as father_name
-             FROM transport_requests tr 
-             LEFT JOIN students s1 ON tr.admission_number = s1.admission_number 
-             LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
-             WHERE tr.id = ?`,
-            [requestId]
-        );
-
-        if (!rows[0]) {
-            return res.status(404).json({ message: 'Transport request not found' });
-        }
-
-        const row = rows[0];
         res.json({
-            ...row,
-            student_photo: resolveStudentPhoto(row),
+            ...reqDoc,
+            id: reqDoc.id != null ? reqDoc.id : String(reqDoc._id),
+            year_of_study: reqDoc.year_of_study || studentInfo.student_year || 1,
+            course: studentInfo.course || 'N/A',
+            branch: studentInfo.branch || 'N/A',
+            student_photo: resolveStudentPhoto({ ...reqDoc, ...studentInfo }),
+            student_data: studentInfo.student_data || null,
+            pin_no: studentInfo.pin_no || 'N/A',
+            student_mobile: studentInfo.student_mobile || null,
+            parent_mobile1: studentInfo.parent_mobile1 || null,
+            student_address: studentInfo.student_address || null,
+            father_name: studentInfo.father_name || null,
             user_type: 'student',
         });
     } catch (error) {
@@ -965,40 +1020,58 @@ const approveTransportRequest = async (req, res) => {
                 amount: 0,
                 expiry_date: null,
             });
+        }        // Student request handling (MongoDB)
+        // Find the student transport request stored in MongoDB
+        const studentReqQuery = { $or: [{ id: Number(requestId) }] };
+        if (isMongoId(requestId)) studentReqQuery.$or.push({ _id: requestId });
+        const studentReq = await TransportRequest.findOne(studentReqQuery).lean();
+        if (!studentReq) {
+            return res.status(404).json({ message: 'Transport request not found' });
         }
+        if (studentReq.status === 'approved') return res.status(400).json({ message: 'Request is already approved' });
+        if (studentReq.status === 'rejected') return res.status(400).json({ message: 'Request was rejected and cannot be approved' });
+        if (studentReq.status === 'cancelled') return res.status(400).json({ message: 'Request was cancelled and cannot be approved' });
 
+        const resolvedAcademicYear = academicYear || studentReq.academic_year || process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
         if (!mysqlPool) {
             return res.status(500).json({ message: 'MySQL connection not established' });
         }
-
-        const [rows] = await mysqlPool.query(
-            'SELECT * FROM transport_requests WHERE id = ?',
-            [requestId]
-        );
-        const request = rows[0];
-        if (!request) {
-            return res.status(404).json({ message: 'Transport request not found' });
-        }
-        if (request.status === 'approved') {
-            return res.status(400).json({ message: 'Request is already approved' });
-        }
-        if (request.status === 'rejected') {
-            return res.status(400).json({ message: 'Request was rejected and cannot be approved' });
-        }
-        if (request.status === 'cancelled') {
-            return res.status(400).json({ message: 'Request was cancelled and cannot be approved' });
-        }
-
+        // Optionally override fare if provided
         if (req.body.fare != null) {
             const overrideFare = Number(req.body.fare);
             if (Number.isFinite(overrideFare)) {
-                await mysqlPool.query('UPDATE transport_requests SET fare = ? WHERE id = ?', [overrideFare, requestId]);
-                request.fare = overrideFare;
+                await TransportRequest.updateOne({ _id: studentReq._id }, { $set: { fare: overrideFare } });
+                studentReq.fare = overrideFare;
             }
         }
+        // Resolve application number context and assign numbers
+        const context = await resolveApplicationNumberContext(mysqlPool, {
+            admissionNumber: studentReq.admission_number,
+            userType: 'student',
+        });
+        const application = await assignTransportApplicationNumber(mysqlPool, {
+            academicYear: resolvedAcademicYear,
+            collegeCode: context.collegeCode,
+            courseCode: context.courseCode,
+            existingApplicationNumber: studentReq.application_number,
+            existingApplicationSerial: studentReq.application_serial,
+        });
 
-        // Expiry = last semester of student's year (same regardless of which sem they applied in)
-        const lastSem = await getLastSemesterForRequest(mysqlPool, request);
+        // Update Mongo document with approval data
+        const updateFields = {
+            status: 'approved',
+            academic_year: resolvedAcademicYear,
+            application_number: application.application_number,
+            application_serial: application.application_serial,
+            application_college_code: application.college_code,
+            application_course_code: application.course_code,
+        };
+        if (req.body.bus_id) {
+            updateFields.bus_id = req.body.bus_id;
+        }
+        await TransportRequest.updateOne({ _id: studentReq._id }, { $set: updateFields });
+        // Merge updates into request object for downstream processing
+        const request = { ...studentReq, ...updateFields };
 
         const admissionNumber = request.admission_number || request.admission_no;
         if (!admissionNumber) {
@@ -1007,12 +1080,7 @@ const approveTransportRequest = async (req, res) => {
             });
         }
 
-        const resolvedAcademicYear = academicYear || request.academic_year || process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
-        if (!resolvedAcademicYear) {
-            return res.status(400).json({
-                message: 'Academic year is required. Set CURRENT_ACADEMIC_YEAR in env or send academicYear in request body (e.g. "2024-2025").',
-            });
-        }
+        // Duplicate resolvedAcademicYear block removed; using earlier definition.
 
         // Fetch student from MySQL for course, branch, batch, year, semester, category
         let student = null;
@@ -1022,6 +1090,14 @@ const approveTransportRequest = async (req, res) => {
                 [admissionNumber, admissionNumber]
             );
             student = studentRows[0] || null;
+        }
+
+        // Fetch last semester for expiry date and semester update (same as legacy path)
+        let lastSem = null;
+        try {
+            lastSem = await getLastSemesterForRequest(mysqlPool, request);
+        } catch (semErr) {
+            console.error('Error fetching last semester for transport request:', semErr);
         }
 
         const college = process.env.FEE_DEFAULT_COLLEGE || 'Default';
@@ -1126,7 +1202,7 @@ const approveTransportRequest = async (req, res) => {
                     semester_number: lastSem.semester_number,
                 });
             }
-            const application = await markTransportRequestApproved(mysqlPool, requestId, {
+            const approvedApp = await markTransportRequestApproved(mysqlPool, requestId, {
                 bus_id: req.body.bus_id,
                 academicYear: resolvedAcademicYear,
                 existingApplicationNumber: request.application_number,
@@ -1136,10 +1212,10 @@ const approveTransportRequest = async (req, res) => {
             });
 
             return res.json({
-                message: `Request approved. Application No: ${application.application_number}. Transport fee for this student/year already exists in Fee Management.`,
+                message: `Request approved. Application No: ${approvedApp.application_number}. Transport fee for this student/year already exists in Fee Management.`,
                 requestId: Number(requestId),
-                application_number: application.application_number,
-                application_serial: application.application_serial,
+                application_number: approvedApp.application_number,
+                application_serial: approvedApp.application_serial,
                 expiry_date: lastSem?.end_date || null,
             });
         }
@@ -1168,7 +1244,7 @@ const approveTransportRequest = async (req, res) => {
                 semester_number: lastSem.semester_number,
             });
         }
-        const application = await markTransportRequestApproved(mysqlPool, requestId, {
+        const finalApprovedApp = await markTransportRequestApproved(mysqlPool, requestId, {
             bus_id: req.body.bus_id,
             academicYear: resolvedAcademicYear,
             existingApplicationNumber: request.application_number,
@@ -1178,11 +1254,11 @@ const approveTransportRequest = async (req, res) => {
         });
 
         res.json({
-            message: `Transport request approved. Application No: ${application.application_number}. Transport Fee (TRN01) created in Fee Management.`,
+            message: `Transport request approved. Application No: ${finalApprovedApp.application_number}. Transport Fee (TRN01) created in Fee Management.`,
             requestId: Number(requestId),
             academicYear: resolvedAcademicYear,
-            application_number: application.application_number,
-            application_serial: application.application_serial,
+            application_number: finalApprovedApp.application_number,
+            application_serial: finalApprovedApp.application_serial,
             amount,
             expiry_date: lastSem?.end_date || null,
         });
@@ -1214,17 +1290,34 @@ const rejectTransportRequest = async (req, res) => {
     try {
         if (isMongoId(requestId)) {
             const reqRow = await EmployeeTransportRequest.findById(requestId);
-            if (!reqRow) return res.status(404).json({ message: 'Transport request not found' });
-            if (reqRow.status === 'rejected') {
-                return res.json({ message: 'Request was already rejected.', requestId: String(requestId) });
+            if (reqRow) {
+                if (reqRow.status === 'rejected') {
+                    return res.json({ message: 'Request was already rejected.', requestId: String(requestId) });
+                }
+                if (reqRow.status === 'approved') {
+                    return res.status(400).json({ message: 'Cannot reject an approved request.' });
+                }
+
+                reqRow.status = 'rejected';
+                await reqRow.save();
+                return res.json({ message: 'Transport request rejected.', requestId: String(requestId) });
             }
-            if (reqRow.status === 'approved') {
+        }
+
+        const studentReqQuery = { $or: [{ id: Number(requestId) }] };
+        if (isMongoId(requestId)) studentReqQuery.$or.push({ _id: requestId });
+        const studentReq = await TransportRequest.findOne(studentReqQuery);
+        if (studentReq) {
+            if (studentReq.status === 'rejected') {
+                return res.json({ message: 'Request was already rejected.', requestId: studentReq.id != null ? studentReq.id : String(studentReq._id) });
+            }
+            if (studentReq.status === 'approved') {
                 return res.status(400).json({ message: 'Cannot reject an approved request.' });
             }
 
-            reqRow.status = 'rejected';
-            await reqRow.save();
-            return res.json({ message: 'Transport request rejected.', requestId: String(requestId) });
+            studentReq.status = 'rejected';
+            await studentReq.save();
+            return res.json({ message: 'Transport request rejected.', requestId: studentReq.id != null ? studentReq.id : String(studentReq._id) });
         }
 
         if (!mysqlPool) {
@@ -1265,27 +1358,75 @@ const cancelTransportRequest = async (req, res) => {
     try {
         if (isMongoId(requestId)) {
             const reqRow = await EmployeeTransportRequest.findById(requestId);
-            if (!reqRow) return res.status(404).json({ message: 'Transport request not found' });
-            if (reqRow.status === 'cancelled') {
+            if (reqRow) {
+                if (reqRow.status === 'cancelled') {
+                    return res.json({
+                        message: 'Request is already cancelled.',
+                        requestId: String(requestId),
+                        cancellation_reason: reqRow.cancellation_reason || reason,
+                    });
+                }
+                if (reqRow.status !== 'approved') {
+                    return res.status(400).json({ message: 'Only approved requests can be cancelled.' });
+                }
+
+                reqRow.status = 'cancelled';
+                reqRow.cancellation_reason = reason;
+                reqRow.cancelled_at = new Date();
+                await reqRow.save();
+
                 return res.json({
-                    message: 'Request is already cancelled.',
+                    message: 'Transport request cancelled. The seat has been vacated.',
                     requestId: String(requestId),
-                    cancellation_reason: reqRow.cancellation_reason || reason,
+                    cancellation_reason: reason,
                 });
             }
-            if (reqRow.status !== 'approved') {
+        }
+
+        const studentReqQuery = { $or: [{ id: Number(requestId) }] };
+        if (isMongoId(requestId)) studentReqQuery.$or.push({ _id: requestId });
+        const mongoStudentReq = await TransportRequest.findOne(studentReqQuery);
+        if (mongoStudentReq) {
+            if (mongoStudentReq.status === 'cancelled') {
+                return res.json({
+                    message: 'Request is already cancelled.',
+                    requestId: mongoStudentReq.id != null ? mongoStudentReq.id : String(mongoStudentReq._id),
+                    cancellation_reason: mongoStudentReq.cancellation_reason || reason,
+                });
+            }
+            if (mongoStudentReq.status !== 'approved') {
                 return res.status(400).json({ message: 'Only approved requests can be cancelled.' });
             }
 
-            reqRow.status = 'cancelled';
-            reqRow.cancellation_reason = reason;
-            reqRow.cancelled_at = new Date();
-            await reqRow.save();
+            mongoStudentReq.status = 'cancelled';
+            mongoStudentReq.cancellation_reason = reason;
+            mongoStudentReq.cancelled_at = new Date();
+            await mongoStudentReq.save();
+
+            const admissionNumber = mongoStudentReq.admission_number;
+            const resolvedAcademicYear = mongoStudentReq.academic_year || process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
+            const feeResult = await deactivateTransportFeeForCancellation({
+                admissionNumber,
+                academicYear: resolvedAcademicYear,
+                studentYear: mongoStudentReq.year_of_study,
+                semester: mongoStudentReq.semester_number,
+                cancellationReason: reason,
+            });
+
+            let message = 'Transport request cancelled. The seat has been vacated.';
+            if (feeResult.updated) {
+                message += ' Transport fee (TRN01) marked inactive in Fee Management with cancellation remarks.';
+            } else if (feeResult.reason === 'fee_db_unavailable') {
+                message += ' Fee Management was not connected — transport fee was not updated.';
+            } else if (feeResult.reason === 'fee_not_found') {
+                message += ' No active transport fee record was found to deactivate.';
+            }
 
             return res.json({
-                message: 'Transport request cancelled. The seat has been vacated.',
-                requestId: String(requestId),
+                message,
+                requestId: mongoStudentReq.id != null ? mongoStudentReq.id : String(mongoStudentReq._id),
                 cancellation_reason: reason,
+                fee_deactivated: feeResult.updated,
             });
         }
 
@@ -1394,38 +1535,33 @@ async function markTransportRequestApproved(mysqlPool, requestId, {
         existingApplicationSerial,
     });
 
-    try {
-        await mysqlPool.query(
-            `UPDATE transport_requests
-             SET status = 'approved',
-                 bus_id = ?,
-                 application_number = ?,
-                 application_serial = ?,
-                 application_college_code = ?,
-                 application_course_code = ?
-             WHERE id = ?`,
-            [
-                bus_id || null,
-                application.application_number,
-                application.application_serial,
-                application.college_code,
-                application.course_code,
-                requestId,
-            ]
-        );
-    } catch (error) {
-        if (error.code === 'ER_BAD_FIELD_ERROR') {
-            await mysqlPool.query(
-                `UPDATE transport_requests
-                 SET status = 'approved',
-                     bus_id = ?,
-                     application_number = ?,
-                     application_serial = ?
-                 WHERE id = ?`,
-                [bus_id || null, application.application_number, application.application_serial, requestId]
-            );
-        } else {
-            throw error;
+    if (userType === 'employee') {
+        const empReq = await EmployeeTransportRequest.findById(requestId);
+        if (empReq) {
+            empReq.status = 'approved';
+            if (bus_id) empReq.bus_id = bus_id;
+            empReq.application_number = application.application_number;
+            empReq.application_serial = application.application_serial;
+            empReq.application_college_code = application.college_code;
+            empReq.application_course_code = application.course_code;
+            await empReq.save();
+        }
+    } else {
+        const queryConditions = [];
+        if (!isNaN(requestId)) queryConditions.push({ id: Number(requestId) });
+        if (isMongoId(requestId)) queryConditions.push({ _id: requestId });
+        if (queryConditions.length === 0) queryConditions.push({ id: requestId });
+        const query = queryConditions.length === 1 ? queryConditions[0] : { $or: queryConditions };
+        const mongoReq = await TransportRequest.findOne(query);
+
+        if (mongoReq) {
+            mongoReq.status = 'approved';
+            if (bus_id) mongoReq.bus_id = bus_id;
+            mongoReq.application_number = application.application_number;
+            mongoReq.application_serial = application.application_serial;
+            mongoReq.application_college_code = application.college_code;
+            mongoReq.application_course_code = application.course_code;
+            await mongoReq.save();
         }
     }
 
@@ -1453,24 +1589,26 @@ async function updateTransportRequestSemester(mysqlPool, requestId, fields) {
         year_of_study != null ||
         semester_number != null;
     if (!hasAny) return;
-    // expiry_date = semester end date (transport valid until end of that semester)
-    const expiry_date = semester_end_date ?? null;
-    await mysqlPool.query(
-        `UPDATE transport_requests SET
-      semester_id = ?, semester_start_date = ?, semester_end_date = ?,
-      expiry_date = ?, academic_year_id = ?, year_of_study = ?, semester_number = ?
-    WHERE id = ?`,
-        [
-            semester_id ?? null,
-            semester_start_date ?? null,
-            semester_end_date ?? null,
-            expiry_date,
-            academic_year_id ?? null,
-            year_of_study ?? null,
-            semester_number ?? null,
-            requestId,
-        ]
-    );
+
+    const queryConditions = [];
+    if (!isNaN(requestId)) queryConditions.push({ id: Number(requestId) });
+    if (isMongoId(requestId)) queryConditions.push({ _id: requestId });
+    if (queryConditions.length === 0) queryConditions.push({ id: requestId });
+    const query = queryConditions.length === 1 ? queryConditions[0] : { $or: queryConditions };
+    const mongoReq = await TransportRequest.findOne(query);
+
+    if (mongoReq) {
+        if (semester_id != null) mongoReq.semester_id = semester_id;
+        if (semester_start_date != null) mongoReq.semester_start_date = semester_start_date;
+        if (semester_end_date != null) {
+            mongoReq.semester_end_date = semester_end_date;
+            mongoReq.expiry_date = semester_end_date;
+        }
+        if (academic_year_id != null) mongoReq.academic_year_id = academic_year_id;
+        if (year_of_study != null) mongoReq.year_of_study = year_of_study;
+        if (semester_number != null) mongoReq.semester_number = semester_number;
+        await mongoReq.save();
+    }
 }
 
 // @desc    Create a transport request (Admin or Student)
@@ -1575,26 +1713,58 @@ const createTransportRequest = async (req, res) => {
             ? Number(studentRecord.current_year)
             : 1;
 
-        const sql = `
-            INSERT INTO transport_requests 
-            (admission_number, student_name, route_id, route_name, stage_name, fare, raised_by, raised_by_id, status, year_of_study, academic_year)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-        `;
-        const [result] = await mysqlPool.query(sql, [
+        let collegeCode = null;
+        let courseCode = null;
+        if (mysqlPool) {
+            try {
+                const context = await resolveApplicationNumberContext(mysqlPool, {
+                    admissionNumber: admission_number,
+                    userType: 'student',
+                });
+                collegeCode = context.collegeCode;
+                courseCode = context.courseCode;
+            } catch (err) {
+                // Non-fatal
+            }
+        }
+
+        const nextRequestId = await TransportRequest.getNextRequestId();
+
+        const docData = {
+            id: nextRequestId,
             admission_number,
             student_name,
             route_id,
             route_name,
             stage_name,
-            fare,
+            fare: fare ? Number(fare) : 0,
+            status: 'pending',
             raised_by,
             raised_by_id,
-            yearOfStudy,
-            resolvedAcademicYear,
-        ]);
+            year_of_study: yearOfStudy,
+            academic_year: resolvedAcademicYear,
+        };
 
-        const [newRequest] = await mysqlPool.query('SELECT * FROM transport_requests WHERE id = ?', [result.insertId]);
-        res.status(201).json(newRequest[0]);
+        if (collegeCode) docData.application_college_code = collegeCode;
+        if (courseCode) docData.application_course_code = courseCode;
+
+        const newReq = new TransportRequest(docData);
+        await newReq.save();
+
+        res.status(201).json({
+            id: newReq.id || newReq._id.toString(),
+            _id: newReq._id.toString(),
+            admission_number: newReq.admission_number,
+            student_name: newReq.student_name,
+            route_id: newReq.route_id,
+            route_name: newReq.route_name,
+            stage_name: newReq.stage_name,
+            fare: newReq.fare,
+            status: newReq.status,
+            academic_year: newReq.academic_year,
+            request_date: newReq.request_date,
+            year_of_study: newReq.year_of_study,
+        });
     } catch (error) {
         if (error.code === 'ER_BAD_FIELD_ERROR' && String(error.message).includes('academic_year')) {
             return res.status(503).json({
@@ -1661,38 +1831,61 @@ const getDashboardStats = async (req, res) => {
             }
         }
 
-        if (mysqlPool) {
-            const parts = getActivePassengerSqlParts(resolvedAcademicYear);
-            const activeFrom = `FROM transport_requests tr ${parts.studentJoins}`;
-            const activeWhere = `tr.status = 'approved' AND COALESCE(tr.academic_year, ?) = ?${restrictedWhere}`;
-            const activeParams = [fallbackAcademicYear, resolvedAcademicYear, ...restrictedParams];
+        // Aggregate Student Transport Requests from MongoDB
+        const studentMatch = { status: 'approved' };
+        if (resolvedAcademicYear === fallbackAcademicYear) {
+            studentMatch.$or = [
+                { academic_year: resolvedAcademicYear },
+                { academic_year: { $exists: false } },
+                { academic_year: null },
+                { academic_year: '' }
+            ];
+        } else {
+            studentMatch.academic_year = resolvedAcademicYear;
+        }
 
-            const [totalRows] = await mysqlPool.query(
-                `SELECT COUNT(*) as total ${activeFrom} WHERE ${activeWhere}`,
-                activeParams
-            );
-            totalPassengers += totalRows[0].total;
+        if (filterByCampusRoutes) {
+            if (campusRouteIds.length > 0) {
+                studentMatch.route_id = { $in: campusRouteIds };
+            } else {
+                studentMatch.route_id = '__NONE__';
+            }
+        }
 
-            const [routeRows] = await mysqlPool.query(
-                `SELECT tr.route_id, tr.route_name, COUNT(*) as count ${activeFrom} WHERE ${activeWhere} GROUP BY tr.route_id, tr.route_name`,
-                activeParams
-            );
-            routeBreakdown = routeRows;
+        const studentMongoTotal = await TransportRequest.countDocuments(studentMatch);
+        totalPassengers += studentMongoTotal;
 
-            const [stageRows] = await mysqlPool.query(
-                `SELECT tr.route_id, tr.route_name, tr.stage_name, COUNT(*) as count ${activeFrom} WHERE ${activeWhere} GROUP BY tr.route_id, tr.route_name, tr.stage_name`,
-                activeParams
-            );
-            stageBreakdown = stageRows;
+        const studentRouteRows = await TransportRequest.aggregate([
+            { $match: studentMatch },
+            { $group: { _id: { route_id: '$route_id', route_name: '$route_name' }, count: { $sum: 1 } } }
+        ]);
 
-            const [courseRows] = await mysqlPool.query(
-                `SELECT COALESCE(s1.course, s2.course) as course, COUNT(tr.id) as count
-                 ${activeFrom}
-                 WHERE ${activeWhere}
-                 GROUP BY COALESCE(s1.course, s2.course)`,
-                activeParams
+        routeBreakdown = studentRouteRows.map(sr => ({
+            route_id: sr._id.route_id,
+            route_name: sr._id.route_name,
+            count: sr.count
+        }));
+
+        const studentStageRows = await TransportRequest.aggregate([
+            { $match: studentMatch },
+            { $group: { _id: { route_id: '$route_id', route_name: '$route_name', stage_name: '$stage_name' }, count: { $sum: 1 } } }
+        ]);
+
+        stageBreakdown = studentStageRows.map(ss => ({
+            route_id: ss._id.route_id,
+            route_name: ss._id.route_name,
+            stage_name: ss._id.stage_name,
+            count: ss.count
+        }));
+
+        const approvedStudentDocs = await TransportRequest.find(studentMatch).select('admission_number').lean();
+        const admNos = [...new Set(approvedStudentDocs.map(d => d.admission_number).filter(Boolean))];
+        if (mysqlPool && admNos.length > 0) {
+            const [studentCourseRows] = await mysqlPool.query(
+                `SELECT course, COUNT(*) as count FROM students WHERE admission_number IN (?) OR admission_no IN (?) GROUP BY course`,
+                [admNos, admNos]
             );
-            courseBreakdown = courseRows;
+            courseBreakdown = studentCourseRows.map(c => ({ course: c.course || 'N/A', count: Number(c.count) }));
         }
 
         // Add MongoDB (Employee) Stats
@@ -2085,46 +2278,43 @@ const getApprovedPassengers = async (req, res) => {
             })));
         }
 
-        // Default to Students (MySQL)
-        if (!mysqlPool) {
-            return res.status(500).json({ message: 'MySQL connection not established' });
-        }
-
-        const parts = getActivePassengerSqlParts(resolveAcademicYear(req.query));
-        let sql = `
-            SELECT tr.id, tr.admission_number, tr.student_name, tr.route_id, tr.route_name, tr.stage_name, tr.fare, tr.year_of_study, tr.academic_year,
-                   COALESCE(s1.course, s2.course) as course,
-                   COALESCE(s1.branch, s2.branch) as branch,
-                   COALESCE(s1.pin_no, s2.pin_no) as pin_no
-            FROM transport_requests tr
-            ${parts.studentJoins}
-            ${parts.expiryJoins}
-            WHERE tr.status = 'approved' AND ${parts.activeWhere}
-        `;
-        const params = [...parts.expiryParams];
-
-        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
-        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
-
-        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
-        if (restrictedColleges !== null) {
-            sql += ' AND COALESCE(s1.college, s2.college) IN (?)';
-            params.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
-        }
-        if (hasCourseRestriction) {
-            sql += ' AND COALESCE(s1.course, s2.course) IN (?)';
-            params.push(req.user.courses);
-        }
-
+        // Fetch Approved Student Passengers from MongoDB
+        const studentQuery = { status: 'approved' };
         if (q) {
-            sql += ' AND (tr.student_name LIKE ? OR tr.admission_number LIKE ?)';
-            const searchPattern = `%${q}%`;
-            params.push(searchPattern, searchPattern);
+            studentQuery.$or = [
+                { student_name: { $regex: q, $options: 'i' } },
+                { admission_number: { $regex: q, $options: 'i' } }
+            ];
         }
 
-        sql += ' LIMIT 50';
-        const [rows] = await mysqlPool.query(sql, params);
-        res.json(rows.map(r => ({ ...r, user_type: 'student' })));
+        const studentDocs = await TransportRequest.find(studentQuery).limit(50).lean();
+        const admissionNos = [...new Set(studentDocs.map(r => r.admission_number).filter(Boolean))];
+        let studentMap = {};
+        if (mysqlPool && admissionNos.length > 0) {
+            const [studentRows] = await mysqlPool.query(
+                `SELECT admission_number, admission_no, course, branch, pin_no FROM students WHERE admission_number IN (?) OR admission_no IN (?)`,
+                [admissionNos, admissionNos]
+            );
+            for (const s of studentRows) {
+                if (s.admission_number) studentMap[s.admission_number] = s;
+                if (s.admission_no) studentMap[s.admission_no] = s;
+            }
+        }
+
+        const formattedStudents = studentDocs.map(r => {
+            const student = (r.admission_number && studentMap[r.admission_number]) || {};
+            return {
+                ...r,
+                id: r.id != null ? r.id : String(r._id),
+                _id: String(r._id),
+                user_type: 'student',
+                course: student.course || 'N/A',
+                branch: student.branch || 'N/A',
+                pin_no: student.pin_no || 'N/A',
+            };
+        });
+
+        res.json(formattedStudents);
     } catch (error) {
         console.error('Error fetching approved passengers:', error);
         res.status(500).json({ message: error.message });
@@ -2179,27 +2369,33 @@ const submitRouteChangeRequest = async (req, res) => {
                 fare: new_fare
             });
         } else {
-            // Default to Students (MySQL)
-            if (!mysqlPool) {
-                return res.status(500).json({ message: 'MySQL connection not established' });
+            // Student route change via MongoDB TransportRequest
+            const studentQuery = { admission_number: admission_number, status: 'approved' };
+            if (resolvedAcademicYear) studentQuery.academic_year = resolvedAcademicYear;
+            let mongoStudentReq = await TransportRequest.findOne(studentQuery).lean();
+            if (!mongoStudentReq) {
+                mongoStudentReq = await TransportRequest.findOne({ admission_number: admission_number, status: 'approved' }).sort({ request_date: -1 }).lean();
             }
 
-            // Filter by academic_year when possible so we update the correct year's request
-            let currentRows;
-            if (resolvedAcademicYear) {
-                [currentRows] = await mysqlPool.query(
-                    'SELECT * FROM transport_requests WHERE admission_number = ? AND status = "approved" AND COALESCE(academic_year, ?) = ? ORDER BY id DESC LIMIT 1',
-                    [admission_number, resolvedAcademicYear, resolvedAcademicYear]
-                );
+            if (mongoStudentReq) {
+                currentRequest = mongoStudentReq;
+            } else if (mysqlPool) {
+                let currentRows;
+                if (resolvedAcademicYear) {
+                    [currentRows] = await mysqlPool.query(
+                        'SELECT * FROM transport_requests WHERE admission_number = ? AND status = "approved" AND COALESCE(academic_year, ?) = ? ORDER BY id DESC LIMIT 1',
+                        [admission_number, resolvedAcademicYear, resolvedAcademicYear]
+                    );
+                }
+                if (!currentRows || !currentRows[0]) {
+                    [currentRows] = await mysqlPool.query(
+                        'SELECT * FROM transport_requests WHERE admission_number = ? AND status = "approved" ORDER BY id DESC LIMIT 1',
+                        [admission_number]
+                    );
+                }
+                currentRequest = currentRows[0];
             }
-            // Fallback: any approved request for this student if year-filtered one not found
-            if (!currentRows || !currentRows[0]) {
-                [currentRows] = await mysqlPool.query(
-                    'SELECT * FROM transport_requests WHERE admission_number = ? AND status = "approved" ORDER BY id DESC LIMIT 1',
-                    [admission_number]
-                );
-            }
-            currentRequest = currentRows[0];
+
             if (!currentRequest) {
                 return res.status(404).json({ message: 'No approved transport request found for this student.' });
             }
@@ -2211,7 +2407,7 @@ const submitRouteChangeRequest = async (req, res) => {
             try {
                 const { getFeePortalModels } = require('../models/fee-portal-models');
                 const feeModels = getFeePortalModels();
-                if (feeModels) {
+                if (feeModels && mysqlPool) {
                     const { FeeHead } = feeModels;
                     const transportFeeHead = await FeeHead.findOne({
                         $or: [
@@ -2261,11 +2457,22 @@ const submitRouteChangeRequest = async (req, res) => {
                 console.error('Error calculating concession route change difference:', err);
             }
 
-            // Update MySQL Record
-            await mysqlPool.query(
-                'UPDATE transport_requests SET route_id = ?, route_name = ?, stage_name = ?, fare = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                [new_route_id, new_route_name, new_stage_name, new_fare, currentRequest.id]
-            );
+            if (currentRequest._id) {
+                await TransportRequest.updateOne({ _id: currentRequest._id }, {
+                    $set: {
+                        route_id: new_route_id,
+                        route_name: new_route_name,
+                        stage_name: new_stage_name,
+                        fare: new_fare,
+                        updated_at: new Date()
+                    }
+                });
+            } else if (mysqlPool && currentRequest.id) {
+                await mysqlPool.query(
+                    'UPDATE transport_requests SET route_id = ?, route_name = ?, stage_name = ?, fare = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    [new_route_id, new_route_name, new_stage_name, new_fare, currentRequest.id]
+                );
+            }
         }
 
         // 4. Update MongoDB Fee if fare exceeds (fareDiff > 0)

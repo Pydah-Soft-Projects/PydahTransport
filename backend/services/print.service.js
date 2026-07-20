@@ -7,6 +7,7 @@ const mongoose = require('mongoose');
 const QRCode = require('qrcode');
 
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
+const TransportRequest = require('../models/TransportRequest');
 const Bus = require('../models/Bus');
 const OtherVehicle = require('../models/OtherVehicle');
 const Route = require('../models/Route');
@@ -113,35 +114,84 @@ const fetchAdmitCardData = async (data) => {
         throw error;
     }
 
-    // Strict check: must be a 24-char hex string that round-trips through ObjectId.
-    // mongoose.Types.ObjectId.isValid() returns true for plain integers in some versions,
-    // which causes a cast error when a MySQL numeric ID like 1491 is passed.
     const isMongoId = mongoose.Types.ObjectId.isValid(id)
         && String(new mongoose.Types.ObjectId(id)) === String(id);
     if (isMongoId) {
         const reqRow = await EmployeeTransportRequest.findById(id).lean();
-        if (!reqRow) {
-            const error = new Error('Passenger record not found');
-            error.statusCode = 404;
-            throw error;
+        if (reqRow) {
+            return {
+                ...reqRow,
+                id: reqRow._id.toString(),
+                admission_number: reqRow.emp_no,
+                student_name: reqRow.employee_name,
+                user_type: 'employee',
+                course: 'Employee'
+            };
         }
+    }
+
+    return fetchStudentTransportPrintData(id);
+};
+
+const isMongoId = (val) => Boolean(val) && mongoose.Types.ObjectId.isValid(val) && String(new mongoose.Types.ObjectId(val)) === String(val);
+
+const fetchStudentTransportPrintData = async (id) => {
+    let mongoReq = null;
+    if (isMongoId(id)) {
+        mongoReq = await TransportRequest.findById(id).lean();
+    }
+    if (!mongoReq && !isNaN(id)) {
+        mongoReq = await TransportRequest.findOne({ id: Number(id) }).lean();
+    }
+    if (!mongoReq) {
+        mongoReq = await TransportRequest.findOne({ admission_number: String(id) })
+            .sort({ request_date: -1 })
+            .lean();
+    }
+
+    if (mongoReq) {
+        let studentInfo = {};
+        const admNo = mongoReq.admission_number;
+        if (mysqlPool && admNo) {
+            const [rows] = await mysqlPool.query(
+                `SELECT current_year, course, branch, student_photo, student_data, pin_no, student_mobile, parent_mobile1, student_address, father_name
+                 FROM students
+                 WHERE admission_number = ? OR admission_no = ?
+                 LIMIT 1`,
+                [admNo, admNo]
+            );
+            studentInfo = rows[0] || {};
+        }
+
+        const combinedRow = {
+            ...mongoReq,
+            id: mongoReq.id != null ? mongoReq.id : String(mongoReq._id),
+            _id: String(mongoReq._id),
+            year_of_study: mongoReq.year_of_study || studentInfo.current_year || 1,
+            course: studentInfo.course || 'N/A',
+            branch: studentInfo.branch || 'N/A',
+            student_photo: studentInfo.student_photo || null,
+            student_data: studentInfo.student_data || null,
+            pin_no: studentInfo.pin_no || 'N/A',
+            student_mobile: studentInfo.student_mobile || null,
+            parent_mobile1: studentInfo.parent_mobile1 || null,
+            student_address: studentInfo.student_address || null,
+            father_name: studentInfo.father_name || null,
+            user_type: 'student',
+        };
+
         return {
-            ...reqRow,
-            id: reqRow._id.toString(),
-            admission_number: reqRow.emp_no,
-            student_name: reqRow.employee_name,
-            user_type: 'employee',
-            course: 'Employee'
+            ...combinedRow,
+            student_photo: resolveStudentPhoto(combinedRow),
         };
     }
 
     if (!mysqlPool) {
-        const error = new Error('MySQL connection not established');
-        error.statusCode = 500;
+        const error = new Error(`Transport record not found for student/request ID: ${id}`);
+        error.statusCode = 404;
         throw error;
     }
 
-    // Try finding by MySQL request ID
     let query = `
         SELECT tr.*, 
                COALESCE(tr.year_of_study, s1.current_year, s2.current_year) as year_of_study,
@@ -162,7 +212,6 @@ const fetchAdmitCardData = async (data) => {
     let [rows] = await mysqlPool.query(query, [id]);
 
     if (!rows[0]) {
-        // Fallback: search by admission number (latest request)
         query = `
             SELECT tr.*, 
                    COALESCE(tr.year_of_study, s1.current_year, s2.current_year) as year_of_study,
@@ -208,47 +257,51 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
     let mysqlPassengers = [];
     const campusFilter = await getCampusRouteFilter(campusId);
 
-    if (mysqlPool) {
-        const parts = getActivePassengerSqlParts(liveOccupancy ? fallbackAcademicYear : resolvedYear);
-        const params = [...(liveOccupancy ? parts.expiryParams : [])];
+    const studentMongoRequests = await TransportRequest.find({ bus_id: busNumber, status: 'approved' }).lean();
+    const filteredStudentRequests = studentMongoRequests.filter((r) => (
+        liveOccupancy ? true : (r.academic_year || fallbackAcademicYear) === resolvedYear
+    ));
 
-        let sql = `SELECT tr.*,
-                    COALESCE(tr.year_of_study, s1.current_year, s2.current_year) as year_of_study,
-                    COALESCE(s1.course, s2.course) as course,
-                    COALESCE(s1.branch, s2.branch) as branch,
-                    COALESCE(s1.student_photo, s2.student_photo) as student_photo,
-                    COALESCE(s1.student_data, s2.student_data) as student_data,
-                    COALESCE(s1.pin_no, s2.pin_no) as pin_no
-                    ${liveOccupancy ? `, ${parts.isExpiredExpr} as is_expired` : ''}
-             FROM transport_requests tr
-             ${parts.studentJoins}
-             ${liveOccupancy ? parts.expiryJoins : ''}
-             WHERE tr.bus_id = ? AND tr.status = 'approved'`;
-
-        params.push(busNumber);
-
-        if (campusFilter) {
-            sql += campusFilter.sqlClause;
-            params.push(...campusFilter.params);
+    const admissionNos = [...new Set(filteredStudentRequests.map(r => r.admission_number).filter(Boolean))];
+    let studentMap = {};
+    if (mysqlPool && admissionNos.length > 0) {
+        const [studentRows] = await mysqlPool.query(
+            `SELECT admission_number, admission_no, course, branch, student_photo, student_data, pin_no
+             FROM students
+             WHERE admission_number IN (?) OR admission_no IN (?)`,
+            [admissionNos, admissionNos]
+        );
+        for (const s of studentRows) {
+            if (s.admission_number) studentMap[s.admission_number] = s;
+            if (s.admission_no) studentMap[s.admission_no] = s;
         }
-
-        if (!liveOccupancy) {
-            sql += ' AND COALESCE(tr.academic_year, ?) = ?';
-            params.push(fallbackAcademicYear, resolvedYear);
-        } else {
-            sql += ` AND ${parts.activeWhere}`;
-        }
-
-        const [rows] = await mysqlPool.query(sql, params);
-
-        mysqlPassengers = (rows || []).map((r) => ({
-            ...r,
-            id: r.id,
-            student_photo: resolveStudentPhoto(r),
-            user_type: 'student',
-            is_expired: Boolean(r.is_expired),
-        }));
     }
+
+    const now = new Date();
+    mysqlPassengers = filteredStudentRequests.map((r) => {
+        const student = (r.admission_number && studentMap[r.admission_number]) || {};
+        let isExpired = false;
+        if (r.expiry_date) {
+            isExpired = new Date(r.expiry_date) < now;
+        } else if (r.semester_end_date) {
+            isExpired = new Date(r.semester_end_date) < now;
+        }
+        const combinedRow = {
+            ...r,
+            id: r.id != null ? r.id : String(r._id),
+            user_type: 'student',
+            course: student.course || 'N/A',
+            branch: student.branch || 'N/A',
+            student_photo: student.student_photo || null,
+            student_data: student.student_data || null,
+            pin_no: student.pin_no || 'N/A',
+            is_expired: isExpired,
+        };
+        return {
+            ...combinedRow,
+            student_photo: resolveStudentPhoto(combinedRow),
+        };
+    });
 
     const mongoQuery = { bus_id: busNumber, status: 'approved' };
     if (!liveOccupancy) {
@@ -348,43 +401,52 @@ const fetchPassengerReportData = async (data) => {
 
     if (data.busId) {
         passengers = await fetchBusPassengers(data.busId, academicYear, activeOnly, data.campus);
-    } else if (mysqlPool) {
-        const parts = getActivePassengerSqlParts(activeOnly ? fallbackAcademicYear : academicYear);
-        const params = [...(activeOnly ? parts.expiryParams : [])];
+    } else {
+        const studentMongoRequests = await TransportRequest.find({ status: 'approved' }).lean();
+    const filteredStudentRequests = studentMongoRequests.filter((r) => (
+        activeOnly ? true : (r.academic_year || fallbackAcademicYear) === academicYear
+    ));
 
-        let sql = `SELECT tr.*,
-                        COALESCE(tr.year_of_study, s1.current_year, s2.current_year) as year_of_study,
-                        COALESCE(s1.course, s2.course) as course,
-                        COALESCE(s1.branch, s2.branch) as branch,
-                        COALESCE(s1.student_photo, s2.student_photo) as student_photo,
-                        COALESCE(s1.student_data, s2.student_data) as student_data,
-                        COALESCE(s1.pin_no, s2.pin_no) as pin_no
-                        ${activeOnly ? `, ${parts.isExpiredExpr} as is_expired` : ''}
-                 FROM transport_requests tr
-                 ${parts.studentJoins}
-                 ${activeOnly ? parts.expiryJoins : ''}
-                 WHERE tr.status = 'approved'`;
-
-        if (campusFilter) {
-            sql += campusFilter.sqlClause;
-            params.push(...campusFilter.params);
+    const admissionNos = [...new Set(filteredStudentRequests.map(r => r.admission_number).filter(Boolean))];
+    let studentMap = {};
+    if (mysqlPool && admissionNos.length > 0) {
+        const [studentRows] = await mysqlPool.query(
+            `SELECT admission_number, admission_no, course, branch, student_photo, student_data, pin_no
+             FROM students
+             WHERE admission_number IN (?) OR admission_no IN (?)`,
+            [admissionNos, admissionNos]
+        );
+        for (const s of studentRows) {
+            if (s.admission_number) studentMap[s.admission_number] = s;
+            if (s.admission_no) studentMap[s.admission_no] = s;
         }
+    }
 
-        if (!activeOnly) {
-            sql += ' AND COALESCE(tr.academic_year, ?) = ?';
-            params.push(fallbackAcademicYear, academicYear);
-        } else {
-            sql += ` AND ${parts.activeWhere}`;
+    const now = new Date();
+    passengers = filteredStudentRequests.map((r) => {
+        const student = (r.admission_number && studentMap[r.admission_number]) || {};
+        let isExpired = false;
+        if (r.expiry_date) {
+            isExpired = new Date(r.expiry_date) < now;
+        } else if (r.semester_end_date) {
+            isExpired = new Date(r.semester_end_date) < now;
         }
-
-        const [rows] = await mysqlPool.query(sql, params);
-        passengers = (rows || []).map((r) => ({
+        const combinedRow = {
             ...r,
-            id: r.id,
-            student_photo: resolveStudentPhoto(r),
+            id: r.id != null ? r.id : String(r._id),
             user_type: 'student',
-            is_expired: Boolean(r.is_expired),
-        }));
+            course: student.course || 'N/A',
+            branch: student.branch || 'N/A',
+            student_photo: student.student_photo || null,
+            student_data: student.student_data || null,
+            pin_no: student.pin_no || 'N/A',
+            is_expired: isExpired,
+        };
+        return {
+            ...combinedRow,
+            student_photo: resolveStudentPhoto(combinedRow),
+        };
+    });
 
         if (activeOnly) {
             passengers = passengers.filter((p) => !p.is_expired);
@@ -718,5 +780,11 @@ const renderTemplate = async (template, data) => {
 };
 
 module.exports = {
-    renderTemplate
+    renderTemplate,
+    fetchAdmitCardData,
+    fetchStudentTransportPrintData,
+    fetchBusPassengers,
+    fetchIdCardSheetData,
+    fetchPassengerReportData,
+    fetchBillPrintData,
 };
