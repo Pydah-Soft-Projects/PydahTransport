@@ -188,10 +188,10 @@ const TransportRequests = () => {
     };
 
     const handleDownloadReport = async () => {
-        if (downloadingReport || requests.length === 0) return;
+        if (downloadingReport || currentRequests.length === 0) return;
         setDownloadingReport(true);
         try {
-            const requestIds = requests.map(r => r.id || r._id);
+            const requestIds = currentRequests.map(r => r.id || r._id);
             const response = await apiFetch(`${API_BASE}/print`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -960,7 +960,7 @@ const TransportRequests = () => {
                     <button
                         type="button"
                         onClick={handleDownloadReport}
-                        disabled={downloadingReport || loading || requests.length === 0}
+                        disabled={downloadingReport || loading || currentRequests.length === 0}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 shadow-sm transition-all hover:shadow-md active:scale-95 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed"
                     >
                         <FileText size={14} />

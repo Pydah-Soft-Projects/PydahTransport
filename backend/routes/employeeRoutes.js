@@ -5,6 +5,6 @@ const { protect, admin } = require('../middleware/authMiddleware');
 
 router.get('/drivers', protect, admin, getDrivers);
 router.get('/cleaners', protect, admin, getCleaners);
-router.get('/search', protect, admin, searchEmployees);
+router.get('/search', protect, searchEmployees);
 
 module.exports = router;
