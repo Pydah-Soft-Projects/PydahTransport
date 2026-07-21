@@ -813,7 +813,6 @@ const BusDetails = () => {
                                             <th className="px-3 py-2">Fare (₹)</th>
                                             <th className="px-3 py-2 text-center">Admit Card</th>
                                             <th className="px-3 py-2">Status</th>
-                                            <th className="px-3 py-2 text-center">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
@@ -857,17 +856,6 @@ const BusDetails = () => {
                                                     <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${passenger.is_expired ? 'bg-red-50 text-red-700 border-red-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
                                                         {passenger.is_expired ? 'Expired' : 'Boarded'}
                                                     </span>
-                                                </td>
-                                                <td className="px-3 py-2 text-center">
-                                                    <button
-                                                        type="button"
-                                                        disabled={fetchingPass}
-                                                        onClick={() => handlePrintAdmitCardClick(passenger)}
-                                                        className="p-1 rounded-md text-slate-550 hover:bg-slate-100 hover:text-slate-700"
-                                                        title="Actions"
-                                                    >
-                                                        <MoreHorizontal size={14} />
-                                                    </button>
                                                 </td>
                                             </tr>
                                         ))}

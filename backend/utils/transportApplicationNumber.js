@@ -1,3 +1,5 @@
+const TransportRequest = require('../models/TransportRequest');
+
 function normalizeApplicationCode(value, fallback = 'UNK') {
     const text = String(value || '').trim().toUpperCase();
     if (!text) return fallback;
@@ -32,24 +34,38 @@ function parseLegacyApplicationNumber(applicationNumber) {
     };
 }
 
-const COUNTERS_TABLE = 'transport_application_counters_v2';
-const LEGACY_COUNTERS_TABLE = 'transport_application_counters';
+/**
+ * Fetch the last/highest application serial for a specific college and course in an academic year.
+ * Checks MongoDB TransportRequest collection only.
+ */
+async function getLastTransportApplicationSerial(mysqlPool, { academicYear, collegeCode, courseCode }) {
+    let maxSerial = 0;
+    const normalizedCollege = formatApplicationCode(collegeCode, 'UNK');
+    const normalizedCourse = formatApplicationCode(courseCode, 'GEN');
 
-async function ensureCountersTable(connection) {
-    await connection.query(`
-        CREATE TABLE IF NOT EXISTS ${COUNTERS_TABLE} (
-            academic_year VARCHAR(20) NOT NULL,
-            college_code VARCHAR(32) NOT NULL,
-            course_code VARCHAR(32) NOT NULL,
-            last_serial INT UNSIGNED NOT NULL DEFAULT 0,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (academic_year, college_code, course_code)
-        )
-    `);
+    try {
+        const lastMongoReq = await TransportRequest.findOne({
+            academic_year: academicYear,
+            application_college_code: normalizedCollege,
+            application_course_code: normalizedCourse,
+            application_serial: { $ne: null }
+        })
+            .sort({ application_serial: -1 })
+            .select('application_serial')
+            .lean();
+
+        if (lastMongoReq && lastMongoReq.application_serial != null) {
+            maxSerial = Math.max(maxSerial, Number(lastMongoReq.application_serial));
+        }
+    } catch (err) {
+        console.error('Error fetching last transport application serial from Mongo:', err);
+    }
+
+    return maxSerial;
 }
 
 /**
- * Assign next application number for academic year + college + course (approval only).
+ * Assign next application number for academic year + college + course by fetching the last request serial from MongoDB.
  */
 async function assignTransportApplicationNumber(
     mysqlPool,
@@ -80,56 +96,27 @@ async function assignTransportApplicationNumber(
     const normalizedCollege = formatApplicationCode(collegeCode, 'UNK');
     const normalizedCourse = formatApplicationCode(courseCode, 'GEN');
 
-    const connection = await mysqlPool.getConnection();
-    try {
-        await connection.beginTransaction();
-        await ensureCountersTable(connection);
+    const lastSerial = await getLastTransportApplicationSerial(mysqlPool, {
+        academicYear,
+        collegeCode: normalizedCollege,
+        courseCode: normalizedCourse,
+    });
 
-        await connection.query(
-            `INSERT INTO ${COUNTERS_TABLE} (academic_year, college_code, course_code, last_serial)
-             VALUES (?, ?, ?, 0)
-             ON DUPLICATE KEY UPDATE college_code = college_code`,
-            [academicYear, normalizedCollege, normalizedCourse]
-        );
+    const nextSerial = lastSerial + 1;
 
-        const [counterRows] = await connection.query(
-            `SELECT last_serial
-             FROM ${COUNTERS_TABLE}
-             WHERE academic_year = ? AND college_code = ? AND course_code = ?
-             FOR UPDATE`,
-            [academicYear, normalizedCollege, normalizedCourse]
-        );
-
-        const nextSerial = Number(counterRows[0]?.last_serial || 0) + 1;
-
-        await connection.query(
-            `UPDATE ${COUNTERS_TABLE}
-             SET last_serial = ?
-             WHERE academic_year = ? AND college_code = ? AND course_code = ?`,
-            [nextSerial, academicYear, normalizedCollege, normalizedCourse]
-        );
-
-        await connection.commit();
-
-        return {
-            application_number: formatTransportApplicationNumber(
-                normalizedCollege,
-                normalizedCourse,
-                nextSerial
-            ),
-            application_serial: nextSerial,
-            college_code: normalizedCollege,
-            course_code: normalizedCourse,
-        };
-    } catch (error) {
-        await connection.rollback();
-        throw error;
-    } finally {
-        connection.release();
-    }
+    return {
+        application_number: formatTransportApplicationNumber(
+            normalizedCollege,
+            normalizedCourse,
+            nextSerial
+        ),
+        application_serial: nextSerial,
+        college_code: normalizedCollege,
+        course_code: normalizedCourse,
+    };
 }
 
-/** Read-only preview of the next serial for a college/course in an academic year. */
+/** Read-only preview of the next serial for a college/course in an academic year based on last MongoDB request. */
 async function peekNextTransportApplicationNumber(
     mysqlPool,
     { academicYear, collegeCode, courseCode }
@@ -141,21 +128,13 @@ async function peekNextTransportApplicationNumber(
     const normalizedCollege = formatApplicationCode(collegeCode, 'UNK');
     const normalizedCourse = formatApplicationCode(courseCode, 'GEN');
 
-    let nextSerial = 1;
-    try {
-        const [counterRows] = await mysqlPool.query(
-            `SELECT last_serial
-             FROM ${COUNTERS_TABLE}
-             WHERE academic_year = ? AND college_code = ? AND course_code = ?
-             LIMIT 1`,
-            [academicYear, normalizedCollege, normalizedCourse]
-        );
-        nextSerial = Number(counterRows[0]?.last_serial || 0) + 1;
-    } catch (error) {
-        if (error.code !== 'ER_NO_SUCH_TABLE') {
-            throw error;
-        }
-    }
+    const lastSerial = await getLastTransportApplicationSerial(mysqlPool, {
+        academicYear,
+        collegeCode: normalizedCollege,
+        courseCode: normalizedCourse,
+    });
+
+    const nextSerial = lastSerial + 1;
 
     return {
         application_number: formatTransportApplicationNumber(
@@ -175,8 +154,7 @@ module.exports = {
     formatApplicationCode,
     formatTransportApplicationNumber,
     parseLegacyApplicationNumber,
+    getLastTransportApplicationSerial,
     assignTransportApplicationNumber,
     peekNextTransportApplicationNumber,
-    COUNTERS_TABLE,
-    LEGACY_COUNTERS_TABLE,
 };

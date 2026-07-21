@@ -5,6 +5,7 @@ const BusStaffHistory = require('../models/BusStaffHistory');
 const BusTaxHistory = require('../models/BusTaxHistory');
 const { mysqlPool } = require('../config/db');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
+const TransportRequest = require('../models/TransportRequest');
 const {
     resolveAcademicYear,
     getDefaultAcademicYear,
@@ -156,36 +157,49 @@ const getBusDetails = async (req, res) => {
         const academicYear = resolveAcademicYear(req.query);
         const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
         const liveOccupancy = isLiveOccupancyMode(req.query);
-        if (mysqlPool) {
-            const parts = getActivePassengerSqlParts(liveOccupancy ? fallbackAcademicYear : academicYear);
-            const academicYearSql = liveOccupancy ? '' : 'AND COALESCE(tr.academic_year, ?) = ?';
-            const academicYearParams = liveOccupancy ? [] : [fallbackAcademicYear, academicYear];
-            const [rows] = await mysqlPool.query(
-                `SELECT tr.id, tr.admission_number, tr.student_name, tr.route_name, tr.stage_name, tr.fare, tr.request_date, tr.bus_id,
-                        COALESCE(s1.course, s2.course) as course,
-                        COALESCE(s1.branch, s2.branch) as branch,
-                        COALESCE(s1.current_year, s2.current_year, tr.year_of_study) as year_of_study,
-                        tr.academic_year,
-                        COALESCE(s1.pin_no, s2.pin_no) as pin_no,
-                        ${parts.effectiveExpiryExpr} as effective_expiry_date,
-                        ${parts.isExpiredExpr} as is_expired
-                 FROM transport_requests tr
-                 ${parts.studentJoins}
-                 ${parts.expiryJoins}
-                 WHERE tr.bus_id = ? AND tr.status = 'approved'
-                   ${academicYearSql}
-                   ${liveOccupancy ? `AND ${parts.activeWhere}` : ''}
-                 ORDER BY tr.stage_name, tr.student_name`,
-                [...parts.expiryParams, bus.busNumber, ...academicYearParams]
+        const studentMongoRequests = await TransportRequest.find({ bus_id: bus.busNumber, status: 'approved' }).lean();
+        const filteredStudentRequests = studentMongoRequests.filter((r) => (
+            liveOccupancy ? true : (r.academic_year || fallbackAcademicYear) === academicYear
+        ));
+
+        const admissionNos = [...new Set(filteredStudentRequests.map(r => r.admission_number).filter(Boolean))];
+        let studentMap = {};
+        if (mysqlPool && admissionNos.length > 0) {
+            const [studentRows] = await mysqlPool.query(
+                `SELECT admission_number, admission_no, course, branch, pin_no
+                 FROM students
+                 WHERE admission_number IN (?) OR admission_no IN (?)`,
+                [admissionNos, admissionNos]
             );
-            mysqlPassengers = await enrichTransportFareAdjustments(mysqlPool, rows.map(r => ({
+            for (const s of studentRows) {
+                if (s.admission_number) studentMap[s.admission_number] = s;
+                if (s.admission_no) studentMap[s.admission_no] = s;
+            }
+        }
+
+        const now = new Date();
+        const formattedStudentRows = filteredStudentRequests.map((r) => {
+            const student = (r.admission_number && studentMap[r.admission_number]) || {};
+            let isExpired = false;
+            if (r.expiry_date) {
+                isExpired = new Date(r.expiry_date) < now;
+            } else if (r.semester_end_date) {
+                isExpired = new Date(r.semester_end_date) < now;
+            }
+            return {
                 ...r,
+                id: r.id != null ? r.id : String(r._id),
                 user_type: 'student',
+                course: student.course || 'N/A',
+                branch: student.branch || 'N/A',
+                pin_no: student.pin_no || 'N/A',
                 academic_year: r.academic_year || (liveOccupancy ? fallbackAcademicYear : academicYear),
                 year_of_study: r.year_of_study != null ? Number(r.year_of_study) : null,
-                is_expired: Boolean(r.is_expired),
-            })));
-        }
+                is_expired: isExpired,
+            };
+        });
+
+        mysqlPassengers = await enrichTransportFareAdjustments(mysqlPool, formattedStudentRows);
 
         const mongoRequests = await EmployeeTransportRequest.find({ bus_id: bus.busNumber, status: 'approved' }).lean();
         const mongoPassengers = mongoRequests.filter((r) => (
@@ -279,25 +293,20 @@ const getBusesOverview = async (req, res) => {
         const liveOccupancy = isLiveOccupancyMode(req.query);
 
         let counts = {};
-        if (mysqlPool && buses.length > 0) {
+        if (buses.length > 0) {
             const busNumbers = buses.map((b) => b.busNumber);
-            const placeholders = busNumbers.map(() => '?').join(',');
-            const parts = getActivePassengerSqlParts(liveOccupancy ? fallbackAcademicYear : academicYear);
-            const academicYearSql = liveOccupancy ? '' : 'AND COALESCE(tr.academic_year, ?) = ?';
-            const academicYearParams = liveOccupancy ? [] : [fallbackAcademicYear, academicYear];
-            const [rows] = await mysqlPool.query(
-                `SELECT tr.bus_id AS busNumber, COUNT(*) AS seatsFilled
-                 FROM transport_requests tr
-                 ${liveOccupancy ? `${parts.studentJoins} ${parts.expiryJoins}` : ''}
-                 WHERE tr.status = 'approved'
-                   ${academicYearSql}
-                   ${liveOccupancy ? `AND ${parts.activeWhere}` : ''}
-                   AND tr.bus_id IS NOT NULL AND tr.bus_id != ''
-                   AND tr.bus_id IN (${placeholders})
-                 GROUP BY tr.bus_id`,
-                [...(liveOccupancy ? parts.expiryParams : []), ...academicYearParams, ...busNumbers]
-            );
-            const mysqlCounts = Object.fromEntries((rows || []).map((r) => [r.busNumber, Number(r.seatsFilled)]));
+
+            const mongoStudents = await TransportRequest.find({
+                status: 'approved',
+                bus_id: { $in: busNumbers },
+            }).lean();
+
+            const studentCounts = {};
+            mongoStudents
+                .filter((r) => liveOccupancy || (r.academic_year || fallbackAcademicYear) === academicYear)
+                .forEach((r) => {
+                    studentCounts[r.bus_id] = (studentCounts[r.bus_id] || 0) + 1;
+                });
 
             const mongoEmployees = await EmployeeTransportRequest.find({
                 status: 'approved',
@@ -311,7 +320,7 @@ const getBusesOverview = async (req, res) => {
                 });
 
             busNumbers.forEach((bn) => {
-                counts[bn] = (mysqlCounts[bn] || 0) + (mongoCounts[bn] || 0);
+                counts[bn] = (studentCounts[bn] || 0) + (mongoCounts[bn] || 0);
             });
         }
 
@@ -363,42 +372,34 @@ const autoAllocate = async (req, res) => {
         const capacity = bus.capacity || 0;
         const academicYear = resolveAcademicYear(req.query);
         const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
-        const parts = getActivePassengerSqlParts(fallbackAcademicYear);
-        const [current] = await mysqlPool.query(
-            `SELECT COUNT(*) AS n
-             FROM transport_requests tr
-             ${parts.studentJoins}
-             ${parts.expiryJoins}
-             WHERE tr.bus_id = ? AND tr.status = 'approved' AND ${parts.activeWhere}`,
-            [...parts.expiryParams, bus.busNumber]
-        );
+
+        const studentFilled = await TransportRequest.countDocuments({
+            bus_id: bus.busNumber,
+            status: 'approved',
+        });
         const employeeFilled = await EmployeeTransportRequest.countDocuments({
             bus_id: bus.busNumber,
             status: 'approved',
         });
-        const currentFilled = Number(current[0]?.n || 0) + Number(employeeFilled || 0);
+        const currentFilled = Number(studentFilled || 0) + Number(employeeFilled || 0);
         const slotsLeft = Math.max(0, capacity - currentFilled);
         if (slotsLeft === 0) {
             return res.json({ message: 'Bus is already full.', allocated: 0, seatsFilled: currentFilled, capacity });
         }
 
-        const [unassigned] = await mysqlPool.query(
-            `SELECT tr.id
-             FROM transport_requests tr
-             ${parts.studentJoins}
-             ${parts.expiryJoins}
-             WHERE tr.route_id = ? AND tr.status = 'approved' AND ${parts.activeWhere}
-               AND COALESCE(tr.academic_year, ?) = ?
-               AND (tr.bus_id IS NULL OR tr.bus_id = '')
-             ORDER BY tr.request_date ASC, tr.id ASC
-             LIMIT ?`,
-            [...parts.expiryParams, bus.assignedRouteId, fallbackAcademicYear, academicYear, slotsLeft]
-        );
-        const toAssign = unassigned || [];
-        for (const row of toAssign) {
-            await mysqlPool.query('UPDATE transport_requests SET bus_id = ? WHERE id = ?', [bus.busNumber, row.id]);
+        const unassignedMongoRequests = await TransportRequest.find({
+            route_id: bus.assignedRouteId,
+            status: 'approved',
+            $or: [{ bus_id: null }, { bus_id: '' }],
+        })
+            .sort({ request_date: 1, _id: 1 })
+            .limit(slotsLeft);
+
+        for (const doc of unassignedMongoRequests) {
+            doc.bus_id = bus.busNumber;
+            await doc.save();
         }
-        const allocated = toAssign.length;
+        const allocated = unassignedMongoRequests.length;
         res.json({
             message: allocated ? `Allocated ${allocated} passenger(s) to this bus.` : 'No unassigned approved requests for this route.',
             allocated,
