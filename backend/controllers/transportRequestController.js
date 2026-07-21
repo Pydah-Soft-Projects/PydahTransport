@@ -1754,12 +1754,13 @@ const createTransportRequest = async (req, res) => {
             route_id,
             route_name,
             stage_name,
-            fare,
-            raised_by,
-            raised_by_id,
-            yearOfStudy,
-            resolvedAcademicYear,
-        ]);
+            fare: fare ? Number(fare) : 0,
+            status: 'pending',
+            raised_by: resolvedRaisedBy,
+            raised_by_id: resolvedRaisedById ? String(resolvedRaisedById) : null,
+            year_of_study: yearOfStudy,
+            academic_year: resolvedAcademicYear,
+        };
 
         const newReq = new TransportRequest(docData);
         await newReq.save();
