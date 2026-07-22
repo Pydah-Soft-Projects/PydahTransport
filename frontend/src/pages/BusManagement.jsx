@@ -45,6 +45,10 @@ const BusManagement = () => {
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState(TABS.buses);
     const [staffSubTab, setStaffSubTab] = useState('drivers');
+    const [mappingSubTab, setMappingSubTab] = useState('busWise');
+    const [expandedBusEditId, setExpandedBusEditId] = useState(null);
+    const [expandedRouteEditId, setExpandedRouteEditId] = useState(null);
+    const [routeWiseDrafts, setRouteWiseDrafts] = useState({});
 
     const [buses, setBuses] = useState([]);
     const [otherVehicles, setOtherVehicles] = useState([]);
@@ -103,18 +107,19 @@ const BusManagement = () => {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [activeTab, staffSubTab, selectedCampusFilter]);
+    }, [activeTab, staffSubTab, mappingSubTab, selectedCampusFilter]);
 
     const fetchBuses = async () => {
         try {
             const response = await apiFetch(`${API}/buses`);
             const data = await response.json();
-            setBuses(data);
+            const busList = Array.isArray(data) ? data : [];
+            setBuses(busList);
 
             // Sync the open modal's bus + taxValues with fresh data
             const currentSelected = selectedBusForTaxesRef.current;
             if (currentSelected) {
-                const fresh = data.find(b => b._id === currentSelected._id);
+                const fresh = busList.find(b => b._id === currentSelected._id);
                 if (fresh) {
                     setSelectedBusForTaxes(fresh);
                     selectedBusForTaxesRef.current = fresh;
@@ -130,9 +135,11 @@ const BusManagement = () => {
                 }
             }
 
-            return data;
+            return busList;
         } catch (error) {
             console.error('Error fetching buses:', error);
+            setBuses([]);
+            return [];
         } finally {
             setLoading(false);
         }
@@ -142,12 +149,13 @@ const BusManagement = () => {
         try {
             const response = await apiFetch(`${API}/other-vehicles`);
             const data = await response.json();
-            setOtherVehicles(data);
+            const vehicleList = Array.isArray(data) ? data : [];
+            setOtherVehicles(vehicleList);
 
             // Sync the open modal's vehicle + taxValues with fresh data
             const currentSelected = selectedBusForTaxesRef.current;
             if (currentSelected) {
-                const fresh = data.find(b => b._id === currentSelected._id);
+                const fresh = vehicleList.find(b => b._id === currentSelected._id);
                 if (fresh) {
                     setSelectedBusForTaxes(fresh);
                     selectedBusForTaxesRef.current = fresh;
@@ -162,9 +170,11 @@ const BusManagement = () => {
                 }
             }
 
-            return data;
+            return vehicleList;
         } catch (error) {
             console.error('Error fetching other vehicles:', error);
+            setOtherVehicles([]);
+            return [];
         } finally {
             setLoading(false);
         }
@@ -174,9 +184,10 @@ const BusManagement = () => {
         try {
             const response = await apiFetch(`${API}/routes`);
             const data = await response.json();
-            setRoutes(data);
+            setRoutes(Array.isArray(data) ? data : []);
         } catch (error) {
             console.error('Error fetching routes:', error);
+            setRoutes([]);
         }
     };
 
@@ -314,7 +325,116 @@ const BusManagement = () => {
         if (!buses.length) return;
         setStaffDrafts(Object.fromEntries(buses.map((bus) => [bus._id, buildStaffDraft(bus)])));
         setRouteDrafts(Object.fromEntries(buses.map((bus) => [bus._id, buildRouteDraft(bus)])));
-    }, [buses]);
+        if (routes.length) {
+            setRouteWiseDrafts(
+                Object.fromEntries(routes.map((r) => [r.routeId, buildRouteWiseDraft(r.routeId)]))
+            );
+        }
+    }, [buses, routes]);
+
+    const buildRouteWiseDraft = (routeId) => {
+        const currentBus = buses.find((b) => b.assignedRouteId === routeId);
+        return {
+            busId: currentBus ? currentBus._id : '',
+            exitDate: todayDateInput(),
+            entryDate: todayDateInput(),
+        };
+    };
+
+    const handleRouteWiseDraftChange = (routeId, busId) => {
+        setRouteWiseDrafts((prev) => ({
+            ...prev,
+            [routeId]: {
+                ...(prev[routeId] || { exitDate: todayDateInput(), entryDate: todayDateInput() }),
+                busId,
+            },
+        }));
+    };
+
+    const handleRouteWiseDraftDateChange = (routeId, field, value) => {
+        setRouteWiseDrafts((prev) => ({
+            ...prev,
+            [routeId]: { ...prev[routeId], [field]: value },
+        }));
+    };
+
+    const hasRouteWiseDraftChanges = (route) => {
+        const draft = routeWiseDrafts[route.routeId] || buildRouteWiseDraft(route.routeId);
+        const currentBus = buses.find((b) => b.assignedRouteId === route.routeId);
+        const previousBusId = currentBus ? currentBus._id : '';
+        return (draft.busId || '') !== previousBusId;
+    };
+
+    const handleRouteWiseSaveClick = async (route) => {
+        const draft = routeWiseDrafts[route.routeId] || buildRouteWiseDraft(route.routeId);
+        const currentBus = buses.find((b) => b.assignedRouteId === route.routeId);
+        const previousBusId = currentBus ? currentBus._id : '';
+        const newBusId = draft.busId || '';
+
+        if (previousBusId === newBusId) {
+            alert('No changes to save for this route.');
+            return;
+        }
+        if (previousBusId && !draft.exitDate) {
+            alert('Please set the exit date for the previous bus.');
+            return;
+        }
+        if (newBusId && !draft.entryDate) {
+            alert('Please set the assignment date for the new bus.');
+            return;
+        }
+
+        setAssigningBusId(route._id);
+        try {
+            let totalCalls = 0;
+            let successCount = 0;
+
+            if (previousBusId && previousBusId !== newBusId) {
+                totalCalls++;
+                const res = await apiFetch(`${API}/buses/${previousBusId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        routeChange: {
+                            newRouteId: null,
+                            exitDate: draft.exitDate,
+                            entryDate: null,
+                        },
+                    }),
+                });
+                if (res.ok) successCount++;
+            }
+
+            if (newBusId && newBusId !== previousBusId) {
+                totalCalls++;
+                const res = await apiFetch(`${API}/buses/${newBusId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        routeChange: {
+                            newRouteId: route.routeId,
+                            exitDate: null,
+                            entryDate: draft.entryDate,
+                        },
+                    }),
+                });
+                if (res.ok) successCount++;
+            }
+
+            if (totalCalls === 0 || successCount === totalCalls) {
+                await fetchBuses();
+                setExpandedRouteEditId(null);
+            } else {
+                alert('Partial error updating bus-route assignment.');
+                await fetchBuses();
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error updating bus assignment');
+        } finally {
+            setAssigningBusId(null);
+        }
+    };
 
     const handleRouteDraftChange = (busId, routeId) => {
         setRouteDrafts((prev) => ({
@@ -371,6 +491,7 @@ const BusManagement = () => {
             });
             if (response.ok) {
                 fetchBuses();
+                setExpandedBusEditId(null);
             } else {
                 const data = await response.json().catch(() => ({}));
                 alert(data.message || 'Failed to update route assignment');
@@ -789,6 +910,7 @@ const BusManagement = () => {
     };
 
     const getPaginatedData = (dataArray) => {
+        if (!Array.isArray(dataArray)) return [];
         const startIndex = (currentPage - 1) * itemsPerPage;
         return dataArray.slice(startIndex, startIndex + itemsPerPage);
     };
@@ -938,123 +1060,338 @@ const BusManagement = () => {
 
             {activeTab === TABS.mapping && (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-                    <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/50">
-                        <h3 className="text-sm font-semibold text-slate-800">Assign each bus to a route</h3>
-                        <p className="text-xs text-slate-500 mt-0.5">Select a route per bus, set exit and assignment dates when changing, then click Save.</p>
-                    </div>
-                    {loading ? (
-                        <div className="py-12">
-                            <Loader text="Loading fleet data..." />
+                    <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <div>
+                            <h3 className="text-sm font-semibold text-slate-800">
+                                {mappingSubTab === 'busWise' ? 'Bus-Wise Route Mapping' : 'Route-Wise Bus Mapping'}
+                            </h3>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                                {mappingSubTab === 'busWise'
+                                    ? 'Assign and manage route mapped to each bus. Click Edit on any row to change assignment.'
+                                    : 'Assign and manage bus mapped to each route. Click Edit on any row to change assignment.'}
+                            </p>
                         </div>
-                    ) : buses.length === 0 ? (
-                        <div className="p-12 text-center text-slate-500">No buses available. Add buses in the Buses tab first.</div>
-                    ) : filteredBuses.length === 0 ? (
-                        <div className="p-12 text-center text-slate-500">No buses found matching the selected campus.</div>
-                    ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
-                                        <th className="px-3 py-2 w-56">Bus Details</th>
-                                        <th className="px-3 py-2">Capacity</th>
-                                        <th className="px-3 py-2">Assigned Route</th>
-                                        <th className="px-3 py-2 w-32">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {getPaginatedData(filteredBuses).map((bus) => {
-                                        const draft = routeDrafts[bus._id] || buildRouteDraft(bus);
-                                        const routeChanged = hasRouteDraftChanges(bus);
-                                        const previousRouteId = bus.assignedRouteId || '';
+                        <div className="bg-white p-0.5 rounded-lg border border-slate-200 flex items-center shadow-sm">
+                            <button
+                                type="button"
+                                onClick={() => { setMappingSubTab('busWise'); setExpandedBusEditId(null); setExpandedRouteEditId(null); }}
+                                className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${mappingSubTab === 'busWise' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                            >
+                                BUS WISE
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { setMappingSubTab('routeWise'); setExpandedBusEditId(null); setExpandedRouteEditId(null); }}
+                                className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${mappingSubTab === 'routeWise' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                            >
+                                ROUTE WISE
+                            </button>
+                        </div>
+                    </div>
 
-                                        return (
-                                            <React.Fragment key={bus._id}>
-                                                <tr className="hover:bg-blue-50/30 transition-colors">
-                                                    <td className="px-3 py-2">
-                                                        <div>
-                                                            <p className="font-bold text-slate-800">{bus.busNumber}</p>
-                                                            <p className="text-xs text-slate-500">{bus.type}</p>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-3 py-2 text-slate-600 font-medium text-xs">{bus.capacity}</td>
-                                                    <td className="px-3 py-2">
-                                                        <select
-                                                            value={draft.routeId}
-                                                            onChange={(e) => handleRouteDraftChange(bus._id, e.target.value)}
-                                                            disabled={assigningBusId === bus._id}
-                                                            className="w-full max-w-xs text-xs rounded-md border border-slate-200 py-1.5 px-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white font-medium text-slate-700 transition-all font-sans"
-                                                        >
-                                                            <option value="">— Unassigned —</option>
-                                                            {routes.map((r) => (
-                                                                <option key={r._id} value={r.routeId}>{r.routeName} ({r.routeId})</option>
-                                                            ))}
-                                                        </select>
-                                                    </td>
-                                                    <td className="px-3 py-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleRouteSaveClick(bus)}
-                                                            disabled={assigningBusId === bus._id || !routeChanged}
-                                                            className="px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-900 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap"
-                                                        >
-                                                            {assigningBusId === bus._id ? 'Saving…' : 'Save'}
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                                {routeChanged && (
-                                                    <tr className="bg-slate-50/80">
-                                                        <td colSpan={4} className="px-4 pb-4 pt-0">
-                                                            <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 space-y-3">
-                                                                <p className="text-xs font-black text-blue-800 uppercase tracking-wide">Route change details</p>
-                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                                    {previousRouteId && (
-                                                                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
-                                                                            <p className="text-xs font-semibold text-amber-800">Previous route</p>
-                                                                            <p className="text-sm font-bold text-slate-900">{getRouteLabel(previousRouteId)}</p>
-                                                                            <div>
-                                                                                <label className="block text-xs font-semibold text-slate-600 mb-1">Exit date</label>
-                                                                                <input
-                                                                                    type="date"
-                                                                                    value={draft.exitDate}
-                                                                                    onChange={(e) => handleRouteDraftDateChange(bus._id, 'exitDate', e.target.value)}
-                                                                                    className="w-full px-3 py-2 rounded-lg border border-amber-200 bg-white text-sm"
-                                                                                />
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                    {draft.routeId ? (
-                                                                        <div className="rounded-lg border border-blue-200 bg-white p-3 space-y-2">
-                                                                            <p className="text-xs font-semibold text-blue-800">New route</p>
-                                                                            <p className="text-sm font-bold text-slate-900">{getRouteLabel(draft.routeId)}</p>
-                                                                            <div>
-                                                                                <label className="block text-xs font-semibold text-slate-600 mb-1">Assignment date</label>
-                                                                                <input
-                                                                                    type="date"
-                                                                                    value={draft.entryDate}
-                                                                                    onChange={(e) => handleRouteDraftDateChange(bus._id, 'entryDate', e.target.value)}
-                                                                                    className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm"
-                                                                                />
-                                                                            </div>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="rounded-lg border border-slate-200 bg-white p-3">
-                                                                            <p className="text-sm text-slate-600">Route will be unassigned from this bus.</p>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
+                    {mappingSubTab === 'busWise' ? (
+                        loading ? (
+                            <div className="py-12">
+                                <Loader text="Loading fleet data..." />
+                            </div>
+                        ) : buses.length === 0 ? (
+                            <div className="p-12 text-center text-slate-500">No buses available. Add buses in the Buses tab first.</div>
+                        ) : filteredBuses.length === 0 ? (
+                            <div className="p-12 text-center text-slate-500">No buses found matching the selected campus.</div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                            <th className="px-3 py-2 w-56">Bus Details</th>
+                                            <th className="px-3 py-2">Capacity</th>
+                                            <th className="px-3 py-2">Assigned Route</th>
+                                            <th className="px-3 py-2 w-32">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {getPaginatedData(filteredBuses).map((bus) => {
+                                            const draft = routeDrafts[bus._id] || buildRouteDraft(bus);
+                                            const routeChanged = hasRouteDraftChanges(bus);
+                                            const previousRouteId = bus.assignedRouteId || '';
+                                            const isExpanded = expandedBusEditId === bus._id;
+
+                                            return (
+                                                <React.Fragment key={bus._id}>
+                                                    <tr className="hover:bg-blue-50/30 transition-colors">
+                                                        <td className="px-3 py-2">
+                                                            <div>
+                                                                <p className="font-bold text-slate-800">{bus.busNumber}</p>
+                                                                <p className="text-xs text-slate-500">{bus.type}</p>
                                                             </div>
                                                         </td>
+                                                        <td className="px-3 py-2 text-slate-600 font-medium text-xs">{bus.capacity}</td>
+                                                        <td className="px-3 py-2">
+                                                            {bus.assignedRouteId ? (
+                                                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                                                                    {getRouteLabel(bus.assignedRouteId)}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-400 italic text-xs">— Unassigned —</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-3 py-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setExpandedBusEditId(isExpanded ? null : bus._id)}
+                                                                className={`px-3 py-1.5 rounded-md text-xs font-semibold border transition-all flex items-center gap-1.5 whitespace-nowrap ${isExpanded ? 'bg-slate-100 text-slate-700 border-slate-300' : 'border-slate-200 text-slate-700 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200'}`}
+                                                            >
+                                                                <Edit size={14} />
+                                                                {isExpanded ? 'Close' : 'Edit'}
+                                                            </button>
+                                                        </td>
                                                     </tr>
-                                                )}
-                                            </React.Fragment>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                            {renderPagination(filteredBuses.length)}
-                        </div>
-                    )
-                    }
+                                                    {isExpanded && (
+                                                        <tr className="bg-slate-50/80">
+                                                            <td colSpan={4} className="px-4 pb-4 pt-2">
+                                                                <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 space-y-4 shadow-inner">
+                                                                    <div className="flex items-center justify-between border-b border-blue-100 pb-2">
+                                                                        <p className="text-xs font-black text-blue-900 uppercase tracking-wide">
+                                                                            Edit Route Assignment for Bus: <span className="text-blue-700 font-bold">{bus.busNumber}</span>
+                                                                        </p>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setExpandedBusEditId(null)}
+                                                                            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-white/50 transition-colors"
+                                                                            title="Close edit panel"
+                                                                        >
+                                                                            <X size={16} />
+                                                                        </button>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                        <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2 shadow-sm">
+                                                                            <p className="text-xs font-bold text-slate-500 uppercase">Current Route</p>
+                                                                            <p className="text-sm font-bold text-slate-900">{getRouteLabel(previousRouteId)}</p>
+                                                                            {previousRouteId && (
+                                                                                <div className="pt-1">
+                                                                                    <label className="block text-xs font-semibold text-slate-600 mb-1">Exit Date</label>
+                                                                                    <input
+                                                                                        type="date"
+                                                                                        value={draft.exitDate}
+                                                                                        onChange={(e) => handleRouteDraftDateChange(bus._id, 'exitDate', e.target.value)}
+                                                                                        className="w-full px-3 py-1.5 rounded-md border border-slate-200 bg-white text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                                                                    />
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="rounded-lg border border-blue-200 bg-white p-3 space-y-2 shadow-sm">
+                                                                            <p className="text-xs font-bold text-blue-700 uppercase">New Route</p>
+                                                                            <select
+                                                                                value={draft.routeId}
+                                                                                onChange={(e) => handleRouteDraftChange(bus._id, e.target.value)}
+                                                                                disabled={assigningBusId === bus._id}
+                                                                                className="w-full text-xs rounded-md border border-slate-200 py-1.5 px-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white font-medium text-slate-800"
+                                                                            >
+                                                                                <option value="">— Unassigned —</option>
+                                                                                {routes.map((r) => (
+                                                                                    <option key={r._id} value={r.routeId}>{r.routeName} ({r.routeId})</option>
+                                                                                ))}
+                                                                            </select>
+                                                                            {draft.routeId && (
+                                                                                <div className="pt-1">
+                                                                                    <label className="block text-xs font-semibold text-slate-600 mb-1">Assignment Date</label>
+                                                                                    <input
+                                                                                        type="date"
+                                                                                        value={draft.entryDate}
+                                                                                        onChange={(e) => handleRouteDraftDateChange(bus._id, 'entryDate', e.target.value)}
+                                                                                        className="w-full px-3 py-1.5 rounded-md border border-blue-200 bg-white text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                                                                    />
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex justify-end gap-2 pt-1">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setExpandedBusEditId(null)}
+                                                                            className="px-3 py-1.5 rounded-md text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all"
+                                                                        >
+                                                                            Cancel
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleRouteSaveClick(bus)}
+                                                                            disabled={assigningBusId === bus._id || !routeChanged}
+                                                                            className="px-4 py-1.5 rounded-md text-xs font-semibold bg-blue-900 text-white hover:bg-blue-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
+                                                                        >
+                                                                            {assigningBusId === bus._id ? 'Saving…' : 'Save Changes'}
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </React.Fragment>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                                {renderPagination(filteredBuses.length)}
+                            </div>
+                        )
+                    ) : (
+                        (() => {
+                            const filteredRoutes = routes.filter(
+                                (r) => !selectedCampusFilter || campusIdsMatch(getCampusId(r.campus), selectedCampusFilter)
+                            );
+
+                            return loading ? (
+                                <div className="py-12">
+                                    <Loader text="Loading route data..." />
+                                </div>
+                            ) : routes.length === 0 ? (
+                                <div className="p-12 text-center text-slate-500">No routes available. Create routes first.</div>
+                            ) : filteredRoutes.length === 0 ? (
+                                <div className="p-12 text-center text-slate-500">No routes found matching the selected campus.</div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                                <th className="px-3 py-2 w-56">Route Details</th>
+                                                <th className="px-3 py-2">Start / End Points</th>
+                                                <th className="px-3 py-2">Assigned Bus</th>
+                                                <th className="px-3 py-2 w-32">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {getPaginatedData(filteredRoutes).map((route) => {
+                                                const assignedBus = buses.find((b) => b.assignedRouteId === route.routeId);
+                                                const draft = routeWiseDrafts[route.routeId] || buildRouteWiseDraft(route.routeId);
+                                                const routeWiseChanged = hasRouteWiseDraftChanges(route);
+                                                const isExpanded = expandedRouteEditId === route._id;
+
+                                                return (
+                                                    <React.Fragment key={route._id}>
+                                                        <tr className="hover:bg-blue-50/30 transition-colors">
+                                                            <td className="px-3 py-2">
+                                                                <div>
+                                                                    <p className="font-bold text-slate-800">{route.routeName}</p>
+                                                                    <p className="text-xs text-slate-500">ID: {route.routeId}</p>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-3 py-2 text-slate-600 font-medium text-xs">
+                                                                {route.startPoint || '—'} ➔ {route.endPoint || '—'}
+                                                            </td>
+                                                            <td className="px-3 py-2">
+                                                                {assignedBus ? (
+                                                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                                                        {assignedBus.busNumber} ({assignedBus.type})
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-slate-400 italic text-xs">— Unassigned —</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-3 py-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setExpandedRouteEditId(isExpanded ? null : route._id)}
+                                                                    className={`px-3 py-1.5 rounded-md text-xs font-semibold border transition-all flex items-center gap-1.5 whitespace-nowrap ${isExpanded ? 'bg-slate-100 text-slate-700 border-slate-300' : 'border-slate-200 text-slate-700 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200'}`}
+                                                                >
+                                                                    <Edit size={14} />
+                                                                    {isExpanded ? 'Close' : 'Edit'}
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                        {isExpanded && (
+                                                            <tr className="bg-slate-50/80">
+                                                                <td colSpan={4} className="px-4 pb-4 pt-2">
+                                                                    <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 space-y-4 shadow-inner">
+                                                                        <div className="flex items-center justify-between border-b border-blue-100 pb-2">
+                                                                            <p className="text-xs font-black text-blue-900 uppercase tracking-wide">
+                                                                                Edit Bus Assignment for Route: <span className="text-blue-700 font-bold">{route.routeName} ({route.routeId})</span>
+                                                                            </p>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setExpandedRouteEditId(null)}
+                                                                                className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-white/50 transition-colors"
+                                                                                title="Close edit panel"
+                                                                            >
+                                                                                <X size={16} />
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                            <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2 shadow-sm">
+                                                                                <p className="text-xs font-bold text-slate-500 uppercase">Current Bus</p>
+                                                                                <p className="text-sm font-bold text-slate-900">
+                                                                                    {assignedBus ? `${assignedBus.busNumber} (${assignedBus.type})` : '— Unassigned —'}
+                                                                                </p>
+                                                                                {assignedBus && (
+                                                                                    <div className="pt-1">
+                                                                                        <label className="block text-xs font-semibold text-slate-600 mb-1">Exit Date</label>
+                                                                                        <input
+                                                                                            type="date"
+                                                                                            value={draft.exitDate}
+                                                                                            onChange={(e) => handleRouteWiseDraftDateChange(route.routeId, 'exitDate', e.target.value)}
+                                                                                            className="w-full px-3 py-1.5 rounded-md border border-slate-200 bg-white text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                                                                        />
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="rounded-lg border border-blue-200 bg-white p-3 space-y-2 shadow-sm">
+                                                                                <p className="text-xs font-bold text-blue-700 uppercase">New Bus</p>
+                                                                                <select
+                                                                                    value={draft.busId}
+                                                                                    onChange={(e) => handleRouteWiseDraftChange(route.routeId, e.target.value)}
+                                                                                    disabled={assigningBusId === route._id}
+                                                                                    className="w-full text-xs rounded-md border border-slate-200 py-1.5 px-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white font-medium text-slate-800"
+                                                                                >
+                                                                                    <option value="">— Unassigned —</option>
+                                                                                    {buses.map((b) => (
+                                                                                        <option key={b._id} value={b._id}>
+                                                                                            {b.busNumber} ({b.type}) {b.assignedRouteId ? `[Assigned to ${getRouteLabel(b.assignedRouteId)}]` : ''}
+                                                                                        </option>
+                                                                                    ))}
+                                                                                </select>
+                                                                                {draft.busId && (
+                                                                                    <div className="pt-1">
+                                                                                        <label className="block text-xs font-semibold text-slate-600 mb-1">Assignment Date</label>
+                                                                                        <input
+                                                                                            type="date"
+                                                                                            value={draft.entryDate}
+                                                                                            onChange={(e) => handleRouteWiseDraftDateChange(route.routeId, 'entryDate', e.target.value)}
+                                                                                            className="w-full px-3 py-1.5 rounded-md border border-blue-200 bg-white text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                                                                        />
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex justify-end gap-2 pt-1">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setExpandedRouteEditId(null)}
+                                                                                className="px-3 py-1.5 rounded-md text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all"
+                                                                            >
+                                                                                Cancel
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleRouteWiseSaveClick(route)}
+                                                                                disabled={assigningBusId === route._id || !routeWiseChanged}
+                                                                                className="px-4 py-1.5 rounded-md text-xs font-semibold bg-blue-900 text-white hover:bg-blue-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
+                                                                            >
+                                                                                {assigningBusId === route._id ? 'Saving…' : 'Save Changes'}
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                    {renderPagination(filteredRoutes.length)}
+                                </div>
+                            );
+                        })()
+                    )}
                 </div>
             )}
 

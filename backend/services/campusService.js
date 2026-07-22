@@ -17,25 +17,31 @@ const getLegacyMongoToSqlMap = async () => {
         return legacyMongoToSqlCache;
     }
 
-    const Campus = require('../models/Campus');
-    const mongoCampuses = await Campus.find().lean();
-    const [sqlRows] = await mysqlPool.query(
-        'SELECT id, name, code FROM campuses WHERE is_active = 1'
-    );
-
-    const map = new Map();
-    for (const mongoCampus of mongoCampuses) {
-        const match = sqlRows.find((sqlCampus) =>
-            sqlCampus.code?.toLowerCase() === mongoCampus.code?.toLowerCase()
-            || sqlCampus.name?.toLowerCase() === mongoCampus.name?.toLowerCase()
+    try {
+        const Campus = require('../models/Campus');
+        const mongoCampuses = await Campus.find().lean();
+        const [sqlRows] = await mysqlPool.query(
+            'SELECT id, name, code FROM campuses WHERE is_active = 1'
         );
-        if (match) {
-            map.set(String(mongoCampus._id), match.id);
-        }
-    }
 
-    legacyMongoToSqlCache = map;
-    return map;
+        const map = new Map();
+        for (const mongoCampus of mongoCampuses) {
+            const match = sqlRows.find((sqlCampus) =>
+                sqlCampus.code?.toLowerCase() === mongoCampus.code?.toLowerCase()
+                || sqlCampus.name?.toLowerCase() === mongoCampus.name?.toLowerCase()
+            );
+            if (match) {
+                map.set(String(mongoCampus._id), match.id);
+            }
+        }
+
+        legacyMongoToSqlCache = map;
+        return map;
+    } catch (err) {
+        console.warn('MySQL getLegacyMongoToSqlMap query failed:', err.message);
+        legacyMongoToSqlCache = new Map();
+        return legacyMongoToSqlCache;
+    }
 };
 
 const resolveCampusRefToSqlId = async (value) => {
@@ -89,88 +95,173 @@ const mapCampusRow = (row, collegeNames = []) => ({
 
 const getCollegeNamesByIds = async (collegeIds = []) => {
     if (!mysqlPool || collegeIds.length === 0) return [];
-    const [rows] = await mysqlPool.query(
-        'SELECT id, name FROM colleges WHERE id IN (?) AND is_active = 1 ORDER BY name ASC',
-        [collegeIds]
-    );
-    return rows.map((row) => row.name);
+    try {
+        const [rows] = await mysqlPool.query(
+            'SELECT id, name FROM colleges WHERE id IN (?) AND is_active = 1 ORDER BY name ASC',
+            [collegeIds]
+        );
+        return rows.map((row) => row.name);
+    } catch (err) {
+        console.warn('MySQL getCollegeNamesByIds failed:', err.message);
+        return [];
+    }
 };
 
 const resolveCollegeIdsFromNames = async (collegeNames = []) => {
     if (!mysqlPool || !collegeNames.length) return [];
-    const [rows] = await mysqlPool.query(
-        'SELECT id, name FROM colleges WHERE name IN (?) AND is_active = 1',
-        [collegeNames]
-    );
-    return rows.map((row) => row.id);
+    try {
+        const [rows] = await mysqlPool.query(
+            'SELECT id FROM colleges WHERE name IN (?) AND is_active = 1',
+            [collegeNames]
+        );
+        return rows.map((row) => row.id);
+    } catch (err) {
+        console.warn('MySQL resolveCollegeIdsFromNames failed:', err.message);
+        return [];
+    }
 };
 
 const getAllCampuses = async ({ activeOnly = true } = {}) => {
-    if (!mysqlPool) return [];
+    if (mysqlPool) {
+        try {
+            let sql = 'SELECT id, name, code, description, college_ids, is_active, created_at, updated_at FROM campuses';
+            if (activeOnly) sql += ' WHERE is_active = 1';
+            sql += ' ORDER BY name ASC';
 
-    let sql = 'SELECT id, name, code, description, college_ids, is_active, created_at, updated_at FROM campuses';
-    if (activeOnly) sql += ' WHERE is_active = 1';
-    sql += ' ORDER BY name ASC';
+            const [rows] = await mysqlPool.query(sql);
+            const campuses = [];
 
-    const [rows] = await mysqlPool.query(sql);
-    const campuses = [];
+            for (const row of rows) {
+                const collegeIds = parseCollegeIds(row.college_ids);
+                const collegeNames = await getCollegeNamesByIds(collegeIds);
+                campuses.push(mapCampusRow(row, collegeNames));
+            }
 
-    for (const row of rows) {
-        const collegeIds = parseCollegeIds(row.college_ids);
-        const collegeNames = await getCollegeNamesByIds(collegeIds);
-        campuses.push(mapCampusRow(row, collegeNames));
+            return campuses;
+        } catch (err) {
+            console.warn('MySQL getAllCampuses query failed, falling back to MongoDB:', err.message);
+        }
     }
 
-    return campuses;
+    try {
+        const Campus = require('../models/Campus');
+        const mongoCampuses = await Campus.find().lean();
+        return mongoCampuses.map((c) => ({
+            _id: c._id,
+            id: c._id,
+            name: c.name,
+            code: c.code,
+            location: c.location || '',
+            colleges: c.colleges || [],
+            isActive: true,
+        }));
+    } catch (err) {
+        console.error('MongoDB campuses query failed:', err.message);
+        return [];
+    }
 };
 
 const getCampusById = async (id, { activeOnly = false } = {}) => {
     const campusId = normalizeCampusId(id);
-    if (!mysqlPool || campusId === null) return null;
+    if (mysqlPool && campusId !== null) {
+        try {
+            let sql = 'SELECT id, name, code, description, college_ids, is_active, created_at, updated_at FROM campuses WHERE id = ?';
+            const params = [campusId];
+            if (activeOnly) {
+                sql += ' AND is_active = 1';
+            }
 
-    let sql = 'SELECT id, name, code, description, college_ids, is_active, created_at, updated_at FROM campuses WHERE id = ?';
-    const params = [campusId];
-    if (activeOnly) {
-        sql += ' AND is_active = 1';
+            const [rows] = await mysqlPool.query(sql, params);
+            if (rows.length) {
+                const collegeIds = parseCollegeIds(rows[0].college_ids);
+                const collegeNames = await getCollegeNamesByIds(collegeIds);
+                return mapCampusRow(rows[0], collegeNames);
+            }
+        } catch (err) {
+            console.warn('MySQL getCampusById failed:', err.message);
+        }
     }
 
-    const [rows] = await mysqlPool.query(sql, params);
-    if (!rows.length) return null;
-
-    const collegeIds = parseCollegeIds(rows[0].college_ids);
-    const collegeNames = await getCollegeNamesByIds(collegeIds);
-    return mapCampusRow(rows[0], collegeNames);
+    if (id) {
+        try {
+            const Campus = require('../models/Campus');
+            const c = await Campus.findById(id).lean();
+            if (c) {
+                return {
+                    _id: c._id,
+                    id: c._id,
+                    name: c.name,
+                    code: c.code,
+                    location: c.location || '',
+                    colleges: c.colleges || [],
+                    isActive: true,
+                };
+            }
+        } catch {}
+    }
+    return null;
 };
 
 const getCampusMapByIds = async (ids = []) => {
     const campusIds = normalizeCampusIds(ids);
-    if (!campusIds.length) return {};
+    if (campusIds.length && mysqlPool) {
+        try {
+            const [rows] = await mysqlPool.query(
+                'SELECT id, name, code, description, college_ids, is_active, created_at, updated_at FROM campuses WHERE id IN (?)',
+                [campusIds]
+            );
 
-    const [rows] = await mysqlPool.query(
-        'SELECT id, name, code, description, college_ids, is_active, created_at, updated_at FROM campuses WHERE id IN (?)',
-        [campusIds]
-    );
-
-    const map = {};
-    for (const row of rows) {
-        const collegeIds = parseCollegeIds(row.college_ids);
-        const collegeNames = await getCollegeNamesByIds(collegeIds);
-        map[row.id] = mapCampusRow(row, collegeNames);
+            const map = {};
+            for (const row of rows) {
+                const collegeIds = parseCollegeIds(row.college_ids);
+                const collegeNames = await getCollegeNamesByIds(collegeIds);
+                map[row.id] = mapCampusRow(row, collegeNames);
+            }
+            return map;
+        } catch (err) {
+            console.warn('MySQL getCampusMapByIds query failed:', err.message);
+        }
     }
-    return map;
+
+    try {
+        const Campus = require('../models/Campus');
+        const validObjectIds = (ids || []).filter(isMongoObjectId);
+        if (!validObjectIds.length) return {};
+        const mongoCampuses = await Campus.find({ _id: { $in: validObjectIds } }).lean();
+        const map = {};
+        for (const c of mongoCampuses) {
+            map[String(c._id)] = {
+                _id: c._id,
+                id: c._id,
+                name: c.name,
+                code: c.code,
+                location: c.location || '',
+                colleges: c.colleges || [],
+                isActive: true,
+            };
+        }
+        return map;
+    } catch {
+        return {};
+    }
 };
 
 const attachCampusToDocs = async (docs = [], field = 'campus') => {
-    const plainDocs = docs.map((doc) => (doc?.toObject ? doc.toObject() : { ...doc }));
-    const resolvedIds = await Promise.all(
-        plainDocs.map((doc) => resolveCampusRefToSqlId(doc[field]))
-    );
-    const campusMap = await getCampusMapByIds(resolvedIds.filter((id) => id !== null));
+    try {
+        const plainDocs = docs.map((doc) => (doc?.toObject ? doc.toObject() : { ...doc }));
+        const resolvedIds = await Promise.all(
+            plainDocs.map((doc) => resolveCampusRefToSqlId(doc[field]))
+        );
+        const campusMap = await getCampusMapByIds(resolvedIds.filter((id) => id !== null));
 
-    return plainDocs.map((doc, index) => ({
-        ...doc,
-        campus: resolvedIds[index] ? campusMap[resolvedIds[index]] || null : null
-    }));
+        return plainDocs.map((doc, index) => ({
+            ...doc,
+            campus: resolvedIds[index] ? campusMap[resolvedIds[index]] || doc[field] || null : doc[field] || null
+        }));
+    } catch (err) {
+        console.warn('attachCampusToDocs failed, returning plain docs:', err.message);
+        return docs.map((doc) => (doc?.toObject ? doc.toObject() : { ...doc }));
+    }
 };
 
 const attachCampusToDoc = async (doc, field = 'campus') => {
