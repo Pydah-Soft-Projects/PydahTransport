@@ -1,4 +1,5 @@
 const TransportRequest = require('../models/TransportRequest');
+const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 
 function normalizeApplicationCode(value, fallback = 'UNK') {
     const text = String(value || '').trim().toUpperCase();
@@ -38,13 +39,16 @@ function parseLegacyApplicationNumber(applicationNumber) {
  * Fetch the last/highest application serial for a specific college and course in an academic year.
  * Checks MongoDB TransportRequest collection only.
  */
-async function getLastTransportApplicationSerial(mysqlPool, { academicYear, collegeCode, courseCode }) {
+async function getLastTransportApplicationSerial(mysqlPool, { academicYear, collegeCode, courseCode, userType = 'student' }) {
     let maxSerial = 0;
     const normalizedCollege = formatApplicationCode(collegeCode, 'UNK');
     const normalizedCourse = formatApplicationCode(courseCode, 'GEN');
 
+    const isEmployee = userType === 'employee' || normalizedCourse === 'EMP';
+    const Model = isEmployee ? EmployeeTransportRequest : TransportRequest;
+
     try {
-        const lastMongoReq = await TransportRequest.findOne({
+        const lastMongoReq = await Model.findOne({
             academic_year: academicYear,
             application_college_code: normalizedCollege,
             application_course_code: normalizedCourse,
@@ -75,6 +79,7 @@ async function assignTransportApplicationNumber(
         courseCode,
         existingApplicationNumber = null,
         existingApplicationSerial = null,
+        userType = 'student',
     }
 ) {
     if (existingApplicationNumber) {
@@ -100,6 +105,7 @@ async function assignTransportApplicationNumber(
         academicYear,
         collegeCode: normalizedCollege,
         courseCode: normalizedCourse,
+        userType,
     });
 
     const nextSerial = lastSerial + 1;
@@ -119,7 +125,7 @@ async function assignTransportApplicationNumber(
 /** Read-only preview of the next serial for a college/course in an academic year based on last MongoDB request. */
 async function peekNextTransportApplicationNumber(
     mysqlPool,
-    { academicYear, collegeCode, courseCode }
+    { academicYear, collegeCode, courseCode, userType = 'student' }
 ) {
     if (!academicYear) {
         throw new Error('Academic year is required to preview a transport application number.');
@@ -132,6 +138,7 @@ async function peekNextTransportApplicationNumber(
         academicYear,
         collegeCode: normalizedCollege,
         courseCode: normalizedCourse,
+        userType,
     });
 
     const nextSerial = lastSerial + 1;

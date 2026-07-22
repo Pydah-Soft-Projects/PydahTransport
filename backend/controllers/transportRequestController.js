@@ -477,6 +477,7 @@ async function getApplicationNumberForApprovalPreview(mysqlPool, requestRow) {
             academicYear,
             collegeCode: context.collegeCode,
             courseCode: context.courseCode,
+            userType,
         });
         return {
             academic_year: academicYear,
@@ -1533,6 +1534,7 @@ async function markTransportRequestApproved(mysqlPool, requestId, {
         courseCode: context.courseCode,
         existingApplicationNumber,
         existingApplicationSerial,
+        userType,
     });
 
     if (userType === 'employee') {
