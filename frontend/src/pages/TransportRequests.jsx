@@ -774,10 +774,14 @@ const TransportRequests = () => {
 
     const calculateStats = () => {
         const total = requests.length;
+        const students = requests.filter(r => r.user_type === 'student').length;
+        const employees = requests.filter(r => r.user_type === 'employee').length;
         const approved = requests.filter(r => (r.status || '').toLowerCase() === 'approved' && !isExpiredPass(r)).length;
         const expired = requests.filter(r => isExpiredPass(r)).length;
         const pending = requests.filter(r => (r.status || '').toLowerCase() === 'pending').length;
-        return { total, approved, expired, pending };
+        const rejected = requests.filter(r => (r.status || '').toLowerCase() === 'rejected').length;
+        const cancelled = requests.filter(r => (r.status || '').toLowerCase() === 'cancelled').length;
+        return { total, students, employees, approved, expired, pending, rejected, cancelled };
     };
 
     const stats = calculateStats();
@@ -986,11 +990,12 @@ const TransportRequests = () => {
             </div>
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
                 <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
                     <div>
                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Requests</p>
                         <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.total}</p>
+                        <p className="text-[8px] font-semibold text-slate-400 mt-0.5">({stats.students} Stud, {stats.employees} Emp)</p>
                     </div>
                     <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
                         <FileText size={16} />
@@ -1021,6 +1026,24 @@ const TransportRequests = () => {
                     </div>
                     <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-sm shrink-0">
                         <Clock size={16} />
+                    </div>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
+                    <div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Rejected</p>
+                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.rejected}</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg bg-red-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <XCircle size={16} />
+                    </div>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
+                    <div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Cancelled</p>
+                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.cancelled}</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg bg-orange-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <Trash2 size={16} />
                     </div>
                 </div>
             </div>
