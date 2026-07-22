@@ -71,6 +71,14 @@ const TransportRequests = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [rowsPerPage, setRowsPerPage] = useState(10);
+    const [userTypeFilter, setUserTypeFilter] = useState('student'); // 'student' or 'employee'
+
+    const filteredRequestsByType = React.useMemo(() => {
+        return requests.filter((r) => {
+            const userType = r.user_type || 'student';
+            return userType === userTypeFilter;
+        });
+    }, [requests, userTypeFilter]);
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(null);
     const [message, setMessage] = useState({ text: '', type: '' });
@@ -243,7 +251,7 @@ const TransportRequests = () => {
     };
 
     const handleSelectAll = (e) => {
-        const visibleApproved = requests.filter(r => (r.status || '').toLowerCase() === 'approved');
+        const visibleApproved = filteredRequestsByType.filter(r => (r.status || '').toLowerCase() === 'approved');
         const visibleApprovedIds = visibleApproved.map(r => r.id);
         if (e.target.checked) {
             setSelectedRequestIds((prev) => [...new Set([...prev, ...visibleApprovedIds])]);
@@ -789,8 +797,8 @@ const TransportRequests = () => {
     // Pagination logic
     const indexOfLastRow = currentPage * rowsPerPage;
     const indexOfFirstRow = indexOfLastRow - rowsPerPage;
-    const currentRequests = requests.slice(indexOfFirstRow, indexOfLastRow);
-    const totalPages = Math.ceil(requests.length / rowsPerPage);
+    const currentRequests = filteredRequestsByType.slice(indexOfFirstRow, indexOfLastRow);
+    const totalPages = Math.ceil(filteredRequestsByType.length / rowsPerPage);
 
     const openApproveModal = async (requestId) => {
         setApproveModal({ open: true, requestId, data: null, selectedBusId: '', loading: true, error: null });
@@ -1144,6 +1152,7 @@ const TransportRequests = () => {
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     {/* Pagination Controls */}
                     <div className="p-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4 bg-slate-50/80">
+                    <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2">
                             <span className="text-sm text-gray-600 font-medium">Rows per page:</span>
                             <select
@@ -1160,6 +1169,37 @@ const TransportRequests = () => {
                                 <option value={100}>100</option>
                             </select>
                         </div>
+
+                        {/* User Type Tabs */}
+                        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setUserTypeFilter('student');
+                                    setCurrentPage(1);
+                                }}
+                                className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'student'
+                                    ? 'bg-blue-900 text-white shadow-sm'
+                                    : 'text-slate-500 hover:bg-slate-50'
+                                    }`}
+                            >
+                                Students
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setUserTypeFilter('employee');
+                                    setCurrentPage(1);
+                                }}
+                                className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'employee'
+                                    ? 'bg-blue-900 text-white shadow-sm'
+                                    : 'text-slate-500 hover:bg-slate-50'
+                                    }`}
+                            >
+                                Employees
+                            </button>
+                        </div>
+                    </div>
                         <div className="flex items-center gap-4 text-sm text-gray-600">
                             <span>
                                 Showing <span className="font-semibold text-gray-900">{indexOfFirstRow + 1}</span> to <span className="font-semibold text-gray-900">{Math.min(indexOfLastRow, requests.length)}</span> of <span className="font-semibold text-gray-900">{requests.length}</span> entries
@@ -1404,10 +1444,8 @@ const TransportRequests = () => {
                                                     )}
                                                 </div>
                                             </div>
-                                            {req.effective_expiry_date && !isEmployee ? (
+                                            {req.effective_expiry_date && !isEmployee && (
                                                 <DetailItem icon={Clock} label="Valid Until" value={formatDate(req.effective_expiry_date)} />
-                                            ) : (
-                                                <DetailItem icon={Bus} label="Bus" value={req.bus_id || 'Unassigned'} />
                                             )}
                                         </div>
                                     </div>
