@@ -301,9 +301,21 @@ const getBusesOverview = async (req, res) => {
                 bus_id: { $in: busNumbers },
             }).lean();
 
+            const now = new Date();
             const studentCounts = {};
             mongoStudents
-                .filter((r) => liveOccupancy || (r.academic_year || fallbackAcademicYear) === academicYear)
+                .filter((r) => {
+                    if (liveOccupancy) {
+                        let isExpired = false;
+                        if (r.expiry_date) {
+                            isExpired = new Date(r.expiry_date) < now;
+                        } else if (r.semester_end_date) {
+                            isExpired = new Date(r.semester_end_date) < now;
+                        }
+                        return !isExpired;
+                    }
+                    return (r.academic_year || fallbackAcademicYear) === academicYear;
+                })
                 .forEach((r) => {
                     studentCounts[r.bus_id] = (studentCounts[r.bus_id] || 0) + 1;
                 });

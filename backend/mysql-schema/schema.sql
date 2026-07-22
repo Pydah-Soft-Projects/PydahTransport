@@ -219,7 +219,7 @@ CREATE TABLE IF NOT EXISTS transport_requests (
   stage_name VARCHAR(255),
   bus_id VARCHAR(100),
   fare DECIMAL(10, 2),
-  status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+  status ENUM('pending', 'approved', 'rejected', 'cancelled', 'expired') DEFAULT 'pending',
   request_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
