@@ -157,10 +157,9 @@ const getBusDetails = async (req, res) => {
         const academicYear = resolveAcademicYear(req.query);
         const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
         const liveOccupancy = isLiveOccupancyMode(req.query);
-        const passengerQuery = bus.assignedRouteId
-            ? { route_id: bus.assignedRouteId, status: 'approved' }
-            : { bus_id: bus.busNumber, status: 'approved' };
-        const studentMongoRequests = await TransportRequest.find(passengerQuery).lean();
+        const studentMongoRequests = bus.assignedRouteId
+            ? await TransportRequest.find({ route_id: bus.assignedRouteId, status: 'approved' }).lean()
+            : [];
         const filteredStudentRequests = studentMongoRequests.filter((r) => (
             liveOccupancy ? true : (r.academic_year || fallbackAcademicYear) === academicYear
         ));
@@ -204,7 +203,9 @@ const getBusDetails = async (req, res) => {
 
         mysqlPassengers = await enrichTransportFareAdjustments(mysqlPool, formattedStudentRows);
 
-        const mongoRequests = await EmployeeTransportRequest.find(passengerQuery).lean();
+        const mongoRequests = bus.assignedRouteId
+            ? await EmployeeTransportRequest.find({ route_id: bus.assignedRouteId, status: 'approved' }).lean()
+            : [];
         const mongoPassengers = mongoRequests.filter((r) => (
             liveOccupancy ? true : (r.academic_year || fallbackAcademicYear) === academicYear
         )).map(r => ({
@@ -301,15 +302,11 @@ const getBusesOverview = async (req, res) => {
 
             const mongoStudents = await TransportRequest.find({
                 status: 'approved',
-                $or: [
-                    { route_id: { $in: routeIds } },
-                    { bus_id: { $in: busNumbers } }
-                ]
+                route_id: { $in: routeIds }
             }).lean();
 
             const now = new Date();
             const studentCountsByRoute = {};
-            const studentCountsByBus = {};
             mongoStudents
                 .filter((r) => {
                     if (liveOccupancy) {
@@ -327,28 +324,18 @@ const getBusesOverview = async (req, res) => {
                     if (r.route_id) {
                         studentCountsByRoute[r.route_id] = (studentCountsByRoute[r.route_id] || 0) + 1;
                     }
-                    if (r.bus_id) {
-                        studentCountsByBus[r.bus_id] = (studentCountsByBus[r.bus_id] || 0) + 1;
-                    }
                 });
 
             const mongoEmployees = await EmployeeTransportRequest.find({
                 status: 'approved',
-                $or: [
-                    { route_id: { $in: routeIds } },
-                    { bus_id: { $in: busNumbers } }
-                ]
+                route_id: { $in: routeIds }
             }).lean();
             const employeeCountsByRoute = {};
-            const employeeCountsByBus = {};
             mongoEmployees
                 .filter((r) => liveOccupancy || (r.academic_year || fallbackAcademicYear) === academicYear)
                 .forEach((r) => {
                     if (r.route_id) {
                         employeeCountsByRoute[r.route_id] = (employeeCountsByRoute[r.route_id] || 0) + 1;
-                    }
-                    if (r.bus_id) {
-                        employeeCountsByBus[r.bus_id] = (employeeCountsByBus[r.bus_id] || 0) + 1;
                     }
                 });
 
@@ -357,7 +344,7 @@ const getBusesOverview = async (req, res) => {
                 if (bus && bus.assignedRouteId) {
                     counts[bn] = (studentCountsByRoute[bus.assignedRouteId] || 0) + (employeeCountsByRoute[bus.assignedRouteId] || 0);
                 } else {
-                    counts[bn] = (studentCountsByBus[bn] || 0) + (employeeCountsByBus[bn] || 0);
+                    counts[bn] = 0;
                 }
             });
         }

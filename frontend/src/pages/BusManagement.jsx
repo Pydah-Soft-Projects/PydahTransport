@@ -1253,7 +1253,7 @@ const BusManagement = () => {
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
-                                                <th className="px-3 py-2 w-56">Route Details</th>
+                                                <th className="px-3 py-2 w-80">Route Details</th>
                                                 <th className="px-3 py-2">Start / End Points</th>
                                                 <th className="px-3 py-2">Assigned Bus</th>
                                                 <th className="px-3 py-2 w-32">Action</th>
@@ -1271,8 +1271,8 @@ const BusManagement = () => {
                                                         <tr className="hover:bg-blue-50/30 transition-colors">
                                                             <td className="px-3 py-2">
                                                                 <div>
-                                                                    <p className="font-bold text-slate-800">{route.routeName}</p>
-                                                                    <p className="text-xs text-slate-500">ID: {route.routeId}</p>
+                                                                    <p className="font-bold text-slate-800 text-xs">{route.routeName}</p>
+                                                                    <p className="text-[10px] text-slate-500">ID: {route.routeId}</p>
                                                                 </div>
                                                             </td>
                                                             <td className="px-3 py-2 text-slate-600 font-medium text-xs">
@@ -1900,14 +1900,13 @@ const BusManagement = () => {
                                 <table className="w-full text-left border-collapse">
                                     <thead>
                                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
-                                            <th className="px-3 py-2 w-56">Bus Details</th>
+                                            <th className="px-3 py-2 w-44">Bus Details</th>
                                             <th className="px-3 py-2">Model</th>
                                             <th className="px-3 py-2">Reg. Date</th>
                                             <th className="px-3 py-2">Capacity</th>
                                             <th className="px-3 py-2">Driver</th>
                                             <th className="px-3 py-2">Attendant</th>
                                             <th className="px-3 py-2">Route</th>
-                                            <th className="px-3 py-2">Status</th>
                                             <th className="px-3 py-2">Taxes Config</th>
                                             <th className="px-3 py-2 text-right">Actions</th>
                                         </tr>
@@ -1921,15 +1920,24 @@ const BusManagement = () => {
                                             >
                                                 <td className="px-3 py-2">
                                                     <div>
-                                                        <p className="font-bold text-slate-800 text-sm">{bus.busNumber}</p>
-                                                        <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">{bus.type}</p>
-                                                        {bus.campus && (
-                                                            <div className="mt-1">
-                                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <p className="font-bold text-slate-800 text-sm">{bus.busNumber}</p>
+                                                            <span
+                                                                className={`w-2 h-2 rounded-full ${
+                                                                    bus.status === 'Active' ? 'bg-emerald-500' :
+                                                                    bus.status === 'In Maintenance' ? 'bg-amber-500' : 'bg-red-500'
+                                                                }`}
+                                                                title={bus.status}
+                                                            />
+                                                        </div>
+                                                        <div className="flex items-center gap-2 mt-0.5">
+                                                            <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">{bus.type}</p>
+                                                            {bus.campus && (
+                                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100 whitespace-nowrap">
                                                                     {bus.campus.name || bus.campus}
                                                                 </span>
-                                                            </div>
-                                                        )}
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </td>
                                                 <td className="px-3 py-2 text-xs text-slate-600">
@@ -1962,14 +1970,7 @@ const BusManagement = () => {
                                                         <span className="text-slate-400 italic text-xs">--</span>
                                                     )}
                                                 </td>
-                                                <td className="px-3 py-2">
-                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex w-fit items-center ${bus.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                                                        bus.status === 'In Maintenance' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-red-50 text-red-700 border-red-100'
-                                                        }`}>
-                                                        <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${bus.status === 'Active' ? 'bg-emerald-500' : bus.status === 'In Maintenance' ? 'bg-amber-500' : 'bg-red-500'}`}></span>
-                                                        {bus.status}
-                                                    </span>
-                                                </td>
+
                                                 <td className="px-3 py-2">
                                                     <button
                                                         onClick={(e) => {

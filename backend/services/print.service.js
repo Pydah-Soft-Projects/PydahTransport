@@ -257,7 +257,15 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
     let mysqlPassengers = [];
     const campusFilter = await getCampusRouteFilter(campusId);
 
-    const studentMongoRequests = await TransportRequest.find({ bus_id: busNumber, status: 'approved' }).lean();
+    // Look up the bus to retrieve its assignedRouteId
+    const busDoc = await Bus.findOne({ busNumber }).lean();
+    const assignedRouteId = busDoc?.assignedRouteId;
+
+    const passengerQuery = assignedRouteId
+        ? { route_id: assignedRouteId, status: 'approved' }
+        : { bus_id: busNumber, status: 'approved' };
+
+    const studentMongoRequests = await TransportRequest.find(passengerQuery).lean();
     const filteredStudentRequests = studentMongoRequests.filter((r) => (
         liveOccupancy ? true : (r.academic_year || fallbackAcademicYear) === resolvedYear
     ));
@@ -303,7 +311,9 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
         };
     });
 
-    const mongoQuery = { bus_id: busNumber, status: 'approved' };
+    const mongoQuery = assignedRouteId
+        ? { route_id: assignedRouteId, status: 'approved' }
+        : { bus_id: busNumber, status: 'approved' };
     if (!liveOccupancy) {
         mongoQuery.$or = [
             { academic_year: resolvedYear },

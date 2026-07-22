@@ -13,7 +13,10 @@ import {
     CheckCircle2,
     ArrowRight,
     Download,
-    Loader2
+    Loader2,
+    ArrowUpDown,
+    ChevronUp,
+    ChevronDown
 } from 'lucide-react';
 
 import { apiFetch, API_BASE } from '../utils/api';
@@ -36,6 +39,40 @@ const Fleet = () => {
     const [reportModalError, setReportModalError] = useState('');
     const [campuses, setCampuses] = useState([]);
     const [selectedCampus, setSelectedCampus] = useState('');
+    const [sortField, setSortField] = useState(null);
+    const [sortDirection, setSortDirection] = useState('asc');
+
+    const handleSort = (field) => {
+        if (sortField === field) {
+            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortField(field);
+            setSortDirection(field === 'occupancy' ? 'desc' : 'asc');
+        }
+    };
+
+    const sortedList = React.useMemo(() => {
+        if (!sortField) return list;
+        const sorted = [...list];
+        sorted.sort((a, b) => {
+            let valA, valB;
+            if (sortField === 'route') {
+                valA = a.route ? (a.route.routeId || a.route.routeName || '') : 'ZZZZ';
+                valB = b.route ? (b.route.routeId || b.route.routeName || '') : 'ZZZZ';
+            } else if (sortField === 'occupancy') {
+                valA = a.occupancyPercent || 0;
+                valB = b.occupancyPercent || 0;
+            } else {
+                return 0;
+            }
+
+            if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+            if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+        return sorted;
+    }, [list, sortField, sortDirection]);
+
 
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
     const userCampuses = adminInfo.campuses || [];
@@ -415,16 +452,40 @@ const Fleet = () => {
                             <thead>
                                 <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
                                     <th className="px-3 py-2 w-48">Bus Details</th>
-                                    <th className="px-3 py-2">Route</th>
+                                    <th 
+                                        onClick={() => handleSort('route')}
+                                        className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors select-none group"
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            <span>Route</span>
+                                            {sortField === 'route' ? (
+                                                sortDirection === 'asc' ? <ChevronUp size={11} className="text-blue-600 font-bold" /> : <ChevronDown size={11} className="text-blue-600 font-bold" />
+                                            ) : (
+                                                <ArrowUpDown size={11} className="text-slate-400 opacity-50 group-hover:opacity-100" />
+                                            )}
+                                        </div>
+                                    </th>
                                     <th className="px-3 py-2">Capacity</th>
                                     <th className="px-3 py-2">Seats Filled</th>
                                     <th className="px-3 py-2 font-bold text-slate-700">Rem. Seats</th>
-                                    <th className="px-3 py-2">Occupancy</th>
+                                    <th 
+                                        onClick={() => handleSort('occupancy')}
+                                        className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors select-none group"
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            <span>Occupancy</span>
+                                            {sortField === 'occupancy' ? (
+                                                sortDirection === 'asc' ? <ChevronUp size={11} className="text-blue-600 font-bold" /> : <ChevronDown size={11} className="text-blue-600 font-bold" />
+                                            ) : (
+                                                <ArrowUpDown size={11} className="text-slate-400 opacity-50 group-hover:opacity-100" />
+                                            )}
+                                        </div>
+                                    </th>
                                     <th className="px-3 py-2 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {list.map((item) => (
+                                {sortedList.map((item) => (
                                     <tr key={item.bus._id} className="hover:bg-blue-50/30 transition-colors group">
                                         <td className="px-3 py-2">
                                             <div>
