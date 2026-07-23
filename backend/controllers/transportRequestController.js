@@ -5,6 +5,7 @@ const Route = require('../models/Route');
 const mongoose = require('mongoose');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 const TransportRequest = require('../models/TransportRequest');
+const { getEmployeeModel } = require('../models/Employee');
 const { validateStudentAcademicContext, getExpectedYearForBatch } = require('../utils/studentAcademicValidation');
 const { assignTransportApplicationNumber, peekNextTransportApplicationNumber, formatApplicationCode } = require('../utils/transportApplicationNumber');
 const { resolveApplicationNumberContext } = require('../utils/applicationNumberContext');
@@ -927,13 +928,26 @@ const getPassengerFullDetails = async (req, res) => {
         const { resolveStudentPhoto } = require('../utils/studentPhoto');
 
         if (type === 'employee') {
+            let profilePhoto = null;
+            if (reqDoc.emp_no) {
+                try {
+                    const Employee = getEmployeeModel();
+                    if (Employee) {
+                        const emp = await Employee.findOne({ emp_no: reqDoc.emp_no }, 'profilePhoto').lean();
+                        profilePhoto = emp?.profilePhoto || null;
+                    }
+                } catch (err) {
+                    console.error(`Error fetching employee photo for ${reqDoc.emp_no}:`, err.message);
+                }
+            }
             return res.json({
                 ...reqDoc,
                 id: reqDoc._id.toString(),
                 admission_number: reqDoc.emp_no,
                 student_name: reqDoc.employee_name,
                 user_type: 'employee',
-                course: 'Employee'
+                course: 'Employee',
+                student_photo: profilePhoto
             });
         }
 
@@ -2822,16 +2836,34 @@ const getIdCardsForPrint = async (req, res) => {
             .sort({ application_college_code: 1, application_course_code: 1, application_serial: 1 })
             .lean();
 
-        const employeePassengers = mongoRows
-            .filter((r) => (r.academic_year || fallbackAcademicYear) === academicYear)
-            .map((r) => ({
-                ...r,
-                id: r._id.toString(),
-                admission_number: r.emp_no,
-                student_name: r.employee_name,
-                user_type: 'employee',
-                course: 'Employee',
-            }));
+        const filteredMongoRows = mongoRows.filter((r) => (r.academic_year || fallbackAcademicYear) === academicYear);
+        const empNos = [...new Set(filteredMongoRows.map(r => r.emp_no).filter(Boolean))];
+        let employeePhotoMap = {};
+        if (empNos.length > 0) {
+            try {
+                const Employee = getEmployeeModel();
+                if (Employee) {
+                    const empDocs = await Employee.find({ emp_no: { $in: empNos } }, 'emp_no profilePhoto').lean();
+                    for (const emp of empDocs) {
+                        if (emp.emp_no && emp.profilePhoto) {
+                            employeePhotoMap[emp.emp_no] = emp.profilePhoto;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Error fetching employee photos in batch:', err.message);
+            }
+        }
+
+        const employeePassengers = filteredMongoRows.map((r) => ({
+            ...r,
+            id: r._id.toString(),
+            admission_number: r.emp_no,
+            student_name: r.employee_name,
+            user_type: 'employee',
+            course: 'Employee',
+            student_photo: r.emp_no ? (employeePhotoMap[r.emp_no] || null) : null,
+        }));
 
         const combined = [...studentPassengers, ...employeePassengers].sort(
             (a, b) => Number(a.application_serial) - Number(b.application_serial)

@@ -16,6 +16,7 @@ const MaintenanceBill = require('../models/MaintenanceBill');
 const Vendor = require('../models/Vendor');
 const { mysqlPool } = require('../config/db');
 const { resolveStudentPhoto } = require('../utils/studentPhoto');
+const { getEmployeeModel } = require('../models/Employee');
 const campusService = require('./campusService');
 
 // Pre-load logo to inline as Base64 to handle cross-origin printing
@@ -119,13 +120,26 @@ const fetchAdmitCardData = async (data) => {
     if (isMongoId) {
         const reqRow = await EmployeeTransportRequest.findById(id).lean();
         if (reqRow) {
+            let profilePhoto = null;
+            if (reqRow.emp_no) {
+                try {
+                    const Employee = getEmployeeModel();
+                    if (Employee) {
+                        const emp = await Employee.findOne({ emp_no: reqRow.emp_no }, 'profilePhoto').lean();
+                        profilePhoto = emp?.profilePhoto || null;
+                    }
+                } catch (err) {
+                    console.error(`Error fetching employee photo for ${reqRow.emp_no}:`, err.message);
+                }
+            }
             return {
                 ...reqRow,
                 id: reqRow._id.toString(),
                 admission_number: reqRow.emp_no,
                 student_name: reqRow.employee_name,
                 user_type: 'employee',
-                course: 'Employee'
+                course: 'Employee',
+                student_photo: profilePhoto
             };
         }
     }
@@ -325,6 +339,26 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
         mongoQuery.route_id = { $in: campusFilter.routeIds };
     }
     const mongoRequests = await EmployeeTransportRequest.find(mongoQuery).lean();
+    
+    // Fetch profilePhoto from HRMS Employee collection in batch
+    const empNos = [...new Set(mongoRequests.map(r => r.emp_no).filter(Boolean))];
+    let employeePhotoMap = {};
+    if (empNos.length > 0) {
+        try {
+            const Employee = getEmployeeModel();
+            if (Employee) {
+                const empDocs = await Employee.find({ emp_no: { $in: empNos } }, 'emp_no profilePhoto').lean();
+                for (const emp of empDocs) {
+                    if (emp.emp_no && emp.profilePhoto) {
+                        employeePhotoMap[emp.emp_no] = emp.profilePhoto;
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Error fetching employee photos in batch:', err.message);
+        }
+    }
+
     const mongoPassengers = mongoRequests.map((r) => ({
         ...r,
         id: r._id.toString(),
@@ -332,6 +366,7 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
         student_name: r.employee_name,
         user_type: 'employee',
         course: 'Employee',
+        student_photo: r.emp_no ? (employeePhotoMap[r.emp_no] || null) : null,
     }));
 
     const activePassengers = liveOccupancy
@@ -439,6 +474,25 @@ const fetchPassengerReportData = async (data) => {
 
         if (mongoIds.length > 0) {
             const mongoRequests = await EmployeeTransportRequest.find({ _id: { $in: mongoIds } }).lean();
+            
+            const empNos = [...new Set(mongoRequests.map(r => r.emp_no).filter(Boolean))];
+            let employeePhotoMap = {};
+            if (empNos.length > 0) {
+                try {
+                    const Employee = getEmployeeModel();
+                    if (Employee) {
+                        const empDocs = await Employee.find({ emp_no: { $in: empNos } }, 'emp_no profilePhoto').lean();
+                        for (const emp of empDocs) {
+                            if (emp.emp_no && emp.profilePhoto) {
+                                employeePhotoMap[emp.emp_no] = emp.profilePhoto;
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error fetching employee photos in batch:', err.message);
+                }
+            }
+
             const mongoPassengers = mongoRequests.map((r) => ({
                 ...r,
                 id: r._id.toString(),
@@ -446,6 +500,7 @@ const fetchPassengerReportData = async (data) => {
                 student_name: r.employee_name,
                 user_type: 'employee',
                 course: 'Employee',
+                student_photo: r.emp_no ? (employeePhotoMap[r.emp_no] || null) : null,
             }));
             passengers = [...passengers, ...mongoPassengers];
         }
@@ -514,6 +569,25 @@ const fetchPassengerReportData = async (data) => {
             mongoQuery.route_id = { $in: campusFilter.routeIds };
         }
         const mongoRequests = await EmployeeTransportRequest.find(mongoQuery).lean();
+        
+        const empNos = [...new Set(mongoRequests.map(r => r.emp_no).filter(Boolean))];
+        let employeePhotoMap = {};
+        if (empNos.length > 0) {
+            try {
+                const Employee = getEmployeeModel();
+                if (Employee) {
+                    const empDocs = await Employee.find({ emp_no: { $in: empNos } }, 'emp_no profilePhoto').lean();
+                    for (const emp of empDocs) {
+                        if (emp.emp_no && emp.profilePhoto) {
+                            employeePhotoMap[emp.emp_no] = emp.profilePhoto;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Error fetching employee photos in batch:', err.message);
+            }
+        }
+
         const mongoPassengers = mongoRequests.map((r) => ({
             ...r,
             id: r._id.toString(),
@@ -521,6 +595,7 @@ const fetchPassengerReportData = async (data) => {
             student_name: r.employee_name,
             user_type: 'employee',
             course: 'Employee',
+            student_photo: r.emp_no ? (employeePhotoMap[r.emp_no] || null) : null,
         }));
 
         passengers = [...passengers, ...mongoPassengers];
