@@ -123,10 +123,20 @@ const fetchAdmitCardData = async (data) => {
             let profilePhoto = null;
             if (reqRow.emp_no) {
                 try {
-                    const Employee = getEmployeeModel();
-                    if (Employee) {
-                        const emp = await Employee.findOne({ emp_no: reqRow.emp_no }, 'profilePhoto').lean();
-                        profilePhoto = emp?.profilePhoto || null;
+                    const { getEmployeeConnection } = require('../config/db');
+                    const empConn = getEmployeeConnection();
+                    if (empConn) {
+                        const empCollection = empConn.collection('employees');
+                        const empRecord = await empCollection.findOne(
+                            { emp_no: reqRow.emp_no },
+                            { projection: { profilePhoto: 1, dynamicFields: 1 } }
+                        );
+                        if (empRecord) {
+                            profilePhoto =
+                                empRecord.profilePhoto ||
+                                empRecord.dynamicFields?.profilePhoto ||
+                                null;
+                        }
                     }
                 } catch (err) {
                     console.error(`Error fetching employee photo for ${reqRow.emp_no}:`, err.message);
