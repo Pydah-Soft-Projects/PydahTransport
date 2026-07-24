@@ -469,7 +469,9 @@ const BusDetails = () => {
                 <div className="flex flex-wrap items-center gap-2 mb-1.5">
                     <h1 className="text-2xl font-black text-slate-900 tracking-tight">{bus.busNumber}</h1>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                        String(bus.status || 'active').toLowerCase() === 'active' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200'
+                        String(bus.status || 'active').toLowerCase() === 'active' ? 'bg-green-100 text-green-800 border border-green-200' :
+                        String(bus.status || 'active').toLowerCase() === 'inactive' ? 'bg-slate-100 text-slate-800 border border-slate-200' :
+                        'bg-red-100 text-red-800 border border-red-200'
                     }`}>
                         {bus.status || 'active'}
                     </span>

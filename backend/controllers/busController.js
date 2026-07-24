@@ -461,6 +461,15 @@ const getBuses = async (req, res) => {
 // @access  Private/Admin
 const createBus = async (req, res) => {
     try {
+        if (req.body.status === 'Inactive' && req.body.assignedRouteId) {
+            return res.status(400).json({ message: 'Inactive buses cannot be assigned to a route.' });
+        }
+        if (req.body.assignedRouteId) {
+            const existingBus = await Bus.findOne({ assignedRouteId: req.body.assignedRouteId });
+            if (existingBus) {
+                return res.status(400).json({ message: `Route is already assigned to bus ${existingBus.busNumber}` });
+            }
+        }
         const bus = new Bus(req.body);
         const createdBus = await bus.save();
         res.status(201).json(createdBus);
@@ -481,6 +490,30 @@ const updateBus = async (req, res) => {
         }
 
         const previousRouteId = bus.assignedRouteId || null;
+        let newRouteId = undefined;
+        if (req.body.routeChange) {
+            newRouteId = req.body.routeChange.newRouteId || null;
+        } else if (req.body.assignedRouteId !== undefined) {
+            newRouteId = req.body.assignedRouteId || null;
+        }
+
+        const targetStatus = req.body.status || bus.status;
+        if (targetStatus === 'Inactive') {
+            if (newRouteId) {
+                return res.status(400).json({ message: 'Inactive buses cannot be assigned to a route.' });
+            }
+            if (previousRouteId && !req.body.routeChange && req.body.assignedRouteId === undefined) {
+                req.body.assignedRouteId = null;
+            }
+        }
+
+        if (newRouteId && newRouteId !== previousRouteId) {
+            const existingBus = await Bus.findOne({ assignedRouteId: newRouteId, _id: { $ne: bus._id } });
+            if (existingBus) {
+                return res.status(400).json({ message: `Route is already assigned to bus ${existingBus.busNumber}` });
+            }
+        }
+
         const changedBy = getChangedByName(req);
         const { staffChanges } = req.body;
 
