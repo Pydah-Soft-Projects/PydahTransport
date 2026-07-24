@@ -2621,45 +2621,41 @@ const getIdCardApplicationNumbers = async (req, res) => {
             allowedCourseCodes = rows.map(r => formatApplicationCode(r.code));
         }
 
-        const mysqlParams = [fallbackAcademicYear, academicYear];
-        let mysqlFilterSql = '';
-        if (collegeCode) {
-            mysqlFilterSql += ' AND tr.application_college_code = ?';
-            mysqlParams.push(collegeCode);
-        }
-        if (courseCode) {
-            mysqlFilterSql += ' AND tr.application_course_code = ?';
-            mysqlParams.push(courseCode);
-        }
+        // Build MongoDB query for student transport requests
+        const studentQuery = {
+            status: 'approved',
+            application_number: { $ne: null },
+            application_serial: { $ne: null },
+            $or: [
+                { academic_year: academicYear },
+                { academic_year: null },
+                { academic_year: { $exists: false } },
+            ],
+        };
+        if (collegeCode) studentQuery.application_college_code = collegeCode;
+        if (courseCode) studentQuery.application_course_code = courseCode;
 
         if (hasCollegeRestriction) {
-            mysqlFilterSql += ' AND COALESCE(s1.college, s2.college) IN (?)';
-            mysqlParams.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
+            studentQuery.application_college_code = { $in: allowedCollegeCodes };
         }
         if (hasCourseRestriction) {
-            mysqlFilterSql += ' AND COALESCE(s1.course, s2.course) IN (?)';
-            mysqlParams.push(req.user.courses);
+            studentQuery.application_course_code = { $in: allowedCourseCodes };
         }
 
-        const [mysqlRows] = await mysqlPool.query(
-            `SELECT tr.id,
-                    tr.application_number,
-                    tr.application_serial,
-                    tr.application_college_code,
-                    tr.application_course_code,
-                    tr.student_name,
-                    tr.admission_number
-             FROM transport_requests tr
-             LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
-             LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
-             WHERE tr.status = 'approved'
-               AND tr.application_number IS NOT NULL
-               AND tr.application_serial IS NOT NULL
-               AND COALESCE(tr.academic_year, ?) = ?
-               ${mysqlFilterSql}
-             ORDER BY tr.application_college_code ASC, tr.application_course_code ASC, tr.application_serial ASC`,
-            mysqlParams
-        );
+        const studentMongoRows = await TransportRequest.find(studentQuery).lean();
+
+        const studentApplications = studentMongoRows
+            .filter((r) => (r.academic_year || fallbackAcademicYear) === academicYear)
+            .map((r) => ({
+                id: r.id != null ? r.id : r._id.toString(),
+                application_number: r.application_number,
+                application_serial: Number(r.application_serial),
+                college_code: r.application_college_code,
+                course_code: r.application_course_code,
+                student_name: r.student_name,
+                admission_number: r.admission_number,
+                user_type: 'student',
+            }));
 
         const mongoQuery = {
             status: 'approved',
@@ -2697,17 +2693,6 @@ const getIdCardApplicationNumbers = async (req, res) => {
                 admission_number: r.emp_no,
                 user_type: 'employee',
             }));
-
-        const studentApplications = mysqlRows.map((r) => ({
-            id: r.id,
-            application_number: r.application_number,
-            application_serial: Number(r.application_serial),
-            college_code: r.application_college_code,
-            course_code: r.application_course_code,
-            student_name: r.student_name,
-            admission_number: r.admission_number,
-            user_type: 'student',
-        }));
 
         const applications = [...studentApplications, ...employeeApplications].sort((a, b) => {
             const collegeCmp = String(a.college_code || '').localeCompare(String(b.college_code || ''));
@@ -2768,50 +2753,62 @@ const getIdCardsForPrint = async (req, res) => {
         const { resolveStudentPhoto } = require('../utils/studentPhoto');
         const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
 
-        const mysqlParams = [fromSerial, toSerial, fallbackAcademicYear, academicYear];
-        let mysqlFilterSql = '';
-        if (collegeCode) {
-            mysqlFilterSql += ' AND tr.application_college_code = ?';
-            mysqlParams.push(collegeCode);
-        }
-        if (courseCode) {
-            mysqlFilterSql += ' AND tr.application_course_code = ?';
-            mysqlParams.push(courseCode);
-        }
+        // Build MongoDB query for student transport requests
+        const studentQuery = {
+            status: 'approved',
+            application_serial: { $gte: fromSerial, $lte: toSerial },
+            $or: [
+                { academic_year: academicYear },
+                { academic_year: null },
+                { academic_year: { $exists: false } },
+            ],
+        };
+        if (collegeCode) studentQuery.application_college_code = collegeCode;
+        if (courseCode) studentQuery.application_course_code = courseCode;
 
         if (hasCollegeRestriction) {
-            mysqlFilterSql += ' AND COALESCE(s1.college, s2.college) IN (?)';
-            mysqlParams.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
+            studentQuery.application_college_code = { $in: allowedCollegeCodes };
         }
         if (hasCourseRestriction) {
-            mysqlFilterSql += ' AND COALESCE(s1.course, s2.course) IN (?)';
-            mysqlParams.push(req.user.courses);
+            studentQuery.application_course_code = { $in: allowedCourseCodes };
         }
 
-        const [mysqlRows] = await mysqlPool.query(
-            `SELECT tr.*,
-                    COALESCE(s1.course, s2.course) as course,
-                    COALESCE(s1.branch, s2.branch) as branch,
-                    COALESCE(s1.student_photo, s2.student_photo) as student_photo,
-                    COALESCE(s1.student_data, s2.student_data) as student_data,
-                    COALESCE(s1.pin_no, s2.pin_no) as pin_no
-             FROM transport_requests tr
-             LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
-             LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
-             WHERE tr.status = 'approved'
-               AND tr.application_serial IS NOT NULL
-               AND tr.application_serial BETWEEN ? AND ?
-               AND COALESCE(tr.academic_year, ?) = ?
-               ${mysqlFilterSql}
-             ORDER BY tr.application_college_code ASC, tr.application_course_code ASC, tr.application_serial ASC`,
-            mysqlParams
-        );
+        const studentMongoRows = await TransportRequest.find(studentQuery).lean();
+        const filteredStudentMongoRows = studentMongoRows.filter((r) => (r.academic_year || fallbackAcademicYear) === academicYear);
 
-        const studentPassengers = mysqlRows.map((row) => ({
-            ...row,
-            student_photo: resolveStudentPhoto(row),
-            user_type: 'student',
-        }));
+        const studentAdmissionNos = [...new Set(filteredStudentMongoRows.map(r => r.admission_number).filter(Boolean))];
+        let studentMap = {};
+        if (mysqlPool && studentAdmissionNos.length > 0) {
+            const [studentRows] = await mysqlPool.query(
+                `SELECT admission_number, admission_no, course, branch, student_photo, student_data, pin_no, college
+                 FROM students
+                 WHERE admission_number IN (?) OR admission_no IN (?)`,
+                [studentAdmissionNos, studentAdmissionNos]
+            );
+            for (const s of studentRows) {
+                if (s.admission_number) studentMap[s.admission_number] = s;
+                if (s.admission_no) studentMap[s.admission_no] = s;
+            }
+        }
+
+        const studentPassengers = filteredStudentMongoRows.map((r) => {
+            const student = (r.admission_number && studentMap[r.admission_number]) || {};
+            const combinedRow = {
+                ...r,
+                id: r.id != null ? r.id : String(r._id),
+                _id: String(r._id),
+                user_type: 'student',
+                course: student.course || 'N/A',
+                branch: student.branch || 'N/A',
+                student_photo: student.student_photo || null,
+                student_data: student.student_data || null,
+                pin_no: student.pin_no || 'N/A',
+            };
+            return {
+                ...combinedRow,
+                student_photo: resolveStudentPhoto(combinedRow),
+            };
+        });
 
         const mongoQuery = {
             status: 'approved',
