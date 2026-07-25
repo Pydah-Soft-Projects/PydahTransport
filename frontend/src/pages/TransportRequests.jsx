@@ -13,6 +13,7 @@ import { printHtmlDocument } from '../utils/printHtml';
 import QRCode from 'qrcode';
 import { getTransportVerifyUrl } from '../utils/siteUrl';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
+import { normalizeStudentPhoto } from '../utils/studentPhoto';
 
 const statusDisplay = (s) => (s || 'pending').charAt(0).toUpperCase() + (s || 'pending').slice(1);
 
@@ -1372,82 +1373,139 @@ const TransportRequests = () => {
                         </div>
                     );
 
+                    const photoSrc = normalizeStudentPhoto(req.student_photo);
+
                     return (
-                        <div className="space-y-4">
-                            <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-slate-900 to-slate-800 px-5 py-3.5 text-white">
-                                <div className="relative flex items-center justify-between gap-4">
-                                    <div className="min-w-0 flex items-center gap-4">
-                                        <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
-                                            <User size={22} className="text-white/90" />
-                                        </div>
-                                        <div className="min-w-0">
-                                            <h4 className="text-lg font-bold leading-tight truncate">{name}</h4>
-                                            <p className="text-xs text-slate-300 font-medium">ID · {idNo}</p>
+                        <div className="space-y-5">
+
+                            {/* ── TOP: Photo + Student Details ───────────────────────── */}
+                            <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+                                {/* decorative blob */}
+                                <div className="pointer-events-none absolute -top-6 -right-6 w-36 h-36 rounded-full bg-blue-50" />
+
+                                <div className="relative flex flex-col sm:flex-row gap-5">
+                                    {/* Photo */}
+                                    <div className="shrink-0 self-center sm:self-start">
+                                        <div className="w-28 h-36 sm:w-32 sm:h-40 rounded-2xl border-2 border-slate-200 overflow-hidden bg-slate-50 shadow-md flex items-center justify-center">
+                                            {photoSrc ? (
+                                                <img
+                                                    src={photoSrc}
+                                                    alt={name}
+                                                    className="w-full h-full object-cover object-top"
+                                                />
+                                            ) : (
+                                                <div className="flex flex-col items-center gap-1.5">
+                                                    <User size={32} className="text-slate-300" />
+                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">No Photo</span>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide ring-1 ${isEmployee ? 'bg-purple-500/20 text-purple-200 ring-purple-400/30' : 'bg-blue-500/20 text-blue-200 ring-blue-400/30'}`}>
-                                            {req.user_type || 'student'}
-                                        </span>
-                                        <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ring-1 ${statusStyles}`}>
-                                            {isExpiredPass(req) ? 'Expired' : statusDisplay(req.status)}
-                                        </span>
+
+                                    {/* Student Details beside photo */}
+                                    <div className="flex-1 min-w-0 flex flex-col justify-between gap-3">
+                                        {/* Name + ID + badges */}
+                                        <div>
+                                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                                                <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wide ring-1 ${isEmployee ? 'bg-purple-100 text-purple-700 ring-purple-200' : 'bg-blue-100 text-blue-700 ring-blue-200'}`}>
+                                                    {req.user_type || 'student'}
+                                                </span>
+                                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ring-1 ${statusStyles}`}>
+                                                    {isExpiredPass(req) ? 'Expired' : statusDisplay(req.status)}
+                                                </span>
+                                            </div>
+                                            {/* Name and ID on same line */}
+                                            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                                                <h4 className="text-xl sm:text-2xl font-black leading-tight uppercase tracking-wide text-slate-900">{name}</h4>
+                                                <span className="text-sm font-bold text-blue-600 shrink-0">{idNo}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Key info chips */}
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1">
+                                            {!isEmployee && req.course && (
+                                                <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Course</p>
+                                                    <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">{req.course}{req.branch ? ` · ${req.branch}` : ''}</p>
+                                                </div>
+                                            )}
+                                            {!isEmployee && req.year_of_study != null && (
+                                                <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Year</p>
+                                                    <p className="text-xs font-bold text-slate-800 mt-0.5">Year {req.year_of_study}</p>
+                                                </div>
+                                            )}
+                                            {req.academic_year && (
+                                                <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Academic Year</p>
+                                                    <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">{req.academic_year}</p>
+                                                </div>
+                                            )}
+                                            {req.application_number && (
+                                                <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Application No.</p>
+                                                    <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">{req.application_number}</p>
+                                                </div>
+                                            )}
+                                            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
+                                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Requested</p>
+                                                <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">{formatDate(req.request_date)}</p>
+                                            </div>
+                                            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
+                                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Raised By</p>
+                                                <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">
+                                                    {req.raised_by
+                                                        ? `${req.raised_by.charAt(0).toUpperCase() + req.raised_by.slice(1)}${req.raised_by_id ? ` (${req.raised_by_id})` : ''}`
+                                                        : 'Student'}
+                                                </p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
 
+                            {/* ── BOTTOM: Transport Details + Actions ─────────────────── */}
                             <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-5 items-start">
-                                <div className="space-y-4 min-w-0">
-                                    <div>
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Passenger Information</p>
-                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                            <DetailItem icon={User} label="Full Name" value={name} />
-                                            <DetailItem icon={User} label="ID Number" value={idNo} />
-                                            {!isEmployee && (
-                                                <>
-                                                    <DetailItem icon={GraduationCap} label="Course" value={req.course || '—'} />
-                                                    <DetailItem icon={GraduationCap} label="Year" value={req.year_of_study != null ? `Year ${req.year_of_study}` : '—'} />
-                                                </>
-                                            )}
-                                            <DetailItem icon={Calendar} label="Academic Year" value={req.academic_year || '—'} />
-                                            <DetailItem icon={FileText} label="Application No." value={req.application_number || '—'} />
-                                            <DetailItem
-                                                icon={User}
-                                                label="Raised By"
-                                                value={
-                                                    req.raised_by
-                                                        ? `${req.raised_by.charAt(0).toUpperCase() + req.raised_by.slice(1)}${req.raised_by_id ? ` (${req.raised_by_id})` : ''}`
-                                                        : 'Student'
-                                                }
-                                            />
-                                            <DetailItem icon={Clock} label="Requested" value={formatDate(req.request_date)} />
-                                            <DetailItem icon={User} label="Raised By" value={req.raised_by ? `${req.raised_by}${req.raised_by_id ? ` (${req.raised_by_id})` : ''}` : '—'} />
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Transport Details</p>
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                            <DetailItem icon={MapPin} label="Route" value={req.route_name || '—'} />
-                                            <DetailItem icon={Bus} label="Stage" value={req.stage_name || '—'} />
-                                            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
-                                                <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100">
-                                                    <FileText size={14} />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Fare</p>
-                                                    <p className="text-sm font-semibold text-slate-900 mt-0.5">Normal: {fareSummary.normal}</p>
-                                                    {fareSummary.hasAdjustment && (
-                                                        <p className="text-[11px] font-bold text-emerald-700">
-                                                            {fareSummary.label}: {fareSummary.adjusted}
-                                                        </p>
-                                                    )}
-                                                </div>
+                                {/* Transport Details — full left column */}
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2.5">Transport Details</p>
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                        {/* Route — full width so long names never truncate */}
+                                        <div className="col-span-2 md:col-span-3 flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
+                                            <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100 mt-0.5">
+                                                <MapPin size={14} />
                                             </div>
-                                            {req.effective_expiry_date && !isEmployee && (
-                                                <DetailItem icon={Clock} label="Valid Until" value={formatDate(req.effective_expiry_date)} />
-                                            )}
+                                            <div className="min-w-0">
+                                                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Route</p>
+                                                <p className="text-sm font-semibold text-slate-900 mt-0.5 break-words whitespace-normal">{req.route_name || '—'}</p>
+                                            </div>
                                         </div>
+                                        <DetailItem icon={Bus} label="Stage" value={req.stage_name || '—'} />
+                                        <DetailItem icon={Bus} label="Bus" value={req.bus_id || 'Not assigned'} />
+                                        <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
+                                            <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100">
+                                                <FileText size={14} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Fare</p>
+                                                <p className="text-sm font-semibold text-slate-900 mt-0.5">Normal: {fareSummary.normal}</p>
+                                                {fareSummary.hasAdjustment && (
+                                                    <p className="text-[11px] font-bold text-emerald-700">
+                                                        {fareSummary.label}: {fareSummary.adjusted}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {req.effective_expiry_date && !isEmployee && (
+                                            <DetailItem icon={Clock} label="Valid Until" value={formatDate(req.effective_expiry_date)} />
+                                        )}
+                                        {req.is_expired != null && !isEmployee && (
+                                            <DetailItem
+                                                icon={Clock}
+                                                label="Pass Status"
+                                                value={req.is_expired ? 'Expired' : 'Valid'}
+                                            />
+                                        )}
                                     </div>
                                 </div>
 
