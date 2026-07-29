@@ -516,7 +516,11 @@ const AdminRaiseRequest = () => {
             } else {
                 const data = await response.json();
                 const errorText = data.message || 'Failed to process request.';
-                if (!isChange && (response.status === 409 || response.status === 400)) {
+                if (!isChange && data.routeFull) {
+                    // All buses on the route are full — show as prominent message
+                    setFormError('');
+                    setMessage({ text: errorText, type: 'error' });
+                } else if (!isChange && (response.status === 409 || response.status === 400)) {
                     setFormError(errorText);
                 } else {
                     setFormError('');

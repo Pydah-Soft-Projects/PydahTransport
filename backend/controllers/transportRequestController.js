@@ -1701,6 +1701,22 @@ const createTransportRequest = async (req, res) => {
             });
         }
 
+        // Route-level capacity check: block early if ALL buses on this route are full
+        // This prevents creating a dangling pending request that will fail at approval time
+        if (route_id) {
+            const routeBuses = await getBusesWithSeatsForRoute(route_id);
+            if (routeBuses.length > 0) {
+                const totalAvailable = routeBuses.reduce((sum, b) => sum + b.seatsAvailable, 0);
+                if (totalAvailable <= 0) {
+                    const busDetails = routeBuses.map(b => `${b.busNumber} (${b.seatsFilled}/${b.capacity})`).join(', ');
+                    return res.status(409).json({
+                        message: `All buses on this route are at full capacity. No seats available. Buses: ${busDetails}`,
+                        routeFull: true,
+                    });
+                }
+            }
+        }
+
         if (user_type === 'employee') {
             const newReq = new EmployeeTransportRequest({
                 emp_no: admission_number,
