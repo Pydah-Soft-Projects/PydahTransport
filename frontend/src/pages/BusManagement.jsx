@@ -101,6 +101,9 @@ const BusManagement = () => {
     const [taxHistoryData, setTaxHistoryData] = useState(null);        // { taxHeader, history[], stats{} }
     const [taxHistoryLoading, setTaxHistoryLoading] = useState(false);
 
+    // Mapping Preview - impact counts for bus/route reassignments
+    const [mappingPreview, setMappingPreview] = useState({}); // { [busId or routeId]: { studentCount, employeeCount, loading } }
+
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
@@ -341,6 +344,29 @@ const BusManagement = () => {
         };
     };
 
+    const fetchMappingPreview = async (previewKey, busNumber, fetchedRouteId) => {
+        // previewKey: bus._id for bus-wise, route.routeId for route-wise
+        // busNumber: the busNumber of the bus whose passengers we want to count
+        setMappingPreview((prev) => ({ ...prev, [previewKey]: { ...(prev[previewKey] || {}), loading: true } }));
+        try {
+            const params = new URLSearchParams();
+            if (busNumber) params.set('busNumber', busNumber);
+            if (fetchedRouteId) params.set('routeId', fetchedRouteId);
+            const res = await apiFetch(`${API}/buses/mapping-preview?${params.toString()}`);
+            if (res.ok) {
+                const data = await res.json();
+                setMappingPreview((prev) => ({
+                    ...prev,
+                    [previewKey]: { studentCount: data.studentCount || 0, employeeCount: data.employeeCount || 0, loading: false },
+                }));
+            } else {
+                setMappingPreview((prev) => ({ ...prev, [previewKey]: { studentCount: 0, employeeCount: 0, loading: false } }));
+            }
+        } catch {
+            setMappingPreview((prev) => ({ ...prev, [previewKey]: { studentCount: 0, employeeCount: 0, loading: false } }));
+        }
+    };
+
     const handleRouteWiseDraftChange = (routeId, busId) => {
         setRouteWiseDrafts((prev) => ({
             ...prev,
@@ -349,6 +375,13 @@ const BusManagement = () => {
                 busId,
             },
         }));
+        // Fetch impact: passengers currently on the bus being removed from this route
+        const currentlyAssignedBus = buses.find((b) => b.assignedRouteId === routeId);
+        if (currentlyAssignedBus && currentlyAssignedBus._id !== busId) {
+            fetchMappingPreview(routeId, currentlyAssignedBus.busNumber, null);
+        } else {
+            setMappingPreview((prev) => { const n = { ...prev }; delete n[routeId]; return n; });
+        }
     };
 
     const handleRouteWiseDraftDateChange = (routeId, field, value) => {
@@ -444,6 +477,13 @@ const BusManagement = () => {
                 routeId,
             },
         }));
+        // Fetch impact: passengers on THIS bus who will be affected by the route change
+        const thisBus = buses.find((b) => b._id === busId);
+        if (thisBus && (routeId || '') !== (thisBus.assignedRouteId || '')) {
+            fetchMappingPreview(busId, thisBus.busNumber, null);
+        } else {
+            setMappingPreview((prev) => { const n = { ...prev }; delete n[busId]; return n; });
+        }
     };
 
     const handleRouteDraftDateChange = (busId, field, value) => {
@@ -1165,6 +1205,29 @@ const BusManagement = () => {
                                                                             <X size={16} />
                                                                         </button>
                                                                     </div>
+                                                                    {/* Passenger Impact Warning */}
+                                                                    {routeChanged && (() => {
+                                                                        const preview = mappingPreview[bus._id];
+                                                                        const total = preview ? (preview.studentCount + preview.employeeCount) : 0;
+                                                                        return preview && !preview.loading && total > 0 ? (
+                                                                            <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                                                                                <AlertTriangle size={15} className="text-amber-500 mt-0.5 shrink-0" />
+                                                                                <div>
+                                                                                    <p className="text-xs font-bold text-amber-800">Passenger Impact</p>
+                                                                                    <p className="text-xs text-amber-700 mt-0.5">
+                                                                                        This bus has <span className="font-bold">{preview.studentCount} student{preview.studentCount !== 1 ? 's' : ''}</span>
+                                                                                        {preview.employeeCount > 0 && <> and <span className="font-bold">{preview.employeeCount} employee{preview.employeeCount !== 1 ? 's' : ''}</span></>} assigned to it.
+                                                                                        Their bus assignment will be reset and will need to be reallocated.
+                                                                                    </p>
+                                                                                </div>
+                                                                            </div>
+                                                                        ) : preview && preview.loading ? (
+                                                                            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                                                                                <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+                                                                                <p className="text-xs text-slate-500">Checking affected passengers…</p>
+                                                                            </div>
+                                                                        ) : null;
+                                                                    })()}
                                                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                                         <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2 shadow-sm">
                                                                             <p className="text-xs font-bold text-slate-500 uppercase">Current Route</p>
@@ -1322,6 +1385,29 @@ const BusManagement = () => {
                                                                                 <X size={16} />
                                                                             </button>
                                                                         </div>
+                                                                        {/* Passenger Impact Warning - route-wise */}
+                                                                        {routeWiseChanged && (() => {
+                                                                            const preview = mappingPreview[route.routeId];
+                                                                            const total = preview ? (preview.studentCount + preview.employeeCount) : 0;
+                                                                            return preview && !preview.loading && total > 0 ? (
+                                                                                <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                                                                                    <AlertTriangle size={15} className="text-amber-500 mt-0.5 shrink-0" />
+                                                                                    <div>
+                                                                                        <p className="text-xs font-bold text-amber-800">Passenger Impact</p>
+                                                                                        <p className="text-xs text-amber-700 mt-0.5">
+                                                                                            The current bus on this route has <span className="font-bold">{preview.studentCount} student{preview.studentCount !== 1 ? 's' : ''}</span>
+                                                                                            {preview.employeeCount > 0 && <> and <span className="font-bold">{preview.employeeCount} employee{preview.employeeCount !== 1 ? 's' : ''}</span></>} assigned.
+                                                                                            Changing the bus will reset their bus assignment.
+                                                                                        </p>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : preview && preview.loading ? (
+                                                                                <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                                                                                    <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+                                                                                    <p className="text-xs text-slate-500">Checking affected passengers…</p>
+                                                                                </div>
+                                                                            ) : null;
+                                                                        })()}
                                                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                                             <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2 shadow-sm">
                                                                                 <p className="text-xs font-bold text-slate-500 uppercase">Current Bus</p>

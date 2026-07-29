@@ -65,6 +65,7 @@ const RouteManagement = () => {
     });
     const [transferSubmitting, setTransferSubmitting] = useState(false);
     const [transferMessage, setTransferMessage] = useState({ text: '', type: '' });
+    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
     const [selectedCampusFilter, setSelectedCampusFilter] = useState('');
     const [destBuses, setDestBuses] = useState([]);
     const [destBusesLoading, setDestBusesLoading] = useState(false);
@@ -256,7 +257,7 @@ const RouteManagement = () => {
             setTransferPreview(prev => ({ ...prev, loading: true }));
             try {
                 const response = await apiFetch(
-                    `${API}/routes/transfer-preview?sourceRouteId=${encodeURIComponent(sourceRouteId)}&stageName=${encodeURIComponent(stageName)}`
+                    `${API}/routes/transfer-preview?sourceRouteId=${encodeURIComponent(sourceRouteId)}&stageName=${encodeURIComponent(stageName)}&academicYear=${encodeURIComponent(academicYear)}`
                 );
                 const data = await response.json();
                 if (response.ok) {
@@ -276,7 +277,7 @@ const RouteManagement = () => {
         };
 
         fetchPreview();
-    }, [transferData.sourceRouteId, transferData.stageName]);
+    }, [transferData.sourceRouteId, transferData.stageName, academicYear]);
 
     useEffect(() => {
         const fetchDestBuses = async () => {
@@ -308,7 +309,7 @@ const RouteManagement = () => {
         fetchDestBuses();
     }, [transferData.destinationRouteId, academicYear]);
 
-    const handleTransferSubmit = async (e) => {
+    const handleTransferSubmit = (e) => {
         e.preventDefault();
         const { sourceRouteId, stageName, destinationRouteId } = transferData;
         if (!sourceRouteId || !stageName || !destinationRouteId) {
@@ -316,10 +317,11 @@ const RouteManagement = () => {
             return;
         }
 
-        const totalPassengers = transferPreview.studentCount + transferPreview.employeeCount;
-        const confirmMsg = `Are you sure you want to transfer stage "${stageName}" from route ${sourceRouteId} to route ${destinationRouteId}? \n\nThis will move ${totalPassengers} passenger(s) to the new route network and reset their bus allocations.`;
-        if (!window.confirm(confirmMsg)) return;
+        setIsConfirmModalOpen(true);
+    };
 
+    const executeStageTransfer = async () => {
+        setIsConfirmModalOpen(false);
         setTransferSubmitting(true);
         setTransferMessage({ text: '', type: '' });
         try {
@@ -335,7 +337,7 @@ const RouteManagement = () => {
             const data = await response.json();
             if (response.ok) {
                 setTransferMessage({
-                    text: data.message || 'Stage transferred successfully.',
+                    text: (data.message || 'Stage transferred successfully.') + ' Note: ID cards must be reprinted for the affected passengers as their route has changed.',
                     type: 'success'
                 });
                 setTransferData({ sourceRouteId: '', stageName: '', destinationRouteId: '' });
@@ -864,6 +866,34 @@ const RouteManagement = () => {
                         {editingId ? 'Update Route Structure' : 'Create Route Structure'}
                     </button>
                 </form>
+            </Modal>
+
+            <Modal isOpen={isConfirmModalOpen} onClose={() => setIsConfirmModalOpen(false)} title="Confirm Stage Migration">
+                <div className="space-y-4">
+                    <p className="text-sm text-slate-650 font-semibold leading-relaxed">
+                        Are you sure you want to transfer stage <span className="font-bold text-slate-900">"{transferData.stageName}"</span> from route <span className="font-bold text-slate-900">{transferData.sourceRouteId}</span> to route <span className="font-bold text-slate-900">{transferData.destinationRouteId}</span>?
+                    </p>
+                    <div className="bg-amber-50 border border-amber-100 rounded-xl p-3.5 text-xs text-amber-800 font-bold space-y-1">
+                        <p>This will relocate the stage network and update all associated passengers' routes.</p>
+                        <p className="text-amber-900">⚠️ Affected passengers ({transferPreview.studentCount + transferPreview.employeeCount}) will need their transport ID cards reprinted.</p>
+                    </div>
+                    <div className="flex justify-end gap-3 mt-5">
+                        <button
+                            type="button"
+                            onClick={() => setIsConfirmModalOpen(false)}
+                            className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={executeStageTransfer}
+                            className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-black rounded-xl shadow-md transition-all"
+                        >
+                            Confirm & Execute
+                        </button>
+                    </div>
+                </div>
             </Modal>
         </Layout>
     );

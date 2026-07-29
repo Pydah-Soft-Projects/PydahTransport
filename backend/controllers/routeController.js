@@ -125,23 +125,30 @@ const deleteRoute = async (req, res) => {
 // @route   GET /api/routes/transfer-preview
 // @access  Private/Admin
 const getTransferPreview = async (req, res) => {
-    const { sourceRouteId, stageName } = req.query;
+    const { sourceRouteId, stageName, academicYear } = req.query;
     if (!sourceRouteId || !stageName) {
         return res.status(400).json({ message: 'sourceRouteId and stageName are required' });
     }
 
     try {
-        const students = await TransportRequest.find({
+        const query = {
             route_id: sourceRouteId,
             stage_name: stageName,
-            status: { $in: ['approved', 'pending'] }
-        }, 'student_name admission_number status').lean();
+            status: 'approved'
+        };
+        if (academicYear) {
+            query.academic_year = academicYear;
+        }
 
-        const employees = await EmployeeTransportRequest.find({
-            route_id: sourceRouteId,
-            stage_name: stageName,
-            status: { $in: ['approved', 'pending'] }
-        }, 'employee_name emp_no status').lean();
+        const students = await TransportRequest.find(
+            query, 
+            'student_name admission_number status'
+        ).lean();
+
+        const employees = await EmployeeTransportRequest.find(
+            query, 
+            'employee_name emp_no status'
+        ).lean();
 
         const passengers = [
             ...students.map(s => ({
@@ -217,19 +224,25 @@ const transferStage = async (req, res) => {
         await sourceRoute.save();
         await destRoute.save();
 
-        // Build query for passenger updates
-        const updateQuery = {
+        // Build query for approved passenger updates (sets new_id_card_needed = true)
+        const approvedUpdateQuery = {
             route_id: sourceRouteId,
             stage_name: stageName,
-            status: { $in: ['approved', 'pending'] }
+            status: 'approved'
         };
-        if (academicYear) {
-            updateQuery.academic_year = academicYear;
-        }
+        if (academicYear) approvedUpdateQuery.academic_year = academicYear;
 
-        // Update student requests (both approved and pending)
-        const studentResult = await TransportRequest.updateMany(
-            updateQuery,
+        // Build query for pending passenger updates (leaves new_id_card_needed = false)
+        const pendingUpdateQuery = {
+            route_id: sourceRouteId,
+            stage_name: stageName,
+            status: 'pending'
+        };
+        if (academicYear) pendingUpdateQuery.academic_year = academicYear;
+
+        // Update MongoDB student requests
+        const studentApprovedResult = await TransportRequest.updateMany(
+            approvedUpdateQuery,
             {
                 $set: {
                     route_id: destinationRouteId,
@@ -239,24 +252,44 @@ const transferStage = async (req, res) => {
                 }
             }
         );
-
-        // Update employee requests
-        const employeeResult = await EmployeeTransportRequest.updateMany(
-            updateQuery,
+        const studentPendingResult = await TransportRequest.updateMany(
+            pendingUpdateQuery,
             {
                 $set: {
                     route_id: destinationRouteId,
                     route_name: destRoute.routeName,
-                    bus_id: null, // clear allocated bus
-                    new_id_card_needed: true // flag for reprint
+                    bus_id: null
+                }
+            }
+        );
+
+        // Update MongoDB employee requests
+        const employeeApprovedResult = await EmployeeTransportRequest.updateMany(
+            approvedUpdateQuery,
+            {
+                $set: {
+                    route_id: destinationRouteId,
+                    route_name: destRoute.routeName,
+                    bus_id: null,
+                    new_id_card_needed: true
+                }
+            }
+        );
+        const employeePendingResult = await EmployeeTransportRequest.updateMany(
+            pendingUpdateQuery,
+            {
+                $set: {
+                    route_id: destinationRouteId,
+                    route_name: destRoute.routeName,
+                    bus_id: null
                 }
             }
         );
 
         res.json({
             message: `Stage "${stageName}" and its passengers successfully transferred to route "${destRoute.routeName}" (${destinationRouteId}).`,
-            affectedStudentsCount: studentResult.modifiedCount || 0,
-            affectedEmployeesCount: employeeResult.modifiedCount || 0
+            affectedStudentsCount: (studentApprovedResult.modifiedCount || 0) + (studentPendingResult.modifiedCount || 0),
+            affectedEmployeesCount: (employeeApprovedResult.modifiedCount || 0) + (employeePendingResult.modifiedCount || 0)
         });
     } catch (error) {
         console.error('Error transferring stage:', error);

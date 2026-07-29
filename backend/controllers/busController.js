@@ -277,6 +277,48 @@ const getBusDetails = async (req, res) => {
     }
 };
 
+// @desc    Get counts of affected passengers for bus-route mapping changes
+// @route   GET /api/buses/mapping-preview
+// @access  Private/Admin
+const getMappingPreview = async (req, res) => {
+    const { busNumber, routeId, academicYear } = req.query;
+    
+    try {
+        const TransportRequest = require('../models/TransportRequest');
+        const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
+        
+        let studentCount = 0;
+        let employeeCount = 0;
+        let busNumToCheck = busNumber;
+
+        // If routeId is provided and no busNumber, check passengers assigned to the bus currently mapped to that route
+        if (routeId && !busNumToCheck) {
+            const bus = await Bus.findOne({ assignedRouteId: routeId });
+            if (bus) {
+                busNumToCheck = bus.busNumber;
+            }
+        }
+
+        if (busNumToCheck) {
+            const query = { 
+                bus_id: busNumToCheck, 
+                status: 'approved',
+                academic_year: academicYear || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027'
+            };
+            studentCount = await TransportRequest.countDocuments(query);
+            employeeCount = await EmployeeTransportRequest.countDocuments(query);
+        }
+
+        res.json({
+            studentCount,
+            employeeCount
+        });
+    } catch (error) {
+        console.error('Error fetching mapping preview:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
 // @desc    Get all buses with occupancy (for fleet / allocation page)
 // @route   GET /api/buses/overview
 // @access  Public
@@ -580,6 +622,25 @@ const updateBus = async (req, res) => {
         }
 
         const updatedBus = await bus.save();
+
+        // If route assignment changed, clean up passenger bus allocations
+        if (newRouteId !== undefined && newRouteId !== previousRouteId) {
+            const TransportRequest = require('../models/TransportRequest');
+            const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
+            
+            // Clear bus allocation for students whose route doesn't match the new bus route
+            await TransportRequest.updateMany(
+                { bus_id: bus.busNumber, route_id: { $ne: newRouteId } },
+                { $set: { bus_id: null } }
+            );
+            
+            // Clear bus allocation for employees whose route doesn't match the new bus route
+            await EmployeeTransportRequest.updateMany(
+                { bus_id: bus.busNumber, route_id: { $ne: newRouteId } },
+                { $set: { bus_id: null } }
+            );
+        }
+
         res.json(updatedBus);
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -640,6 +701,19 @@ const deleteBus = async (req, res) => {
         const bus = await Bus.findById(req.params.id);
 
         if (bus) {
+            const TransportRequest = require('../models/TransportRequest');
+            const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
+            
+            // Clear passenger bus allocations for the deleted bus
+            await TransportRequest.updateMany(
+                { bus_id: bus.busNumber },
+                { $set: { bus_id: null } }
+            );
+            await EmployeeTransportRequest.updateMany(
+                { bus_id: bus.busNumber },
+                { $set: { bus_id: null } }
+            );
+
             await bus.deleteOne();
             res.json({ message: 'Bus removed' });
         } else {
@@ -883,6 +957,7 @@ const getBusTaxHistory = async (req, res) => {
 module.exports = {
     getBuses,
     getBusesOverview,
+    getMappingPreview,
     getBusDetails,
     getBusRouteHistory,
     getBusStaffHistory,

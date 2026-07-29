@@ -74,7 +74,7 @@ const BusIdCardFront = ({ passenger, academicYear, isTemplate = false }) => {
 
         name = student_name || employee_name || '—';
         admissionNo = admission_number || admission_no || emp_no || '—';
-        pinNo = pin_no ? String(pin_no).trim() : '';
+        pinNo = (pin_no && String(pin_no).trim().toLowerCase() !== 'n/a') ? String(pin_no).trim() : '';
         regNo = pinNo ? `${admissionNo} | PIN ${pinNo}` : admissionNo;
         routeId = route_id || '';
         routeName = route_name || '';
