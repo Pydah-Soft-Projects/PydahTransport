@@ -1101,8 +1101,8 @@ const AdminRaiseRequest = () => {
                                         >
                                             <option value="">-- Choose Bus --</option>
                                             {approveModal.data.busesOnRoute.map((b) => (
-                                                <option key={b.busNumber} value={b.busNumber}>
-                                                    {b.busNumber} (Live: {b.seatsFilled}/{b.capacity} filled | {b.seatsAvailable} available)
+                                                <option key={b.busNumber} value={b.busNumber} disabled={b.seatsAvailable <= 0}>
+                                                    {b.busNumber} ({b.seatsAvailable <= 0 ? '🚫 FULL' : `Live: ${b.seatsFilled}/${b.capacity} filled | ${b.seatsAvailable} available`})
                                                 </option>
                                             ))}
                                         </select>

@@ -419,32 +419,38 @@ async function getBusesWithSeatsForRoute(routeId) {
     if (buses.length === 0) return [];
 
     const busNumbers = buses.map((b) => b.busNumber);
-    let mysqlCountMap = {};
+    const now = new Date();
 
-    if (mysqlPool) {
-        const parts = getActivePassengerSqlParts(resolveAcademicYear({}));
-        const placeholders = busNumbers.map(() => '?').join(',');
-        const [countRows] = await mysqlPool.query(
-            `SELECT tr.bus_id AS busNumber, COUNT(*) AS seatsFilled
-             FROM transport_requests tr
-             ${parts.studentJoins}
-             ${parts.expiryJoins}
-             WHERE tr.status = 'approved' AND ${parts.activeWhere} AND tr.bus_id IN (${placeholders})
-             GROUP BY tr.bus_id`,
-            [...parts.expiryParams, ...busNumbers]
-        );
-        mysqlCountMap = Object.fromEntries((countRows || []).map((r) => [r.busNumber, Number(r.seatsFilled)]));
-    }
+    // Count live students from MongoDB TransportRequest (same source as fleet page)
+    // Use expiry_date / semester_end_date for live filtering (mirrors getBusesOverview live mode)
+    const studentDocs = await TransportRequest.find({
+        status: 'approved',
+        bus_id: { $in: busNumbers },
+    }).select('bus_id expiry_date semester_end_date').lean();
 
-    const mongoCounts = await EmployeeTransportRequest.aggregate([
+    const studentCountMap = {};
+    studentDocs.forEach((r) => {
+        let isExpired = false;
+        if (r.expiry_date) {
+            isExpired = new Date(r.expiry_date) < now;
+        } else if (r.semester_end_date) {
+            isExpired = new Date(r.semester_end_date) < now;
+        }
+        if (!isExpired && r.bus_id) {
+            studentCountMap[r.bus_id] = (studentCountMap[r.bus_id] || 0) + 1;
+        }
+    });
+
+    // Count live employees from MongoDB EmployeeTransportRequest (no expiry mechanism)
+    const empCounts = await EmployeeTransportRequest.aggregate([
         { $match: { status: 'approved', bus_id: { $in: busNumbers } } },
         { $group: { _id: '$bus_id', count: { $sum: 1 } } }
     ]);
-    const mongoCountMap = Object.fromEntries(mongoCounts.map(r => [r._id, r.count]));
+    const empCountMap = Object.fromEntries(empCounts.map(r => [r._id, r.count]));
 
     return buses.map((b) => {
         const capacity = b.capacity || 0;
-        const seatsFilled = (mysqlCountMap[b.busNumber] || 0) + (mongoCountMap[b.busNumber] || 0);
+        const seatsFilled = (studentCountMap[b.busNumber] || 0) + (empCountMap[b.busNumber] || 0);
         return {
             busNumber: b.busNumber,
             capacity,
@@ -453,6 +459,7 @@ async function getBusesWithSeatsForRoute(routeId) {
         };
     });
 }
+
 
 async function getApplicationNumberForApprovalPreview(mysqlPool, requestRow) {
     const academicYear = requestRow.academic_year || process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
@@ -988,6 +995,47 @@ const getPassengerFullDetails = async (req, res) => {
 // @desc    Approve transport request and create Transport Fee (TRN01) in Fee Management
 // @route   PATCH /api/transport-requests/:id/approve
 // @access  Private/Admin
+// ─── Bus Capacity Guard ──────────────────────────────────────────────────────
+// Returns an error object { status, message } if the bus is full, else null.
+async function checkBusCapacityGuard(busNumber) {
+    if (!busNumber) return null; // no bus assigned yet — skip
+    const bus = await Bus.findOne({ busNumber }).lean();
+    if (!bus) return null; // bus not found — let the rest of the flow handle it
+    const capacity = bus.capacity || 0;
+    if (capacity === 0) return null; // unlimited / unconfigured capacity
+
+    const now = new Date();
+
+    // Count live students from MongoDB (same source as fleet page and getBusesWithSeatsForRoute)
+    const studentDocs = await TransportRequest.find({
+        status: 'approved',
+        bus_id: busNumber,
+    }).select('expiry_date semester_end_date').lean();
+
+    const studentCount = studentDocs.filter((r) => {
+        if (r.expiry_date) return new Date(r.expiry_date) >= now;
+        if (r.semester_end_date) return new Date(r.semester_end_date) >= now;
+        return true; // no expiry set → still active
+    }).length;
+
+    // Count live employees from MongoDB (no expiry mechanism)
+    const [empAgg] = await EmployeeTransportRequest.aggregate([
+        { $match: { status: 'approved', bus_id: busNumber } },
+        { $count: 'cnt' }
+    ]);
+    const employeeCount = empAgg ? empAgg.cnt : 0;
+
+    const seatsFilled = studentCount + employeeCount;
+    if (seatsFilled >= capacity) {
+        return {
+            status: 409,
+            message: `Bus ${busNumber} is at full capacity (${seatsFilled}/${capacity} seats filled). Cannot approve this request.`,
+        };
+    }
+    return null;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const approveTransportRequest = async (req, res) => {
     const requestId = req.params.id;
     const { academicYear } = req.body || {};
@@ -1025,6 +1073,12 @@ const approveTransportRequest = async (req, res) => {
             reqRow.application_course_code = application.course_code;
             if (req.body.bus_id) {
                 reqRow.bus_id = req.body.bus_id;
+            }
+            // Hard capacity guard — block approval if bus is full
+            const effectiveBusId = reqRow.bus_id;
+            const capacityError = await checkBusCapacityGuard(effectiveBusId);
+            if (capacityError) {
+                return res.status(capacityError.status).json({ message: capacityError.message });
             }
             await reqRow.save();
             return res.json({
@@ -1083,6 +1137,12 @@ const approveTransportRequest = async (req, res) => {
         };
         if (req.body.bus_id) {
             updateFields.bus_id = req.body.bus_id;
+        }
+        // Hard capacity guard — block approval if bus is full
+        const effectiveBusId = updateFields.bus_id || studentReq.bus_id;
+        const capacityError = await checkBusCapacityGuard(effectiveBusId);
+        if (capacityError) {
+            return res.status(capacityError.status).json({ message: capacityError.message });
         }
         await TransportRequest.updateOne({ _id: studentReq._id }, { $set: updateFields });
         // Merge updates into request object for downstream processing
