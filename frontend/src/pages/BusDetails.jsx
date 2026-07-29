@@ -23,7 +23,7 @@ import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
 import { apiFetch, API_BASE } from '../utils/api';
-import { printHtmlDocument } from '../utils/printHtml';
+import { printHtmlDocument, exportHtmlAsExcel } from '../utils/printHtml';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 
 const API = API_BASE;
@@ -142,11 +142,16 @@ const BusDetails = () => {
     const [filterYear, setFilterYear] = useState('');
     const [filterStage, setFilterStage] = useState('');
     const [filterType, setFilterType] = useState('');
-    const [isPrinting, setIsPrinting] = useState(false);
+    const [reportLoadingAction, setReportLoadingAction] = useState(null);
+    const isPrinting = reportLoadingAction !== null;
+    const [reportModalOpen, setReportModalOpen] = useState(false);
+    const [reportOptions, setReportOptions] = useState({ abstract: true, detailed: true });
+    const [reportModalError, setReportModalError] = useState('');
 
-    const handlePrint = async () => {
+    const handlePrint = async (options = reportOptions) => {
         if (!data?.bus?.busNumber) return;
-        setIsPrinting(true);
+        setReportLoadingAction('pdf');
+        setReportModalError('');
         try {
             const response = await apiFetch(`${API}/print`, {
                 method: 'POST',
@@ -157,22 +162,84 @@ const BusDetails = () => {
                         academicYear,
                         occupancyMode,
                         status: occupancyMode === 'live' ? 'active' : 'approved',
+                        includeAbstract: options.abstract,
+                        includeDetailed: options.detailed,
                     }
                 })
             });
             if (response.ok) {
                 const html = await response.text();
                 printHtmlDocument(html, `Transport-Passenger-Report-${data.bus.busNumber}`);
+                setReportModalOpen(false);
             } else {
                 const err = await response.json().catch(() => ({}));
-                alert(err.message || 'Failed to generate passenger report.');
+                const errorText = err.message || 'Failed to generate passenger report.';
+                setReportModalError(errorText);
             }
         } catch (error) {
             console.error('Error printing passenger report:', error);
-            alert('Error preparing passenger report.');
+            setReportModalError('Error preparing passenger report.');
         } finally {
-            setIsPrinting(false);
+            setReportLoadingAction(null);
         }
+    };
+
+    const handleDownloadExcelReport = async (options = reportOptions) => {
+        if (!data?.bus?.busNumber) return;
+        if (!options.abstract && !options.detailed) {
+            setReportModalError('Select at least one report section.');
+            return;
+        }
+
+        setReportLoadingAction('excel');
+        setReportModalError('');
+        try {
+            const response = await apiFetch(`${API}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'passenger-report',
+                    data: {
+                        busId: data.bus.busNumber,
+                        academicYear,
+                        occupancyMode,
+                        status: occupancyMode === 'live' ? 'active' : 'approved',
+                        includeAbstract: options.abstract,
+                        includeDetailed: options.detailed,
+                    }
+                })
+            });
+            if (response.ok) {
+                const html = await response.text();
+                exportHtmlAsExcel(html, `Transport-Passenger-Report-${data.bus.busNumber}`);
+                setReportModalOpen(false);
+            } else {
+                const err = await response.json().catch(() => ({}));
+                const errorText = err.message || 'Failed to generate passenger report.';
+                setReportModalError(errorText);
+            }
+        } catch (error) {
+            console.error('Error exporting passenger report to Excel:', error);
+            setReportModalError('Error preparing passenger report.');
+        } finally {
+            setReportLoadingAction(null);
+        }
+    };
+
+    const openReportModal = () => {
+        setReportModalError('');
+        setReportOptions({ abstract: true, detailed: true });
+        setReportModalOpen(true);
+    };
+
+    const toggleReportOption = (key) => {
+        setReportOptions((prev) => {
+            const next = { ...prev, [key]: !prev[key] };
+            if (!next.abstract && !next.detailed) {
+                return prev;
+            }
+            return next;
+        });
+        setReportModalError('');
     };
 
     const handlePrintAdmitCardClick = async (p) => {
@@ -441,7 +508,7 @@ const BusDetails = () => {
                 <div className="flex flex-wrap gap-2">
                     <button
                         type="button"
-                        onClick={handlePrint}
+                        onClick={openReportModal}
                         disabled={isPrinting}
                         className="inline-flex items-center text-xs bg-white text-slate-700 px-3.5 py-1.5 rounded-lg font-semibold hover:bg-slate-50 transition-all border border-slate-200 shadow-sm disabled:opacity-50"
                     >
@@ -464,6 +531,82 @@ const BusDetails = () => {
                     )}
                 </div>
             </div>
+
+            <Modal
+                isOpen={reportModalOpen}
+                onClose={() => !isPrinting && setReportModalOpen(false)}
+                title="Download Bus Report"
+                maxWidth="max-w-md"
+            >
+                <p className="text-sm text-slate-600 mb-4">
+                    Choose which sections to include in the report.
+                </p>
+
+                <div className="space-y-3">
+                    <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={reportOptions.abstract}
+                            onChange={() => toggleReportOption('abstract')}
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>
+                            <span className="block text-sm font-bold text-slate-800">Abstract</span>
+                            <span className="block text-xs text-slate-500 mt-0.5">
+                                Route-wise summary table with totals for students and employees.
+                            </span>
+                        </span>
+                    </label>
+
+                    <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={reportOptions.detailed}
+                            onChange={() => toggleReportOption('detailed')}
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>
+                            <span className="block text-sm font-bold text-slate-800">Detailed</span>
+                            <span className="block text-xs text-slate-500 mt-0.5">
+                                Stage-wise passenger list with names, IDs, course, and bus details.
+                            </span>
+                        </span>
+                    </label>
+                </div>
+
+                {reportModalError && (
+                    <p className="mt-3 text-sm font-medium text-red-600">{reportModalError}</p>
+                )}
+
+                <div className="mt-5 flex flex-col sm:flex-row sm:justify-end gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setReportModalOpen(false)}
+                        disabled={isPrinting}
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleDownloadExcelReport(reportOptions)}
+                        disabled={isPrinting || (!reportOptions.abstract && !reportOptions.detailed)}
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center"
+                    >
+                        {reportLoadingAction === 'excel' ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
+                        Excel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handlePrint(reportOptions)}
+                        disabled={isPrinting || (!reportOptions.abstract && !reportOptions.detailed)}
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
+                    >
+                        {reportLoadingAction === 'pdf' ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
+                        PDF
+                    </button>
+                </div>
+            </Modal>
 
             <div className="mb-5">
                 <div className="flex flex-wrap items-center gap-2 mb-1.5">

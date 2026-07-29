@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { printHtmlDocument } from '../utils/printHtml';
+import { printHtmlDocument, exportHtmlAsExcel } from '../utils/printHtml';
 import Layout from '../components/Layout';
 import Loader from '../components/Loader';
 import Modal from '../components/Modal';
@@ -33,7 +33,8 @@ const Fleet = () => {
     const academicYearOptions = getAcademicYearOptions();
     const [allocatingId, setAllocatingId] = useState(null);
     const [message, setMessage] = useState({ text: '', type: '' });
-    const [isPrinting, setIsPrinting] = useState(false);
+    const [reportLoadingAction, setReportLoadingAction] = useState(null);
+    const isPrinting = reportLoadingAction !== null;
     const [reportModalOpen, setReportModalOpen] = useState(false);
     const [reportOptions, setReportOptions] = useState({ abstract: true, detailed: true });
     const [reportModalError, setReportModalError] = useState('');
@@ -107,7 +108,7 @@ const Fleet = () => {
             return;
         }
 
-        setIsPrinting(true);
+        setReportLoadingAction('pdf');
         setMessage({ text: '', type: '' });
         setReportModalError('');
         try {
@@ -149,7 +150,59 @@ const Fleet = () => {
                 setMessage({ text: errorText, type: 'error' });
             }
         } finally {
-            setIsPrinting(false);
+            setReportLoadingAction(null);
+        }
+    };
+
+    const handleDownloadExcelReport = async (options = reportOptions) => {
+        if (!options.abstract && !options.detailed) {
+            setReportModalError('Select at least one report section.');
+            return;
+        }
+
+        setReportLoadingAction('excel');
+        setMessage({ text: '', type: '' });
+        setReportModalError('');
+        try {
+            const status = occupancyMode === 'live' ? 'active' : 'approved';
+            const response = await apiFetch(`${API}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'passenger-report',
+                    data: {
+                        status,
+                        academicYear: occupancyMode !== 'live' ? academicYear : undefined,
+                        occupancyMode,
+                        campus: selectedCampus || undefined,
+                        campusName: selectedCampusLabel || undefined,
+                        includeAbstract: options.abstract,
+                        includeDetailed: options.detailed,
+                    }
+                })
+            });
+            if (response.ok) {
+                const html = await response.text();
+                exportHtmlAsExcel(html, 'Transport-Passenger-Report');
+                setReportModalOpen(false);
+            } else {
+                const err = await response.json().catch(() => ({}));
+                const errorText = err.message || 'Failed to generate passenger report HTML.';
+                if (reportModalOpen) {
+                    setReportModalError(errorText);
+                } else {
+                    setMessage({ text: errorText, type: 'error' });
+                }
+            }
+        } catch (e) {
+            console.error('Error generating report:', e);
+            const errorText = 'Error generating report.';
+            if (reportModalOpen) {
+                setReportModalError(errorText);
+            } else {
+                setMessage({ text: errorText, type: 'error' });
+            }
+        } finally {
+            setReportLoadingAction(null);
         }
     };
 
@@ -303,8 +356,8 @@ const Fleet = () => {
                         disabled={isPrinting}
                         className="inline-flex items-center text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-sm border-none whitespace-nowrap"
                     >
-                        {isPrinting ? <Loader2 size={14} className="mr-1.5 text-white animate-spin" /> : <Download size={14} className="mr-1.5" />}
-                        {isPrinting ? 'Preparing...' : 'Download Report'}
+                        <Download size={14} className="mr-1.5" />
+                        Download Report
                     </button>
                 </div>
             </div>
@@ -355,23 +408,32 @@ const Fleet = () => {
                     <p className="mt-3 text-sm font-medium text-red-600">{reportModalError}</p>
                 )}
 
-                <div className="mt-5 flex justify-end gap-2">
+                <div className="mt-5 flex flex-col sm:flex-row sm:justify-end gap-2">
                     <button
                         type="button"
                         onClick={() => setReportModalOpen(false)}
                         disabled={isPrinting}
-                        className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                     >
                         Cancel
                     </button>
                     <button
                         type="button"
+                        onClick={() => handleDownloadExcelReport(reportOptions)}
+                        disabled={isPrinting || (!reportOptions.abstract && !reportOptions.detailed)}
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center"
+                    >
+                        {reportLoadingAction === 'excel' ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
+                        Excel
+                    </button>
+                    <button
+                        type="button"
                         onClick={() => handleDownloadReport(reportOptions)}
                         disabled={isPrinting || (!reportOptions.abstract && !reportOptions.detailed)}
-                        className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center"
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
                     >
-                        {isPrinting ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
-                        {isPrinting ? 'Generating...' : 'Download Report'}
+                        {reportLoadingAction === 'pdf' ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
+                        PDF
                     </button>
                 </div>
             </Modal>
@@ -449,7 +511,8 @@ const Fleet = () => {
                         <ArrowRight size={16} className="ml-2" />
                     </Link>
                 </div>
-            ) : (                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
+            ) : (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
                     <div className="overflow-x-auto w-full">
                         <table className="w-full text-left border-collapse">
                             <thead>

@@ -53,3 +53,15 @@ export function printHtmlDocument(html, title, onClose, options) {
         }
     }, deferPrintMs);
 }
+
+export function exportHtmlAsExcel(html, filename) {
+    if (typeof document === 'undefined') return;
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename.endsWith('.xls') ? filename : `${filename}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
