@@ -75,9 +75,14 @@ const TransportRequests = () => {
     const [userTypeFilter, setUserTypeFilter] = useState('student'); // 'student' or 'employee'
 
     const filteredRequestsByType = React.useMemo(() => {
-        return requests.filter((r) => {
+        const list = requests.filter((r) => {
             const userType = r.user_type || 'student';
             return userType === userTypeFilter;
+        });
+        return [...list].sort((a, b) => {
+            const aNeed = a.new_id_card_needed ? 1 : 0;
+            const bNeed = b.new_id_card_needed ? 1 : 0;
+            return bNeed - aNeed;
         });
     }, [requests, userTypeFilter]);
     const [loading, setLoading] = useState(true);
@@ -1279,7 +1284,16 @@ const TransportRequests = () => {
                                         </td>
                                         <td className="px-3 py-2 font-semibold text-blue-600">{req.admission_number || req.emp_no}</td>
                                         <td className="px-3 py-2 font-bold text-indigo-700">{req.application_number || '—'}</td>
-                                        <td className="px-3 py-2 font-semibold text-slate-900">{req.student_name || req.employee_name}</td>
+                                        <td className="px-3 py-2 font-semibold text-slate-900">
+                                            <div className="flex flex-col gap-0.5">
+                                                <span>{req.student_name || req.employee_name}</span>
+                                                {req.new_id_card_needed && (
+                                                    <span className="w-fit inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8px] font-black uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200 animate-pulse">
+                                                        New Card Needed
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
                                         <td className="px-3 py-2">
                                             {req.user_type === 'employee' ? (
                                                 <span className="text-[10px] bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded text-slate-500 font-bold">Employee</span>
@@ -1413,6 +1427,11 @@ const TransportRequests = () => {
                                                 <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ring-1 ${statusStyles}`}>
                                                     {isExpiredPass(req) ? 'Expired' : statusDisplay(req.status)}
                                                 </span>
+                                                {req.new_id_card_needed && (
+                                                    <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wide bg-amber-150 text-amber-900 ring-1 ring-amber-250 animate-pulse">
+                                                        New ID Card Needed
+                                                    </span>
+                                                )}
                                             </div>
                                             {/* Name and ID on same line */}
                                             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">

@@ -123,6 +123,10 @@ const transportRequestSchema = new mongoose.Schema({
     raised_by_id: {
         type: Number,
         default: null
+    },
+    new_id_card_needed: {
+        type: Boolean,
+        default: false
     }
 }, {
     timestamps: { createdAt: 'request_date', updatedAt: 'updated_at' },

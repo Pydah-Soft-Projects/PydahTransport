@@ -1,4 +1,6 @@
 const Route = require('../models/Route');
+const TransportRequest = require('../models/TransportRequest');
+const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 const {
     resolveStageForAcademicYear,
     normalizeStagesForSave,
@@ -119,10 +121,155 @@ const deleteRoute = async (req, res) => {
     }
 };
 
+// @desc    Get counts of affected passengers for stage transfer
+// @route   GET /api/routes/transfer-preview
+// @access  Private/Admin
+const getTransferPreview = async (req, res) => {
+    const { sourceRouteId, stageName } = req.query;
+    if (!sourceRouteId || !stageName) {
+        return res.status(400).json({ message: 'sourceRouteId and stageName are required' });
+    }
+
+    try {
+        const students = await TransportRequest.find({
+            route_id: sourceRouteId,
+            stage_name: stageName,
+            status: { $in: ['approved', 'pending'] }
+        }, 'student_name admission_number status').lean();
+
+        const employees = await EmployeeTransportRequest.find({
+            route_id: sourceRouteId,
+            stage_name: stageName,
+            status: { $in: ['approved', 'pending'] }
+        }, 'employee_name emp_no status').lean();
+
+        const passengers = [
+            ...students.map(s => ({
+                name: s.student_name,
+                id: s.admission_number,
+                status: s.status,
+                type: 'student'
+            })),
+            ...employees.map(e => ({
+                name: e.employee_name,
+                id: e.emp_no,
+                status: e.status,
+                type: 'employee'
+            }))
+        ];
+
+        res.json({
+            studentCount: students.length,
+            employeeCount: employees.length,
+            passengers
+        });
+    } catch (error) {
+        console.error('Error fetching stage transfer preview:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Transfer a stage and its associated passengers from one route to another
+// @route   POST /api/routes/transfer-stage
+// @access  Private/Admin
+const transferStage = async (req, res) => {
+    const { sourceRouteId, stageName, destinationRouteId, academicYear } = req.body;
+    if (!sourceRouteId || !stageName || !destinationRouteId) {
+        return res.status(400).json({ message: 'sourceRouteId, stageName, and destinationRouteId are required' });
+    }
+
+    if (sourceRouteId === destinationRouteId) {
+        return res.status(400).json({ message: 'Source and destination routes must be different' });
+    }
+
+    try {
+        const sourceRoute = await Route.findOne({ routeId: sourceRouteId });
+        const destRoute = await Route.findOne({ routeId: destinationRouteId });
+
+        if (!sourceRoute) {
+            return res.status(404).json({ message: `Source route ${sourceRouteId} not found` });
+        }
+        if (!destRoute) {
+            return res.status(404).json({ message: `Destination route ${destinationRouteId} not found` });
+        }
+
+        // Find stage in source route
+        const stageIndex = sourceRoute.stages.findIndex(s => s.stageName.trim().toLowerCase() === stageName.trim().toLowerCase());
+        if (stageIndex === -1) {
+            return res.status(404).json({ message: `Stage "${stageName}" not found on source route ${sourceRouteId}` });
+        }
+
+        // Check if stage name already exists on destination route
+        const destStageExists = destRoute.stages.some(s => s.stageName.trim().toLowerCase() === stageName.trim().toLowerCase());
+        if (destStageExists) {
+            return res.status(400).json({ message: `Stage "${stageName}" already exists on destination route ${destinationRouteId}` });
+        }
+
+        // Get stage subdocument and remove it from source
+        const [stageToTransfer] = sourceRoute.stages.splice(stageIndex, 1);
+        sourceRoute.markModified('stages');
+
+        // Add stage to destination
+        destRoute.stages.push(stageToTransfer);
+        destRoute.markModified('stages');
+
+        // Save routes
+        await sourceRoute.save();
+        await destRoute.save();
+
+        // Build query for passenger updates
+        const updateQuery = {
+            route_id: sourceRouteId,
+            stage_name: stageName,
+            status: { $in: ['approved', 'pending'] }
+        };
+        if (academicYear) {
+            updateQuery.academic_year = academicYear;
+        }
+
+        // Update student requests (both approved and pending)
+        const studentResult = await TransportRequest.updateMany(
+            updateQuery,
+            {
+                $set: {
+                    route_id: destinationRouteId,
+                    route_name: destRoute.routeName,
+                    bus_id: null, // clear allocated bus
+                    new_id_card_needed: true // flag for reprint
+                }
+            }
+        );
+
+        // Update employee requests
+        const employeeResult = await EmployeeTransportRequest.updateMany(
+            updateQuery,
+            {
+                $set: {
+                    route_id: destinationRouteId,
+                    route_name: destRoute.routeName,
+                    bus_id: null, // clear allocated bus
+                    new_id_card_needed: true // flag for reprint
+                }
+            }
+        );
+
+        res.json({
+            message: `Stage "${stageName}" and its passengers successfully transferred to route "${destRoute.routeName}" (${destinationRouteId}).`,
+            affectedStudentsCount: studentResult.modifiedCount || 0,
+            affectedEmployeesCount: employeeResult.modifiedCount || 0
+        });
+    } catch (error) {
+        console.error('Error transferring stage:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     getRoutes,
     createRoute,
     updateRoute,
-    deleteRoute
+    deleteRoute,
+    getTransferPreview,
+    transferStage
 };
 

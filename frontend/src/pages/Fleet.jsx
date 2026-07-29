@@ -225,6 +225,9 @@ const Fleet = () => {
     const fleetOccupancy = totalCapacity > 0
         ? Math.min(100, Math.round((totalSeatsFilled / totalCapacity) * 100))
         : 0;
+    const fleetRemainingPercent = totalCapacity > 0
+        ? Math.max(0, 100 - fleetOccupancy)
+        : 100;
 
     return (
         <Layout>
@@ -409,7 +412,7 @@ const Fleet = () => {
                     </div>
                     <div className="bg-white rounded-xl border border-blue-200 p-3 shadow-sm bg-blue-50/40 flex items-center justify-between gap-3">
                         <div>
-                            <p className="text-[9px] font-bold text-blue-600 uppercase tracking-wider">Remaining · {fleetOccupancy}%</p>
+                            <p className="text-[9px] font-bold text-blue-600 uppercase tracking-wider">Remaining · {fleetRemainingPercent}%</p>
                             <p className="text-sm font-black text-blue-700 leading-tight mt-0.5">{totalSeatsAvailable}</p>
                         </div>
                         <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">

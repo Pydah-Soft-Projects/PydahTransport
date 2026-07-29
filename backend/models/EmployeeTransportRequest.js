@@ -70,6 +70,10 @@ const employeeTransportRequestSchema = new mongoose.Schema({
         type: String,
         default: null
     },
+    new_id_card_needed: {
+        type: Boolean,
+        default: false
+    },
     request_date: {
         type: Date,
         default: Date.now
