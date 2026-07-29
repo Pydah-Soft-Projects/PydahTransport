@@ -134,21 +134,11 @@ const Fleet = () => {
                 setReportModalOpen(false);
             } else {
                 const err = await response.json().catch(() => ({}));
-                const errorText = err.message || 'Failed to generate passenger report HTML.';
-                if (reportModalOpen) {
-                    setReportModalError(errorText);
-                } else {
-                    setMessage({ text: errorText, type: 'error' });
-                }
+                setReportModalError(err.message || 'Failed to generate passenger report.');
             }
         } catch (e) {
-            console.error('Error generating report:', e);
-            const errorText = 'Error generating report.';
-            if (reportModalOpen) {
-                setReportModalError(errorText);
-            } else {
-                setMessage({ text: errorText, type: 'error' });
-            }
+            console.error('Error generating PDF report:', e);
+            setReportModalError(e?.message ? `Error: ${e.message}` : 'Error generating report.');
         } finally {
             setReportLoadingAction(null);
         }
@@ -186,21 +176,11 @@ const Fleet = () => {
                 setReportModalOpen(false);
             } else {
                 const err = await response.json().catch(() => ({}));
-                const errorText = err.message || 'Failed to generate passenger report HTML.';
-                if (reportModalOpen) {
-                    setReportModalError(errorText);
-                } else {
-                    setMessage({ text: errorText, type: 'error' });
-                }
+                setReportModalError(err.message || 'Failed to generate passenger report.');
             }
         } catch (e) {
-            console.error('Error generating report:', e);
-            const errorText = 'Error generating report.';
-            if (reportModalOpen) {
-                setReportModalError(errorText);
-            } else {
-                setMessage({ text: errorText, type: 'error' });
-            }
+            console.error('Error generating Excel report:', e);
+            setReportModalError(e?.message ? `Error: ${e.message}` : 'Error generating report.');
         } finally {
             setReportLoadingAction(null);
         }
@@ -290,7 +270,7 @@ const Fleet = () => {
                     <p className="text-xs text-slate-500 font-semibold mt-0.5">Manage transport requests and bus capacity.</p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-sm w-full lg:w-auto justify-between lg:justify-start">
+                <div className="flex flex-col gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-sm w-full lg:w-auto lg:flex-row lg:items-center lg:justify-start">
                     <div className="flex flex-wrap items-center gap-2">
                         <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
                             <button
@@ -354,7 +334,7 @@ const Fleet = () => {
                         type="button"
                         onClick={openReportModal}
                         disabled={isPrinting}
-                        className="inline-flex items-center text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-sm border-none whitespace-nowrap"
+                        className="inline-flex items-center justify-center w-full sm:w-auto text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-sm border-none whitespace-nowrap"
                     >
                         <Download size={14} className="mr-1.5" />
                         Download Report

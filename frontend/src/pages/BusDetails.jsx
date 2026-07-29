@@ -178,7 +178,7 @@ const BusDetails = () => {
             }
         } catch (error) {
             console.error('Error printing passenger report:', error);
-            setReportModalError('Error preparing passenger report.');
+            setReportModalError(error?.message ? `Error: ${error.message}` : 'Error preparing passenger report.');
         } finally {
             setReportLoadingAction(null);
         }
@@ -219,7 +219,7 @@ const BusDetails = () => {
             }
         } catch (error) {
             console.error('Error exporting passenger report to Excel:', error);
-            setReportModalError('Error preparing passenger report.');
+            setReportModalError(error?.message ? `Error: ${error.message}` : 'Error preparing passenger report.');
         } finally {
             setReportLoadingAction(null);
         }
@@ -505,12 +505,12 @@ const BusDetails = () => {
                 <Link to="/buses" className="text-blue-600 hover:underline text-xs font-bold flex items-center gap-1.5 w-fit">
                     <span>←</span> Back to Bus Fleet
                 </Link>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                     <button
                         type="button"
                         onClick={openReportModal}
                         disabled={isPrinting}
-                        className="inline-flex items-center text-xs bg-white text-slate-700 px-3.5 py-1.5 rounded-lg font-semibold hover:bg-slate-50 transition-all border border-slate-200 shadow-sm disabled:opacity-50"
+                        className="inline-flex items-center justify-center w-full sm:w-auto text-xs bg-white text-slate-700 px-3.5 py-1.5 rounded-lg font-semibold hover:bg-slate-50 transition-all border border-slate-200 shadow-sm disabled:opacity-50"
                     >
                         {isPrinting ? (
                             <Loader2 size={14} className="mr-1.5 animate-spin text-blue-600" />
@@ -523,7 +523,7 @@ const BusDetails = () => {
                         <button
                             type="button"
                             onClick={openAssignModal}
-                            className="inline-flex items-center text-xs bg-blue-600 text-white px-3.5 py-1.5 rounded-lg font-semibold hover:bg-blue-700 shadow-sm transition-all border-none"
+                            className="inline-flex items-center justify-center w-full sm:w-auto text-xs bg-blue-600 text-white px-3.5 py-1.5 rounded-lg font-semibold hover:bg-blue-700 shadow-sm transition-all border-none"
                         >
                             <UserPlus size={14} className="mr-1.5" />
                             Assign Passengers
