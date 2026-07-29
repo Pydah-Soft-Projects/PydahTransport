@@ -211,7 +211,7 @@ function isTransportFeeRevision(fee, transportFeeHeadId = null) {
 
 function calculateTransportFareAdjustment(originalFare, studentYear, revisedFees, transportFeeHeadId = null) {
     const amount = Number(originalFare || 0);
-    const match = revisedFees.find((fee) => (
+    const match = (revisedFees || []).find((fee) => (
         isTransportFeeRevision(fee, transportFeeHeadId)
         && Number(fee.studentYear) === Number(studentYear)
         && fee.revisedAmount !== undefined
@@ -1148,54 +1148,7 @@ const approveTransportRequest = async (req, res) => {
         }
 
         // Check for persistent concession
-        let finalAmount = amount;
-        if (TransportConcession) {
-            const persistentConcession = await TransportConcession.findOne({
-                studentId: String(admissionNumber),
-                feeHead: transportFeeHead._id
-            });
-            if (persistentConcession && persistentConcession.yearConcessions) {
-                const yearKey = String(studentYear);
-                const concessionForYear = persistentConcession.yearConcessions.get(yearKey);
-                if (concessionForYear !== undefined && concessionForYear !== null) {
-                    finalAmount = concessionForYear;
-                }
-            }
-        }
-
-        // Overwrite with revised fee from overall_concessions if found
-        try {
-            const [overallConcessionRows] = await mysqlPool.query(
-                'SELECT revised_fees FROM overall_concessions WHERE admission_number = ? LIMIT 1',
-                [String(admissionNumber)]
-            );
-            if (overallConcessionRows && overallConcessionRows.length > 0) {
-                const revisedFees = Array.isArray(overallConcessionRows[0].revised_fees)
-                    ? overallConcessionRows[0].revised_fees
-                    : (typeof overallConcessionRows[0].revised_fees === 'string'
-                        ? JSON.parse(overallConcessionRows[0].revised_fees)
-                        : []);
-                const match = revisedFees.find(f => {
-                    const isTransport = 
-                        (f.feeHeadCode && String(f.feeHeadCode).toUpperCase() === 'TRN01') ||
-                        (f.feeHeadId && (
-                            String(f.feeHeadId) === String(transportFeeHead._id) || 
-                            String(f.feeHeadId) === '6996aa36e247525e006623ca' ||
-                            String(f.feeHeadId) === '6996aa36e247525e006623b8'
-                        ));
-                    return isTransport && Number(f.studentYear) === Number(studentYear);
-                });
-                if (match && match.revisedAmount !== undefined && match.revisedAmount !== null) {
-                    if (match.concessionType && String(match.concessionType).toUpperCase() === 'CONCESSION') {
-                        finalAmount = Math.max(0, amount - Number(match.revisedAmount));
-                    } else {
-                        finalAmount = Number(match.revisedAmount);
-                    }
-                }
-            }
-        } catch (err) {
-            console.error('Error fetching overall concessions in approveTransportRequest:', err);
-        }
+        const finalAmount = amount;
 
         const existingFee = await StudentFee.findOne({
             studentId: String(admissionNumber),

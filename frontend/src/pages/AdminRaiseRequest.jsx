@@ -9,42 +9,23 @@ import { getDefaultAcademicYear } from '../utils/academicYear';
 
 const formatDate = (d) => (d ? new Date(d).toLocaleDateString() : '—');
 
-const getValidationDisplay = (validation) => {
-    if (!validation) return null;
-
-    if (validation.valid) {
-        return {
-            title: 'Ready to raise request',
-            className: 'bg-green-50 border-green-200 text-green-800',
-        };
+const getShortValidationText = (validation) => {
+    if (!validation) return '';
+    const { valid, reason, batch, current_year, expected_year, academic_year } = validation;
+    if (valid) {
+        return `Ready (Batch ${batch}, Yr ${current_year} & ${academic_year} Aligned)`;
     }
-
-    switch (validation.reason) {
-        case 'course_completed':
-            return {
-                title: 'Course completed',
-                className: 'bg-slate-100 border-slate-200 text-slate-700',
-            };
+    switch (reason) {
         case 'year_mismatch':
-            return {
-                title: 'Student year mismatch',
-                className: 'bg-amber-50 border-amber-200 text-amber-900',
-            };
+            return `Mismatch: Expected Yr ${expected_year} (Recorded: Yr ${current_year})`;
+        case 'course_completed':
+            return `Course Completed (Batch ${batch} not eligible for ${academic_year})`;
         case 'missing_semester_config':
-            return {
-                title: 'Semester setup pending',
-                className: 'bg-amber-50 border-amber-200 text-amber-900',
-            };
+            return `Semester Setup Pending (Yr ${expected_year || ''})`;
         case 'request_exists':
-            return {
-                title: 'Request already exists',
-                className: 'bg-red-50 border-red-200 text-red-800',
-            };
+            return `Already Enrolled for ${academic_year}`;
         default:
-            return {
-                title: 'Cannot raise request',
-                className: 'bg-amber-50 border-amber-200 text-amber-900',
-            };
+            return `Validation Error`;
     }
 };
 
@@ -95,6 +76,9 @@ const AdminRaiseRequest = () => {
     const [actionLoading, setActionLoading] = useState(false);
     const [profileLoading, setProfileLoading] = useState(false);
     const [formError, setFormError] = useState('');
+    const [stageSearchQuery, setStageSearchQuery] = useState('');
+    const [isStageDropdownOpen, setIsStageDropdownOpen] = useState(false);
+    const stageDropdownRef = React.useRef(null);
 
     const getRevisedFeeMatchForYear = (year) => {
         if (!selectedStudent?.overallConcession?.revised_fees) return null;
@@ -139,6 +123,7 @@ const AdminRaiseRequest = () => {
                 setRoutes(data);
                 setSelectedRoute(null);
                 setSelectedStage(null);
+                setStageSearchQuery('');
             } catch (error) {
                 console.error('Error fetching routes:', error);
             }
@@ -179,6 +164,16 @@ const AdminRaiseRequest = () => {
 
         return () => clearTimeout(timer);
     }, [searchQuery, activeTab, userType]);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (stageDropdownRef.current && !stageDropdownRef.current.contains(event.target)) {
+                setIsStageDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const performSearch = async (query) => {
         if (!query) return;
@@ -267,12 +262,21 @@ const AdminRaiseRequest = () => {
         setSelectedStudent(student);
         setSelectedRoute(null);
         setSelectedStage(null);
+        setStageSearchQuery('');
         setBusesOnRoute([]);
 
         if (activeTab === 'change' && changeType === 'stage' && student.route_id) {
             const currentRoute = routes.find(r => r.routeId === student.route_id);
             if (currentRoute) {
                 setSelectedRoute(currentRoute);
+                // Pre-populate with student's current stage if they are just doing a stage change
+                if (student.stage_name) {
+                    const currentStage = currentRoute.stages.find(s => s.stageName === student.stage_name);
+                    if (currentStage) {
+                        setSelectedStage(currentStage);
+                        setStageSearchQuery(`${currentStage.stageName} — ${currentRoute.routeName} (${currentRoute.routeId})`);
+                    }
+                }
             }
         }
 
@@ -423,6 +427,7 @@ const AdminRaiseRequest = () => {
                 setSelectedStudent(null);
                 setSelectedRoute(null);
                 setSelectedStage(null);
+                setStageSearchQuery('');
                 setBusesOnRoute([]);
                 setChangeType('route');
             } else {
@@ -495,6 +500,7 @@ const AdminRaiseRequest = () => {
                     setSelectedStudent(null);
                     setSelectedRoute(null);
                     setSelectedStage(null);
+                    setStageSearchQuery('');
                     setBusesOnRoute([]);
                     setChangeType('route');
                 } else {
@@ -525,6 +531,20 @@ const AdminRaiseRequest = () => {
         }
     };
 
+    const filteredStages = (changeType === 'stage' && selectedRoute)
+        ? (selectedRoute.stages || []).map(s => ({ ...s, route: selectedRoute, routeId: selectedRoute.routeId, routeName: selectedRoute.routeName }))
+        : routes.flatMap(r => (r.stages || []).map(s => ({ ...s, route: r, routeId: r.routeId, routeName: r.routeName })));
+
+    const matchingStages = filteredStages.filter(s => {
+        if (stageSearchQuery.trim() === '') {
+            return changeType === 'stage';
+        }
+        const query = stageSearchQuery.toLowerCase();
+        return (s.stageName || '').toLowerCase().includes(query) || 
+               (s.routeName || '').toLowerCase().includes(query) ||
+               (s.routeId || '').toLowerCase().includes(query);
+    });
+
     return (
         <Layout>
             <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -535,13 +555,13 @@ const AdminRaiseRequest = () => {
                 
                 <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200 shadow-sm self-start md:self-auto">
                     <button
-                        onClick={() => { setActiveTab('new'); setFormError(''); setSelectedStudent(null); setStudents([]); setApprovedStudents([]); setSearchQuery(''); }}
+                        onClick={() => { setActiveTab('new'); setFormError(''); setSelectedStudent(null); setStudents([]); setApprovedStudents([]); setSearchQuery(''); setStageSearchQuery(''); }}
                         className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${activeTab === 'new' ? 'bg-white text-blue-900 shadow-md ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         New Enrollment
                     </button>
                     <button
-                        onClick={() => { setActiveTab('change'); setFormError(''); setSelectedStudent(null); setStudents([]); setApprovedStudents([]); setSearchQuery(''); }}
+                        onClick={() => { setActiveTab('change'); setFormError(''); setSelectedStudent(null); setStudents([]); setApprovedStudents([]); setSearchQuery(''); setStageSearchQuery(''); }}
                         className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${activeTab === 'change' ? 'bg-white text-blue-900 shadow-md ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         Route/Stage Change
@@ -571,6 +591,7 @@ const AdminRaiseRequest = () => {
                                     setApprovedStudents([]);
                                     setSelectedStudent(null);
                                     setSearchQuery('');
+                                    setStageSearchQuery('');
                                 }}
                                 className={`px-3 py-1.5 rounded-md font-bold transition-all ${userType === 'student' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
                             >
@@ -583,6 +604,7 @@ const AdminRaiseRequest = () => {
                                     setApprovedStudents([]);
                                     setSelectedStudent(null);
                                     setSearchQuery('');
+                                    setStageSearchQuery('');
                                 }}
                                 className={`px-3 py-1.5 rounded-md font-bold transition-all ${userType === 'employee' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
                             >
@@ -680,7 +702,7 @@ const AdminRaiseRequest = () => {
                                 <div className="flex gap-2 p-1 bg-slate-100 rounded-xl mb-4">
                                     <button
                                         type="button"
-                                        onClick={() => { setChangeType('route'); setSelectedRoute(null); setSelectedStage(null); }}
+                                        onClick={() => { setChangeType('route'); setSelectedRoute(null); setSelectedStage(null); setStageSearchQuery(''); }}
                                         className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${changeType === 'route' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                                     >
                                         Full Route Change
@@ -692,6 +714,17 @@ const AdminRaiseRequest = () => {
                                             const currentRoute = routes.find(r => r.routeId === selectedStudent.route_id);
                                             setSelectedRoute(currentRoute || null);
                                             setSelectedStage(null);
+                                            if (selectedStudent && selectedStudent.stage_name) {
+                                                const currentStage = currentRoute?.stages.find(s => s.stageName === selectedStudent.stage_name);
+                                                if (currentStage) {
+                                                    setSelectedStage(currentStage);
+                                                    setStageSearchQuery(`${currentStage.stageName} — ${currentRoute.routeName} (${currentRoute.routeId})`);
+                                                } else {
+                                                    setStageSearchQuery('');
+                                                }
+                                            } else {
+                                                setStageSearchQuery('');
+                                            }
                                         }}
                                         className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${changeType === 'stage' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                                     >
@@ -719,8 +752,29 @@ const AdminRaiseRequest = () => {
                                         </div>
                                     )}
                                     <div className="min-w-0 flex-1">
-                                        <p className="text-[10px] uppercase font-black text-slate-400 mb-1 tracking-widest">Selected {userType === 'employee' ? 'Employee' : 'Student'}</p>
-                                        <p className="font-black text-slate-900 text-lg uppercase leading-tight">{selectedStudent.student_name || selectedStudent.employee_name}</p>
+                                        <div className="flex justify-between items-start gap-4">
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-[10px] uppercase font-black text-slate-400 mb-1 tracking-widest">Selected {userType === 'employee' ? 'Employee' : 'Student'}</p>
+                                                <p className="font-black text-slate-900 text-lg uppercase leading-tight truncate">{selectedStudent.student_name || selectedStudent.employee_name}</p>
+                                            </div>
+                                            {activeTab === 'new' && (
+                                                <div className="shrink-0 w-36">
+                                                    <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 leading-none text-right">
+                                                        Academic Year
+                                                    </label>
+                                                    <select
+                                                        value={academicYear}
+                                                        onChange={(e) => { setAcademicYear(e.target.value); setFormError(''); }}
+                                                        className="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold text-slate-700 bg-white"
+                                                        required
+                                                    >
+                                                        {academicYearOptions.map((year) => (
+                                                            <option key={year} value={year}>{year}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
+                                        </div>
                                         <div className="flex flex-wrap gap-2 mt-3">
                                             <div className="px-2.5 py-1 bg-white rounded-lg shadow-sm border border-slate-100 inline-block min-w-[70px] text-center">
                                                 <p className="text-[8px] font-black text-slate-400 uppercase leading-none">ID Number</p>
@@ -746,9 +800,37 @@ const AdminRaiseRequest = () => {
                                             )}
                                         </div>
                                         {userType === 'student' && selectedStudent.course && (
-                                            <p className="text-xs text-slate-500 mt-2 font-medium">
-                                                {selectedStudent.course}{selectedStudent.branch ? ` · ${selectedStudent.branch}` : ''}
-                                                {selectedStudent.current_year ? ` · Year ${selectedStudent.current_year}` : ''}
+                                            <p className="text-xs text-slate-500 mt-2 font-medium flex flex-wrap items-center gap-x-2 gap-y-1">
+                                                <span>
+                                                    {selectedStudent.course}{selectedStudent.branch ? ` · ${selectedStudent.branch}` : ''}
+                                                    {selectedStudent.current_year ? ` · Year ${selectedStudent.current_year}` : ''}
+                                                </span>
+                                                {activeTab === 'new' && (
+                                                    validationLoading ? (
+                                                        <span className="inline-flex items-center text-[9px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-bold">
+                                                            Checking...
+                                                        </span>
+                                                    ) : academicValidation ? (
+                                                        academicValidation.valid ? (
+                                                            <span className="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-full font-black">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                                                                {getShortValidationText(academicValidation)}
+                                                            </span>
+                                                        ) : (
+                                                            <span 
+                                                                title={academicValidation.message}
+                                                                className={`inline-flex items-center text-[9px] px-2 py-0.5 rounded-full font-black border cursor-help ${
+                                                                    academicValidation.reason === 'request_exists'
+                                                                        ? 'bg-red-50 text-red-700 border-red-100'
+                                                                        : 'bg-amber-50 text-amber-700 border-amber-100'
+                                                                }`}
+                                                            >
+                                                                <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${academicValidation.reason === 'request_exists' ? 'bg-red-500' : 'bg-amber-500'}`}></span>
+                                                                {getShortValidationText(academicValidation)}
+                                                            </span>
+                                                        )
+                                                    ) : null
+                                                )}
                                             </p>
                                         )}
                                     </div>
@@ -756,74 +838,74 @@ const AdminRaiseRequest = () => {
                             </div>
 
                             <div className="space-y-4">
-                                {activeTab === 'new' && userType === 'student' && (
-                                    <div>
-                                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">
-                                            Academic Year
-                                        </label>
-                                        <select
-                                            value={academicYear}
-                                            onChange={(e) => { setAcademicYear(e.target.value); setFormError(''); }}
-                                            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-slate-700 appearance-none bg-white"
-                                            required
-                                        >
-                                            {academicYearOptions.map((year) => (
-                                                <option key={year} value={year}>{year}</option>
-                                            ))}
-                                        </select>
-                                        {validationLoading && (
-                                            <p className="mt-2 text-xs text-slate-500">Checking batch, year, and academic year…</p>
-                                        )}
-                                        {!validationLoading && academicValidation && (() => {
-                                            const display = getValidationDisplay(academicValidation);
-                                            return (
-                                                <div className={`mt-2 p-3 rounded-xl border text-sm leading-relaxed ${display.className}`}>
-                                                    <p className="font-bold mb-1">{display.title}</p>
-                                                    <p>{academicValidation.message}</p>
-                                                    {academicValidation.reason === 'year_mismatch' && academicValidation.total_years != null && (
-                                                        <p className="mt-1 text-xs opacity-90">
-                                                            {academicValidation.course} is a {academicValidation.total_years}-year course.
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            );
-                                        })()}
-                                    </div>
-                                )}
-                                {activeTab === 'new' && userType === 'employee' && (
-                                    <div>
-                                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">
-                                            Academic Year
-                                        </label>
-                                        <select
-                                            value={academicYear}
-                                            onChange={(e) => { setAcademicYear(e.target.value); setFormError(''); }}
-                                            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-slate-700 appearance-none bg-white"
-                                            required
-                                        >
-                                            {academicYearOptions.map((year) => (
-                                                <option key={year} value={year}>{year}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                )}
-
-                                <div>
+                                <div ref={stageDropdownRef} className="relative">
                                     <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">
-                                        {changeType === 'stage' ? 'Current Route (Locked)' : 'Assign New Route'}
+                                        {changeType === 'stage' ? 'Select Stage on Locked Route' : 'Search & Select Stage (Stop Point)'}
                                     </label>
-                                    <select
-                                        onChange={handleSelectRoute}
-                                        value={selectedRoute?.routeId || ''}
-                                        disabled={changeType === 'stage'}
-                                        className={`w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium appearance-none ${changeType === 'stage' ? 'bg-slate-100 text-slate-500' : 'bg-white text-slate-700'}`}
-                                        required
-                                    >
-                                        <option value="">{changeType === 'stage' ? selectedRoute?.routeName : 'Select an operation route'}</option>
-                                        {routes.map(r => (
-                                            <option key={r.routeId} value={r.routeId}>{r.routeName} ({r.routeId})</option>
-                                        ))}
-                                    </select>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            placeholder={changeType === 'stage' ? "Type to filter stages on this route..." : "Type stage name to search across all routes..."}
+                                            value={stageSearchQuery}
+                                            onChange={(e) => {
+                                                setStageSearchQuery(e.target.value);
+                                                setIsStageDropdownOpen(true);
+                                            }}
+                                            onFocus={() => setIsStageDropdownOpen(true)}
+                                            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-slate-700 bg-white"
+                                            required
+                                        />
+                                        {stageSearchQuery && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setStageSearchQuery('');
+                                                    setSelectedStage(null);
+                                                    if (changeType !== 'stage') {
+                                                        setSelectedRoute(null);
+                                                        setBusesOnRoute([]);
+                                                    }
+                                                }}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+                                            >
+                                                Clear
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {isStageDropdownOpen && (stageSearchQuery.trim() !== '' || changeType === 'stage') && (
+                                        <ul className="absolute left-0 right-0 z-50 mt-1.5 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg divide-y divide-slate-100 custom-scrollbar">
+                                            {matchingStages.length > 0 ? (
+                                                matchingStages.map((s, idx) => (
+                                                    <li
+                                                        key={`${s.routeId}-${s.stageName}-${idx}`}
+                                                        onClick={() => {
+                                                            setSelectedRoute(s.route);
+                                                            setSelectedStage(s);
+                                                            setStageSearchQuery(`${s.stageName} — ${s.routeName} (${s.routeId})`);
+                                                            setIsStageDropdownOpen(false);
+                                                            setFormError('');
+                                                        }}
+                                                        className="p-3 cursor-pointer hover:bg-blue-50/50 transition-all flex flex-col gap-0.5 text-left"
+                                                    >
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="font-bold text-slate-800 text-sm">{s.stageName}</span>
+                                                            <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                                                                {userType === 'employee' ? '₹0' : `₹${s.fare}`}
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
+                                                            Route: {s.routeName} ({s.routeId})
+                                                        </div>
+                                                    </li>
+                                                ))
+                                            ) : (
+                                                <li className="p-3 text-center text-xs text-slate-400">
+                                                    {stageSearchQuery.trim() === '' ? 'No stages found on this route' : 'No matching stages found'}
+                                                </li>
+                                            )}
+                                        </ul>
+                                    )}
                                 </div>
 
                                 {selectedRoute && (
@@ -856,31 +938,20 @@ const AdminRaiseRequest = () => {
                                     </div>
                                 )}
 
-                                {selectedRoute && (
-                                    <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">New Stage (Stop Point)</label>
-                                        <select
-                                            onChange={(e) => { setFormError(''); setSelectedStage(selectedRoute.stages.find(s => s.stageName === e.target.value)); }}
-                                            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-slate-700 appearance-none bg-white"
-                                            required
-                                        >
-                                            <option value="">Select a stage point</option>
-                                            {selectedRoute.stages.map(s => (
-                                                <option key={s.stageName} value={s.stageName}>{s.stageName} — {userType === 'employee' ? 'Free (₹0)' : `₹${s.fare}`}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                )}
-
                                 {selectedStage && (() => {
+                                    const displayFare = userType === 'employee' ? 0 : selectedStage.fare;
+                                    const oldFinalFare = selectedStudent?.fare || 0;
+                                    
+                                    // Concessions are only checked/applied for Route Change requests
                                     const targetYear = activeTab === 'new' 
                                         ? (academicValidation?.current_year || selectedStudent?.current_year) 
                                         : (selectedStudent?.year_of_study || selectedStudent?.current_year);
-                                    const match = getRevisedFeeMatchForYear(targetYear);
-                                    const displayFare = userType === 'employee' ? 0 : selectedStage.fare;
+                                    
+                                    const match = activeTab === 'change' ? getRevisedFeeMatchForYear(targetYear) : null;
                                     let finalFare = displayFare;
                                     let hasConcession = false;
                                     let concessionLabel = `Revised Concession Fee (Year ${targetYear})`;
+                                    
                                     if (match) {
                                         hasConcession = true;
                                         if (match.concessionType && String(match.concessionType).toUpperCase() === 'CONCESSION') {
@@ -892,30 +963,18 @@ const AdminRaiseRequest = () => {
                                         }
                                     }
 
-                                    let oldFinalFare = selectedStudent?.fare || 0;
+                                    let studentOldConcessionFare = oldFinalFare;
                                     if (activeTab === 'change' && selectedStudent) {
                                         const oldMatch = getRevisedFeeMatchForYear(selectedStudent.year_of_study || selectedStudent.current_year);
                                         if (oldMatch) {
                                             if (oldMatch.concessionType && String(oldMatch.concessionType).toUpperCase() === 'CONCESSION') {
-                                                oldFinalFare = Math.max(0, (selectedStudent.fare || 0) - Number(oldMatch.revisedAmount));
+                                                studentOldConcessionFare = Math.max(0, (selectedStudent.fare || 0) - Number(oldMatch.revisedAmount));
                                             } else {
-                                                oldFinalFare = Number(oldMatch.revisedAmount);
+                                                studentOldConcessionFare = Number(oldMatch.revisedAmount);
                                             }
                                         }
                                     }
-                                    
-                                    console.log('Concessions Debug info:', {
-                                        selectedStudent,
-                                        targetYear,
-                                        match,
-                                        displayFare,
-                                        finalFare,
-                                        hasConcession,
-                                        oldFinalFare,
-                                        overallConcession: selectedStudent?.overallConcession,
-                                        transportFeeHeadId: selectedStudent?.transportFeeHeadId
-                                    });
-                                    
+
                                     return (
                                         <div className="p-5 bg-blue-600 rounded-2xl shadow-lg shadow-blue-200/50 border border-blue-500 transform transition-all duration-300 animate-in zoom-in-95 space-y-4">
                                              <div className="flex justify-between items-center">
@@ -936,10 +995,10 @@ const AdminRaiseRequest = () => {
                                                  <div className="pt-4 border-t border-blue-500/50 flex justify-between items-center">
                                                      <span className="text-blue-100 text-[10px] font-bold uppercase tracking-wider">Due Amount (Excess)</span>
                                                      <div className="flex items-center gap-2">
-                                                         <span className={`text-xl font-black ${finalFare - oldFinalFare > 0 ? 'text-yellow-300' : 'text-blue-200'}`}>
-                                                             ₹{Math.max(0, finalFare - oldFinalFare)}
+                                                         <span className={`text-xl font-black ${finalFare - studentOldConcessionFare > 0 ? 'text-yellow-300' : 'text-blue-200'}`}>
+                                                             ₹{Math.max(0, finalFare - studentOldConcessionFare)}
                                                          </span>
-                                                         {finalFare - oldFinalFare > 0 && (
+                                                         {finalFare - studentOldConcessionFare > 0 && (
                                                              <span className="bg-yellow-400 text-yellow-900 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase">To Pay</span>
                                                          )}
                                                      </div>
