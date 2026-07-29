@@ -76,6 +76,7 @@ const AdminRaiseRequest = () => {
     const [actionLoading, setActionLoading] = useState(false);
     const [profileLoading, setProfileLoading] = useState(false);
     const [formError, setFormError] = useState('');
+    const [routeFullModal, setRouteFullModal] = useState(null); // { message, buses: [{busNumber, seatsFilled, capacity}] }
     const [stageSearchQuery, setStageSearchQuery] = useState('');
     const [isStageDropdownOpen, setIsStageDropdownOpen] = useState(false);
     const stageDropdownRef = React.useRef(null);
@@ -517,9 +518,8 @@ const AdminRaiseRequest = () => {
                 const data = await response.json();
                 const errorText = data.message || 'Failed to process request.';
                 if (!isChange && data.routeFull) {
-                    // All buses on the route are full — show as prominent message
-                    setFormError('');
-                    setMessage({ text: errorText, type: 'error' });
+                    // Parse bus details from message for structured display
+                    setRouteFullModal({ message: errorText });
                 } else if (!isChange && (response.status === 409 || response.status === 400)) {
                     setFormError(errorText);
                 } else {
@@ -1048,6 +1048,65 @@ const AdminRaiseRequest = () => {
                     )}
                 </div>
             </div>
+
+            {/* Route Full Modal */}
+            {routeFullModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                        {/* Header */}
+                        <div className="flex items-center gap-3 bg-red-600 px-6 py-4">
+                            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636l-12.728 12.728M5.636 5.636l12.728 12.728" />
+                                </svg>
+                            </div>
+                            <div>
+                                <p className="text-white font-bold text-base">Route At Full Capacity</p>
+                                <p className="text-red-100 text-xs mt-0.5">Cannot raise a new request on this route</p>
+                            </div>
+                        </div>
+                        {/* Body */}
+                        <div className="px-6 py-5 space-y-4">
+                            <div className="flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4">
+                                <svg className="w-5 h-5 text-red-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                                </svg>
+                                <p className="text-sm text-red-800 font-medium">{routeFullModal.message}</p>
+                            </div>
+                            {/* Bus breakdown from busesOnRoute state */}
+                            {busesOnRoute.length > 0 && (
+                                <div className="space-y-2">
+                                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Bus Occupancy on this Route</p>
+                                    {busesOnRoute.map((b) => (
+                                        <div key={b.busNumber} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5">
+                                            <span className="text-sm font-bold text-slate-800">{b.busNumber}</span>
+                                            <span className="flex items-center gap-2">
+                                                <div className="w-24 h-2 rounded-full bg-slate-200 overflow-hidden">
+                                                    <div
+                                                        className="h-full rounded-full bg-red-500"
+                                                        style={{ width: `${b.capacity > 0 ? Math.min(100, (b.seatsFilled / b.capacity) * 100) : 100}%` }}
+                                                    />
+                                                </div>
+                                                <span className="text-xs font-semibold text-red-600">{b.seatsFilled}/{b.capacity} 🚫</span>
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            <p className="text-xs text-slate-500">Please contact the transport department to increase bus capacity or add a new bus to this route.</p>
+                        </div>
+                        {/* Footer */}
+                        <div className="px-6 pb-5">
+                            <button
+                                onClick={() => setRouteFullModal(null)}
+                                className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <Modal
                 isOpen={approveModal.open}
