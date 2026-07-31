@@ -70,6 +70,28 @@ const RouteManagement = () => {
     const [destBuses, setDestBuses] = useState([]);
     const [destBusesLoading, setDestBusesLoading] = useState(false);
 
+    // Student Transfer States
+    const [studentTransferData, setStudentTransferData] = useState({
+        sourceRouteId: '',
+        stageName: '', // optional filter
+        destinationRouteId: '',
+        destinationStageName: ''
+    });
+    const [passengerList, setPassengerList] = useState([]);
+    const [passengerListLoading, setPassengerListLoading] = useState(false);
+    const [selectedPassengers, setSelectedPassengers] = useState([]); // Array of MongoDB _ids
+    const [typeFilter, setTypeFilter] = useState('both'); // 'student' | 'employee' | 'both'
+    const [studentTransferSubmitting, setStudentTransferSubmitting] = useState(false);
+    const [studentTransferMessage, setStudentTransferMessage] = useState({ text: '', type: '' });
+    const [isStudentConfirmModalOpen, setIsStudentConfirmModalOpen] = useState(false);
+    const [studentDestBuses, setStudentDestBuses] = useState([]);
+    const [studentDestBusesLoading, setStudentDestBusesLoading] = useState(false);
+
+    // Transfer History States
+    const [transferHistoryList, setTransferHistoryList] = useState([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [expandedHistoryId, setExpandedHistoryId] = useState(null);
+
     const fetchCampuses = async () => {
         try {
             const response = await apiFetch(`${API}/campuses`);
@@ -360,6 +382,189 @@ const RouteManagement = () => {
         ? routes.filter((route) => campusIdsMatch(getCampusId(route.campus), selectedCampusFilter))
         : routes;
 
+    // Student Transfer Fetch & Handlers
+    useEffect(() => {
+        const fetchRoutePassengers = async () => {
+            const { sourceRouteId, stageName } = studentTransferData;
+            if (!sourceRouteId) {
+                setPassengerList([]);
+                setSelectedPassengers([]);
+                return;
+            }
+
+            setPassengerListLoading(true);
+            try {
+                let url = `${API}/routes/passengers?routeId=${encodeURIComponent(sourceRouteId)}&academicYear=${encodeURIComponent(academicYear)}`;
+                if (stageName) {
+                    url += `&stageName=${encodeURIComponent(stageName)}`;
+                }
+                const response = await apiFetch(url);
+                const data = await response.json();
+                if (response.ok) {
+                    setPassengerList(data.passengers || []);
+                    setSelectedPassengers([]);
+                } else {
+                    setPassengerList([]);
+                    setSelectedPassengers([]);
+                }
+            } catch (error) {
+                console.error('Error fetching route passengers:', error);
+                setPassengerList([]);
+                setSelectedPassengers([]);
+            } finally {
+                setPassengerListLoading(false);
+            }
+        };
+
+        fetchRoutePassengers();
+    }, [studentTransferData.sourceRouteId, studentTransferData.stageName, academicYear]);
+
+    useEffect(() => {
+        const fetchStudentDestBuses = async () => {
+            const { destinationRouteId } = studentTransferData;
+            if (!destinationRouteId) {
+                setStudentDestBuses([]);
+                return;
+            }
+
+            setStudentDestBusesLoading(true);
+            try {
+                const response = await apiFetch(
+                    `${API}/transport-requests/route-buses?route_id=${encodeURIComponent(destinationRouteId)}&academicYear=${encodeURIComponent(academicYear)}`
+                );
+                const data = await response.json();
+                if (response.ok) {
+                    setStudentDestBuses(data.busesOnRoute || []);
+                } else {
+                    setStudentDestBuses([]);
+                }
+            } catch (error) {
+                console.error('Error fetching student destination route buses:', error);
+                setStudentDestBuses([]);
+            } finally {
+                setStudentDestBusesLoading(false);
+            }
+        };
+
+        fetchStudentDestBuses();
+    }, [studentTransferData.destinationRouteId, academicYear]);
+
+    useEffect(() => {
+        if (activeTab === 'history') {
+            const fetchHistory = async () => {
+                setHistoryLoading(true);
+                try {
+                    const response = await apiFetch(`${API}/routes/transfer-history`);
+                    const data = await response.json();
+                    if (response.ok) {
+                        setTransferHistoryList(data.history || []);
+                    }
+                } catch (error) {
+                    console.error('Error fetching transfer history:', error);
+                } finally {
+                    setHistoryLoading(false);
+                }
+            };
+            fetchHistory();
+        }
+    }, [activeTab]);
+
+    const getFilteredPassengers = () => {
+        if (typeFilter === 'both') return passengerList;
+        return passengerList.filter(p => p.type === typeFilter);
+    };
+
+    const toggleSelectPassenger = (id) => {
+        setSelectedPassengers(prev => 
+            prev.includes(id) ? prev.filter(pId => pId !== id) : [...prev, id]
+        );
+    };
+
+    const handleSelectAllPassengers = (filteredList) => {
+        const filteredIds = filteredList.map(p => p._id);
+        const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedPassengers.includes(id));
+        if (allSelected) {
+            setSelectedPassengers(prev => prev.filter(id => !filteredIds.includes(id)));
+        } else {
+            setSelectedPassengers(prev => [...new Set([...prev, ...filteredIds])]);
+        }
+    };
+
+    const handleStudentTransferSubmit = (e) => {
+        e.preventDefault();
+        const { sourceRouteId, destinationRouteId, destinationStageName } = studentTransferData;
+        if (!sourceRouteId || !destinationRouteId || !destinationStageName) {
+            setStudentTransferMessage({ text: 'Please select source route, destination route and destination stage.', type: 'error' });
+            return;
+        }
+        if (selectedPassengers.length === 0) {
+            setStudentTransferMessage({ text: 'Please select at least one passenger to transfer.', type: 'error' });
+            return;
+        }
+        setIsStudentConfirmModalOpen(true);
+    };
+
+    const executeStudentTransfer = async () => {
+        setIsStudentConfirmModalOpen(false);
+        setStudentTransferSubmitting(true);
+        setStudentTransferMessage({ text: '', type: '' });
+
+        try {
+            const passengersToSend = selectedPassengers.map(id => {
+                const found = passengerList.find(p => p._id === id);
+                return { id: found._id, type: found.type };
+            });
+
+            const response = await apiFetch(`${API}/routes/transfer-passengers`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    passengers: passengersToSend,
+                    destinationRouteId: studentTransferData.destinationRouteId,
+                    destinationStageName: studentTransferData.destinationStageName,
+                    academicYear
+                })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                setStudentTransferMessage({
+                    text: (data.message || 'Passengers transferred successfully.') + ' Note: ID cards must be reprinted for the affected passengers as their route has changed.',
+                    type: 'success'
+                });
+                setStudentTransferData(prev => ({
+                    ...prev,
+                    destinationRouteId: '',
+                    destinationStageName: ''
+                }));
+                // Re-fetch route passengers
+                const sourceRouteId = studentTransferData.sourceRouteId;
+                const stageName = studentTransferData.stageName;
+                let url = `${API}/routes/passengers?routeId=${encodeURIComponent(sourceRouteId)}&academicYear=${encodeURIComponent(academicYear)}`;
+                if (stageName) {
+                    url += `&stageName=${encodeURIComponent(stageName)}`;
+                }
+                const refreshRes = await apiFetch(url);
+                if (refreshRes.ok) {
+                    const refreshData = await refreshRes.json();
+                    setPassengerList(refreshData.passengers || []);
+                }
+                setSelectedPassengers([]);
+                await fetchRoutes(academicYear);
+            } else {
+                setStudentTransferMessage({
+                    text: data.message || 'Failed to transfer passengers.',
+                    type: 'error'
+                });
+            }
+        } catch (error) {
+            console.error('Error executing student transfer:', error);
+            setStudentTransferMessage({ text: 'Error transferring passengers. Please try again.', type: 'error' });
+        } finally {
+            setStudentTransferSubmitting(false);
+        }
+    };
+
 
 
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
@@ -379,12 +584,16 @@ const RouteManagement = () => {
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
                 <div>
                     <h2 className="text-xl font-bold text-slate-800 tracking-tight">
-                        {activeTab === 'network' ? `Route Network (${filteredRoutes.length})` : 'Stage Migration'}
+                        {activeTab === 'network' ? `Route Network (${filteredRoutes.length})` : activeTab === 'transfer' ? 'Stage Migration' : activeTab === 'student-transfer' ? 'Student & Passenger Transfer' : 'Transfer History'}
                     </h2>
                     <p className="text-slate-500 text-xs mt-0.5">
                         {activeTab === 'network' 
                             ? 'Design routes, manage stages, and set fares per academic year.' 
-                            : 'Transfer a route stage to another route network, remapping all linked passengers.'}
+                            : activeTab === 'transfer'
+                                ? 'Transfer a route stage to another route network, remapping all linked passengers.'
+                                : activeTab === 'student-transfer'
+                                    ? 'Transfer specific students/passengers to a different route and stage.'
+                                    : 'Log history of all past stage and passenger transfers.'}
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -430,16 +639,28 @@ const RouteManagement = () => {
             {/* Tab pill navigation */}
             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 shadow-sm self-start mb-6 w-fit">
                 <button
-                    onClick={() => { setActiveTab('network'); setTransferMessage({ text: '', type: '' }); }}
+                    onClick={() => { setActiveTab('network'); setTransferMessage({ text: '', type: '' }); setStudentTransferMessage({ text: '', type: '' }); }}
                     className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'network' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                 >
                     Route Network
                 </button>
                 <button
-                    onClick={() => { setActiveTab('transfer'); setSaveMessage({ text: '', type: '' }); }}
+                    onClick={() => { setActiveTab('transfer'); setSaveMessage({ text: '', type: '' }); setStudentTransferMessage({ text: '', type: '' }); }}
                     className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'transfer' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                 >
                     Transfer Stage
+                </button>
+                <button
+                    onClick={() => { setActiveTab('student-transfer'); setSaveMessage({ text: '', type: '' }); setTransferMessage({ text: '', type: '' }); }}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'student-transfer' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    Transfer Students
+                </button>
+                <button
+                    onClick={() => { setActiveTab('history'); setSaveMessage({ text: '', type: '' }); setTransferMessage({ text: '', type: '' }); setStudentTransferMessage({ text: '', type: '' }); }}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'history' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    Transfer History
                 </button>
             </div>
 
@@ -606,7 +827,7 @@ const RouteManagement = () => {
                         </div>
                     )}
                 </>
-            ) : (
+            ) : activeTab === 'transfer' ? (
                 <div className="flex flex-col lg:flex-row gap-6 items-start animate-in fade-in slide-in-from-top-2 duration-300 w-full">
                     {/* Left: Form */}
                     <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8">
@@ -773,6 +994,341 @@ const RouteManagement = () => {
                         )}
                     </div>
                 </div>
+            ) : activeTab === 'student-transfer' ? (
+                <div className="flex flex-col lg:flex-row gap-6 items-start animate-in fade-in slide-in-from-top-2 duration-300 w-full">
+                    {/* Left: Student Transfer Form */}
+                    <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8">
+                        <h3 className="text-lg font-bold text-slate-800 mb-2">Student & Passenger Transfer Panel</h3>
+                        <p className="text-slate-500 text-xs mb-6">Select a source route and stage to view passengers, select the ones to move, and select the destination route and stage.</p>
+
+                        {studentTransferMessage.text && (
+                            <div className={`mb-6 p-4 rounded-xl border text-xs font-semibold ${studentTransferMessage.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                                {studentTransferMessage.text}
+                            </div>
+                        )}
+
+                        <form onSubmit={handleStudentTransferSubmit} className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Source Route</label>
+                                    <select
+                                        value={studentTransferData.sourceRouteId}
+                                        onChange={(e) => setStudentTransferData({ sourceRouteId: e.target.value, stageName: '', destinationRouteId: '', destinationStageName: '' })}
+                                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-xs outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold text-slate-700 bg-white"
+                                        required
+                                    >
+                                        <option value="">Select source route</option>
+                                        {routes.map(r => (
+                                            <option key={r.routeId} value={r.routeId}>{r.routeName} ({r.routeId})</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Source Stage (Optional Filter)</label>
+                                    <select
+                                        value={studentTransferData.stageName}
+                                        onChange={(e) => setStudentTransferData(prev => ({ ...prev, stageName: e.target.value }))}
+                                        disabled={!studentTransferData.sourceRouteId}
+                                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-xs outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold text-slate-700 bg-white disabled:opacity-50 disabled:bg-slate-50"
+                                    >
+                                        <option value="">All Stages</option>
+                                        {studentTransferData.sourceRouteId && routes.find(r => r.routeId === studentTransferData.sourceRouteId)?.stages.map(s => (
+                                            <option key={s.stageName} value={s.stageName}>{s.stageName}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-5">
+                                <div>
+                                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Destination Route</label>
+                                    <select
+                                        value={studentTransferData.destinationRouteId}
+                                        onChange={(e) => setStudentTransferData(prev => ({ ...prev, destinationRouteId: e.target.value, destinationStageName: '' }))}
+                                        disabled={!studentTransferData.sourceRouteId}
+                                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-xs outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold text-slate-700 bg-white disabled:opacity-50 disabled:bg-slate-50"
+                                        required
+                                    >
+                                        <option value="">Select destination route</option>
+                                        {routes.filter(r => r.routeId !== studentTransferData.sourceRouteId).map(r => (
+                                            <option key={r.routeId} value={r.routeId}>{r.routeName} ({r.routeId})</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Destination Stage</label>
+                                    <select
+                                        value={studentTransferData.destinationStageName}
+                                        onChange={(e) => setStudentTransferData(prev => ({ ...prev, destinationStageName: e.target.value }))}
+                                        disabled={!studentTransferData.destinationRouteId}
+                                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-xs outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold text-slate-700 bg-white disabled:opacity-50 disabled:bg-slate-50"
+                                        required
+                                    >
+                                        <option value="">Select destination stage</option>
+                                        {studentTransferData.destinationRouteId && routes.find(r => r.routeId === studentTransferData.destinationRouteId)?.stages.map(s => (
+                                            <option key={s.stageName} value={s.stageName}>{s.stageName} (Fare: ₹{s.fare})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {studentTransferData.destinationRouteId && (
+                                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in slide-in-from-top-2 duration-300">
+                                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Destination Route Bus Vacancy</h4>
+                                    {studentDestBusesLoading ? (
+                                        <p className="text-xs text-slate-400">Loading vacancy details...</p>
+                                    ) : studentDestBuses.length === 0 ? (
+                                        <p className="text-xs text-red-600 font-semibold italic">No buses assigned to destination route yet.</p>
+                                    ) : (
+                                        <div className="space-y-2.5">
+                                            {studentDestBuses.map((bus) => (
+                                                <div key={bus.busNumber} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-xs">
+                                                    <div>
+                                                        <span className="font-bold text-slate-800">Bus {bus.busNumber}</span>
+                                                        <span className="ml-2 text-[10px] text-slate-400 font-bold bg-slate-100 px-1.5 py-0.5 rounded">
+                                                            {bus.seatsAvailable} / {bus.capacity} seats free
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <div className="w-20 bg-slate-100 h-2 rounded-full overflow-hidden">
+                                                            <div 
+                                                                className={`h-full ${bus.seatsAvailable === 0 ? 'bg-red-500' : (bus.seatsAvailable < 5 ? 'bg-yellow-500' : 'bg-emerald-500')}`} 
+                                                                style={{ width: `${(bus.seatsFilled / bus.capacity) * 100}%` }}
+                                                            />
+                                                        </div>
+                                                        <span className="font-black text-[10px] text-slate-500">
+                                                            {Math.round((bus.seatsFilled / bus.capacity) * 100)}% filled
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {(() => {
+                                                const totalAvailable = studentDestBuses.reduce((sum, b) => sum + (b.seatsAvailable || 0), 0);
+                                                if (selectedPassengers.length > totalAvailable) {
+                                                    return (
+                                                        <div className="mt-3 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs flex items-start gap-2 animate-in fade-in duration-200">
+                                                            <span className="text-sm shrink-0">⚠️</span>
+                                                            <div className="font-semibold">
+                                                                Note: Destination route has only {totalAvailable} seat(s) available, but you have selected {selectedPassengers.length} passenger(s) to transfer.
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={
+                                    studentTransferSubmitting || 
+                                    !studentTransferData.sourceRouteId || 
+                                    !studentTransferData.destinationRouteId || 
+                                    !studentTransferData.destinationStageName || 
+                                    selectedPassengers.length === 0 ||
+                                    (studentDestBuses.length > 0 && selectedPassengers.length > studentDestBuses.reduce((sum, b) => sum + (b.seatsAvailable || 0), 0))
+                                }
+                                className="w-full bg-slate-900 hover:bg-black text-white font-bold py-4 rounded-xl disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2"
+                            >
+                                {studentTransferSubmitting ? 'Transferring...' : `Transfer Selected Passengers (${selectedPassengers.length})`}
+                            </button>
+                        </form>
+                    </div>
+
+                    {/* Right: Passenger Checklist Card */}
+                    <div className="w-full lg:w-96 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col max-h-[580px]">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                            <div>
+                                <h3 className="text-md font-bold text-slate-800">Select Passengers</h3>
+                                <p className="text-slate-400 text-[10px] mt-0.5">Choose passengers to transfer to the destination.</p>
+                            </div>
+                            <select
+                                value={typeFilter}
+                                onChange={(e) => { setTypeFilter(e.target.value); setSelectedPassengers([]); }}
+                                className="text-[10px] font-bold text-slate-650 bg-slate-100 border border-slate-200 px-2 py-1 rounded-lg outline-none"
+                            >
+                                <option value="both">All Types</option>
+                                <option value="student">Students</option>
+                                <option value="employee">Employees</option>
+                            </select>
+                        </div>
+
+                        {!studentTransferData.sourceRouteId ? (
+                            <div className="flex-1 flex flex-col items-center justify-center py-20 text-slate-300">
+                                <p className="text-xs font-semibold">Select a route to load passengers list.</p>
+                            </div>
+                        ) : passengerListLoading ? (
+                            <div className="flex-1 flex items-center justify-center py-20">
+                                <span className="text-xs text-slate-400">Loading list...</span>
+                            </div>
+                        ) : getFilteredPassengers().length === 0 ? (
+                            <div className="flex-1 flex flex-col items-center justify-center py-20 text-slate-400">
+                                <p className="text-xs italic">No passengers found matching filter.</p>
+                            </div>
+                        ) : (() => {
+                            const filteredList = getFilteredPassengers();
+                            const allSelected = filteredList.length > 0 && filteredList.every(p => selectedPassengers.includes(p._id));
+                            return (
+                                <>
+                                    <div className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50/80 mt-3 font-semibold text-xs text-slate-600">
+                                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                                            <input 
+                                                type="checkbox"
+                                                checked={allSelected}
+                                                onChange={() => handleSelectAllPassengers(filteredList)}
+                                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                            />
+                                            Select All Visible
+                                        </label>
+                                        <span className="text-[10px] text-slate-400 font-bold bg-white px-2 py-0.5 rounded-md border border-slate-100">
+                                            {filteredList.filter(p => selectedPassengers.includes(p._id)).length} / {filteredList.length} Selected
+                                        </span>
+                                    </div>
+                                    <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar space-y-2 mt-3">
+                                        {filteredList.map((p) => {
+                                            const isChecked = selectedPassengers.includes(p._id);
+                                            return (
+                                                <div 
+                                                    key={p._id}
+                                                    onClick={() => toggleSelectPassenger(p._id)}
+                                                    className={`flex items-center justify-between p-3 rounded-xl border transition-colors cursor-pointer select-none ${
+                                                        isChecked 
+                                                            ? 'border-blue-200 bg-blue-50/20 hover:bg-blue-50/30' 
+                                                            : 'border-slate-100 bg-slate-50/50 hover:bg-slate-50'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={isChecked}
+                                                            onChange={() => {}} // handled by parent div onClick
+                                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5 shrink-0"
+                                                        />
+                                                        <div className="min-w-0">
+                                                            <p className="font-bold text-slate-800 text-xs truncate" title={p.name}>{p.name}</p>
+                                                            <p className="text-[10px] text-slate-400 font-medium font-mono truncate">{p.admissionNumber} {p.stage_name && `· ${p.stage_name}`}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-col items-end gap-1 shrink-0">
+                                                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${p.type === 'student' ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-purple-50 text-purple-700 border border-purple-100'}`}>
+                                                            {p.type}
+                                                        </span>
+                                                        <span className={`text-[8px] font-bold ${p.status === 'approved' ? 'text-emerald-600' : 'text-amber-500'}`}>
+                                                            {p.status}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </>
+                            );
+                        })()}
+                    </div>
+                </div>
+            ) : (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8 animate-in fade-in slide-in-from-top-2 duration-300 w-full">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800">Transfer Logs & History</h3>
+                            <p className="text-slate-500 text-xs mt-0.5">Audit log of all past stage migrations and passenger transfers.</p>
+                        </div>
+                    </div>
+
+                    {historyLoading ? (
+                        <div className="flex items-center justify-center py-20">
+                            <span className="text-xs text-slate-400">Loading history...</span>
+                        </div>
+                    ) : transferHistoryList.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                            <p className="text-xs italic">No transfer logs found.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
+                            {transferHistoryList.map((log) => (
+                                <div key={log._id} className="border border-slate-200 rounded-2xl p-4 bg-slate-50/30 hover:bg-slate-50 transition-colors">
+                                    <div className="flex flex-wrap justify-between items-start gap-2 mb-3">
+                                        <div className="flex items-center gap-2">
+                                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
+                                                log.type === 'stage' 
+                                                    ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+                                                    : 'bg-purple-100 text-purple-800 border border-purple-200'
+                                            }`}>
+                                                {log.type === 'stage' ? 'Stage Migration' : 'Passenger Transfer'}
+                                            </span>
+                                            <span className="text-[10px] text-slate-400 font-bold">
+                                                {new Date(log.timestamp).toLocaleString()}
+                                            </span>
+                                        </div>
+                                        <div className="text-[10px] text-slate-500 font-bold">
+                                            By: <span className="text-slate-800">{log.performedBy || 'System'}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-xs">
+                                        <div>
+                                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Source</p>
+                                            <p className="font-bold text-slate-700 truncate" title={log.sourceRouteName}>
+                                                {log.sourceRouteName} ({log.sourceRouteId})
+                                            </p>
+                                            <p className="text-[10px] text-slate-400 font-semibold mt-0.5 truncate" title={log.sourceStageName}>
+                                                Stage: {log.sourceStageName || 'All'}
+                                            </p>
+                                        </div>
+                                        <div className="flex justify-center text-slate-350 shrink-0 select-none">
+                                            ➔
+                                        </div>
+                                        <div>
+                                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Destination</p>
+                                            <p className="font-bold text-slate-700 truncate" title={log.destinationRouteName}>
+                                                {log.destinationRouteName} ({log.destinationRouteId})
+                                            </p>
+                                            <p className="text-[10px] text-slate-400 font-semibold mt-0.5 truncate" title={log.destinationStageName}>
+                                                Stage: {log.destinationStageName || 'All'}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-3 flex items-center justify-between">
+                                        <span className="text-[10px] font-bold text-slate-500">
+                                            {log.passengersCount} passenger(s) affected
+                                        </span>
+                                        {log.passengers && log.passengers.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setExpandedHistoryId(expandedHistoryId === log._id ? null : log._id)}
+                                                className="text-[10px] font-black text-blue-900 hover:text-blue-700 underline focus:outline-none transition-colors"
+                                            >
+                                                {expandedHistoryId === log._id ? 'Hide Passengers' : 'View Passengers'}
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {expandedHistoryId === log._id && log.passengers && (
+                                        <div className="mt-3 pt-3 border-t border-slate-200/60 grid grid-cols-1 sm:grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                            {log.passengers.map((p, idx) => (
+                                                <div key={idx} className="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-100 text-[10px]">
+                                                    <div className="min-w-0 pr-1 flex-1">
+                                                        <p className="font-bold text-slate-800 truncate" title={p.name}>{p.name}</p>
+                                                        <p className="text-[8px] text-slate-400 font-mono font-medium truncate">{p.admissionNumber}</p>
+                                                    </div>
+                                                    <span className={`px-1 rounded text-[7px] font-black uppercase shrink-0 ${p.type === 'student' ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-purple-50 text-purple-700 border border-purple-100'}`}>
+                                                        {p.type}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             )}
 
             <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingId ? "Edit Route" : "Create New Route"}>
@@ -888,6 +1444,35 @@ const RouteManagement = () => {
                         <button
                             type="button"
                             onClick={executeStageTransfer}
+                            className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-black rounded-xl shadow-md transition-all"
+                        >
+                            Confirm & Execute
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+
+            <Modal isOpen={isStudentConfirmModalOpen} onClose={() => setIsStudentConfirmModalOpen(false)} title="Confirm Student/Passenger Transfer">
+                <div className="space-y-4">
+                    <p className="text-sm text-slate-650 font-semibold leading-relaxed">
+                        Are you sure you want to transfer the <span className="font-bold text-slate-900">{selectedPassengers.length}</span> selected passenger(s) to route <span className="font-bold text-slate-900">{studentTransferData.destinationRouteId}</span>, stage <span className="font-bold text-slate-900">"{studentTransferData.destinationStageName}"</span>?
+                    </p>
+                    <div className="bg-amber-50 border border-amber-100 rounded-xl p-3.5 text-xs text-amber-800 font-bold space-y-1">
+                        <p>This will update the passenger(s)' assigned route and stage details.</p>
+                        <p>Their old bus assignments will be cleared (set to none).</p>
+                        <p className="text-amber-900">⚠️ Any approved passengers being transferred will have their status marked as needing new transport ID cards.</p>
+                    </div>
+                    <div className="flex justify-end gap-3 mt-5">
+                        <button
+                            type="button"
+                            onClick={() => setIsStudentConfirmModalOpen(false)}
+                            className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={executeStudentTransfer}
                             className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-black rounded-xl shadow-md transition-all"
                         >
                             Confirm & Execute

@@ -869,12 +869,13 @@ const getTransportRequests = async (req, res) => {
 // @access  Private/Admin
 const updateTransportRequest = async (req, res) => {
     const requestId = req.params.id;
-    const { bus_id } = req.body || {};
+    const { bus_id, new_id_card_needed } = req.body || {};
     try {
         if (isMongoId(requestId)) {
             const reqRow = await EmployeeTransportRequest.findById(requestId);
             if (reqRow) {
-                reqRow.bus_id = bus_id || null;
+                if (bus_id !== undefined) reqRow.bus_id = bus_id || null;
+                if (new_id_card_needed !== undefined) reqRow.new_id_card_needed = new_id_card_needed;
                 await reqRow.save();
                 return res.json({
                     id: reqRow._id.toString(),
@@ -886,6 +887,7 @@ const updateTransportRequest = async (req, res) => {
                     fare: reqRow.fare,
                     status: reqRow.status,
                     bus_id: reqRow.bus_id,
+                    new_id_card_needed: reqRow.new_id_card_needed,
                     user_type: 'employee'
                 });
             }
@@ -895,7 +897,8 @@ const updateTransportRequest = async (req, res) => {
         if (isMongoId(requestId)) studentReqQuery.$or.push({ _id: requestId });
         const studentReq = await TransportRequest.findOne(studentReqQuery);
         if (studentReq) {
-            studentReq.bus_id = bus_id || null;
+            if (bus_id !== undefined) studentReq.bus_id = bus_id || null;
+            if (new_id_card_needed !== undefined) studentReq.new_id_card_needed = new_id_card_needed;
             await studentReq.save();
             return res.json({
                 ...studentReq.toObject(),

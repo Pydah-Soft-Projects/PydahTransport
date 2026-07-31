@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { useReactToPrint } from 'react-to-print';
-import { FileText, Trash2, Calendar, Pencil, Users, CheckCircle2, XCircle, User, MapPin, GraduationCap, Clock, Bus, Printer, Ban } from 'lucide-react';
+import { FileText, Trash2, Calendar, Pencil, Users, CheckCircle2, XCircle, User, MapPin, GraduationCap, Clock, Bus, Printer, Ban, CreditCard } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import TransportAdmitCard from '../components/TransportAdmitCard';
@@ -101,6 +101,7 @@ const TransportRequests = () => {
     const [courseExpirySchemaOk, setCourseExpirySchemaOk] = useState(true);
     const [editingYears, setEditingYears] = useState({});
     const [detailModal, setDetailModal] = useState({ open: false, request: null, loading: false });
+    const [idCardStatusLoading, setIdCardStatusLoading] = useState(false);
     const [cancelFormOpen, setCancelFormOpen] = useState(false);
     const [cancelReason, setCancelReason] = useState('');
     const [idCardModalOpen, setIdCardModalOpen] = useState(false);
@@ -508,6 +509,43 @@ const TransportRequests = () => {
         setDetailModal({ open: false, request: null, loading: false });
         setCancelFormOpen(false);
         setCancelReason('');
+    };
+
+    const handleUpdateIdCardStatus = async (id, newStatus) => {
+        setIdCardStatusLoading(true);
+        try {
+            const response = await apiFetch(`${API_BASE}/transport-requests/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_id_card_needed: newStatus }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (response.ok) {
+                // Update local detailModal state request object so it updates instantly in the UI
+                setDetailModal((prev) => {
+                    if (prev.request && (prev.request.id === id || prev.request._id === id || String(prev.request.id) === String(id))) {
+                        return {
+                            ...prev,
+                            request: {
+                                ...prev.request,
+                                new_id_card_needed: newStatus
+                            }
+                        };
+                    }
+                    return prev;
+                });
+                
+                // Refresh overall lists/requests
+                fetchRequests();
+            } else {
+                alert(data.message || 'Failed to update ID card status.');
+            }
+        } catch (err) {
+            console.error('Error updating ID card status:', err);
+            alert('Something went wrong. Please try again.');
+        } finally {
+            setIdCardStatusLoading(false);
+        }
     };
 
     const fetchRequests = async () => {
@@ -1573,6 +1611,17 @@ const TransportRequests = () => {
                                                     <Printer size={17} />
                                                     {fetchingIdCard ? 'Preparing…' : 'Print ID Card'}
                                                 </button>
+                                                {req.new_id_card_needed && (
+                                                    <button
+                                                        type="button"
+                                                        disabled={idCardStatusLoading}
+                                                        onClick={() => handleUpdateIdCardStatus(req.id || req._id, false)}
+                                                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 shadow-sm transition-colors border bg-amber-500 text-white hover:bg-amber-600 border-amber-650"
+                                                    >
+                                                        <CreditCard size={17} />
+                                                        {idCardStatusLoading ? 'Updating…' : 'Mark ID Card as Given'}
+                                                    </button>
+                                                )}
                                                 {!cancelFormOpen ? (
                                                     <button
                                                         type="button"

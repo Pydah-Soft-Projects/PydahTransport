@@ -220,6 +220,26 @@ const transferStage = async (req, res) => {
         destRoute.stages.push(stageToTransfer);
         destRoute.markModified('stages');
 
+        // Fetch affected passengers for history logging BEFORE updating them
+        const queryApproved = { route_id: sourceRouteId, stage_name: stageName, status: 'approved' };
+        const queryPending = { route_id: sourceRouteId, stage_name: stageName, status: 'pending' };
+        if (academicYear) {
+            queryApproved.academic_year = academicYear;
+            queryPending.academic_year = academicYear;
+        }
+
+        const approvedSts = await TransportRequest.find(queryApproved, 'student_name admission_number status');
+        const pendingSts = await TransportRequest.find(queryPending, 'student_name admission_number status');
+        const approvedEmps = await EmployeeTransportRequest.find(queryApproved, 'employee_name emp_no status');
+        const pendingEmps = await EmployeeTransportRequest.find(queryPending, 'employee_name emp_no status');
+
+        const passengersList = [
+            ...approvedSts.map(s => ({ passengerId: s._id.toString(), name: s.student_name, admissionNumber: s.admission_number, type: 'student', status: s.status })),
+            ...pendingSts.map(s => ({ passengerId: s._id.toString(), name: s.student_name, admissionNumber: s.admission_number, type: 'student', status: s.status })),
+            ...approvedEmps.map(e => ({ passengerId: e._id.toString(), name: e.employee_name, admissionNumber: e.emp_no, type: 'employee', status: e.status })),
+            ...pendingEmps.map(e => ({ passengerId: e._id.toString(), name: e.employee_name, admissionNumber: e.emp_no, type: 'employee', status: e.status }))
+        ];
+
         // Save routes
         await sourceRoute.save();
         await destRoute.save();
@@ -286,6 +306,28 @@ const transferStage = async (req, res) => {
             }
         );
 
+        // Log to TransferHistory
+        if (passengersList.length > 0) {
+            const TransferHistory = require('../models/TransferHistory');
+            const performedBy = req.user
+                ? (req.user.employee_name || req.user.name || req.user.username || 'admin')
+                : 'admin';
+
+            await TransferHistory.create({
+                type: 'stage',
+                sourceRouteId,
+                sourceRouteName: sourceRoute.routeName,
+                sourceStageName: stageName,
+                destinationRouteId,
+                destinationRouteName: destRoute.routeName,
+                destinationStageName: stageName,
+                academicYear,
+                passengersCount: passengersList.length,
+                passengers: passengersList,
+                performedBy
+            });
+        }
+
         res.json({
             message: `Stage "${stageName}" and its passengers successfully transferred to route "${destRoute.routeName}" (${destinationRouteId}).`,
             affectedStudentsCount: (studentApprovedResult.modifiedCount || 0) + (studentPendingResult.modifiedCount || 0),
@@ -297,12 +339,218 @@ const transferStage = async (req, res) => {
     }
 };
 
+// @desc    Get passenger list for a route and optional stage
+// @route   GET /api/routes/passengers
+// @access  Private/Admin
+const getRoutePassengers = async (req, res) => {
+    const { routeId, stageName, academicYear } = req.query;
+    if (!routeId) {
+        return res.status(400).json({ message: 'routeId is required' });
+    }
+
+    try {
+        const query = {
+            route_id: routeId,
+            status: { $in: ['approved', 'pending'] }
+        };
+        if (stageName) {
+            query.stage_name = stageName;
+        }
+        if (academicYear) {
+            query.academic_year = academicYear;
+        }
+
+        const students = await TransportRequest.find(
+            query,
+            'student_name admission_number status route_id route_name stage_name bus_id new_id_card_needed'
+        ).lean();
+
+        const employees = await EmployeeTransportRequest.find(
+            query,
+            'employee_name emp_no status route_id route_name stage_name bus_id new_id_card_needed'
+        ).lean();
+
+        const passengers = [
+            ...students.map(s => ({
+                _id: s._id.toString(),
+                name: s.student_name,
+                admissionNumber: s.admission_number,
+                type: 'student',
+                status: s.status,
+                route_id: s.route_id,
+                route_name: s.route_name,
+                stage_name: s.stage_name,
+                bus_id: s.bus_id,
+                new_id_card_needed: s.new_id_card_needed || false
+            })),
+            ...employees.map(e => ({
+                _id: e._id.toString(),
+                name: e.employee_name,
+                admissionNumber: e.emp_no,
+                type: 'employee',
+                status: e.status,
+                route_id: e.route_id,
+                route_name: e.route_name,
+                stage_name: e.stage_name,
+                bus_id: e.bus_id,
+                new_id_card_needed: e.new_id_card_needed || false
+            }))
+        ];
+
+        res.json({ passengers });
+    } catch (error) {
+        console.error('Error fetching route passengers:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Transfer selected group of passengers to another route and stage
+// @route   POST /api/routes/transfer-passengers
+// @access  Private/Admin
+const transferPassengers = async (req, res) => {
+    const { passengers, destinationRouteId, destinationStageName, academicYear } = req.body;
+    if (!passengers || !Array.isArray(passengers) || passengers.length === 0) {
+        return res.status(400).json({ message: 'passengers array is required and must not be empty' });
+    }
+    if (!destinationRouteId || !destinationStageName) {
+        return res.status(400).json({ message: 'destinationRouteId and destinationStageName are required' });
+    }
+
+    try {
+        const destRoute = await Route.findOne({ routeId: destinationRouteId });
+        if (!destRoute) {
+            return res.status(404).json({ message: `Destination route ${destinationRouteId} not found` });
+        }
+
+        // Check if stage name exists on destination route and read the fare
+        const destStage = destRoute.stages.find(s => s.stageName.trim().toLowerCase() === destinationStageName.trim().toLowerCase());
+        if (!destStage) {
+            return res.status(404).json({ message: `Stage "${destinationStageName}" not found on destination route ${destinationRouteId}` });
+        }
+        const newFare = destStage.fare || 0;
+
+        let studentCount = 0;
+        let employeeCount = 0;
+        const passengersList = [];
+        let sourceRouteId = '';
+        let sourceRouteName = '';
+        let sourceStageName = '';
+
+        for (const p of passengers) {
+            if (!p.id || !p.type) continue;
+
+            if (p.type === 'student') {
+                const doc = await TransportRequest.findById(p.id);
+                if (doc) {
+                    if (!sourceRouteId) {
+                        sourceRouteId = doc.route_id;
+                        sourceRouteName = doc.route_name;
+                        sourceStageName = doc.stage_name;
+                    }
+                    passengersList.push({
+                        passengerId: doc._id.toString(),
+                        name: doc.student_name,
+                        admissionNumber: doc.admission_number,
+                        type: 'student',
+                        status: doc.status
+                    });
+
+                    doc.route_id = destinationRouteId;
+                    doc.route_name = destRoute.routeName;
+                    doc.stage_name = destinationStageName;
+                    doc.bus_id = null; // Clear old bus allocation
+                    if (doc.status === 'approved') {
+                        doc.fare = newFare;
+                        doc.new_id_card_needed = true; // Mark for reprint
+                    }
+                    await doc.save();
+                    studentCount++;
+                }
+            } else if (p.type === 'employee') {
+                const doc = await EmployeeTransportRequest.findById(p.id);
+                if (doc) {
+                    if (!sourceRouteId) {
+                        sourceRouteId = doc.route_id;
+                        sourceRouteName = doc.route_name;
+                        sourceStageName = doc.stage_name;
+                    }
+                    passengersList.push({
+                        passengerId: doc._id.toString(),
+                        name: doc.employee_name,
+                        admissionNumber: doc.emp_no,
+                        type: 'employee',
+                        status: doc.status
+                    });
+
+                    doc.route_id = destinationRouteId;
+                    doc.route_name = destRoute.routeName;
+                    doc.stage_name = destinationStageName;
+                    doc.bus_id = null; // Clear old bus allocation
+                    if (doc.status === 'approved') {
+                        doc.new_id_card_needed = true; // Mark for reprint
+                    }
+                    await doc.save();
+                    employeeCount++;
+                }
+            }
+        }
+
+        // Log to TransferHistory
+        if (passengersList.length > 0) {
+            const TransferHistory = require('../models/TransferHistory');
+            const performedBy = req.user
+                ? (req.user.employee_name || req.user.name || req.user.username || 'admin')
+                : 'admin';
+
+            await TransferHistory.create({
+                type: 'passenger',
+                sourceRouteId: sourceRouteId || 'unknown',
+                sourceRouteName: sourceRouteName || 'unknown',
+                sourceStageName: sourceStageName || 'unknown',
+                destinationRouteId,
+                destinationRouteName: destRoute.routeName,
+                destinationStageName,
+                academicYear,
+                passengersCount: passengersList.length,
+                passengers: passengersList,
+                performedBy
+            });
+        }
+
+        res.json({
+            message: `Successfully transferred ${studentCount + employeeCount} passenger(s) to route "${destRoute.routeName}" (${destinationRouteId}), stage "${destinationStageName}".`,
+            transferredStudents: studentCount,
+            transferredEmployees: employeeCount
+        });
+    } catch (error) {
+        console.error('Error transferring passengers:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Get transfer history logs
+// @route   GET /api/routes/transfer-history
+// @access  Private/Admin
+const getTransferHistory = async (req, res) => {
+    try {
+        const TransferHistory = require('../models/TransferHistory');
+        const history = await TransferHistory.find().sort({ timestamp: -1 }).limit(100);
+        res.json({ history });
+    } catch (error) {
+        console.error('Error fetching transfer history:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     getRoutes,
     createRoute,
     updateRoute,
     deleteRoute,
     getTransferPreview,
-    transferStage
+    transferStage,
+    getRoutePassengers,
+    transferPassengers,
+    getTransferHistory
 };
 
