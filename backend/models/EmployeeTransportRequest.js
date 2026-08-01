@@ -74,6 +74,11 @@ const employeeTransportRequestSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    expiry_reason: {
+        type: String,
+        enum: ['employee_left', 'academic_year_ended', 'manual', null],
+        default: null
+    },
     request_date: {
         type: Date,
         default: Date.now

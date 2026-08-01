@@ -1566,6 +1566,32 @@ const TransportRequests = () => {
                                     </div>
                                 </div>
 
+                                {/* Staff Expiry Reason Notices */}
+                                {isEmployee && req.status === 'expired' && req.expiry_reason === 'employee_left' && (
+                                    <div className="mt-4 p-3 rounded-xl bg-orange-50 border border-orange-200 flex items-start gap-2.5">
+                                        <span className="text-base mt-0.5 shrink-0">🏢</span>
+                                        <div>
+                                            <p className="text-xs font-black text-orange-800 mb-0.5">Auto-Expired: Employee Left Organisation</p>
+                                            <p className="text-[10px] text-orange-700 leading-relaxed">
+                                                This transport request was automatically expired by the nightly HRMS sync because the employee's leaving date was recorded in the HR system.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                                {isEmployee && req.status === 'expired' && req.expiry_reason === 'academic_year_ended' && (
+                                    <div className="mt-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2.5">
+                                        <span className="text-base mt-0.5 shrink-0">📅</span>
+                                        <div>
+                                            <p className="text-xs font-black text-blue-800 mb-0.5">
+                                                Auto-Expired: Academic Year Ended
+                                                {req.academic_year ? ` (${req.academic_year})` : ''}
+                                            </p>
+                                            <p className="text-[10px] text-blue-700 leading-relaxed">
+                                                This transport request was automatically expired at the end of the academic year. A new request must be raised for the next academic year.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="lg:border-l lg:pl-5 border-slate-100">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Actions</p>
                                     <div className="space-y-2">

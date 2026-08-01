@@ -3041,4 +3041,27 @@ module.exports = {
     resolveAcademicYear,
     getActivePassengerSqlParts,
     enrichTransportFareAdjustments,
+    triggerStaffExpiry,
 };
+
+// ── Manual Admin Trigger: Staff Transport Expiry ──────────────────────────────
+// @route   POST /api/transport-requests/expire-staff-requests
+// @access  Private/Admin
+// Allows an administrator to manually trigger the staff expiry check
+// without waiting for the nightly cron job.
+async function triggerStaffExpiry(req, res) {
+    try {
+        const { expireStaffTransportRequests } = require('../jobs/expireStaffTransportRequests');
+        const summary = await expireStaffTransportRequests();
+        return res.json({
+            message: `Staff expiry check completed. ${summary.expired} request(s) were expired.`,
+            scanned: summary.scanned,
+            expired: summary.expired,
+            skipped: summary.skipped,
+            leftEmployees: summary.leftEmployees,
+        });
+    } catch (err) {
+        console.error('triggerStaffExpiry error:', err);
+        return res.status(500).json({ message: 'Failed to run staff expiry check.' });
+    }
+}

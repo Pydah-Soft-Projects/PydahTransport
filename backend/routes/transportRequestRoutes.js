@@ -17,7 +17,8 @@ const {
     submitRouteChangeRequest,
     getPassengerFullDetails,
     getIdCardsForPrint,
-    getIdCardApplicationNumbers
+    getIdCardApplicationNumbers,
+    triggerStaffExpiry,
 } = require('../controllers/transportRequestController');
 
 router.get('/', getTransportRequests);
@@ -27,6 +28,7 @@ router.get('/approved-passengers', getApprovedPassengers);
 router.get('/id-cards-print', getIdCardsForPrint);
 router.get('/id-card-application-numbers', getIdCardApplicationNumbers);
 router.post('/change-request', submitRouteChangeRequest);
+router.post('/expire-staff-requests', triggerStaffExpiry);
 router.get('/concessions', getConcessions);
 router.get('/stats', getDashboardStats);
 router.patch('/:id/concession', updateConcession);
