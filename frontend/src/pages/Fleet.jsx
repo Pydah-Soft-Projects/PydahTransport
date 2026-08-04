@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { printHtmlDocument } from '../utils/printHtml';
+import { printHtmlDocument, exportHtmlAsExcel } from '../utils/printHtml';
 import Layout from '../components/Layout';
 import Loader from '../components/Loader';
 import Modal from '../components/Modal';
@@ -16,7 +16,8 @@ import {
     Loader2,
     ArrowUpDown,
     ChevronUp,
-    ChevronDown
+    ChevronDown,
+    ChevronRight,
 } from 'lucide-react';
 
 import { apiFetch, API_BASE } from '../utils/api';
@@ -31,16 +32,19 @@ const Fleet = () => {
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
     const [occupancyMode, setOccupancyMode] = useState('live');
     const academicYearOptions = getAcademicYearOptions();
-    const [allocatingId, setAllocatingId] = useState(null);
     const [message, setMessage] = useState({ text: '', type: '' });
-    const [isPrinting, setIsPrinting] = useState(false);
+    const [reportLoadingAction, setReportLoadingAction] = useState(null);
+    const isPrinting = reportLoadingAction !== null;
     const [reportModalOpen, setReportModalOpen] = useState(false);
     const [reportOptions, setReportOptions] = useState({ abstract: true, detailed: true });
     const [reportModalError, setReportModalError] = useState('');
     const [campuses, setCampuses] = useState([]);
     const [selectedCampus, setSelectedCampus] = useState('');
-    const [sortField, setSortField] = useState(null);
+    const [sortField, setSortField] = useState('route');
     const [sortDirection, setSortDirection] = useState('asc');
+    const [expandedRow, setExpandedRow] = useState(null);
+    // Map of busId → { loading, passengers }
+    const [passengerCache, setPassengerCache] = useState({});
 
     const handleSort = (field) => {
         if (sortField === field) {
@@ -51,24 +55,27 @@ const Fleet = () => {
         }
     };
 
+    // Numeric-aware route ID comparison: R2 < R10 < R20
+    const compareRouteId = (a, b) => {
+        const idA = a.route ? (a.route.routeId || '') : '';
+        const idB = b.route ? (b.route.routeId || '') : '';
+        // Push unassigned buses to the end
+        if (!idA && !idB) return 0;
+        if (!idA) return 1;
+        if (!idB) return -1;
+        return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+    };
+
     const sortedList = React.useMemo(() => {
-        if (!sortField) return list;
         const sorted = [...list];
         sorted.sort((a, b) => {
-            let valA, valB;
-            if (sortField === 'route') {
-                valA = a.route ? (a.route.routeId || a.route.routeName || '') : 'ZZZZ';
-                valB = b.route ? (b.route.routeId || b.route.routeName || '') : 'ZZZZ';
-            } else if (sortField === 'occupancy') {
-                valA = a.occupancyPercent || 0;
-                valB = b.occupancyPercent || 0;
-            } else {
-                return 0;
+            if (sortField === 'occupancy') {
+                const diff = (a.occupancyPercent || 0) - (b.occupancyPercent || 0);
+                return sortDirection === 'asc' ? diff : -diff;
             }
-
-            if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
-            if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
-            return 0;
+            // default: sort by route number
+            const cmp = compareRouteId(a, b);
+            return sortDirection === 'asc' ? cmp : -cmp;
         });
         return sorted;
     }, [list, sortField, sortDirection]);
@@ -107,7 +114,7 @@ const Fleet = () => {
             return;
         }
 
-        setIsPrinting(true);
+        setReportLoadingAction('pdf');
         setMessage({ text: '', type: '' });
         setReportModalError('');
         try {
@@ -133,23 +140,55 @@ const Fleet = () => {
                 setReportModalOpen(false);
             } else {
                 const err = await response.json().catch(() => ({}));
-                const errorText = err.message || 'Failed to generate passenger report HTML.';
-                if (reportModalOpen) {
-                    setReportModalError(errorText);
-                } else {
-                    setMessage({ text: errorText, type: 'error' });
-                }
+                setReportModalError(err.message || 'Failed to generate passenger report.');
             }
         } catch (e) {
-            console.error('Error generating report:', e);
-            const errorText = 'Error generating report.';
-            if (reportModalOpen) {
-                setReportModalError(errorText);
-            } else {
-                setMessage({ text: errorText, type: 'error' });
-            }
+            console.error('Error generating PDF report:', e);
+            setReportModalError(e?.message ? `Error: ${e.message}` : 'Error generating report.');
         } finally {
-            setIsPrinting(false);
+            setReportLoadingAction(null);
+        }
+    };
+
+    const handleDownloadExcelReport = async (options = reportOptions) => {
+        if (!options.abstract && !options.detailed) {
+            setReportModalError('Select at least one report section.');
+            return;
+        }
+
+        setReportLoadingAction('excel');
+        setMessage({ text: '', type: '' });
+        setReportModalError('');
+        try {
+            const status = occupancyMode === 'live' ? 'active' : 'approved';
+            const response = await apiFetch(`${API}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'passenger-report',
+                    data: {
+                        status,
+                        academicYear: occupancyMode !== 'live' ? academicYear : undefined,
+                        occupancyMode,
+                        campus: selectedCampus || undefined,
+                        campusName: selectedCampusLabel || undefined,
+                        includeAbstract: options.abstract,
+                        includeDetailed: options.detailed,
+                    }
+                })
+            });
+            if (response.ok) {
+                const html = await response.text();
+                exportHtmlAsExcel(html, 'Transport-Passenger-Report');
+                setReportModalOpen(false);
+            } else {
+                const err = await response.json().catch(() => ({}));
+                setReportModalError(err.message || 'Failed to generate passenger report.');
+            }
+        } catch (e) {
+            console.error('Error generating Excel report:', e);
+            setReportModalError(e?.message ? `Error: ${e.message}` : 'Error generating report.');
+        } finally {
+            setReportLoadingAction(null);
         }
     };
 
@@ -197,25 +236,31 @@ const Fleet = () => {
         fetchOverview();
     }, [academicYear, occupancyMode, selectedCampus]);
 
-    const handleAutoAllocate = async (busId) => {
-        setAllocatingId(busId);
-        setMessage({ text: '', type: '' });
+    const handleRowExpand = async (busId) => {
+        if (expandedRow === busId) {
+            setExpandedRow(null);
+            return;
+        }
+        setExpandedRow(busId);
+        // Already cached — no need to fetch again
+        if (passengerCache[busId]) return;
+
+        setPassengerCache((prev) => ({ ...prev, [busId]: { loading: true, passengers: [] } }));
         try {
-            const response = await apiFetch(
-                `${API}/buses/${busId}/auto-allocate?academicYear=${encodeURIComponent(academicYear)}`,
-                { method: 'POST' }
-            );
-            const data = await response.json().catch(() => ({}));
+            const params = new URLSearchParams({ occupancyMode });
+            if (occupancyMode !== 'live') params.append('academicYear', academicYear);
+            const response = await apiFetch(`${API}/buses/${busId}/details?${params.toString()}`);
             if (response.ok) {
-                setMessage({ text: data.message || 'Allocation done.', type: 'success' });
-                fetchOverview();
+                const data = await response.json();
+                setPassengerCache((prev) => ({
+                    ...prev,
+                    [busId]: { loading: false, passengers: data.passengers || [] },
+                }));
             } else {
-                setMessage({ text: data.message || 'Allocation failed', type: 'error' });
+                setPassengerCache((prev) => ({ ...prev, [busId]: { loading: false, passengers: [] } }));
             }
-        } catch (e) {
-            setMessage({ text: 'Something went wrong.', type: 'error' });
-        } finally {
-            setAllocatingId(null);
+        } catch {
+            setPassengerCache((prev) => ({ ...prev, [busId]: { loading: false, passengers: [] } }));
         }
     };
 
@@ -449,36 +494,37 @@ const Fleet = () => {
                         <ArrowRight size={16} className="ml-2" />
                     </Link>
                 </div>
-            ) : (                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
+            ) : (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
                     <div className="overflow-x-auto w-full">
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
-                                    <th className="px-3 py-2 w-48">Bus Details</th>
-                                    <th 
+                                    <th
                                         onClick={() => handleSort('route')}
                                         className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors select-none group"
                                     >
                                         <div className="flex items-center gap-1">
                                             <span>Route</span>
                                             {sortField === 'route' ? (
-                                                sortDirection === 'asc' ? <ChevronUp size={11} className="text-blue-600 font-bold" /> : <ChevronDown size={11} className="text-blue-600 font-bold" />
+                                                sortDirection === 'asc' ? <ChevronUp size={11} className="text-blue-600" /> : <ChevronDown size={11} className="text-blue-600" />
                                             ) : (
                                                 <ArrowUpDown size={11} className="text-slate-400 opacity-50 group-hover:opacity-100" />
                                             )}
                                         </div>
                                     </th>
+                                    <th className="px-3 py-2">Bus Details</th>
                                     <th className="px-3 py-2">Capacity</th>
                                     <th className="px-3 py-2">Seats Filled</th>
-                                    <th className="px-3 py-2 font-bold text-slate-700">Rem. Seats</th>
-                                    <th 
+                                    <th className="px-3 py-2">Rem. Seats</th>
+                                    <th
                                         onClick={() => handleSort('occupancy')}
                                         className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors select-none group"
                                     >
                                         <div className="flex items-center gap-1">
                                             <span>Occupancy</span>
                                             {sortField === 'occupancy' ? (
-                                                sortDirection === 'asc' ? <ChevronUp size={11} className="text-blue-600 font-bold" /> : <ChevronDown size={11} className="text-blue-600 font-bold" />
+                                                sortDirection === 'asc' ? <ChevronUp size={11} className="text-blue-600" /> : <ChevronDown size={11} className="text-blue-600" />
                                             ) : (
                                                 <ArrowUpDown size={11} className="text-slate-400 opacity-50 group-hover:opacity-100" />
                                             )}
@@ -488,95 +534,154 @@ const Fleet = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {sortedList.map((item) => (
-                                    <tr key={item.bus._id} className="hover:bg-blue-50/30 transition-colors group">
-                                        <td className="px-3 py-2">
-                                            <div>
-                                                <p className="font-bold text-slate-800 text-xs">{item.bus.busNumber}</p>
-                                                <p className="text-[9px] text-slate-450 font-bold uppercase tracking-wide">{item.bus.type}</p>
-                                            </div>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            {item.route ? (
-                                                <div className="flex items-center text-slate-750">
-                                                    <MapPin size={12} className="text-slate-400 mr-1.5" />
-                                                    <span className="font-medium text-xs">{item.route.routeName}</span>
-                                                    <span className="ml-1.5 text-[9px] bg-slate-100 text-slate-550 px-1 py-0.5 rounded border border-slate-200 font-mono">
-                                                        {item.route.routeId}
+                                {sortedList.map((item) => {
+                                    const isExpanded = expandedRow === item.bus._id;
+                                    const cached = passengerCache[item.bus._id];
+                                    const passengersLoading = cached?.loading ?? false;
+                                    const passengers = cached?.passengers ?? [];
+                                    return (
+                                        <React.Fragment key={item.bus._id}>
+                                            <tr
+                                                className="hover:bg-blue-50/30 transition-colors cursor-pointer"
+                                                onClick={() => handleRowExpand(item.bus._id)}
+                                            >
+                                                {/* Route — first column, route number first */}
+                                                <td className="px-3 py-2">
+                                                    {item.route ? (
+                                                        <div className="flex items-center gap-1.5">
+                                                            <MapPin size={12} className="text-slate-400 shrink-0" />
+                                                            <div className="min-w-0 flex items-center flex-wrap gap-1">
+                                                                <span className="font-bold text-[10px] font-mono text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 whitespace-nowrap">
+                                                                    {item.route.routeId}
+                                                                </span>
+                                                                <span className="font-medium text-xs text-slate-700">{item.route.routeName}</span>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-slate-400 italic text-[11px] flex items-center">
+                                                            <AlertCircle size={10} className="mr-1" />
+                                                            Not assigned
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                {/* Bus Details — second column */}
+                                                <td className="px-3 py-2">
+                                                    <div className="flex items-center gap-1">
+                                                        <ChevronRight
+                                                            size={13}
+                                                            className={`text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
+                                                        />
+                                                        <div>
+                                                            <p className="font-bold text-slate-800 text-xs">{item.bus.busNumber}</p>
+                                                            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wide">{item.bus.type}</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-3 py-2 text-slate-600 font-medium text-xs">{item.capacity}</td>
+                                                <td className="px-3 py-2">
+                                                    <div className="flex items-center font-bold text-slate-700 text-xs">
+                                                        <Users size={12} className="text-slate-400 mr-1.5" />
+                                                        {item.seatsFilled}
+                                                    </div>
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <span className={`text-xs font-black ${item.seatsAvailable <= 5 ? 'text-red-500' : 'text-slate-700'}`}>
+                                                        {item.seatsAvailable}
                                                     </span>
-                                                </div>
-                                            ) : (
-                                                <span className="text-slate-400 italic text-[11px] flex items-center">
-                                                    <AlertCircle size={10} className="mr-1" />
-                                                    Not assigned
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-3 py-2 text-slate-600 font-medium text-xs">{item.capacity}</td>
-                                        <td className="px-3 py-2">
-                                            <div className="flex items-center font-bold text-slate-700 text-xs">
-                                                <Users size={12} className="text-slate-400 mr-1.5" />
-                                                {item.seatsFilled}
-                                            </div>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <span className={`text-xs font-black ${item.seatsAvailable <= 5 ? 'text-red-500' : 'text-slate-700'}`}>
-                                                {item.seatsAvailable}
-                                            </span>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <div className="flex flex-col gap-0.5 w-24">
-                                                <div className="flex justify-between items-end">
-                                                    <span className={`text-[9px] font-bold ${item.occupancyPercent >= 100 ? 'text-red-600' :
-                                                        item.occupancyPercent >= 80 ? 'text-amber-600' : 'text-emerald-600'
-                                                        }`}>
-                                                        {item.occupancyPercent}%
-                                                    </span>
-                                                </div>
-                                                <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
-                                                    <div
-                                                        className={`h-full rounded-full transition-all duration-500 ${item.occupancyPercent >= 100 ? 'bg-red-500' :
-                                                            item.occupancyPercent >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
-                                                            }`}
-                                                        style={{ width: `${Math.min(100, item.occupancyPercent)}%` }}
-                                                    />
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-3 py-2 text-right">
-                                            <div className="flex items-center justify-end gap-1.5">
-                                                {item.bus.assignedRouteId && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleAutoAllocate(item.bus._id)}
-                                                        disabled={allocatingId !== null || item.seatsFilled >= item.capacity}
-                                                        className="px-2 py-1 rounded bg-blue-600 text-white text-[9px] font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow transition-all active:scale-95 flex items-center"
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <div className="flex flex-col gap-0.5 w-24">
+                                                        <span className={`text-[9px] font-bold ${item.occupancyPercent >= 100 ? 'text-red-600' : item.occupancyPercent >= 80 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                                            {item.occupancyPercent}%
+                                                        </span>
+                                                        <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full rounded-full transition-all duration-500 ${item.occupancyPercent >= 100 ? 'bg-red-500' : item.occupancyPercent >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                                                style={{ width: `${Math.min(100, item.occupancyPercent)}%` }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                                                    <Link
+                                                        to={`/buses/${item.bus._id}`}
+                                                        className="px-2.5 py-1 rounded border border-slate-200 text-slate-600 text-[9px] font-bold hover:bg-slate-50 hover:text-slate-900 transition-colors"
                                                     >
-                                                        {allocatingId === item.bus._id ? (
-                                                            <>
-                                                                <Loader size={10} className="mr-1 text-white" />
-                                                                Running...
-                                                            </>
-                                                        ) : item.seatsFilled >= item.capacity ? (
-                                                            'Full'
+                                                        Open
+                                                    </Link>
+                                                </td>
+                                            </tr>
+
+                                            {/* Expandable passenger details */}
+                                            {isExpanded && (
+                                                <tr className="bg-slate-50/70">
+                                                    <td colSpan={7} className="px-5 py-3">
+                                                        {passengersLoading ? (
+                                                            <p className="text-xs text-slate-400 italic flex items-center gap-1.5">
+                                                                <Loader2 size={12} className="animate-spin" /> Loading passengers...
+                                                            </p>
+                                                        ) : passengers.length === 0 ? (
+                                                            <p className="text-xs text-slate-400 italic">No passengers assigned to this bus.</p>
                                                         ) : (
-                                                            <>
-                                                                <Activity size={10} className="mr-1" />
-                                                                Auto-fill
-                                                            </>
+                                                            <div>
+                                                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                                                                    Passengers · {passengers.length}
+                                                                </p>
+                                                                <div className="overflow-x-auto">
+                                                                    <table className="w-full text-left border-collapse">
+                                                                        <thead>
+                                                                            <tr className="text-[10px] uppercase text-slate-400 font-bold tracking-wider border-b border-slate-200">
+                                                                                <th className="pr-4 pb-1">#</th>
+                                                                                <th className="pr-4 pb-1">Name</th>
+                                                                                <th className="pr-4 pb-1">ID / Admission</th>
+                                                                                <th className="pr-4 pb-1">Type</th>
+                                                                                <th className="pr-4 pb-1">Course / Dept</th>
+                                                                                <th className="pr-4 pb-1">Stage</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody className="divide-y divide-slate-100">
+                                                                            {passengers
+                                                                                .slice()
+                                                                                .sort((a, b) => {
+                                                                                    const sa = a.stage_name || '';
+                                                                                    const sb = b.stage_name || '';
+                                                                                    return sa.localeCompare(sb) || (a.student_name || '').localeCompare(b.student_name || '');
+                                                                                })
+                                                                                .map((p, idx) => (
+                                                                                    <tr key={p.id || p._id || idx} className="hover:bg-white">
+                                                                                        <td className="pr-4 py-1 text-[10px] text-slate-400 font-mono">{idx + 1}</td>
+                                                                                        <td className="pr-4 py-1 text-xs font-semibold text-slate-800">
+                                                                                            {p.student_name || p.employee_name || '—'}
+                                                                                        </td>
+                                                                                        <td className="pr-4 py-1 text-xs font-mono text-slate-600">
+                                                                                            {p.admission_number || p.admission_no || p.emp_no || '—'}
+                                                                                        </td>
+                                                                                        <td className="pr-4 py-1">
+                                                                                            <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${p.user_type === 'employee' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                                                                {p.user_type === 'employee' ? 'Emp' : 'Stu'}
+                                                                                            </span>
+                                                                                        </td>
+                                                                                        <td className="pr-4 py-1 text-xs text-slate-600">
+                                                                                            {p.user_type === 'employee'
+                                                                                                ? (p.department || p.course || '—')
+                                                                                                : `${p.course || '—'}${p.branch ? ` (${p.branch})` : ''}`
+                                                                                            }
+                                                                                        </td>
+                                                                                        <td className="pr-4 py-1 text-xs text-slate-500">{p.stage_name || '—'}</td>
+                                                                                    </tr>
+                                                                                ))
+                                                                            }
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            </div>
                                                         )}
-                                                    </button>
-                                                )}
-                                                <Link
-                                                    to={`/buses/${item.bus._id}`}
-                                                    className="px-2 py-1 rounded border border-slate-200 text-slate-600 text-[9px] font-bold hover:bg-slate-50 hover:text-slate-900 transition-colors"
-                                                >
-                                                    View details
-                                                </Link>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
