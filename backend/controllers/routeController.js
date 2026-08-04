@@ -1,4 +1,5 @@
 const Route = require('../models/Route');
+const Bus = require('../models/Bus');
 const TransportRequest = require('../models/TransportRequest');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 const {
@@ -221,6 +222,10 @@ const transferStage = async (req, res) => {
         destRoute.stages.push(stageToTransfer);
         destRoute.markModified('stages');
 
+        // Find available buses for destination route
+        const availableBusesForDestRoute = await Bus.find({ assignedRouteId: destinationRouteId }).select('busNumber').lean();
+        const targetBusId = availableBusesForDestRoute.length > 0 ? availableBusesForDestRoute[0].busNumber : null;
+
         // Fetch affected passengers for history logging BEFORE updating them
         const queryApproved = { route_id: sourceRouteId, stage_name: stageName, status: 'approved' };
         const queryPending = { route_id: sourceRouteId, stage_name: stageName, status: 'pending' };
@@ -268,7 +273,8 @@ const transferStage = async (req, res) => {
                 $set: {
                     route_id: destinationRouteId,
                     route_name: destRoute.routeName,
-                    bus_id: null, // clear allocated bus
+                    stage_name: stageName, // ensure stage_name is updated for count aggregations
+                    bus_id: targetBusId, // assign to available bus on destination route
                     new_id_card_needed: true // flag for reprint
                 }
             }
@@ -279,7 +285,8 @@ const transferStage = async (req, res) => {
                 $set: {
                     route_id: destinationRouteId,
                     route_name: destRoute.routeName,
-                    bus_id: null
+                    stage_name: stageName, // ensure stage_name is updated for count aggregations
+                    bus_id: targetBusId // assign to available bus on destination route
                 }
             }
         );
@@ -291,7 +298,8 @@ const transferStage = async (req, res) => {
                 $set: {
                     route_id: destinationRouteId,
                     route_name: destRoute.routeName,
-                    bus_id: null,
+                    stage_name: stageName, // ensure stage_name is updated for count aggregations
+                    bus_id: targetBusId, // assign to available bus on destination route
                     new_id_card_needed: true
                 }
             }
@@ -302,7 +310,8 @@ const transferStage = async (req, res) => {
                 $set: {
                     route_id: destinationRouteId,
                     route_name: destRoute.routeName,
-                    bus_id: null
+                    stage_name: stageName, // ensure stage_name is updated for count aggregations
+                    bus_id: targetBusId // assign to available bus on destination route
                 }
             }
         );
@@ -330,9 +339,10 @@ const transferStage = async (req, res) => {
         }
 
         res.json({
-            message: `Stage "${stageName}" and its passengers successfully transferred to route "${destRoute.routeName}" (${destinationRouteId}).`,
+            message: `Stage "${stageName}" and its passengers successfully transferred to route "${destRoute.routeName}" (${destinationRouteId}).${targetBusId ? ` All passengers auto-assigned to bus "${targetBusId}".` : ' Note: No buses assigned to destination route. Passengers remain unassigned.'}`,
             affectedStudentsCount: (studentApprovedResult.modifiedCount || 0) + (studentPendingResult.modifiedCount || 0),
-            affectedEmployeesCount: (employeeApprovedResult.modifiedCount || 0) + (employeePendingResult.modifiedCount || 0)
+            affectedEmployeesCount: (employeeApprovedResult.modifiedCount || 0) + (employeePendingResult.modifiedCount || 0),
+            busAssigned: targetBusId || null
         });
     } catch (error) {
         console.error('Error transferring stage:', error);

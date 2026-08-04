@@ -66,7 +66,16 @@ const askQuestion = (query) => {
         const name = p.student_name || p.employee_name || p.name || 'N/A';
         const idNo = p.admission_number || p.admission_no || p.emp_no || 'N/A';
 
+        // Check if passenger has NO bus assignment
         if (!busId) {
+            discrepancies.push({
+                type,
+                name,
+                idNo,
+                passengerRouteId: routeId,
+                assignedBusNumber: null,
+                issue: `NOT ASSIGNED to any bus.`
+            });
             return;
         }
 

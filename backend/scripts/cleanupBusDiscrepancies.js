@@ -73,14 +73,13 @@ const askQuestion = (query) => {
         const busId = p.bus_id;
         const routeId = p.route_id;
 
-        if (!busId) return;
-
         const assignedBus = busMap[busId];
         const hasBusExist = !!assignedBus;
         const busRouteId = assignedBus ? assignedBus.assignedRouteId : null;
 
-        if (!hasBusExist || !busRouteId || busRouteId !== routeId) {
-            // Mismatch found. Get active bus(es) mapped to this route
+        // Include passengers with no bus assignment OR mismatched bus assignments
+        if (!busId || !hasBusExist || !busRouteId || busRouteId !== routeId) {
+            // Get active bus(es) mapped to this route
             const activeBusesForRoute = routeToBusesMap[routeId] || [];
             const targetBusNumber = activeBusesForRoute.length > 0 ? activeBusesForRoute[0] : null;
 
@@ -88,7 +87,7 @@ const askQuestion = (query) => {
                 _id: p._id,
                 name: p.student_name || p.employee_name || p.name || 'N/A',
                 idNo: p.admission_number || p.admission_no || p.emp_no || 'N/A',
-                oldBusId: busId,
+                oldBusId: busId || 'UNASSIGNED',
                 newBusId: targetBusNumber,
                 routeId: routeId
             });
