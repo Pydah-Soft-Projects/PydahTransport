@@ -87,6 +87,7 @@ const updateRoute = async (req, res) => {
             route.campus = req.body.campus !== undefined
                 ? campusService.normalizeCampusId(req.body.campus)
                 : route.campus;
+            route.zone = req.body.zone !== undefined ? req.body.zone : route.zone;
             if (req.body.stages) {
                 route.stages = normalizeStagesForSave(req.body.stages, editingAcademicYear);
                 route.markModified('stages');
