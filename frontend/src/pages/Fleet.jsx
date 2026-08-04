@@ -45,6 +45,8 @@ const Fleet = () => {
     const [expandedRow, setExpandedRow] = useState(null);
     // Map of busId → { loading, passengers }
     const [passengerCache, setPassengerCache] = useState({});
+    // Map of busId → selected stage name
+    const [stageSelection, setStageSelection] = useState({});
 
     const handleSort = (field) => {
         if (sortField === field) {
@@ -541,12 +543,12 @@ const Fleet = () => {
                                     const passengers = cached?.passengers ?? [];
                                     return (
                                         <React.Fragment key={item.bus._id}>
-                                            <tr
-                                                className="hover:bg-blue-50/30 transition-colors cursor-pointer"
-                                                onClick={() => handleRowExpand(item.bus._id)}
-                                            >
-                                                {/* Route — first column, route number first */}
-                                                <td className="px-3 py-2">
+                                            <tr className="hover:bg-blue-50/30 transition-colors">
+                                                {/* Route — first column, route number first. Click here to expand. */}
+                                                <td
+                                                    className="px-3 py-2 cursor-pointer select-none"
+                                                    onClick={() => handleRowExpand(item.bus._id)}
+                                                >
                                                     {item.route ? (
                                                         <div className="flex items-center gap-1.5">
                                                             <MapPin size={12} className="text-slate-400 shrink-0" />
@@ -558,23 +560,17 @@ const Fleet = () => {
                                                             </div>
                                                         </div>
                                                     ) : (
-                                                        <span className="text-slate-400 italic text-[11px] flex items-center">
-                                                            <AlertCircle size={10} className="mr-1" />
+                                                        <span className="text-slate-400 italic text-[11px] flex items-center gap-1">
+                                                            <AlertCircle size={10} />
                                                             Not assigned
                                                         </span>
                                                     )}
                                                 </td>
-                                                {/* Bus Details — second column */}
+                                                {/* Bus Details — second column, no expand */}
                                                 <td className="px-3 py-2">
-                                                    <div className="flex items-center gap-1">
-                                                        <ChevronRight
-                                                            size={13}
-                                                            className={`text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
-                                                        />
-                                                        <div>
-                                                            <p className="font-bold text-slate-800 text-xs">{item.bus.busNumber}</p>
-                                                            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wide">{item.bus.type}</p>
-                                                        </div>
+                                                    <div>
+                                                        <p className="font-bold text-slate-800 text-xs">{item.bus.busNumber}</p>
+                                                        <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wide">{item.bus.type}</p>
                                                     </div>
                                                 </td>
                                                 <td className="px-3 py-2 text-slate-600 font-medium text-xs">{item.capacity}</td>
@@ -615,67 +611,135 @@ const Fleet = () => {
                                             {/* Expandable passenger details */}
                                             {isExpanded && (
                                                 <tr className="bg-slate-50/70">
-                                                    <td colSpan={7} className="px-5 py-3">
+                                                    <td colSpan={7} className="px-5 py-4">
                                                         {passengersLoading ? (
                                                             <p className="text-xs text-slate-400 italic flex items-center gap-1.5">
                                                                 <Loader2 size={12} className="animate-spin" /> Loading passengers...
                                                             </p>
                                                         ) : passengers.length === 0 ? (
                                                             <p className="text-xs text-slate-400 italic">No passengers assigned to this bus.</p>
-                                                        ) : (
-                                                            <div>
-                                                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                                                                    Passengers · {passengers.length}
-                                                                </p>
-                                                                <div className="overflow-x-auto">
-                                                                    <table className="w-full text-left border-collapse">
-                                                                        <thead>
-                                                                            <tr className="text-[10px] uppercase text-slate-400 font-bold tracking-wider border-b border-slate-200">
-                                                                                <th className="pr-4 pb-1">#</th>
-                                                                                <th className="pr-4 pb-1">Name</th>
-                                                                                <th className="pr-4 pb-1">ID / Admission</th>
-                                                                                <th className="pr-4 pb-1">Type</th>
-                                                                                <th className="pr-4 pb-1">Course / Dept</th>
-                                                                                <th className="pr-4 pb-1">Stage</th>
-                                                                            </tr>
-                                                                        </thead>
-                                                                        <tbody className="divide-y divide-slate-100">
-                                                                            {passengers
-                                                                                .slice()
-                                                                                .sort((a, b) => {
-                                                                                    const sa = a.stage_name || '';
-                                                                                    const sb = b.stage_name || '';
-                                                                                    return sa.localeCompare(sb) || (a.student_name || '').localeCompare(b.student_name || '');
-                                                                                })
-                                                                                .map((p, idx) => (
-                                                                                    <tr key={p.id || p._id || idx} className="hover:bg-white">
-                                                                                        <td className="pr-4 py-1 text-[10px] text-slate-400 font-mono">{idx + 1}</td>
-                                                                                        <td className="pr-4 py-1 text-xs font-semibold text-slate-800">
-                                                                                            {p.student_name || p.employee_name || '—'}
-                                                                                        </td>
-                                                                                        <td className="pr-4 py-1 text-xs font-mono text-slate-600">
-                                                                                            {p.admission_number || p.admission_no || p.emp_no || '—'}
-                                                                                        </td>
-                                                                                        <td className="pr-4 py-1">
-                                                                                            <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${p.user_type === 'employee' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                                                                {p.user_type === 'employee' ? 'Emp' : 'Stu'}
+                                                        ) : (() => {
+                                                            const totalStudents = passengers.filter(p => !p.user_type || p.user_type === 'student').length;
+                                                            const totalEmployees = passengers.filter(p => p.user_type === 'employee').length;
+
+                                                            // Build stage map: stageName → passengers[]
+                                                            const stageMap = passengers.reduce((acc, p) => {
+                                                                const key = p.stage_name || 'Unassigned';
+                                                                if (!acc[key]) acc[key] = [];
+                                                                acc[key].push(p);
+                                                                return acc;
+                                                            }, {});
+                                                            const stageNames = Object.keys(stageMap).sort((a, b) => a.localeCompare(b));
+
+                                                            const openStage = stageSelection[item.bus._id] || null;
+
+                                                            return (
+                                                                <div onClick={e => e.stopPropagation()}>
+                                                                    {/* Route summary */}
+                                                                    <div className="flex items-center gap-4 mb-3 pb-2 border-b border-slate-200">
+                                                                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                                                            {item.route ? (
+                                                                                <span className="text-slate-700">{item.route.routeId} · {item.route.routeName}</span>
+                                                                            ) : 'No Route'}
+                                                                        </span>
+                                                                        <span className="ml-auto flex items-center gap-3">
+                                                                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
+                                                                                Students: {totalStudents}
+                                                                            </span>
+                                                                            <span className="text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">
+                                                                                Employees: {totalEmployees}
+                                                                            </span>
+                                                                            <span className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
+                                                                                Total: {passengers.length}
+                                                                            </span>
+                                                                        </span>
+                                                                    </div>
+
+                                                                    {/* Stage rows */}
+                                                                    <div className="space-y-1">
+                                                                        {stageNames.map(stageName => {
+                                                                            const stagePassengers = stageMap[stageName];
+                                                                            const stuCount = stagePassengers.filter(p => !p.user_type || p.user_type === 'student').length;
+                                                                            const empCount = stagePassengers.filter(p => p.user_type === 'employee').length;
+                                                                            const isStageOpen = openStage === stageName;
+
+                                                                            return (
+                                                                                <div key={stageName}>
+                                                                                    {/* Stage header row — clickable */}
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => setStageSelection(prev => ({
+                                                                                            ...prev,
+                                                                                            [item.bus._id]: isStageOpen ? null : stageName,
+                                                                                        }))}
+                                                                                        className="w-full flex items-center gap-3 px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50/40 transition-colors text-left"
+                                                                                    >
+                                                                                        <ChevronRight size={13} className={`text-slate-400 shrink-0 transition-transform ${isStageOpen ? 'rotate-90' : ''}`} />
+                                                                                        <span className="text-xs font-semibold text-slate-700 flex-1">{stageName}</span>
+                                                                                        <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                                                                                            Stu: {stuCount}
+                                                                                        </span>
+                                                                                        {empCount > 0 && (
+                                                                                            <span className="text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded">
+                                                                                                Emp: {empCount}
                                                                                             </span>
-                                                                                        </td>
-                                                                                        <td className="pr-4 py-1 text-xs text-slate-600">
-                                                                                            {p.user_type === 'employee'
-                                                                                                ? (p.department || p.course || '—')
-                                                                                                : `${p.course || '—'}${p.branch ? ` (${p.branch})` : ''}`
-                                                                                            }
-                                                                                        </td>
-                                                                                        <td className="pr-4 py-1 text-xs text-slate-500">{p.stage_name || '—'}</td>
-                                                                                    </tr>
-                                                                                ))
-                                                                            }
-                                                                        </tbody>
-                                                                    </table>
+                                                                                        )}
+                                                                                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
+                                                                                            Total: {stagePassengers.length}
+                                                                                        </span>
+                                                                                    </button>
+
+                                                                                    {/* Passengers for this stage */}
+                                                                                    {isStageOpen && (
+                                                                                        <div className="mt-1 ml-5 overflow-x-auto">
+                                                                                            <table className="w-full text-left border-collapse">
+                                                                                                <thead>
+                                                                                                    <tr className="text-[10px] uppercase text-slate-400 font-bold tracking-wider border-b border-slate-200">
+                                                                                                        <th className="pr-4 pb-1 w-6">#</th>
+                                                                                                        <th className="pr-4 pb-1">Name</th>
+                                                                                                        <th className="pr-4 pb-1">ID / Admission</th>
+                                                                                                        <th className="pr-4 pb-1">Type</th>
+                                                                                                        <th className="pr-4 pb-1">Course / Dept</th>
+                                                                                                    </tr>
+                                                                                                </thead>
+                                                                                                <tbody className="divide-y divide-slate-100">
+                                                                                                    {stagePassengers
+                                                                                                        .slice()
+                                                                                                        .sort((a, b) => (a.student_name || '').localeCompare(b.student_name || ''))
+                                                                                                        .map((p, idx) => (
+                                                                                                            <tr key={p.id || p._id || idx} className="hover:bg-white">
+                                                                                                                <td className="pr-4 py-1 text-[10px] text-slate-400 font-mono">{idx + 1}</td>
+                                                                                                                <td className="pr-4 py-1 text-xs font-semibold text-slate-800">
+                                                                                                                    {p.student_name || p.employee_name || '—'}
+                                                                                                                </td>
+                                                                                                                <td className="pr-4 py-1 text-xs font-mono text-slate-600">
+                                                                                                                    {p.admission_number || p.admission_no || p.emp_no || '—'}
+                                                                                                                </td>
+                                                                                                                <td className="pr-4 py-1">
+                                                                                                                    <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${p.user_type === 'employee' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                                                                                        {p.user_type === 'employee' ? 'Emp' : 'Stu'}
+                                                                                                                    </span>
+                                                                                                                </td>
+                                                                                                                <td className="pr-4 py-1 text-xs text-slate-600">
+                                                                                                                    {p.user_type === 'employee'
+                                                                                                                        ? (p.department || p.course || '—')
+                                                                                                                        : `${p.course || '—'}${p.branch ? ` (${p.branch})` : ''}`
+                                                                                                                    }
+                                                                                                                </td>
+                                                                                                            </tr>
+                                                                                                        ))
+                                                                                                    }
+                                                                                                </tbody>
+                                                                                            </table>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
                                                                 </div>
-                                                            </div>
-                                                        )}
+                                                            );
+                                                        })()}
                                                     </td>
                                                 </tr>
                                             )}
