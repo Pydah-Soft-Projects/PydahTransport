@@ -46,7 +46,8 @@ const RouteManagement = () => {
         totalDistance: '',
         estimatedTime: '',
         campus: '',
-        stages: [] // Start with empty stages
+        zone: '',
+        stages: []
     });
 
     const [campuses, setCampuses] = useState([]);
@@ -123,7 +124,7 @@ const RouteManagement = () => {
         setEditingId(null);
         setFormData({
             routeId: '', routeName: '', startPoint: '', endPoint: '',
-            totalDistance: '', estimatedTime: '', campus: '', stages: []
+            totalDistance: '', estimatedTime: '', campus: '', zone: '', stages: []
         });
         setExpandedRouteId(null);
         fetchRoutes(academicYear);
@@ -171,6 +172,7 @@ const RouteManagement = () => {
             totalDistance: route.totalDistance,
             estimatedTime: route.estimatedTime,
             campus: getCampusId(route.campus) || '',
+            zone: route.zone || '',
             stages: (route.stages || []).map((stage) => ({
                 stageName: stage.stageName,
                 distanceFromStart: stage.distanceFromStart,
@@ -208,7 +210,7 @@ const RouteManagement = () => {
         setEditingId(null);
         setFormData({
             routeId: '', routeName: '', startPoint: '', endPoint: '',
-            totalDistance: '', estimatedTime: '', campus: '', stages: []
+            totalDistance: '', estimatedTime: '', campus: '', zone: '', stages: []
         });
     };
 
@@ -229,6 +231,7 @@ const RouteManagement = () => {
                 totalDistance: formData.totalDistance,
                 estimatedTime: formData.estimatedTime,
                 campus: formData.campus || null,
+                zone: formData.zone || '',
                 stages: formData.stages.map((stage) => ({
                     stageName: stage.stageName,
                     distanceFromStart: stage.distanceFromStart,
@@ -728,6 +731,13 @@ const RouteManagement = () => {
                                                                     <div>
                                                                         <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] font-semibold rounded border border-blue-100">
                                                                             Campus: {route.campus.name || route.campus}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                                {route.zone && (
+                                                                    <div>
+                                                                        <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[9px] font-semibold rounded border border-purple-100">
+                                                                            Zone: {route.zone}
                                                                         </span>
                                                                     </div>
                                                                 )}
@@ -1377,6 +1387,10 @@ const RouteManagement = () => {
                                     </option>
                                 ))}
                             </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Zone</label>
+                            <input type="text" name="zone" value={formData.zone} onChange={handleChange} placeholder="e.g., East, West, North" className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" />
                         </div>
                     </div>
 

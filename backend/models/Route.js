@@ -43,6 +43,10 @@ const routeSchema = new mongoose.Schema({
         type: Number,
         default: null
     },
+    zone: {
+        type: String,
+        default: ''
+    },
     stages: [stageSchema]
 }, {
     timestamps: true
