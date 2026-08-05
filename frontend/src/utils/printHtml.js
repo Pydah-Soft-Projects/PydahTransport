@@ -63,10 +63,95 @@ export function exportHtmlAsExcel(html, filename) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
 
-    // Strip every <style> block — replace with one uniform sheet
+    // Step 1: Remove entire "COURSE-WISE STATISTICS" section including table
+    const bodyHTML = doc.body.innerHTML;
+    const courseWiseIndex = bodyHTML.indexOf('COURSE-WISE');
+    
+    if (courseWiseIndex !== -1) {
+        const nextStageIndex = bodyHTML.indexOf('Stage:', courseWiseIndex);
+        
+        if (nextStageIndex !== -1) {
+            const beforeSection = bodyHTML.substring(0, courseWiseIndex);
+            const afterSection = bodyHTML.substring(nextStageIndex);
+            doc.body.innerHTML = beforeSection + afterSection;
+        } else {
+            const beforeSection = bodyHTML.substring(0, courseWiseIndex);
+            doc.body.innerHTML = beforeSection;
+        }
+    }
+
+    // Step 2: Process all tables and find/remove Stage rows, add Stage column
+    const tables = Array.from(doc.querySelectorAll('table'));
+    const processedTables = new Set();
+    
+    tables.forEach((table) => {
+        if (processedTables.has(table)) return;
+        
+        const rows = Array.from(table.querySelectorAll('tr'));
+        let stageRowIndex = -1;
+        let stageName = '';
+        
+        // Find Stage: row in this table
+        for (let i = 0; i < rows.length; i++) {
+            const firstCell = rows[i].querySelector('td, th');
+            if (firstCell) {
+                const cellText = firstCell.textContent.trim();
+                const match = cellText.match(/^Stage:\s*(.+)/);
+                if (match) {
+                    stageRowIndex = i;
+                    stageName = match[1].trim();
+                    break;
+                }
+            }
+        }
+        
+        // If found Stage row in this table, add Stage column and remove Stage row
+        if (stageRowIndex !== -1 && stageName) {
+            const thead = table.querySelector('thead');
+            const tbody = table.querySelector('tbody');
+            
+            // Add Stage header
+            if (thead) {
+                const headerRow = thead.querySelector('tr');
+                if (headerRow) {
+                    const stageTh = document.createElement('th');
+                    stageTh.textContent = 'Stage';
+                    stageTh.style.border = '1px solid #000';
+                    stageTh.style.padding = '4px 8px';
+                    stageTh.style.background = '#d9d9d9';
+                    stageTh.style.fontWeight = 'bold';
+                    headerRow.insertBefore(stageTh, headerRow.firstChild);
+                }
+            }
+            
+            // Add Stage data to all tbody rows
+            if (tbody) {
+                const bodyRows = Array.from(tbody.querySelectorAll('tr'));
+                bodyRows.forEach((tr, idx) => {
+                    // Skip if this is the Stage row itself
+                    if (idx !== stageRowIndex) {
+                        const stageTd = document.createElement('td');
+                        stageTd.textContent = stageName;
+                        stageTd.style.border = '1px solid #000';
+                        stageTd.style.padding = '4px 8px';
+                        tr.insertBefore(stageTd, tr.firstChild);
+                    }
+                });
+            }
+            
+            // Remove the Stage row
+            if (stageRowIndex < rows.length) {
+                rows[stageRowIndex].remove();
+            }
+            
+            processedTables.add(table);
+        }
+    });
+
+    // Strip every <style> block
     doc.querySelectorAll('style').forEach((s) => s.remove());
 
-    // Fix tables: remove fixed layout / width so Excel auto-sizes columns
+    // Fix tables
     doc.querySelectorAll('table').forEach((table) => {
         table.style.tableLayout    = 'auto';
         table.style.width          = 'auto';
@@ -74,8 +159,7 @@ export function exportHtmlAsExcel(html, filename) {
         table.removeAttribute('width');
     });
 
-    // Strip font-size, font-family, and width inline styles from every element
-    // so nothing overrides the uniform stylesheet below
+    // Strip font properties from all elements
     doc.querySelectorAll('*').forEach((el) => {
         el.style.removeProperty('font-size');
         el.style.removeProperty('font-family');
@@ -86,7 +170,7 @@ export function exportHtmlAsExcel(html, filename) {
         el.style.removeProperty('text-transform');
     });
 
-    // th / td specific fixes
+    // Cell formatting
     doc.querySelectorAll('th, td').forEach((cell) => {
         cell.style.border        = '1px solid #000';
         cell.style.padding       = '4px 8px';
@@ -95,7 +179,6 @@ export function exportHtmlAsExcel(html, filename) {
         cell.style.verticalAlign = 'middle';
     });
 
-    // Keep bold + grey background on header cells
     doc.querySelectorAll('th').forEach((th) => {
         th.style.background  = '#d9d9d9';
         th.style.fontWeight  = 'bold';

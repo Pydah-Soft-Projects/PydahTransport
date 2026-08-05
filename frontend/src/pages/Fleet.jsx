@@ -69,7 +69,9 @@ const Fleet = () => {
     };
 
     const sortedList = React.useMemo(() => {
-        const sorted = [...list];
+        const sorted = list.filter(
+            (item) => item.route && item.bus.status === 'Active'
+        );
         sorted.sort((a, b) => {
             if (sortField === 'occupancy') {
                 const diff = (a.occupancyPercent || 0) - (b.occupancyPercent || 0);
@@ -515,6 +517,7 @@ const Fleet = () => {
                                             )}
                                         </div>
                                     </th>
+                                    <th className="px-3 py-2">Zone</th>
                                     <th className="px-3 py-2">Bus Details</th>
                                     <th className="px-3 py-2">Capacity</th>
                                     <th className="px-3 py-2">Seats Filled</th>
@@ -566,7 +569,17 @@ const Fleet = () => {
                                                         </span>
                                                     )}
                                                 </td>
-                                                {/* Bus Details — second column, no expand */}
+                                                {/* Zone column */}
+                                                <td className="px-3 py-2">
+                                                    {item.route?.zone ? (
+                                                        <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[9px] font-semibold rounded border border-purple-100 whitespace-nowrap">
+                                                            {item.route.zone}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-300 text-[10px]">—</span>
+                                                    )}
+                                                </td>
+                                                {/* Bus Details */}
                                                 <td className="px-3 py-2">
                                                     <div>
                                                         <p className="font-bold text-slate-800 text-xs">{item.bus.busNumber}</p>
@@ -611,7 +624,7 @@ const Fleet = () => {
                                             {/* Expandable passenger details */}
                                             {isExpanded && (
                                                 <tr className="bg-slate-50/70">
-                                                    <td colSpan={7} className="px-5 py-4">
+                                                    <td colSpan={8} className="px-5 py-4">
                                                         {passengersLoading ? (
                                                             <p className="text-xs text-slate-400 italic flex items-center gap-1.5">
                                                                 <Loader2 size={12} className="animate-spin" /> Loading passengers...

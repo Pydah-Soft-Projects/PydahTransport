@@ -23,7 +23,7 @@ import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
 import { apiFetch, API_BASE } from '../utils/api';
-import { printHtmlDocument } from '../utils/printHtml';
+import { printHtmlDocument, exportHtmlAsExcel } from '../utils/printHtml';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 
 const API = API_BASE;
@@ -142,11 +142,12 @@ const BusDetails = () => {
     const [filterYear, setFilterYear] = useState('');
     const [filterStage, setFilterStage] = useState('');
     const [filterType, setFilterType] = useState('');
-    const [isPrinting, setIsPrinting] = useState(false);
+    const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
+    const [reportLoadingAction, setReportLoadingAction] = useState(null); // 'pdf' | 'excel' | null
 
     const handlePrint = async () => {
         if (!data?.bus?.busNumber) return;
-        setIsPrinting(true);
+        setReportLoadingAction('pdf');
         try {
             const response = await apiFetch(`${API}/print`, {
                 method: 'POST',
@@ -163,6 +164,7 @@ const BusDetails = () => {
             if (response.ok) {
                 const html = await response.text();
                 printHtmlDocument(html, `Transport-Passenger-Report-${data.bus.busNumber}`);
+                setIsDownloadModalOpen(false);
             } else {
                 const err = await response.json().catch(() => ({}));
                 alert(err.message || 'Failed to generate passenger report.');
@@ -171,7 +173,39 @@ const BusDetails = () => {
             console.error('Error printing passenger report:', error);
             alert('Error preparing passenger report.');
         } finally {
-            setIsPrinting(false);
+            setReportLoadingAction(null);
+        }
+    };
+
+    const handleExcel = async () => {
+        if (!data?.bus?.busNumber) return;
+        setReportLoadingAction('excel');
+        try {
+            const response = await apiFetch(`${API}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'passenger-report',
+                    data: {
+                        busId: data.bus.busNumber,
+                        academicYear,
+                        occupancyMode,
+                        status: occupancyMode === 'live' ? 'active' : 'approved',
+                    }
+                })
+            });
+            if (response.ok) {
+                const html = await response.text();
+                exportHtmlAsExcel(html, `Transport-Passenger-Report-${data.bus.busNumber}`);
+                setIsDownloadModalOpen(false);
+            } else {
+                const err = await response.json().catch(() => ({}));
+                alert(err.message || 'Failed to generate Excel report.');
+            }
+        } catch (error) {
+            console.error('Error exporting Excel report:', error);
+            alert('Error preparing Excel report.');
+        } finally {
+            setReportLoadingAction(null);
         }
     };
 
@@ -441,16 +475,16 @@ const BusDetails = () => {
                 <div className="flex flex-wrap gap-2">
                     <button
                         type="button"
-                        onClick={handlePrint}
-                        disabled={isPrinting}
+                        onClick={() => setIsDownloadModalOpen(true)}
+                        disabled={reportLoadingAction !== null}
                         className="inline-flex items-center text-xs bg-white text-slate-700 px-3.5 py-1.5 rounded-lg font-semibold hover:bg-slate-50 transition-all border border-slate-200 shadow-sm disabled:opacity-50"
                     >
-                        {isPrinting ? (
+                        {reportLoadingAction ? (
                             <Loader2 size={14} className="mr-1.5 animate-spin text-blue-600" />
                         ) : (
                             <Download size={14} className="mr-1.5 text-blue-600" />
                         )}
-                        {isPrinting ? 'Preparing...' : 'Download Report'}
+                        {reportLoadingAction ? 'Generating...' : 'Download'}
                     </button>
                     {route && (
                         <button
@@ -1102,6 +1136,39 @@ const BusDetails = () => {
                         </div>
                     </>
                 )}
+            </Modal>
+
+            {/* Download Modal */}
+            <Modal isOpen={isDownloadModalOpen} onClose={() => setIsDownloadModalOpen(false)} title="Download Report">
+                <div className="space-y-4">
+                    <p className="text-sm text-slate-600 font-medium">Choose format to download passenger report:</p>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={handlePrint}
+                            disabled={reportLoadingAction !== null}
+                            className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg font-semibold transition-all disabled:opacity-50"
+                        >
+                            {reportLoadingAction === 'pdf' ? (
+                                <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                                <FileText size={16} />
+                            )}
+                            {reportLoadingAction === 'pdf' ? 'Generating PDF...' : 'PDF (Print)'}
+                        </button>
+                        <button
+                            onClick={handleExcel}
+                            disabled={reportLoadingAction !== null}
+                            className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg font-semibold transition-all disabled:opacity-50"
+                        >
+                            {reportLoadingAction === 'excel' ? (
+                                <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                                <Download size={16} />
+                            )}
+                            {reportLoadingAction === 'excel' ? 'Generating Excel...' : 'Excel'}
+                        </button>
+                    </div>
+                </div>
             </Modal>
         </Layout>
     );
