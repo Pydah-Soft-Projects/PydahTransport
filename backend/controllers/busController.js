@@ -403,7 +403,7 @@ const getBusesOverview = async (req, res) => {
                     status: bus.status,
                     assignedRouteId: bus.assignedRouteId,
                 },
-                route: route ? { routeId: route.routeId, routeName: route.routeName } : null,
+                route: route ? { routeId: route.routeId, routeName: route.routeName, zone: route.zone } : null,
                 seatsFilled,
                 seatsAvailable,
                 capacity,
