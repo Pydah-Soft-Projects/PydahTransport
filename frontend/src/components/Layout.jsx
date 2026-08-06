@@ -18,7 +18,8 @@ import {
     ChevronDown,
     ChevronLeft,
     ChevronRight,
-    Truck
+    Truck,
+    Navigation
 } from 'lucide-react';
 
 const Layout = ({ children }) => {
@@ -65,6 +66,7 @@ const Layout = ({ children }) => {
                 { path: '/buses', label: 'Vehicle Management', permission: 'bus_management', icon: <Bus size={20} /> },
                 { path: '/routes', label: 'Route Management', permission: 'route_management', icon: <Map size={20} /> },
                 { path: '/fleet', label: 'Fleet & Passengers', permission: 'fleet_passengers', icon: <Users size={20} /> },
+                { path: '/gps-tracking', label: 'GPS Live Tracking', icon: <Navigation size={20} /> },
             ]
         },
         {

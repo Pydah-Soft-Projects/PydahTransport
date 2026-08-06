@@ -16,6 +16,7 @@ import Concessions from './pages/Concessions';
 import Inventory from './pages/Inventory';
 import RaiseBill from './pages/RaiseBill';
 import TransportVerify from './pages/TransportVerify';
+import GpsTracking from './pages/GpsTracking';
 import './App.css';
 
 function App() {
@@ -32,6 +33,7 @@ function App() {
           <Route path="/other-vehicles/:id" element={<ProtectedRoute><VehicleDetails /></ProtectedRoute>} />
           <Route path="/fleet" element={<ProtectedRoute><Fleet /></ProtectedRoute>} />
           <Route path="/routes" element={<ProtectedRoute><RouteManagement /></ProtectedRoute>} />
+          <Route path="/gps-tracking" element={<ProtectedRoute><GpsTracking /></ProtectedRoute>} />
           <Route path="/transport-requests" element={<ProtectedRoute><TransportRequests /></ProtectedRoute>} />
           <Route path="/transport-dues" element={<ProtectedRoute><TransportDues /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
