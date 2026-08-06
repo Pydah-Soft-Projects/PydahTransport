@@ -17,7 +17,8 @@ import {
     Milestone,
     IndianRupee,
     ChevronDown,
-    ChevronUp
+    ChevronUp,
+    Search
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -35,6 +36,7 @@ const RouteManagement = () => {
     const [saveMessage, setSaveMessage] = useState({ text: '', type: '' });
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
     const academicYearOptions = getAcademicYearOptions();
+    const [searchQuery, setSearchQuery] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [expandedRouteId, setExpandedRouteId] = useState(null);
@@ -384,7 +386,13 @@ const RouteManagement = () => {
     const filteredRoutes = (selectedCampusFilter
         ? routes.filter((route) => campusIdsMatch(getCampusId(route.campus), selectedCampusFilter))
         : routes
-    ).slice().sort((a, b) =>
+    ).filter((route) => {
+        const searchLower = searchQuery.toLowerCase();
+        return (
+            (route.routeId || '').toLowerCase().includes(searchLower) ||
+            (route.routeName || '').toLowerCase().includes(searchLower)
+        );
+    }).slice().sort((a, b) =>
         (a.routeId || '').localeCompare(b.routeId || '', undefined, { numeric: true, sensitivity: 'base' })
     );
 
@@ -603,6 +611,18 @@ const RouteManagement = () => {
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                    {activeTab === 'network' && (
+                        <div className="relative flex-shrink-0 w-64">
+                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            <input
+                                type="text"
+                                placeholder="Search by route ID or name..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                            />
+                        </div>
+                    )}
                     {activeTab === 'network' && allowedCampuses.length > 1 && (
                         <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
                             <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Campus</span>

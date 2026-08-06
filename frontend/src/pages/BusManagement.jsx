@@ -20,7 +20,8 @@ import {
     AlertTriangle,
     Truck,
     ChevronLeft,
-    ChevronRight
+    ChevronRight,
+    Search
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -56,6 +57,7 @@ const BusManagement = () => {
     const [routes, setRoutes] = useState([]);
     const [campuses, setCampuses] = useState([]);
     const [selectedCampusFilter, setSelectedCampusFilter] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState(null);
@@ -287,9 +289,18 @@ const BusManagement = () => {
         fetchCampuses();
     }, []);
 
-    const filteredBuses = selectedCampusFilter
+    const filteredBuses = (selectedCampusFilter
         ? buses.filter((bus) => campusIdsMatch(getCampusId(bus.campus), selectedCampusFilter))
-        : buses;
+        : buses
+    ).filter((bus) => {
+        const searchLower = searchQuery.toLowerCase();
+        return (
+            (bus.busNumber || '').toLowerCase().includes(searchLower) ||
+            (bus.vehicleModel || '').toLowerCase().includes(searchLower) ||
+            (bus.type || '').toLowerCase().includes(searchLower) ||
+            (bus.driverName || '').toLowerCase().includes(searchLower)
+        );
+    });
 
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
     const userCampuses = adminInfo.campuses || [];
@@ -1004,6 +1015,21 @@ const BusManagement = () => {
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
+                    {(activeTab === TABS.buses || activeTab === TABS.otherVehicles || activeTab === TABS.mapping || activeTab === TABS.staffMapping) && (
+                        <div className="relative flex-shrink-0 w-64">
+                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            <input
+                                type="text"
+                                placeholder="Search by bus number, model..."
+                                value={searchQuery}
+                                onChange={(e) => {
+                                    setSearchQuery(e.target.value);
+                                    setCurrentPage(1);
+                                }}
+                                className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                            />
+                        </div>
+                    )}
                     {(activeTab === TABS.buses || activeTab === TABS.otherVehicles || activeTab === TABS.mapping || activeTab === TABS.staffMapping) && allowedCampuses.length > 1 && (
                         <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
                             <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Campus</span>

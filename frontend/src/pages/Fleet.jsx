@@ -18,6 +18,7 @@ import {
     ChevronUp,
     ChevronDown,
     ChevronRight,
+    Search
 } from 'lucide-react';
 
 import { apiFetch, API_BASE } from '../utils/api';
@@ -30,6 +31,7 @@ const Fleet = () => {
     const [list, setList] = useState([]);
     const [loading, setLoading] = useState(true);
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
+    const [searchQuery, setSearchQuery] = useState('');
     const [occupancyMode, setOccupancyMode] = useState('live');
     const academicYearOptions = getAcademicYearOptions();
     const [message, setMessage] = useState({ text: '', type: '' });
@@ -71,7 +73,14 @@ const Fleet = () => {
     const sortedList = React.useMemo(() => {
         const sorted = list.filter(
             (item) => item.route && item.bus.status === 'Active'
-        );
+        ).filter((item) => {
+            const searchLower = searchQuery.toLowerCase();
+            return (
+                (item.bus.busNumber || '').toLowerCase().includes(searchLower) ||
+                (item.route?.routeName || '').toLowerCase().includes(searchLower) ||
+                (item.route?.routeId || '').toLowerCase().includes(searchLower)
+            );
+        });
         sorted.sort((a, b) => {
             if (sortField === 'occupancy') {
                 const diff = (a.occupancyPercent || 0) - (b.occupancyPercent || 0);
@@ -82,7 +91,7 @@ const Fleet = () => {
             return sortDirection === 'asc' ? cmp : -cmp;
         });
         return sorted;
-    }, [list, sortField, sortDirection]);
+    }, [list, sortField, sortDirection, searchQuery]);
 
 
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
@@ -284,6 +293,17 @@ const Fleet = () => {
                 <div>
                     <h2 className="text-xl font-black text-slate-900 tracking-tight">Fleet & Passengers</h2>
                     <p className="text-xs text-slate-500 font-semibold mt-0.5">Manage transport requests and bus capacity.</p>
+                </div>
+
+                <div className="relative flex-shrink-0 w-64">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                        type="text"
+                        placeholder="Search by bus or route..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                    />
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-sm w-full lg:w-auto justify-between lg:justify-start">
