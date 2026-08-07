@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import ForgotPasswordModal from '../components/ForgotPasswordModal';
 
 const Login = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -133,7 +135,13 @@ const Login = () => {
                             <label className="block text-slate-700 text-sm font-bold" htmlFor="password">
                                 Password
                             </label>
-                            <a href="#" className="text-xs text-slate-600 hover:text-slate-900 font-medium">Forgot password?</a>
+                            <button
+                                type="button"
+                                onClick={() => setIsForgotPasswordOpen(true)}
+                                className="text-xs text-slate-600 hover:text-slate-900 font-medium hover:underline"
+                            >
+                                Forgot password?
+                            </button>
                         </div>
                         <input
                             type="password"
@@ -173,6 +181,12 @@ const Login = () => {
                     </p>
                 </div>
             </div>
+
+            {/* Forgot Password Modal */}
+            <ForgotPasswordModal
+                isOpen={isForgotPasswordOpen}
+                onClose={() => setIsForgotPasswordOpen(false)}
+            />
         </div>
     );
 };

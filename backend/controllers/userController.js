@@ -57,7 +57,11 @@ const getUsers = async (req, res) => {
         const formattedAdmins = admins.map(admin => ({
             _id: admin._id,
             emp_no: 'ADMIN',
-            employee_name: admin.username === 'admin' ? 'Super Admin' : admin.username,
+            employee_name: admin.name || (admin.username === 'admin' ? 'Super Admin' : admin.username),
+            name: admin.name || '',
+            username: admin.username,
+            email: admin.email || '',
+            phone: admin.phone || '',
             roles: ['superadmin'],
             permissions: ['all'],
             is_active: true,
@@ -202,9 +206,77 @@ const searchEmployees = async (req, res) => {
     }
 };
 
+// @desc    Update Superadmin details
+// @route   PUT /api/users/superadmin/:id
+// @access  Private/Admin
+const updateSuperAdmin = async (req, res) => {
+    const { id } = req.params;
+    const { name, username, email, phone, password } = req.body;
+
+    try {
+        const admin = await Admin.findById(id);
+        if (!admin) {
+            return res.status(404).json({ message: 'Superadmin not found' });
+        }
+
+        // Check if username is being changed and if it already exists elsewhere
+        if (username && username !== admin.username) {
+            const existingUsername = await Admin.findOne({ username, _id: { $ne: id } });
+            if (existingUsername) {
+                return res.status(400).json({ message: 'Username is already taken' });
+            }
+            admin.username = username;
+        }
+
+        // Check if email is being changed and if it already exists elsewhere
+        if (email !== undefined && email !== admin.email) {
+            if (email.trim() !== '') {
+                const existingEmail = await Admin.findOne({ email, _id: { $ne: id } });
+                if (existingEmail) {
+                    return res.status(400).json({ message: 'Email is already taken' });
+                }
+            }
+            admin.email = email.trim() || undefined;
+        }
+
+        if (name !== undefined) admin.name = name;
+        if (phone !== undefined) admin.phone = phone;
+
+        if (password && password.trim() !== '') {
+            admin.password = password.trim();
+        }
+
+        await admin.save();
+
+        const updatedAdmin = admin.toObject();
+        delete updatedAdmin.password;
+
+        res.json({
+            message: 'Superadmin details updated successfully',
+            user: {
+                _id: updatedAdmin._id,
+                emp_no: 'ADMIN',
+                employee_name: updatedAdmin.name || (updatedAdmin.username === 'admin' ? 'Super Admin' : updatedAdmin.username),
+                name: updatedAdmin.name || '',
+                username: updatedAdmin.username,
+                email: updatedAdmin.email || '',
+                phone: updatedAdmin.phone || '',
+                roles: ['superadmin'],
+                permissions: ['all'],
+                is_active: true,
+                is_superadmin: true
+            }
+        });
+    } catch (error) {
+        console.error('Error updating superadmin:', error);
+        res.status(500).json({ message: error.message || 'Failed to update superadmin details' });
+    }
+};
+
 module.exports = {
     getUsers,
     updateUserRole,
     deleteUserRole,
-    searchEmployees
+    searchEmployees,
+    updateSuperAdmin
 };

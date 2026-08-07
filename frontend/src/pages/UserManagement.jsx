@@ -24,6 +24,19 @@ const UserManagement = () => {
     const [selectedColleges, setSelectedColleges] = useState([]);
     const [selectedCourses, setSelectedCourses] = useState([]);
 
+    // Superadmin Edit state
+    const [isSuperAdminModalOpen, setIsSuperAdminModalOpen] = useState(false);
+    const [superAdminForm, setSuperAdminForm] = useState({
+        _id: '',
+        name: '',
+        username: '',
+        email: '',
+        phone: '',
+        password: ''
+    });
+    const [superAdminSaving, setSuperAdminSaving] = useState(false);
+    const [superAdminError, setSuperAdminError] = useState('');
+
     // Search state
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
@@ -159,9 +172,65 @@ const UserManagement = () => {
         setSearchQuery('');
     };
 
+    const handleEditSuperAdmin = (user) => {
+        setSelectedUser(user);
+        setSuperAdminForm({
+            _id: user._id,
+            name: user.name || user.employee_name || '',
+            username: user.username || '',
+            email: user.email || '',
+            phone: user.phone || '',
+            password: ''
+        });
+        setSuperAdminError('');
+        setIsSuperAdminModalOpen(true);
+    };
+
+    const saveSuperAdmin = async (e) => {
+        if (e) e.preventDefault();
+        const adminInfo = JSON.parse(localStorage.getItem('adminInfo'));
+        const token = adminInfo?.token;
+
+        if (!token || !superAdminForm._id) return;
+
+        setSuperAdminSaving(true);
+        setSuperAdminError('');
+
+        try {
+            const response = await apiFetch(`${import.meta.env.VITE_API_URL}/users/superadmin/${superAdminForm._id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    name: superAdminForm.name,
+                    username: superAdminForm.username,
+                    email: superAdminForm.email,
+                    phone: superAdminForm.phone,
+                    password: superAdminForm.password || undefined
+                }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                setIsSuperAdminModalOpen(false);
+                fetchUsers(); // Refresh list
+            } else {
+                setSuperAdminError(data.message || 'Failed to update superadmin');
+            }
+        } catch (error) {
+            console.error('Error updating superadmin:', error);
+            setSuperAdminError('Error updating superadmin details');
+        } finally {
+            setSuperAdminSaving(false);
+        }
+    };
+
     const handleManageRole = (user) => {
         if (user.is_superadmin || (user.roles && user.roles.includes('superadmin'))) {
-            alert("Super Admin roles cannot be modified.");
+            handleEditSuperAdmin(user);
             return;
         }
 
@@ -485,7 +554,7 @@ const UserManagement = () => {
                                                     {user.is_active ? 'Active' : 'Inactive'}
                                                 </span>
                                             </td>
- 
+
                                             {/* Actions */}
                                             <td className="px-3 py-2 text-right">
                                                 {!isSuperAdmin ? (
@@ -506,7 +575,15 @@ const UserManagement = () => {
                                                         </button>
                                                     </div>
                                                 ) : (
-                                                    <span className="text-[10px] text-slate-400 font-bold italic px-2">Superadmin Locked</span>
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        <button
+                                                            onClick={() => handleEditSuperAdmin(user)}
+                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-purple-200 bg-purple-50 text-purple-700 font-bold text-[10px] hover:bg-purple-100 shadow-sm transition-all"
+                                                        >
+                                                            <Edit3 size={10} />
+                                                            Edit Details
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </td>
                                         </tr>
@@ -1026,6 +1103,103 @@ const UserManagement = () => {
                         </div>
                     </div>
                 </div>
+            </Modal>
+
+            {/* Edit Superadmin Modal */}
+            <Modal isOpen={isSuperAdminModalOpen} onClose={() => setIsSuperAdminModalOpen(false)} title="Edit Superadmin Details" maxWidth="max-w-xl">
+                <form onSubmit={saveSuperAdmin} className="space-y-4">
+                    {superAdminError && (
+                        <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs font-semibold">
+                            {superAdminError}
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Full Name
+                        </label>
+                        <input
+                            type="text"
+                            value={superAdminForm.name}
+                            onChange={(e) => setSuperAdminForm({ ...superAdminForm, name: e.target.value })}
+                            placeholder="e.g. System Super Admin"
+                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                Username <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                required
+                                value={superAdminForm.username}
+                                onChange={(e) => setSuperAdminForm({ ...superAdminForm, username: e.target.value })}
+                                placeholder="e.g. superadmin"
+                                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                Phone Number
+                            </label>
+                            <input
+                                type="tel"
+                                value={superAdminForm.phone}
+                                onChange={(e) => setSuperAdminForm({ ...superAdminForm, phone: e.target.value })}
+                                placeholder="e.g. 9876543210"
+                                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none"
+                            />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Email Address
+                        </label>
+                        <input
+                            type="email"
+                            value={superAdminForm.email}
+                            onChange={(e) => setSuperAdminForm({ ...superAdminForm, email: e.target.value })}
+                            placeholder="e.g. admin@pydah.edu.in"
+                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none"
+                        />
+                        <p className="text-[11px] text-slate-400 mt-1">Used for forgot password recovery emails.</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            New Password
+                        </label>
+                        <input
+                            type="password"
+                            value={superAdminForm.password}
+                            onChange={(e) => setSuperAdminForm({ ...superAdminForm, password: e.target.value })}
+                            placeholder="Leave blank to keep current password"
+                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none"
+                        />
+                        <p className="text-[11px] text-slate-400 mt-1">Only enter a password if you wish to change it.</p>
+                    </div>
+
+                    <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
+                        <button
+                            type="button"
+                            onClick={() => setIsSuperAdminModalOpen(false)}
+                            className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium text-xs rounded-lg"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={superAdminSaving}
+                            className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-lg font-semibold text-xs shadow-sm transition-all disabled:opacity-50"
+                        >
+                            {superAdminSaving ? 'Saving Changes...' : 'Save Changes'}
+                        </button>
+                    </div>
+                </form>
             </Modal>
         </Layout>
     );

@@ -4,6 +4,7 @@ const { getEmployeeConnection } = require('../config/db'); // Direct connection 
 const UserRole = require('../models/UserRole');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const sendEmail = require('../services/emailService');
 
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -192,4 +193,92 @@ const ssoLogin = async (req, res) => {
     }
 };
 
-module.exports = { loginUser, ssoLogin };
+// @desc    Forgot Password for Superadmin
+// @route   POST /api/auth/forgot-password-admin
+// @access  Public
+const forgotPasswordAdmin = async (req, res) => {
+    const { email } = req.body;
+
+    try {
+        if (!email) {
+            return res.status(400).json({ message: 'Email is required' });
+        }
+
+        // Find admin by email
+        const admin = await Admin.findOne({ email });
+
+        if (!admin) {
+            return res.status(404).json({ message: 'Superadmin with this email not found' });
+        }
+
+        // Generate 6-digit random password (numbers only)
+        const newPassword = Math.floor(100000 + Math.random() * 900000).toString();
+
+        // Update admin document with new password (it will be hashed by the pre-save middleware)
+        admin.password = newPassword;
+        await admin.save();
+
+        // Prepare email
+        const emailOptions = {
+            email: admin.email,
+            subject: 'Your Temporary Password - Transport System',
+            html: `
+                <div style="font-family: Arial, sans-serif; padding: 20px;">
+                    <h2>Password Reset Request</h2>
+                    <p>Hello <strong>${admin.name}</strong>,</p>
+                    <p>Your temporary password has been generated:</p>
+                    <div style="background-color: #f0f0f0; padding: 15px; margin: 20px 0; border-left: 4px solid #007bff;">
+                        <p style="font-size: 18px; font-weight: bold; color: #333; margin: 0;">
+                            ${newPassword}
+                        </p>
+                    </div>
+                    <p>Please use this password to login to the Transport System.</p>
+                    <p><strong>Security Tip:</strong> Change this password after your first login.</p>
+                    <p>If you did not request a password reset, please contact your administrator.</p>
+                    <hr style="border: none; border-top: 1px solid #ddd; margin-top: 30px;">
+                    <p style="font-size: 12px; color: #666;">This is an automated message. Please do not reply to this email.</p>
+                </div>
+            `
+        };
+
+        // Send email
+        await sendEmail(emailOptions);
+
+        res.json({ 
+            message: 'Password reset email sent successfully',
+            email: email
+        });
+    } catch (error) {
+        console.error('Forgot Password Error:', error);
+        res.status(500).json({ message: error.message || 'Failed to process forgot password request' });
+    }
+};
+
+// @desc    Reset Password for Superadmin (if needed for manual reset)
+// @route   POST /api/auth/reset-password-admin
+// @access  Private (requires admin token)
+const resetPasswordAdmin = async (req, res) => {
+    const { adminId, newPassword } = req.body;
+
+    try {
+        if (!adminId || !newPassword) {
+            return res.status(400).json({ message: 'Admin ID and new password are required' });
+        }
+
+        const admin = await Admin.findById(adminId);
+
+        if (!admin) {
+            return res.status(404).json({ message: 'Admin not found' });
+        }
+
+        admin.password = newPassword;
+        await admin.save();
+
+        res.json({ message: 'Password updated successfully' });
+    } catch (error) {
+        console.error('Reset Password Error:', error);
+        res.status(500).json({ message: error.message || 'Failed to reset password' });
+    }
+};
+
+module.exports = { loginUser, ssoLogin, forgotPasswordAdmin, resetPasswordAdmin };

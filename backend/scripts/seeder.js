@@ -1,39 +1,58 @@
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
+const readline = require('readline');
 const Admin = require('../models/Admin');
-const Bus = require('../models/Bus');
-const Route = require('../models/Route');
 const { connectDB } = require('../config/db');
-const { buses, routes } = require('../data/seedData');
 
 dotenv.config();
 
 connectDB();
 
+// Helper function to ask for user confirmation
+const askQuestion = (query) => {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    });
+
+    return new Promise(resolve => {
+        rl.question(query, (answer) => {
+            rl.close();
+            resolve(answer.toLowerCase() === 'yes' || answer.toLowerCase() === 'y');
+        });
+    });
+};
+
 const importData = async () => {
     try {
         // Admin Seeding
         const adminExists = await Admin.findOne({ username: 'superadmin' });
-        if (!adminExists) {
-            const admin = new Admin({
-                username: 'superadmin',
-                password: 'superadmin123'
-            });
-            await admin.save();
-            console.log('Superadmin Created!');
-        } else {
-            console.log('Superadmin already exists.');
+        if (adminExists) {
+            const shouldOverwrite = await askQuestion(
+                '⚠️  Superadmin already exists. Do you want to overwrite it? (yes/no): '
+            );
+            
+            if (shouldOverwrite) {
+                await Admin.deleteOne({ username: 'superadmin' });
+                console.log('✓ Old superadmin deleted');
+            } else {
+                console.log('✓ Superadmin not changed.');
+            }
         }
 
-        // Bus and Route Seeding
-        // Clear existing data to avoid duplicates/conflicts (optional, but good for clean slate)
-        await Bus.deleteMany();
-        await Route.deleteMany();
-        console.log('Data Destroyed!');
-
-        await Bus.insertMany(buses);
-        await Route.insertMany(routes);
-        console.log('Buses and Routes Imported!');
+        // Create/recreate superadmin if it doesn't exist or was deleted
+        const adminStillExists = await Admin.findOne({ username: 'superadmin' });
+        if (!adminStillExists) {
+            const admin = new Admin({
+                username: 'superadmin',
+                password: 'superadmin123',
+                name: 'Super Admin',
+                email: 'durgaprasadkakileti@gmail.com',
+                phone: '+91-XXXXXXXXXX'
+            });
+            await admin.save();
+            console.log('✓ Superadmin Created!');
+        }
 
         process.exit();
     } catch (error) {
@@ -43,7 +62,7 @@ const importData = async () => {
 };
 
 if (process.argv[2] === '-d') {
-    // destroyData(); // Implement if needed separately, but importData handles reset for now
+    // destroyData(); // Implement if needed separately
 } else {
     importData();
 }

@@ -10,6 +10,28 @@ const adminSchema = new mongoose.Schema({
     password: {
         type: String,
         required: true
+    },
+    name: {
+        type: String,
+        required: false
+    },
+    email: {
+        type: String,
+        required: false,
+        unique: true,
+        sparse: true
+    },
+    phone: {
+        type: String,
+        required: false
+    },
+    resetPasswordToken: {
+        type: String,
+        required: false
+    },
+    resetPasswordExpiry: {
+        type: Date,
+        required: false
     }
 }, {
     timestamps: true
@@ -23,7 +45,7 @@ adminSchema.methods.matchPassword = async function (enteredPassword) {
 // Encrypt password using bcrypt
 adminSchema.pre('save', async function (next) {
     if (!this.isModified('password')) {
-        next();
+        return next();
     }
 
     const salt = await bcrypt.genSalt(10);
