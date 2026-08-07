@@ -2299,9 +2299,12 @@ const deleteConcession = async (req, res) => {
             admin_name
         });
 
+        // Only insert admin_id if it's a valid number (MySQL foreign key constraint)
+        const adminIdForAudit = admin_id && !isNaN(parseInt(admin_id, 10)) ? parseInt(admin_id, 10) : null;
+
         await mysqlPool.query(
             'INSERT INTO audit_logs (action_type, entity_type, entity_id, admin_id, details) VALUES (?, ?, ?, ?, ?)',
-            ['FEE_DELETION', 'TRANSPORT_REQUEST', String(id), admin_id || null, auditDetails]
+            ['FEE_DELETION', 'TRANSPORT_REQUEST', String(id), adminIdForAudit, auditDetails]
         );
 
         res.json({ message: 'Concession, fee, and transport request deleted successfully' });
@@ -2576,7 +2579,7 @@ const submitRouteChangeRequest = async (req, res) => {
             }
         }
 
-        // Log to audit logs
+        // Log to audit logs - Allow NULL admin_id if it's not a valid reference
         const auditDetails = JSON.stringify({
             action: 'route_change',
             admission_number,
@@ -2584,12 +2587,16 @@ const submitRouteChangeRequest = async (req, res) => {
             old_stage: currentRequest.stage_name,
             new_route: new_route_name,
             new_stage: new_stage_name,
-            fare_diff: fareDiff
+            fare_diff: fareDiff,
+            admin_name: admin_name
         });
+
+        // Only insert admin_id if it's a valid number (MySQL foreign key constraint)
+        const adminIdForAudit = admin_id && !isNaN(parseInt(admin_id, 10)) ? parseInt(admin_id, 10) : null;
 
         await mysqlPool.query(
             'INSERT INTO audit_logs (action_type, entity_type, entity_id, admin_id, details) VALUES (?, ?, ?, ?, ?)',
-            ['ROUTE_CHANGE', 'TRANSPORT_REQUEST', String(currentRequest.id), admin_id || null, auditDetails]
+            ['ROUTE_CHANGE', 'TRANSPORT_REQUEST', String(currentRequest.id), adminIdForAudit, auditDetails]
         );
 
         res.json({
