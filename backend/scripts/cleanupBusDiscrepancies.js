@@ -35,18 +35,18 @@ const askQuestion = (query) => {
     console.log('\nConnecting to database...');
     await connectDB();
 
-    console.log('Loading buses, routes, and passenger requests for 2026-2027...');
+    console.log('Loading buses, routes, and passenger requests...');
     const buses = await Bus.find({}).lean();
     
     let studentRequests = [];
     if (checkStudents) {
-        studentRequests = await TransportRequest.find({ status: 'approved', academic_year: '2026-2027' }).lean();
+        studentRequests = await TransportRequest.find({ status: 'approved' }).lean();
     }
     
     let employeeRequests = [];
     if (checkEmployees) {
         try {
-            employeeRequests = await EmployeeTransportRequest.find({ status: 'approved', academic_year: '2026-2027' }).lean();
+            employeeRequests = await EmployeeTransportRequest.find({ status: 'approved' }).lean();
         } catch (e) {
             console.error('Error loading employee transport requests:', e.message);
         }
@@ -102,7 +102,7 @@ const askQuestion = (query) => {
     }
 
     console.log('\n==================================================');
-    console.log(`CORRECTION REPORT STATS (2026-2027)`);
+    console.log(`CORRECTION REPORT STATS`);
     console.log('==================================================');
     if (checkStudents) {
         console.log(`Mismatched Students to correct: ${studentsToUpdate.length}`);

@@ -272,10 +272,7 @@ const fetchStudentTransportPrintData = async (id) => {
     };
 };
 
-/**
- * Helper to fetch active passengers for a bus
- */
-const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true, campusId) => {
+const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true, campusId, includePhotos = true) => {
     const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
     const resolvedYear = academicYear || fallbackAcademicYear;
     let mysqlPassengers = [];
@@ -286,19 +283,31 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
     const assignedRouteId = busDoc?.assignedRouteId;
 
     const passengerQuery = assignedRouteId
-        ? { route_id: assignedRouteId, status: 'approved' }
-        : { bus_id: busNumber, status: 'approved' };
+        ? { route_id: assignedRouteId }
+        : { bus_id: busNumber };
+
+    if (liveOccupancy) {
+        passengerQuery.status = 'approved';
+    } else {
+        passengerQuery.status = { $in: ['approved', 'pending', 'rejected', 'cancelled', 'expired'] };
+        passengerQuery.$or = [
+            { academic_year: resolvedYear },
+            { academic_year: null },
+            { academic_year: { $exists: false } },
+        ];
+    }
 
     const studentMongoRequests = await TransportRequest.find(passengerQuery).lean();
-    const filteredStudentRequests = studentMongoRequests.filter((r) => (
-        liveOccupancy ? true : (r.academic_year || fallbackAcademicYear) === resolvedYear
-    ));
+    const filteredStudentRequests = studentMongoRequests;
 
     const admissionNos = [...new Set(filteredStudentRequests.map(r => r.admission_number).filter(Boolean))];
     let studentMap = {};
     if (mysqlPool && admissionNos.length > 0) {
+        const selectFields = includePhotos 
+            ? 'admission_number, admission_no, course, branch, student_photo, student_data, pin_no'
+            : 'admission_number, admission_no, course, branch, pin_no';
         const [studentRows] = await mysqlPool.query(
-            `SELECT admission_number, admission_no, course, branch, student_photo, student_data, pin_no
+            `SELECT ${selectFields}
              FROM students
              WHERE admission_number IN (?) OR admission_no IN (?)`,
             [admissionNos, admissionNos]
@@ -324,20 +333,27 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
             user_type: 'student',
             course: student.course || 'N/A',
             branch: student.branch || 'N/A',
-            student_photo: student.student_photo || null,
-            student_data: student.student_data || null,
+            student_photo: includePhotos ? (student.student_photo || null) : null,
+            student_data: includePhotos ? (student.student_data || null) : null,
             pin_no: student.pin_no || 'N/A',
             is_expired: isExpired,
         };
         return {
             ...combinedRow,
-            student_photo: resolveStudentPhoto(combinedRow),
+            student_photo: includePhotos ? resolveStudentPhoto(combinedRow) : null,
         };
     });
 
     const mongoQuery = assignedRouteId
-        ? { route_id: assignedRouteId, status: 'approved' }
-        : { bus_id: busNumber, status: 'approved' };
+        ? { route_id: assignedRouteId }
+        : { bus_id: busNumber };
+
+    if (liveOccupancy) {
+        mongoQuery.status = 'approved';
+    } else {
+        mongoQuery.status = { $in: ['approved', 'pending', 'rejected', 'cancelled', 'expired'] };
+    }
+
     if (!liveOccupancy) {
         mongoQuery.$or = [
             { academic_year: resolvedYear },
@@ -353,7 +369,7 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
     // Fetch profilePhoto from HRMS Employee collection in batch
     const empNos = [...new Set(mongoRequests.map(r => r.emp_no).filter(Boolean))];
     let employeePhotoMap = {};
-    if (empNos.length > 0) {
+    if (includePhotos && empNos.length > 0) {
         try {
             const Employee = getEmployeeModel();
             if (Employee) {
@@ -376,7 +392,7 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
         student_name: r.employee_name,
         user_type: 'employee',
         course: 'Employee',
-        student_photo: r.emp_no ? (employeePhotoMap[r.emp_no] || null) : null,
+        student_photo: includePhotos && r.emp_no ? (employeePhotoMap[r.emp_no] || null) : null,
     }));
 
     const activePassengers = liveOccupancy
@@ -384,6 +400,8 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
         : mysqlPassengers;
     return [...activePassengers, ...mongoPassengers];
 };
+
+
 
 /**
  * Fetch data for ID Cards Sheet
@@ -515,18 +533,30 @@ const fetchPassengerReportData = async (data) => {
             passengers = [...passengers, ...mongoPassengers];
         }
     } else if (data.busId) {
-        passengers = await fetchBusPassengers(data.busId, academicYear, activeOnly, data.campus);
+        passengers = await fetchBusPassengers(data.busId, academicYear, activeOnly, data.campus, false);
     } else {
-        const studentMongoRequests = await TransportRequest.find({ status: 'approved' }).lean();
-    const filteredStudentRequests = studentMongoRequests.filter((r) => (
-        activeOnly ? true : (r.academic_year || fallbackAcademicYear) === academicYear
-    ));
+        const studentMongoQuery = {};
+        if (activeOnly) {
+            studentMongoQuery.status = 'approved';
+        } else {
+            studentMongoQuery.status = { $in: ['approved', 'pending', 'rejected', 'cancelled', 'expired'] };
+            studentMongoQuery.$or = [
+                { academic_year: academicYear },
+                { academic_year: null },
+                { academic_year: { $exists: false } },
+            ];
+        }
+        if (campusFilter) {
+            studentMongoQuery.route_id = { $in: campusFilter.routeIds };
+        }
+        const studentMongoRequests = await TransportRequest.find(studentMongoQuery).lean();
+        const filteredStudentRequests = studentMongoRequests;
 
     const admissionNos = [...new Set(filteredStudentRequests.map(r => r.admission_number).filter(Boolean))];
     let studentMap = {};
     if (mysqlPool && admissionNos.length > 0) {
         const [studentRows] = await mysqlPool.query(
-            `SELECT admission_number, admission_no, course, branch, student_photo, student_data, pin_no
+            `SELECT admission_number, admission_no, course, branch, pin_no
              FROM students
              WHERE admission_number IN (?) OR admission_no IN (?)`,
             [admissionNos, admissionNos]
@@ -546,20 +576,16 @@ const fetchPassengerReportData = async (data) => {
         } else if (r.semester_end_date) {
             isExpired = new Date(r.semester_end_date) < now;
         }
-        const combinedRow = {
+        return {
             ...r,
             id: r.id != null ? r.id : String(r._id),
             user_type: 'student',
             course: student.course || 'N/A',
             branch: student.branch || 'N/A',
-            student_photo: student.student_photo || null,
-            student_data: student.student_data || null,
+            student_photo: null,
+            student_data: null,
             pin_no: student.pin_no || 'N/A',
             is_expired: isExpired,
-        };
-        return {
-            ...combinedRow,
-            student_photo: resolveStudentPhoto(combinedRow),
         };
     });
 
@@ -567,8 +593,11 @@ const fetchPassengerReportData = async (data) => {
             passengers = passengers.filter((p) => !p.is_expired);
         }
 
-        const mongoQuery = { status: 'approved' };
-        if (!activeOnly) {
+        const mongoQuery = {};
+        if (activeOnly) {
+            mongoQuery.status = 'approved';
+        } else {
+            mongoQuery.status = { $in: ['approved', 'pending', 'rejected', 'cancelled', 'expired'] };
             mongoQuery.$or = [
                 { academic_year: academicYear },
                 { academic_year: null },

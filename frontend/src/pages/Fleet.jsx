@@ -371,10 +371,10 @@ const Fleet = () => {
                         type="button"
                         onClick={openReportModal}
                         disabled={isPrinting}
-                        className="inline-flex items-center text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-sm border-none whitespace-nowrap"
+                        className="inline-flex items-center justify-center w-full sm:w-auto text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-sm border-none whitespace-nowrap"
                     >
-                        {isPrinting ? <Loader2 size={14} className="mr-1.5 text-white animate-spin" /> : <Download size={14} className="mr-1.5" />}
-                        {isPrinting ? 'Preparing...' : 'Download Report'}
+                        <Download size={14} className="mr-1.5" />
+                        Download Report
                     </button>
                 </div>
                 </div>
@@ -426,23 +426,32 @@ const Fleet = () => {
                     <p className="mt-3 text-sm font-medium text-red-600">{reportModalError}</p>
                 )}
 
-                <div className="mt-5 flex justify-end gap-2">
+                <div className="mt-5 flex flex-col sm:flex-row sm:justify-end gap-2">
                     <button
                         type="button"
                         onClick={() => setReportModalOpen(false)}
                         disabled={isPrinting}
-                        className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                     >
                         Cancel
                     </button>
                     <button
                         type="button"
+                        onClick={() => handleDownloadExcelReport(reportOptions)}
+                        disabled={isPrinting || (!reportOptions.abstract && !reportOptions.detailed)}
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center"
+                    >
+                        {reportLoadingAction === 'excel' ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
+                        Excel
+                    </button>
+                    <button
+                        type="button"
                         onClick={() => handleDownloadReport(reportOptions)}
                         disabled={isPrinting || (!reportOptions.abstract && !reportOptions.detailed)}
-                        className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center"
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
                     >
-                        {isPrinting ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
-                        {isPrinting ? 'Generating...' : 'Download Report'}
+                        {reportLoadingAction === 'pdf' ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
+                        PDF
                     </button>
                 </div>
             </Modal>
