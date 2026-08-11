@@ -34,6 +34,7 @@ const Dashboard = () => {
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear());
     const [campuses, setCampuses] = useState([]);
     const [selectedCampus, setSelectedCampus] = useState('');
+    const [occupancyMode, setOccupancyMode] = useState('live');
 
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
     const userCampuses = adminInfo.campuses || [];
@@ -70,9 +71,15 @@ const Dashboard = () => {
                 const routeUrl = selectedCampus
                     ? `${import.meta.env.VITE_API_URL}/routes?campus=${selectedCampus}`
                     : `${import.meta.env.VITE_API_URL}/routes`;
-                const statsUrl = selectedCampus
-                    ? `${import.meta.env.VITE_API_URL}/transport-requests/stats?academicYear=${academicYear}&campus=${selectedCampus}`
-                    : `${import.meta.env.VITE_API_URL}/transport-requests/stats?academicYear=${academicYear}`;
+
+                const statsParams = new URLSearchParams({ occupancyMode });
+                if (occupancyMode !== 'live') {
+                    statsParams.append('academicYear', academicYear);
+                }
+                if (selectedCampus) {
+                    statsParams.append('campus', selectedCampus);
+                }
+                const statsUrl = `${import.meta.env.VITE_API_URL}/transport-requests/stats?${statsParams.toString()}`;
 
                 const [busRes, routeRes, statsRes] = await Promise.all([
                     apiFetch(busUrl),
@@ -103,7 +110,7 @@ const Dashboard = () => {
         };
 
         fetchStats();
-    }, [academicYear, selectedCampus]);
+    }, [academicYear, occupancyMode, selectedCampus]);
 
     const mockDues = {
         total: "2,45,860",
@@ -125,7 +132,44 @@ const Dashboard = () => {
                     <h2 className="text-xl font-bold text-slate-900 tracking-tight">Dashboard Overview</h2>
                     <p className="text-slate-500 text-xs mt-0.5">Welcome back, Super Admin! Here's what's happening today.</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+                        <button
+                            type="button"
+                            onClick={() => setOccupancyMode('live')}
+                            className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'live'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                        >
+                            Live
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setOccupancyMode('academicYear')}
+                            className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'academicYear'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                        >
+                            AY
+                        </button>
+                    </div>
+                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1 shadow-sm">
+                        <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Academic Year</span>
+                        <select
+                            value={academicYear}
+                            onChange={(e) => setAcademicYear(e.target.value)}
+                            disabled={occupancyMode === 'live'}
+                            className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer disabled:opacity-50"
+                        >
+                            {getAcademicYearOptions().map((option) => (
+                                <option key={option} value={option}>
+                                    {option}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                     <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1 shadow-sm">
                         <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Campus</span>
                         <select
@@ -137,20 +181,6 @@ const Dashboard = () => {
                             {campuses.map((campus) => (
                                 <option key={getCampusId(campus)} value={getCampusId(campus)}>
                                     {campus.name}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1 shadow-sm">
-                        <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Academic Year</span>
-                        <select
-                            value={academicYear}
-                            onChange={(e) => setAcademicYear(e.target.value)}
-                            className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
-                        >
-                            {getAcademicYearOptions().map((option) => (
-                                <option key={option} value={option}>
-                                    {option}
                                 </option>
                             ))}
                         </select>
@@ -206,20 +236,20 @@ const Dashboard = () => {
 
                         {/* Passengers Card */}
                         <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
-                            <div className="flex justify-between items-start mb-2">
+                            <div className="flex justify-between items-start">
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-lg bg-purple-600 text-white flex items-center justify-center shadow-sm">
                                         <Users size={20} />
                                     </div>
                                     <div>
                                         <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Passengers</h3>
-                                        <div className="text-2xl font-black text-slate-900 leading-none mt-1">{stats.totalPassengers || 421}</div>
+                                        <div className="text-2xl font-black text-slate-900 leading-none mt-1">{stats.totalPassengers || 0}</div>
+                                        <span className="text-[9px] font-bold text-purple-700 bg-purple-50 border border-purple-100 rounded px-1.5 py-0.5 mt-1 inline-block">
+                                            {occupancyMode === 'live' ? 'LIVE' : `AY ${academicYear}`}
+                                        </span>
                                     </div>
                                 </div>
                                 <button className="text-slate-400 hover:text-slate-600"><MoreVertical size={16} /></button>
-                            </div>
-                            <div className="flex items-center text-emerald-600 text-[11px] font-bold mt-1">
-                                <ArrowUp size={12} className="mr-1" /> 12% <span className="text-slate-400 font-medium ml-1">from last month</span>
                             </div>
                         </div>
 

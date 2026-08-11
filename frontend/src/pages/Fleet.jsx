@@ -295,19 +295,20 @@ const Fleet = () => {
                     <p className="text-xs text-slate-500 font-semibold mt-0.5">Manage transport requests and bus capacity.</p>
                 </div>
 
-                <div className="relative flex-shrink-0 w-64">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <input
-                        type="text"
-                        placeholder="Search by bus or route..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                    />
-                </div>
+                <div className="flex flex-wrap items-center gap-3 justify-end w-full lg:w-auto">
+                    <div className="relative flex-shrink-0 w-64">
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        <input
+                            type="text"
+                            placeholder="Search by bus or route..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                        />
+                    </div>
 
-                <div className="flex flex-wrap items-center gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-sm w-full lg:w-auto justify-between lg:justify-start">
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-sm w-full lg:w-auto justify-between lg:justify-start">
+                        <div className="flex flex-wrap items-center gap-2">
                         <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
                             <button
                                 type="button"
@@ -375,6 +376,7 @@ const Fleet = () => {
                         {isPrinting ? <Loader2 size={14} className="mr-1.5 text-white animate-spin" /> : <Download size={14} className="mr-1.5" />}
                         {isPrinting ? 'Preparing...' : 'Download Report'}
                     </button>
+                </div>
                 </div>
             </div>
 

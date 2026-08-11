@@ -1895,15 +1895,36 @@ const getDashboardStats = async (req, res) => {
 
         // Aggregate Student Transport Requests from MongoDB
         const studentMatch = { status: 'approved' };
-        if (resolvedAcademicYear === fallbackAcademicYear) {
-            studentMatch.$or = [
-                { academic_year: resolvedAcademicYear },
-                { academic_year: { $exists: false } },
-                { academic_year: null },
-                { academic_year: '' }
-            ];
+        const liveOccupancy = String(req.query.occupancyMode || req.query.occupancy_mode || '').toLowerCase() === 'live';
+        if (!liveOccupancy) {
+            if (resolvedAcademicYear === fallbackAcademicYear) {
+                studentMatch.$or = [
+                    { academic_year: resolvedAcademicYear },
+                    { academic_year: { $exists: false } },
+                    { academic_year: null },
+                    { academic_year: '' }
+                ];
+            } else {
+                studentMatch.academic_year = resolvedAcademicYear;
+            }
         } else {
-            studentMatch.academic_year = resolvedAcademicYear;
+            // Apply live occupancy expiration filter mirroring getBusesOverview
+            const now = new Date();
+            studentMatch.$or = [
+                { expiry_date: { $gte: now } },
+                {
+                    $and: [
+                        { $or: [{ expiry_date: null }, { expiry_date: { $exists: false } }] },
+                        { semester_end_date: { $gte: now } }
+                    ]
+                },
+                {
+                    $and: [
+                        { $or: [{ expiry_date: null }, { expiry_date: { $exists: false } }] },
+                        { $or: [{ semester_end_date: null }, { semester_end_date: { $exists: false } }] }
+                    ]
+                }
+            ];
         }
 
         if (filterByCampusRoutes) {
@@ -1952,15 +1973,17 @@ const getDashboardStats = async (req, res) => {
 
         // Add MongoDB (Employee) Stats
         const mongoMatch = { status: 'approved' };
-        if (resolvedAcademicYear === fallbackAcademicYear) {
-            mongoMatch.$or = [
-                { academic_year: resolvedAcademicYear },
-                { academic_year: { $exists: false } },
-                { academic_year: null },
-                { academic_year: '' }
-            ];
-        } else {
-            mongoMatch.academic_year = resolvedAcademicYear;
+        if (!liveOccupancy) {
+            if (resolvedAcademicYear === fallbackAcademicYear) {
+                mongoMatch.$or = [
+                    { academic_year: resolvedAcademicYear },
+                    { academic_year: { $exists: false } },
+                    { academic_year: null },
+                    { academic_year: '' }
+                ];
+            } else {
+                mongoMatch.academic_year = resolvedAcademicYear;
+            }
         }
 
         const mongoTotal = await EmployeeTransportRequest.countDocuments(mongoMatch);
