@@ -678,6 +678,7 @@ const fetchBillPrintData = async (data) => {
             .populate('lines.itemId')
             .populate('vendorId')
             .populate('busId')
+            .populate('busIds')
             .lean();
     }
     if (!maintenanceBill && billNo) {
@@ -686,6 +687,7 @@ const fetchBillPrintData = async (data) => {
             .populate('lines.itemId')
             .populate('vendorId')
             .populate('busId')
+            .populate('busIds')
             .lean();
     }
 
@@ -712,7 +714,8 @@ const fetchBillPrintData = async (data) => {
                 discountTotal: maintenanceBill.discountTotal,
                 totalAmount: maintenanceBill.grandTotal,
                 vendorId: vendor,
-                busId: vehicle
+                busId: vehicle,
+                busIds: maintenanceBill.busIds || []
             },
             vendor,
             bus: vehicle

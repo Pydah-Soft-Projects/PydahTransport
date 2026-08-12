@@ -146,7 +146,7 @@ const emptyBillLineItem = {
 };
 
 const emptyBillFormData = {
-    busId: '',
+    busId: [],
     vendorId: '',
     billNo: '',
     taxMode: 'lineLevel',
@@ -202,7 +202,7 @@ const mapBillToFormData = (bill) => {
     const singleGst = billTaxes.length === 1 ? billTaxes[0] : null;
 
     return {
-        busId: vehicleNumber,
+        busId: vehicleNumber ? [vehicleNumber] : [],
         vendorId: String(vendorId),
         billNo: bill.billNo || '',
         taxMode: bill.taxMode || 'lineLevel',
@@ -276,6 +276,7 @@ const RaiseBill = () => {
     const [loadError, setLoadError] = useState('');
     const [selectedBusFilter, setSelectedBusFilter] = useState('all');
     const [expandedBillKey, setExpandedBillKey] = useState(null);
+    const [isFormVehicleDropdownOpen, setIsFormVehicleDropdownOpen] = useState(false);
 
     const inventoryGroups = getInventoryGroups(items);
 
@@ -300,6 +301,19 @@ const RaiseBill = () => {
         setBillFormData(emptyBillFormData);
         setEditingBill(null);
     };
+
+    useEffect(() => {
+        if (!isFormVehicleDropdownOpen) return;
+        const handleOutsideClick = (event) => {
+            if (!event.target.closest('.form-vehicle-dropdown-container')) {
+                setIsFormVehicleDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleOutsideClick);
+        return () => {
+            document.removeEventListener('mousedown', handleOutsideClick);
+        };
+    }, [isFormVehicleDropdownOpen]);
 
     const applyLoadedBill = (bill) => {
         setEditingBill({
@@ -438,7 +452,8 @@ const RaiseBill = () => {
     }, [billIdParam, billNoParam, isEditMode, canEditBills]);
 
     useEffect(() => {
-        if (!billFormData.busId) {
+        const activeBusId = Array.isArray(billFormData.busId) ? (billFormData.busId[0] || '') : (billFormData.busId || '');
+        if (!activeBusId) {
             setHistory([]);
             return;
         }
@@ -446,7 +461,7 @@ const RaiseBill = () => {
         const fetchHistory = async () => {
             setHistoryLoading(true);
             try {
-                const response = await apiFetch(`${API}/inventory/history/${encodeURIComponent(billFormData.busId)}`);
+                const response = await apiFetch(`${API}/inventory/history/${encodeURIComponent(activeBusId)}`);
                 const data = await response.json();
                 setHistory(Array.isArray(data) ? data : []);
             } catch (error) {
@@ -457,7 +472,7 @@ const RaiseBill = () => {
             }
         };
         fetchHistory();
-        fetchBillsList(billFormData.busId);
+        fetchBillsList(activeBusId);
     }, [billFormData.busId]);
 
     // Sync bill-level discount when items or discount mode changes
@@ -711,8 +726,10 @@ const RaiseBill = () => {
     const billTotals = computeBillTotals(liveBillCalcInput);
 
     const buildPrintableBillData = () => {
-        const selectedBus = buses.find((bus) => bus.busNumber === billFormData.busId)
-            || otherVehicles.find((v) => v.vehicleNumber === billFormData.busId);
+        const vehicleDisplayLabel = getFormattedVehicleLabel(billFormData.busId);
+        const activeBusId = Array.isArray(billFormData.busId) ? (billFormData.busId[0] || '') : (billFormData.busId || '');
+        const selectedBus = buses.find((bus) => bus.busNumber === activeBusId)
+            || otherVehicles.find((v) => v.vehicleNumber === activeBusId);
         const selectedVendor = vendors.find((vendor) => vendor._id === billFormData.vendorId);
         const printableItems = billFormData.items
             .filter((line) => line.itemId)
@@ -726,7 +743,8 @@ const RaiseBill = () => {
                 subDescriptions: String(line.subDescriptions || '')
                     .split(/\r?\n/)
                     .map((s) => s.trim())
-                    .filter(Boolean)
+                    .filter(Boolean),
+                busId: line.busId || activeBusId
             }));
         const totals = computeBillTotals({
             ...liveBillCalcInput,
@@ -737,9 +755,12 @@ const RaiseBill = () => {
             billNo: billFormData.billNo,
             date: new Date(),
             vendorId: selectedVendor || billFormData.vendorId,
-            busId: selectedBus
-                ? { ...selectedBus, busNumber: selectedBus.busNumber || selectedBus.vehicleNumber }
-                : billFormData.busId,
+            busId: (Array.isArray(billFormData.busId) && billFormData.busId.length > 1)
+                ? { vehicleNumber: vehicleDisplayLabel, busNumber: vehicleDisplayLabel }
+                : (selectedBus
+                    ? { ...selectedBus, busNumber: selectedBus.busNumber || selectedBus.vehicleNumber }
+                    : activeBusId),
+            vehicleDisplayLabel,
             adminName: JSON.parse(localStorage.getItem('adminInfo') || '{}').name || 'Admin',
             taxMode: billFormData.taxMode,
             discountMode: billFormData.discountMode,
@@ -942,6 +963,41 @@ const RaiseBill = () => {
         setPageTab(PAGE_TABS.raise);
     };
 
+    const getFormattedVehicleLabel = (busIds) => {
+        if (!busIds || (Array.isArray(busIds) && busIds.length === 0)) {
+            return '-- Choose Vehicle --';
+        }
+        if (!Array.isArray(busIds)) {
+            return busIds;
+        }
+
+        const totalVehiclesCount = buses.length + otherVehicles.length;
+
+        if (totalVehiclesCount > 0 && busIds.length === totalVehiclesCount) {
+            return `All Vehicles (${totalVehiclesCount} Vehicles)`;
+        }
+        
+        if (buses.length > 0 && busIds.length === buses.length && buses.every((b) => busIds.includes(b.busNumber))) {
+            return `All Buses (${buses.length} Buses)`;
+        }
+
+        if (otherVehicles.length > 0 && busIds.length === otherVehicles.length && otherVehicles.every((o) => busIds.includes(o.vehicleNumber))) {
+            return `All Other Vehicles (${otherVehicles.length} Vehicles)`;
+        }
+
+        if (busIds.length <= 2) {
+            return busIds.join(', ');
+        }
+
+        // Check if all selected are buses
+        const selectedBusesCount = busIds.filter(id => buses.map(b => b.busNumber).includes(id)).length;
+        if (selectedBusesCount === busIds.length) {
+            return `${busIds.length} Buses Selected (${busIds.slice(0, 2).join(', ')}...)`;
+        }
+
+        return `${busIds.length} Vehicles Selected (${busIds.slice(0, 2).join(', ')}...)`;
+    };
+
     const handleBillSubmit = (e) => {
         e.preventDefault();
 
@@ -972,6 +1028,11 @@ const RaiseBill = () => {
             }
         }
 
+        if (!billFormData.busId || billFormData.busId.length === 0) {
+            alert('Please select at least one vehicle.');
+            return;
+        }
+
         // 2. Open confirmation modal
         setErrorMsg('');
         setShowActionModal(true);
@@ -979,7 +1040,6 @@ const RaiseBill = () => {
 
     const saveAndPrintBill = async () => {
         const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
-        const payload = buildHybridBillPayload(adminInfo.name || adminInfo.username || 'Admin');
         const isEditing = Boolean(editingBill?.originalBillNo || editingBill?.billId);
         const useIdPath = Boolean(editingBill?.billId);
         const url = isEditing
@@ -989,53 +1049,71 @@ const RaiseBill = () => {
             : `${API}/inventory/bills`;
         const method = isEditing ? 'PUT' : 'POST';
 
-        if (isEditing && !useIdPath) {
-            payload.originalBillNo = editingBill.originalBillNo;
+        const vehiclesList = Array.isArray(billFormData.busId) ? billFormData.busId : [billFormData.busId].filter(Boolean);
+        if (vehiclesList.length === 0) {
+            alert('Please select at least one vehicle.');
+            return;
         }
 
         setSubmitting(true);
         setErrorMsg('');
         try {
+            let lastSavedBill = null;
+            
+            const payload = buildHybridBillPayload(adminInfo.name || adminInfo.username || 'Admin');
+            payload.busId = vehiclesList; // send all selected vehicles in combined bill payload
+            
+            if (isEditing && !useIdPath) {
+                payload.originalBillNo = editingBill.originalBillNo;
+            }
+            
             const response = await apiFetch(url, {
                 method,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
 
-            if (response.ok) {
+            if (!response.ok) {
                 const data = await response.json().catch(() => ({}));
-                const savedBill = data.bill || null;
-                const printableBill = {
+                throw new Error(data.message || 'Failed to save combined bill');
+            }
+            
+            const result = await response.json();
+            lastSavedBill = result.bill || null;
+
+            // Compute printable data BEFORE resetting the form!
+            let printableBill = null;
+            if (lastSavedBill) {
+                printableBill = {
                     ...buildPrintableBillData(),
-                    ...(savedBill || {}),
+                    ...lastSavedBill,
                     wasEdit: isEditing
                 };
-                
-                // Close modals
-                setShowActionModal(false);
-                setShowPreviewModal(false);
+            }
 
-                // Reset form
-                resetBillForm();
-                
-                // Clear draft
-                const adminInfoLocal = JSON.parse(localStorage.getItem('adminInfo') || '{}');
-                const usernameLocal = adminInfoLocal.username || adminInfoLocal.name || 'guest';
-                localStorage.removeItem(`bill_draft_new_${usernameLocal}`);
-                setHasLoadedDraft(false);
-                
-                // Switch tab and refresh list
-                switchTab(PAGE_TABS.view);
-                
-                // Trigger print dialog
+            // Close modals
+            setShowActionModal(false);
+            setShowPreviewModal(false);
+
+            // Reset form
+            resetBillForm();
+            
+            // Clear draft
+            const adminInfoLocal = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+            const usernameLocal = adminInfoLocal.username || adminInfoLocal.name || 'guest';
+            localStorage.removeItem(`bill_draft_new_${usernameLocal}`);
+            setHasLoadedDraft(false);
+            
+            // Switch tab and refresh list
+            switchTab(PAGE_TABS.view);
+            
+            // Trigger print dialog
+            if (printableBill) {
                 await handlePrint(printableBill);
-            } else {
-                const data = await response.json().catch(() => ({}));
-                setErrorMsg(data.message || (isEditing ? 'Failed to update bill' : 'Failed to save bill'));
             }
         } catch (error) {
             console.error(isEditing ? 'Error updating:' : 'Error saving:', error);
-            setErrorMsg(isEditing ? 'Error updating bill.' : 'Error saving bill.');
+            setErrorMsg(error.message || (isEditing ? 'Failed to save bill' : 'Failed to save bill'));
         } finally {
             setSubmitting(false);
         }
@@ -1045,8 +1123,9 @@ const RaiseBill = () => {
         ? `Edit Bill #${editingBill.originalBillNo}`
         : 'Raise Bill';
 
-    const selectedVehicleObj = buses.find(b => b.busNumber === billFormData.busId)
-        || otherVehicles.find(o => o.vehicleNumber === billFormData.busId);
+    const activeBusId = Array.isArray(billFormData.busId) ? (billFormData.busId[0] || '') : (billFormData.busId || '');
+    const selectedVehicleObj = buses.find(b => b.busNumber === activeBusId)
+        || otherVehicles.find(o => o.vehicleNumber === activeBusId);
 
     return (
         <Layout>
@@ -1162,7 +1241,12 @@ const RaiseBill = () => {
                                                         <div className="flex flex-col">
                                                             <span className="font-bold text-slate-800">{bill.vendorId?.name || 'Unknown'}</span>
                                                             <span className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">
-                                                                Vehicle: {bill.busId?.vehicleNumber || bill.busId?.busNumber || 'N/A'}
+                                                                Vehicle: {(() => {
+                                                                    if (bill.busIds && bill.busIds.length > 0) {
+                                                                        return bill.busIds.map(b => b.busNumber || b.vehicleNumber || b).join(', ');
+                                                                    }
+                                                                    return bill.busId?.vehicleNumber || bill.busId?.busNumber || 'N/A';
+                                                                })()}
                                                             </span>
                                                         </div>
                                                     </td>
@@ -1334,27 +1418,123 @@ const RaiseBill = () => {
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                             <div>
                                                 <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Select Vehicle *</label>
-                                                <div className="relative">
-                                                    <Bus size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                                    <select
-                                                        required
-                                                        className="w-full pl-9 pr-6 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all cursor-pointer appearance-none"
-                                                        value={billFormData.busId}
-                                                        onChange={(e) => setBillFormData({ ...billFormData, busId: e.target.value })}
+                                                <div className="relative form-vehicle-dropdown-container">
+                                                    <Bus size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10 pointer-events-none" />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsFormVehicleDropdownOpen(!isFormVehicleDropdownOpen)}
+                                                        className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all cursor-pointer text-left flex items-center justify-between min-h-[34px]"
                                                     >
-                                                        <option value="">-- Choose Vehicle --</option>
-                                                        <optgroup label="Buses">
-                                                            {buses.map((b) => (
-                                                                <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
-                                                            ))}
-                                                        </optgroup>
-                                                        <optgroup label="Other Vehicles">
-                                                            {otherVehicles.map((o) => (
-                                                                <option key={o._id} value={o.vehicleNumber}>{o.vehicleNumber} ({o.type})</option>
-                                                            ))}
-                                                        </optgroup>
-                                                    </select>
-                                                    <ChevronDown size={13} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                                        <span className="truncate">
+                                                            {getFormattedVehicleLabel(billFormData.busId)}
+                                                        </span>
+                                                        <ChevronDown size={13} className="text-slate-400 shrink-0 pointer-events-none" />
+                                                    </button>
+                                                    {isFormVehicleDropdownOpen && (
+                                                        <div className="absolute left-0 right-0 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 max-h-72 overflow-y-auto space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                                                            {/* Buses Section */}
+                                                            {buses.length > 0 && (
+                                                                <div className="space-y-1">
+                                                                    <div className="flex items-center justify-between px-2 py-1 border-b border-slate-100 mb-1">
+                                                                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Buses</span>
+                                                                        <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-blue-600 hover:text-blue-700">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={buses.length > 0 && buses.every((b) => billFormData.busId.includes(b.busNumber))}
+                                                                                onChange={(e) => {
+                                                                                    const busNumbers = buses.map(b => b.busNumber).filter(Boolean);
+                                                                                    const otherSelected = billFormData.busId.filter(id => !busNumbers.includes(id));
+                                                                                    if (e.target.checked) {
+                                                                                        setBillFormData({
+                                                                                            ...billFormData,
+                                                                                            busId: [...otherSelected, ...busNumbers]
+                                                                                        });
+                                                                                    } else {
+                                                                                        setBillFormData({
+                                                                                            ...billFormData,
+                                                                                            busId: otherSelected
+                                                                                        });
+                                                                                    }
+                                                                                }}
+                                                                                className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
+                                                                            />
+                                                                            <span>Select All</span>
+                                                                        </label>
+                                                                    </div>
+                                                                    {buses.map((b) => {
+                                                                        const isChecked = billFormData.busId.includes(b.busNumber);
+                                                                        return (
+                                                                            <label key={b._id} className="flex items-center gap-2 px-2.5 py-1 hover:bg-slate-50 rounded-lg cursor-pointer text-xs font-bold text-slate-700">
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={isChecked}
+                                                                                    onChange={() => {
+                                                                                        const updated = isChecked
+                                                                                            ? billFormData.busId.filter(id => id !== b.busNumber)
+                                                                                            : [...billFormData.busId, b.busNumber];
+                                                                                        setBillFormData({ ...billFormData, busId: updated });
+                                                                                    }}
+                                                                                    className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
+                                                                                />
+                                                                                <span>{b.busNumber} ({b.type})</span>
+                                                                            </label>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
+
+                                                            {/* Other Vehicles Section */}
+                                                            {otherVehicles.length > 0 && (
+                                                                <div className="space-y-1">
+                                                                    <div className="flex items-center justify-between px-2 py-1 border-b border-slate-100 mb-1">
+                                                                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Other Vehicles</span>
+                                                                        <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-blue-600 hover:text-blue-700">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={otherVehicles.length > 0 && otherVehicles.every((o) => billFormData.busId.includes(o.vehicleNumber))}
+                                                                                onChange={(e) => {
+                                                                                    const otherNumbers = otherVehicles.map(o => o.vehicleNumber).filter(Boolean);
+                                                                                    const busesSelected = billFormData.busId.filter(id => !otherNumbers.includes(id));
+                                                                                    if (e.target.checked) {
+                                                                                        setBillFormData({
+                                                                                            ...billFormData,
+                                                                                            busId: [...busesSelected, ...otherNumbers]
+                                                                                        });
+                                                                                    } else {
+                                                                                        setBillFormData({
+                                                                                            ...billFormData,
+                                                                                            busId: busesSelected
+                                                                                        });
+                                                                                    }
+                                                                                }}
+                                                                                className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
+                                                                            />
+                                                                            <span>Select All</span>
+                                                                        </label>
+                                                                    </div>
+                                                                    {otherVehicles.map((o) => {
+                                                                        const isChecked = billFormData.busId.includes(o.vehicleNumber);
+                                                                        return (
+                                                                            <label key={o._id} className="flex items-center gap-2 px-2.5 py-1 hover:bg-slate-50 rounded-lg cursor-pointer text-xs font-bold text-slate-700">
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={isChecked}
+                                                                                    onChange={() => {
+                                                                                        const updated = isChecked
+                                                                                            ? billFormData.busId.filter(id => id !== o.vehicleNumber)
+                                                                                            : [...billFormData.busId, o.vehicleNumber];
+                                                                                        setBillFormData({ ...billFormData, busId: updated });
+                                                                                    }}
+                                                                                    className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
+                                                                                />
+                                                                                <span>{o.vehicleNumber} ({o.type})</span>
+                                                                            </label>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
 
@@ -1624,7 +1804,7 @@ const RaiseBill = () => {
                                                                             {index + 1}
                                                                         </span>
                                                                     </td>
-                                                                                                                      <td className="px-2 py-2">
+                                                                    <td className="px-2 py-2">
                                                                         <select
                                                                             required
                                                                             className="w-full pl-2.5 pr-6 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-705 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all cursor-pointer"
@@ -1654,7 +1834,7 @@ const RaiseBill = () => {
                                                                             ))}
                                                                         </select>
                                                                     </td>
-
+                                                                    
                                                                     <td className="px-2 py-2">
                                                                         <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white max-w-[95px] shadow-sm">
                                                                             <button
@@ -1891,7 +2071,7 @@ const RaiseBill = () => {
                                         <div className="p-4">
                                             {historyLoading ? (
                                                 <div className="py-6 flex justify-center"><Loader text="Loading history..." /></div>
-                                            ) : !billFormData.busId ? (
+                                            ) : !activeBusId ? (
                                                 <div className="py-6 text-center text-slate-350 italic text-[11px] font-medium">
                                                     Choose a bus first.
                                                 </div>
@@ -2020,9 +2200,9 @@ const RaiseBill = () => {
                         </h3>
                         
                         <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2.5 text-xs font-semibold text-slate-655">
-                            <div className="flex justify-between">
-                                <span>Vehicle / Bus:</span>
-                                <span className="text-slate-800 font-bold">{billFormData.busId}</span>
+                            <div className="flex justify-between items-start gap-4">
+                                <span className="shrink-0">Vehicle / Bus:</span>
+                                <span className="text-slate-800 font-bold text-right truncate">{getFormattedVehicleLabel(billFormData.busId)}</span>
                             </div>
                             <div className="flex justify-between">
                                 <span>Vendor:</span>
@@ -2119,8 +2299,10 @@ const RaiseBill = () => {
                                 <BillPrint
                                     billData={buildPrintableBillData()}
                                     vendor={vendors.find((v) => v._id === billFormData.vendorId)}
-                                    bus={buses.find((b) => b.busNumber === billFormData.busId)
-                                        || otherVehicles.find((v) => v.vehicleNumber === billFormData.busId)}
+                                    bus={(Array.isArray(billFormData.busId) && billFormData.busId.length > 1)
+                                        ? { vehicleNumber: getFormattedVehicleLabel(billFormData.busId), busNumber: getFormattedVehicleLabel(billFormData.busId) }
+                                        : (buses.find((b) => b.busNumber === activeBusId)
+                                            || otherVehicles.find((v) => v.vehicleNumber === activeBusId))}
                                 />
                             </div>
                         </div>
