@@ -41,6 +41,13 @@ app.use('/api/students', protect, require('./routes/studentRoutes'));
 app.use('/api/inventory', protect, require('./routes/inventoryRoutes'));
 app.use('/api/print', require('./routes/print.routes'));
 
+// Legacy redirect for physically printed QR codes pointing to the backend domain
+app.get('/verify-transport/:id', (req, res) => {
+    const publicSiteUrl = process.env.PUBLIC_SITE_URL || 'https://transport.pydah.edu.in';
+    const redirectUrl = `${publicSiteUrl.replace(/\/$/, '')}/verify-transport/${encodeURIComponent(req.params.id)}`;
+    res.redirect(301, redirectUrl);
+});
+
 app.get('/', (req, res) => {
     res.json({ message: 'Pydah Transport API is running🎉' });
 });

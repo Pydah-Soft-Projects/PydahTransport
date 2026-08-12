@@ -436,7 +436,7 @@ const fetchIdCardSheetData = async (data) => {
     }
 
     // Attach QR codes
-    const verifyBase = process.env.CRM_BACKEND_URL || '';
+    const verifyBase = process.env.PUBLIC_SITE_URL || process.env.CRM_BACKEND_URL || '';
     for (const passenger of passengers) {
         const pid = passenger.id || passenger._id;
         const verifyUrl = `${verifyBase}/verify-transport/${encodeURIComponent(pid)}`;
