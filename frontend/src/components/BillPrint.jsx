@@ -57,10 +57,12 @@ const BillPrint = ({ billData, vendor, bus }) => {
         year: 'numeric'
     });
     const vehicleNumber = billData.vehicleDisplayLabel
-        || bus?.vehicleNumber || bus?.busNumber
-        || billData.items[0]?.busId?.vehicleNumber || billData.items[0]?.busId?.busNumber
-        || (typeof billData.busId === 'string' ? billData.busId : (billData.busId?.vehicleNumber || billData.busId?.busNumber))
-        || 'N/A';
+        || (billData.busIds && billData.busIds.length > 0
+            ? billData.busIds.map(b => b.busNumber || b.vehicleNumber || (typeof b === 'string' ? b : '')).filter(Boolean).join(', ')
+            : (bus?.vehicleNumber || bus?.busNumber
+               || billData.items[0]?.busId?.vehicleNumber || billData.items[0]?.busId?.busNumber
+               || (typeof billData.busId === 'string' ? billData.busId : (billData.busId?.vehicleNumber || billData.busId?.busNumber))
+               || 'N/A'));
     const vendorName = vendor?.name || billData.vendorId?.name || 'Generic Vendor';
     const vendorAddress = vendor?.address || billData.vendorId?.address || 'Address not provided';
     const vendorPhone = vendor?.phone || billData.vendorId?.phone || null;
