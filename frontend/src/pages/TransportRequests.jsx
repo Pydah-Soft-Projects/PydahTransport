@@ -1534,7 +1534,9 @@ const TransportRequests = () => {
                                             </div>
                                             <div className="min-w-0">
                                                 <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Route</p>
-                                                <p className="text-sm font-semibold text-slate-900 mt-0.5 break-words whitespace-normal">{req.route_name || '—'}</p>
+                                                <p className="text-sm font-semibold text-slate-900 mt-0.5 break-words whitespace-normal">
+                                                    {req.route_name || '—'} {req.route_id && <span className="text-slate-400 font-mono text-xs">({req.route_id})</span>}
+                                                </p>
                                             </div>
                                         </div>
                                         <DetailItem icon={Bus} label="Stage" value={req.stage_name || '—'} />
