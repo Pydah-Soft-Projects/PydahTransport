@@ -56,7 +56,11 @@ const BillPrint = ({ billData, vendor, bus }) => {
         month: '2-digit',
         year: 'numeric'
     });
-    const vehicleNumber = bus?.vehicleNumber || bus?.busNumber || billData.items[0]?.busId?.vehicleNumber || billData.items[0]?.busId?.busNumber || billData.busId?.vehicleNumber || billData.busId?.busNumber || billData.busId || 'N/A';
+    const vehicleNumber = billData.vehicleDisplayLabel
+        || bus?.vehicleNumber || bus?.busNumber
+        || billData.items[0]?.busId?.vehicleNumber || billData.items[0]?.busId?.busNumber
+        || (typeof billData.busId === 'string' ? billData.busId : (billData.busId?.vehicleNumber || billData.busId?.busNumber))
+        || 'N/A';
     const vendorName = vendor?.name || billData.vendorId?.name || 'Generic Vendor';
     const vendorAddress = vendor?.address || billData.vendorId?.address || 'Address not provided';
     const vendorPhone = vendor?.phone || billData.vendorId?.phone || null;
@@ -72,7 +76,7 @@ const BillPrint = ({ billData, vendor, bus }) => {
                 <div className="space-y-1">
                     <p><span className="font-bold">Bill No:</span> #{billData.billNo || 'N/A'}</p>
                     <p><span className="font-bold">Date:</span> {formattedDate}</p>
-                    <p><span className="font-bold">Vehicle No:</span> {vehicleNumber}</p>
+                    <p><span className="font-bold">Vehicle / Bus:</span> {vehicleNumber}</p>
                 </div>
                 <div className="space-y-1">
                     <p><span className="font-bold">Vendor:</span> {vendorName}</p>
