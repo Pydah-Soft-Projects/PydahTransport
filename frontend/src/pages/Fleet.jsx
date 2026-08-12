@@ -205,6 +205,38 @@ const Fleet = () => {
         }
     };
 
+    const handlePrintSingleBusReport = async (busNumber) => {
+        setReportLoadingAction(`pdf-${busNumber}`);
+        try {
+            const status = occupancyMode === 'live' ? 'active' : 'approved';
+            const response = await apiFetch(`${API}/print`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    template: 'passenger-report',
+                    data: {
+                        status,
+                        academicYear: occupancyMode !== 'live' ? academicYear : undefined,
+                        occupancyMode,
+                        busId: busNumber,
+                        includeAbstract: false,
+                        includeDetailed: true,
+                    }
+                })
+            });
+            if (response.ok) {
+                const html = await response.text();
+                printHtmlDocument(html, `Passenger-Report-${busNumber}`);
+            } else {
+                alert('Failed to generate report for bus.');
+            }
+        } catch (e) {
+            console.error('Error generating bus report:', e);
+            alert('Error generating report.');
+        } finally {
+            setReportLoadingAction(null);
+        }
+    };
+
     const openReportModal = () => {
         setReportModalError('');
         setReportOptions({ abstract: true, detailed: true });
@@ -643,12 +675,23 @@ const Fleet = () => {
                                                     </div>
                                                 </td>
                                                 <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                                                    <Link
-                                                        to={`/buses/${item.bus._id}`}
-                                                        className="px-2.5 py-1 rounded border border-slate-200 text-slate-600 text-[9px] font-bold hover:bg-slate-50 hover:text-slate-900 transition-colors"
-                                                    >
-                                                        Open
-                                                    </Link>
+                                                    <div className="flex justify-end gap-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handlePrintSingleBusReport(item.bus.busNumber)}
+                                                            disabled={reportLoadingAction === `pdf-${item.bus.busNumber}`}
+                                                            className="px-2.5 py-1 rounded border border-slate-200 text-blue-600 text-[9px] font-bold hover:bg-blue-50 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                                        >
+                                                            {reportLoadingAction === `pdf-${item.bus.busNumber}` ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
+                                                            Print
+                                                        </button>
+                                                        <Link
+                                                            to={`/buses/${item.bus._id}`}
+                                                            className="px-2.5 py-1 rounded border border-slate-200 text-slate-600 text-[9px] font-bold hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                                                        >
+                                                            Open
+                                                        </Link>
+                                                    </div>
                                                 </td>
                                             </tr>
 

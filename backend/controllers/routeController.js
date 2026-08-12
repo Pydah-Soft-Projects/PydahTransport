@@ -79,6 +79,10 @@ const updateRoute = async (req, res) => {
         );
 
         if (route) {
+            const nameChanged = req.body.routeName && req.body.routeName !== route.routeName;
+            const idChanged = req.body.routeId && req.body.routeId !== route.routeId;
+            const oldRouteId = route.routeId;
+
             route.routeId = req.body.routeId || route.routeId;
             route.routeName = req.body.routeName || route.routeName;
             route.startPoint = req.body.startPoint || route.startPoint;
@@ -95,6 +99,16 @@ const updateRoute = async (req, res) => {
             }
 
             const updatedRoute = await route.save();
+
+            if (nameChanged || idChanged) {
+                const updatePayload = {};
+                if (nameChanged) updatePayload.route_name = route.routeName;
+                if (idChanged) updatePayload.route_id = route.routeId;
+
+                await TransportRequest.updateMany({ route_id: oldRouteId }, { $set: updatePayload });
+                await EmployeeTransportRequest.updateMany({ route_id: oldRouteId }, { $set: updatePayload });
+            }
+
             const populatedRoute = await campusService.attachCampusToDoc(updatedRoute);
             res.json(serializeRoute(populatedRoute, editingAcademicYear));
         } else {

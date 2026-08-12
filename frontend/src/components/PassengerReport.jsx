@@ -300,6 +300,9 @@ const PassengerReport = forwardRef(({
                         table-layout: fixed;
                         margin: 0 0 6px 0;
                     }
+                    table.route-abstract-table {
+                        table-layout: auto !important;
+                    }
                     table.report-table th,
                     table.report-table td,
                     table.passenger-table th,
@@ -326,8 +329,8 @@ const PassengerReport = forwardRef(({
                         background: #fff;
                     }
                     .abstract-col-sno { width: 5%; text-align: center; }
-                    .abstract-col-route { width: 30%; text-align: left; font-weight: 600; }
-                    .abstract-col-id { width: 12%; text-align: center; font-family: ui-monospace, monospace; font-size: 7px; }
+                    .abstract-col-route { width: 37%; text-align: left; font-weight: 600; }
+                    .abstract-col-id { width: 5%; text-align: center; font-family: ui-monospace, monospace; font-size: 7px; }
                     .abstract-col-stages { width: 10%; text-align: center; }
                     .abstract-col-total { width: 11%; text-align: center; font-weight: 700; }
                     .abstract-col-stu { width: 11%; text-align: center; }
@@ -521,6 +524,9 @@ const PassengerReport = forwardRef(({
                                 .filter(Boolean)
                         )].sort();
 
+                        const routePassengers = Object.values(stages).flat();
+                        const uniqueCourses = [...new Set(routePassengers.map(p => getPassengerCourseLabel(p)))].sort();
+
                         return (
                             <div key={route} className={`route-block ${rIdx < sortedRoutes.length - 1 ? 'page-break' : ''}`}>
                                 {showAbstract && rIdx === 0 && (
@@ -540,13 +546,60 @@ const PassengerReport = forwardRef(({
                                     </div>
                                 </div>
 
-                                <CourseStatsTable
-                                    rows={routeCourseStatsMap[route] || []}
-                                    showHeading
-                                />
+                                <table className="report-table route-abstract-table">
+                                    <thead>
+                                        <tr>
+                                            <th style={{ width: '5%', textAlign: 'center' }}>S.No</th>
+                                            <th style={{ width: '25%', textAlign: 'left' }}>Stage</th>
+                                            {uniqueCourses.map(course => (
+                                                <th key={course}>{course}</th>
+                                            ))}
+                                            <th style={{ width: '12%', fontWeight: 'bold' }}>Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {sortedStages.map((stage, sIdx) => {
+                                            const stagePassengers = stages[stage] || [];
+                                            const stageTotal = stagePassengers.length;
+
+                                            return (
+                                                <tr key={stage}>
+                                                    <td style={{ textAlign: 'center' }}>{sIdx + 1}</td>
+                                                    <td style={{ textAlign: 'left', fontWeight: 'bold' }}>{stage}</td>
+                                                    {uniqueCourses.map(course => {
+                                                        const count = stagePassengers.filter(p => getPassengerCourseLabel(p) === course).length;
+                                                        return (
+                                                            <td key={course} style={{ textAlign: 'center' }}>
+                                                                {count > 0 ? count : '—'}
+                                                            </td>
+                                                        );
+                                                    })}
+                                                    <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{stageTotal}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                        {/* Grand Total Row */}
+                                        <tr className="abstract-total-row">
+                                            <td colSpan={2} style={{ textAlign: 'left', fontWeight: 'bold' }}>Total</td>
+                                            {uniqueCourses.map(course => {
+                                                const count = routePassengers.filter(p => getPassengerCourseLabel(p) === course).length;
+                                                return (
+                                                    <td key={course} style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                                                        {count}
+                                                    </td>
+                                                );
+                                            })}
+                                            <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{routePassengers.length}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+
+                                <div style={{ marginTop: '10px', marginBottom: '4px' }}>
+                                    <h3 className="subsection-heading">Passenger List</h3>
+                                </div>
 
                                 {sortedStages.map((stage) => {
-                                    const stagePassengers = stages[stage];
+                                    const stagePassengers = stages[stage] || [];
                                     const numStudents = stagePassengers.filter((p) => !p.user_type || p.user_type === 'student').length;
                                     const numEmployees = stagePassengers.filter((p) => p.user_type === 'employee').length;
 
@@ -559,8 +612,8 @@ const PassengerReport = forwardRef(({
                                                 </div>
                                             </div>
 
-                                            {stagePassengers.filter((p) => !p.user_type || p.user_type === 'student').length > 0 && (
-                                                <table className="passenger-table" style={{ marginBottom: stagePassengers.filter((p) => p.user_type === 'employee').length > 0 ? '6px' : '0px' }}>
+                                            {stagePassengers.length > 0 && (
+                                                <table className="passenger-table" style={{ margin: '0px' }}>
                                                     <thead>
                                                         <tr>
                                                             <th className="col-sno">#</th>
@@ -571,45 +624,32 @@ const PassengerReport = forwardRef(({
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        {stagePassengers.filter((p) => !p.user_type || p.user_type === 'student').map((p, pIdx) => (
-                                                            <tr key={p.id || p._id || pIdx}>
-                                                                <td className="col-sno">{pIdx + 1}</td>
-                                                                <td className="col-name">{p.student_name || p.employee_name || '—'}</td>
-                                                                <td className="col-id">{p.admission_no || p.admission_number || p.emp_no || '—'}</td>
-                                                                <td className="col-type">
-                                                                    <span className="type-student">Student</span>
-                                                                </td>
-                                                                <td className="col-course">
-                                                                    {p.course || '—'}
-                                                                    {p.branch ? ` (${p.branch})` : ''}
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            )}
-
-                                            {stagePassengers.filter((p) => p.user_type === 'employee').length > 0 && (
-                                                <table className="passenger-table" style={{ margin: '0px' }}>
-                                                    <thead>
-                                                        <tr>
-                                                            <th className="col-sno">#</th>
-                                                            <th className="col-name" style={{ width: '79%' }}>Passenger Name</th>
-                                                            <th className="col-id" style={{ width: '9%' }}>ID / Admission</th>
-                                                            <th className="col-type" style={{ width: '7%' }}>Type</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {stagePassengers.filter((p) => p.user_type === 'employee').map((p, pIdx) => (
-                                                            <tr key={p.id || p._id || pIdx}>
-                                                                <td className="col-sno">{pIdx + 1}</td>
-                                                                <td className="col-name">{p.student_name || p.employee_name || '—'}</td>
-                                                                <td className="col-id">{p.admission_no || p.admission_number || p.emp_no || '—'}</td>
-                                                                <td className="col-type">
-                                                                    <span className="type-employee">Employee</span>
-                                                                </td>
-                                                            </tr>
-                                                        ))}
+                                                        {(() => {
+                                                            const sortedPassengers = [...stagePassengers].sort((a, b) => {
+                                                                const typeA = a.user_type === 'employee' ? 1 : 0;
+                                                                const typeB = b.user_type === 'employee' ? 1 : 0;
+                                                                if (typeA !== typeB) return typeA - typeB;
+                                                                return (a.student_name || a.employee_name || '').localeCompare(b.student_name || b.employee_name || '');
+                                                            });
+                                                            return sortedPassengers.map((p, pIdx) => {
+                                                                const isEmp = p.user_type === 'employee';
+                                                                return (
+                                                                    <tr key={p.id || p._id || pIdx}>
+                                                                        <td className="col-sno">{pIdx + 1}</td>
+                                                                        <td className="col-name">{p.student_name || p.employee_name || '—'}</td>
+                                                                        <td className="col-id">{p.admission_no || p.admission_number || p.emp_no || '—'}</td>
+                                                                        <td className="col-type">
+                                                                            <span className={isEmp ? 'type-employee' : 'type-student'}>
+                                                                                {isEmp ? 'Employee' : 'Student'}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td className="col-course">
+                                                                            {isEmp ? '—' : (p.course || '—') + (p.branch ? ` (${p.branch})` : '')}
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            });
+                                                        })()}
                                                     </tbody>
                                                 </table>
                                             )}
