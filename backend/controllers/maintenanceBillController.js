@@ -126,13 +126,10 @@ const normalizeIncomingLines = (items = []) => {
             uom: raw.uom || '',
             discountAmount: toNumber(raw.discountAmount, 0),
             discountPercent: toNumber(raw.discountPercent, 0),
-            gstPercent: toNumber(raw.gstPercent, 0),
-            taxes: normalizeTaxEntries(raw.taxes, raw.gstPercent),
             tyrePosition: raw.tyrePosition || null,
             kmReading: raw.kmReading || 0,
             tyreType: raw.tyreType || '',
-            remarks: raw.remarks || '',
-            busId: raw.busId || null
+            remarks: raw.remarks || ''
         };
     });
 };
@@ -188,16 +185,23 @@ const buildBillDocument = async ({ body, vehicle, vehicleType, existingAttachmen
             kmReading: line.kmReading || 0,
             tyreType: line.tyreType || '',
             remarks: line.remarks || '',
-            busId: line.busId ? (await resolveVehicle(line.busId))?.vehicle?._id : (vehicle ? vehicle._id : null),
-            vehicleType: line.busId ? (await resolveVehicle(line.busId))?.vehicleType : (vehicleType || 'Bus')
+            allocationIds: line.allocationIds || []
         });
+    }
+
+    const busIds = [];
+    const vehiclesList = Array.isArray(body.busId) ? body.busId : [body.busId].filter(Boolean);
+    for (const id of vehiclesList) {
+        const res = await resolveVehicle(id);
+        if (res) busIds.push(res.vehicle._id);
     }
 
     return {
         billNo: String(body.billNo || '').trim(),
         date: body.date ? new Date(body.date) : new Date(),
-        busId: vehicle._id,
-        vehicleType,
+        busId: vehicle ? vehicle._id : null,
+        busIds,
+        vehicleType: vehicleType || 'Bus',
         vendorId: body.vendorId || null,
         adminName: body.adminName || '',
         taxMode,
@@ -219,80 +223,94 @@ const buildBillDocument = async ({ body, vehicle, vehicleType, existingAttachmen
     };
 };
 
-const syncAllocationsForBill = async (bill, { vehicle, vehicleType, previousAllocationIds = [] }) => {
+const syncAllocationsForBill = async (bill, { vehicle, vehicleType, previousAllocationIds = [] } = {}) => {
     const keptIds = new Set();
     const updatedLines = [];
+
+    const targetVehicleIds = bill.busIds && bill.busIds.length > 0 ? bill.busIds : [bill.busId].filter(Boolean);
 
     for (const line of bill.lines) {
         const item = await InventoryItem.findById(line.itemId);
         if (!item) continue;
 
-        const lineVehicle = line.busId ? await resolveVehicle(line.busId) : (vehicle ? { vehicle, vehicleType } : null);
-        const lineBusId = lineVehicle?.vehicle?._id || null;
-        const lineVehicleType = lineVehicle?.vehicleType || 'Bus';
+        const currentAllocationIds = Array.isArray(line.allocationIds) ? line.allocationIds : [line.allocationId].filter(Boolean);
+        const newLineAllocationIds = [];
 
-        const allocData = {
-            busId: lineBusId,
-            vehicleType: lineVehicleType,
-            itemId: item._id,
-            variantName: line.variantName || '',
-            vendorId: bill.vendorId,
-            billNo: bill.billNo,
-            maintenanceBillId: bill._id,
-            quantity: line.quantity,
-            price: line.pricingMode === 'lumpSum'
-                ? (line.quantity > 0 ? line.amount / line.quantity : line.amount)
-                : line.unitPrice,
-            pricingMode: line.pricingMode,
-            amount: line.amount,
-            gstPercent: line.gstPercent || 0,
-            discountAmount: line.discountAmount || 0,
-            discountPercent: line.discountPercent || 0,
-            remarks: line.remarks,
-            adminName: bill.adminName,
-            tyrePosition: line.tyrePosition,
-            kmReading: line.kmReading || 0
-        };
+        for (const targetVehicleId of targetVehicleIds) {
+            const resolved = await resolveVehicle(targetVehicleId);
+            if (!resolved) continue;
+            const { vehicle: lineVehicle, vehicleType: lineVehicleType } = resolved;
 
-        let allocation;
-        if (line.allocationId) {
-            allocation = await InventoryAllocation.findByIdAndUpdate(line.allocationId, allocData, { new: true });
+            const allocData = {
+                busId: lineVehicle._id,
+                vehicleType: lineVehicleType,
+                itemId: item._id,
+                variantName: line.variantName || '',
+                vendorId: bill.vendorId,
+                billNo: bill.billNo,
+                maintenanceBillId: bill._id,
+                quantity: line.quantity,
+                price: line.pricingMode === 'lumpSum'
+                    ? (line.quantity > 0 ? line.amount / line.quantity : line.amount)
+                    : line.unitPrice,
+                pricingMode: line.pricingMode,
+                amount: line.amount,
+                gstPercent: line.gstPercent || 0,
+                discountAmount: line.discountAmount || 0,
+                discountPercent: line.discountPercent || 0,
+                remarks: line.remarks,
+                adminName: bill.adminName,
+                tyrePosition: line.tyrePosition,
+                kmReading: line.kmReading || 0
+            };
+
+            let allocation = null;
+            for (const allocId of currentAllocationIds) {
+                const match = await InventoryAllocation.findOne({ _id: allocId, busId: lineVehicle._id });
+                if (match) {
+                    allocation = await InventoryAllocation.findByIdAndUpdate(allocId, allocData, { new: true });
+                    break;
+                }
+            }
+
+            if (!allocation) {
+                allocation = new InventoryAllocation(allocData);
+                await allocation.save();
+
+                if (lineVehicle) {
+                    await applyTyreRegistryUpdate({
+                        vehicle: lineVehicle,
+                        vehicleType: lineVehicleType,
+                        item,
+                        variantName: line.variantName,
+                        tyrePosition: line.tyrePosition,
+                        kmReading: line.kmReading,
+                        tyreType: line.tyreType
+                    });
+                }
+            } else {
+                const isTyreItem = item.category === 'Tires' || item.itemName === 'Tires';
+                if (isTyreItem && line.tyrePosition && lineVehicle) {
+                    await applyTyreRegistryUpdate({
+                        vehicle: lineVehicle,
+                        vehicleType: lineVehicleType,
+                        item,
+                        variantName: line.variantName,
+                        tyrePosition: line.tyrePosition,
+                        kmReading: line.kmReading,
+                        tyreType: line.tyreType
+                    });
+                }
+            }
+
+            keptIds.add(String(allocation._id));
+            newLineAllocationIds.push(allocation._id);
         }
 
-        if (!allocation) {
-            allocation = new InventoryAllocation(allocData);
-            await allocation.save();
-
-            if (lineVehicle?.vehicle) {
-                await applyTyreRegistryUpdate({
-                    vehicle: lineVehicle.vehicle,
-                    vehicleType: lineVehicleType,
-                    item,
-                    variantName: line.variantName,
-                    tyrePosition: line.tyrePosition,
-                    kmReading: line.kmReading,
-                    tyreType: line.tyreType
-                });
-            }
-        } else {
-            const isTyreItem = item.category === 'Tires' || item.itemName === 'Tires';
-            if (isTyreItem && line.tyrePosition && lineVehicle?.vehicle) {
-                await applyTyreRegistryUpdate({
-                    vehicle: lineVehicle.vehicle,
-                    vehicleType: lineVehicleType,
-                    item,
-                    variantName: line.variantName,
-                    tyrePosition: line.tyrePosition,
-                    kmReading: line.kmReading,
-                    tyreType: line.tyreType
-                });
-            }
-        }
-
-        keptIds.add(String(allocation._id));
         updatedLines.push({
             ...line.toObject?.() || line,
-            allocationId: allocation._id
+            allocationIds: newLineAllocationIds,
+            allocationId: newLineAllocationIds[0] || null
         });
     }
 
@@ -315,6 +333,7 @@ const populateBill = (query) =>
     query
         .populate('vendorId', 'name phone address email')
         .populate('busId', 'busNumber vehicleNumber type')
+        .populate('busIds', 'busNumber vehicleNumber type')
         .populate('lines.itemId', 'itemName variantName variants category unit');
 
 const toPublicBill = (bill) => {
@@ -338,8 +357,7 @@ const toPublicBill = (bill) => {
             billNo: obj.billNo,
             allocatedDate: obj.date,
             vendorId: obj.vendorId,
-            busId: line.busId || obj.busId,
-            vehicleType: line.vehicleType || obj.vehicleType
+            busId: obj.busId
         })),
         date: obj.date,
         totalAmount: obj.grandTotal,
@@ -407,7 +425,7 @@ exports.updateBillById = async (req, res) => {
         const { vehicle, vehicleType } = resolved;
 
         const previousAllocationIds = (bill.lines || [])
-            .map((line) => line.allocationId)
+            .flatMap((line) => line.allocationIds && line.allocationIds.length > 0 ? line.allocationIds : [line.allocationId])
             .filter(Boolean);
 
         const docData = await buildBillDocument({

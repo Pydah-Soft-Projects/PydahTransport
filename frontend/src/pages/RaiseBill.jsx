@@ -703,8 +703,7 @@ const RaiseBill = () => {
                 remarks: item.remarks || '',
                 tyrePosition: item.tyrePosition,
                 kmReading: item.kmReading,
-                tyreType: item.tyreType,
-                busId: item.busId || (Array.isArray(billFormData.busId) ? billFormData.busId[0] : billFormData.busId)
+                tyreType: item.tyreType
             };
         })
     });
@@ -1034,17 +1033,6 @@ const RaiseBill = () => {
             return;
         }
 
-        // Validate line vehicles if multiple selected
-        if (billFormData.busId.length > 1) {
-            for (let i = 0; i < billFormData.items.length; i++) {
-                const item = billFormData.items[i];
-                if (!item.busId) {
-                    alert(`Please select a vehicle for row #${i + 1}.`);
-                    return;
-                }
-            }
-        }
-
         // 2. Open confirmation modal
         setErrorMsg('');
         setShowActionModal(true);
@@ -1254,8 +1242,9 @@ const RaiseBill = () => {
                                                             <span className="font-bold text-slate-800">{bill.vendorId?.name || 'Unknown'}</span>
                                                             <span className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">
                                                                 Vehicle: {(() => {
-                                                                    const vehicles = [...new Set(bill.items.map(it => it.busId?.busNumber || it.busId?.vehicleNumber || (typeof it.busId === 'string' ? it.busId : '')).filter(Boolean))];
-                                                                    if (vehicles.length > 0) return vehicles.join(', ');
+                                                                    if (bill.busIds && bill.busIds.length > 0) {
+                                                                        return bill.busIds.map(b => b.busNumber || b.vehicleNumber || b).join(', ');
+                                                                    }
                                                                     return bill.busId?.vehicleNumber || bill.busId?.busNumber || 'N/A';
                                                                 })()}
                                                             </span>
@@ -1315,7 +1304,6 @@ const RaiseBill = () => {
                                                                     <thead>
                                                                         <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase text-slate-455 tracking-wider">
                                                                             <th className="px-4 py-2.5">Item</th>
-                                                                            <th className="px-4 py-2.5">Vehicle</th>
                                                                             <th className="px-4 py-2.5 text-center">Qty</th>
                                                                             <th className="px-4 py-2.5 text-right">Price / Amount</th>
                                                                             <th className="px-4 py-2.5 text-center">GST %</th>
@@ -1339,9 +1327,6 @@ const RaiseBill = () => {
                                                                                             <span className="ml-2 text-[9px] uppercase text-slate-400 font-bold">Lump sum</span>
                                                                                         )}
                                                                                     </td>
-                                                                                    <td className="px-4 py-2.5 font-semibold">
-                                                                                        {item.busId?.busNumber || item.busId?.vehicleNumber || (typeof item.busId === 'string' ? item.busId : 'N/A')}
-                                                                                    </td>
                                                                                     <td className="px-4 py-2.5 text-center">{item.quantity}</td>
                                                                                     <td className="px-4 py-2.5 text-right">₹{formatCurrency(amountLabel)}</td>
                                                                                     <td className="px-4 py-2.5 text-center">
@@ -1354,7 +1339,7 @@ const RaiseBill = () => {
                                                                     </tbody>
                                                                     <tfoot>
                                                                         <tr className="bg-blue-50/40 border-t border-blue-100">
-                                                                            <td colSpan={5} className="px-4 py-2.5 text-right text-[10px] font-black uppercase text-slate-455 tracking-wider">Grand Total</td>
+                                                                            <td colSpan={4} className="px-4 py-2.5 text-right text-[10px] font-black uppercase text-slate-450 tracking-wider">Grand Total</td>
                                                                             <td className="px-4 py-2.5 text-right font-black text-blue-700 text-xs">₹{formatCurrency(bill.totalAmount)}</td>
                                                                         </tr>
                                                                     </tfoot>
@@ -1796,7 +1781,6 @@ const RaiseBill = () => {
                                                         <th className="px-1 py-2 w-6">#</th>
                                                         <th className="px-3 py-2">Category *</th>
                                                         <th className="px-3 py-2">Variant / Item *</th>
-                                                        {billFormData.busId.length > 1 && <th className="px-3 py-2">Vehicle *</th>}
                                                         <th className="px-3 py-2 w-28">Qty *</th>
                                                         <th className="px-3 py-2 w-28">Mode</th>
                                                         <th className="px-3 py-2">Unit Price / Amt (₹)</th>
@@ -1851,24 +1835,6 @@ const RaiseBill = () => {
                                                                         </select>
                                                                     </td>
                                                                     
-                                                                    {billFormData.busId.length > 1 && (
-                                                                        <td className="px-2 py-2">
-                                                                            <select
-                                                                                required
-                                                                                className="w-full pl-2.5 pr-6 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-705 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all cursor-pointer"
-                                                                                value={lineItem.busId || ''}
-                                                                                onChange={(e) => updateBillItem(index, 'busId', e.target.value)}
-                                                                            >
-                                                                                <option value="">-- Select --</option>
-                                                                                {billFormData.busId.map((id) => (
-                                                                                    <option key={id} value={id}>
-                                                                                        {id}
-                                                                                    </option>
-                                                                                ))}
-                                                                            </select>
-                                                                        </td>
-                                                                    )}
-
                                                                     <td className="px-2 py-2">
                                                                         <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white max-w-[95px] shadow-sm">
                                                                             <button

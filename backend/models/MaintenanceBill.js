@@ -57,16 +57,10 @@ const billLineSchema = new mongoose.Schema({
     kmReading: { type: Number, default: null },
     tyreType: { type: String, trim: true, default: '' },
     remarks: { type: String, trim: true, default: '' },
-    busId: {
+    allocationIds: [{
         type: mongoose.Schema.Types.ObjectId,
-        refPath: 'lines.vehicleType',
-        default: null
-    },
-    vehicleType: {
-        type: String,
-        enum: ['Bus', 'OtherVehicle'],
-        default: 'Bus'
-    }
+        ref: 'InventoryAllocation'
+    }]
 }, { _id: true });
 
 const maintenanceBillSchema = new mongoose.Schema({
@@ -85,6 +79,10 @@ const maintenanceBillSchema = new mongoose.Schema({
         refPath: 'vehicleType',
         default: null
     },
+    busIds: [{
+        type: mongoose.Schema.Types.ObjectId,
+        refPath: 'vehicleType'
+    }],
     vehicleType: {
         type: String,
         enum: ['Bus', 'OtherVehicle'],
