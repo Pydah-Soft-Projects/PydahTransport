@@ -131,7 +131,8 @@ const normalizeIncomingLines = (items = []) => {
             tyrePosition: raw.tyrePosition || null,
             kmReading: raw.kmReading || 0,
             tyreType: raw.tyreType || '',
-            remarks: raw.remarks || ''
+            remarks: raw.remarks || '',
+            busId: raw.busId || null
         };
     });
 };
@@ -186,7 +187,9 @@ const buildBillDocument = async ({ body, vehicle, vehicleType, existingAttachmen
             tyrePosition: line.tyrePosition,
             kmReading: line.kmReading || 0,
             tyreType: line.tyreType || '',
-            remarks: line.remarks || ''
+            remarks: line.remarks || '',
+            busId: line.busId ? (await resolveVehicle(line.busId))?.vehicle?._id : (vehicle ? vehicle._id : null),
+            vehicleType: line.busId ? (await resolveVehicle(line.busId))?.vehicleType : (vehicleType || 'Bus')
         });
     }
 
@@ -224,9 +227,13 @@ const syncAllocationsForBill = async (bill, { vehicle, vehicleType, previousAllo
         const item = await InventoryItem.findById(line.itemId);
         if (!item) continue;
 
+        const lineVehicle = line.busId ? await resolveVehicle(line.busId) : (vehicle ? { vehicle, vehicleType } : null);
+        const lineBusId = lineVehicle?.vehicle?._id || null;
+        const lineVehicleType = lineVehicle?.vehicleType || 'Bus';
+
         const allocData = {
-            busId: vehicle._id,
-            vehicleType,
+            busId: lineBusId,
+            vehicleType: lineVehicleType,
             itemId: item._id,
             variantName: line.variantName || '',
             vendorId: bill.vendorId,
@@ -256,21 +263,23 @@ const syncAllocationsForBill = async (bill, { vehicle, vehicleType, previousAllo
             allocation = new InventoryAllocation(allocData);
             await allocation.save();
 
-            await applyTyreRegistryUpdate({
-                vehicle,
-                vehicleType,
-                item,
-                variantName: line.variantName,
-                tyrePosition: line.tyrePosition,
-                kmReading: line.kmReading,
-                tyreType: line.tyreType
-            });
+            if (lineVehicle?.vehicle) {
+                await applyTyreRegistryUpdate({
+                    vehicle: lineVehicle.vehicle,
+                    vehicleType: lineVehicleType,
+                    item,
+                    variantName: line.variantName,
+                    tyrePosition: line.tyrePosition,
+                    kmReading: line.kmReading,
+                    tyreType: line.tyreType
+                });
+            }
         } else {
             const isTyreItem = item.category === 'Tires' || item.itemName === 'Tires';
-            if (isTyreItem && line.tyrePosition) {
+            if (isTyreItem && line.tyrePosition && lineVehicle?.vehicle) {
                 await applyTyreRegistryUpdate({
-                    vehicle,
-                    vehicleType,
+                    vehicle: lineVehicle.vehicle,
+                    vehicleType: lineVehicleType,
                     item,
                     variantName: line.variantName,
                     tyrePosition: line.tyrePosition,
@@ -329,7 +338,8 @@ const toPublicBill = (bill) => {
             billNo: obj.billNo,
             allocatedDate: obj.date,
             vendorId: obj.vendorId,
-            busId: obj.busId
+            busId: line.busId || obj.busId,
+            vehicleType: line.vehicleType || obj.vehicleType
         })),
         date: obj.date,
         totalAmount: obj.grandTotal,
@@ -361,7 +371,7 @@ exports.createBill = async (req, res) => {
             return res.status(400).json({ message: 'Bill number is required' });
         }
 
-        const resolved = await resolveVehicle(body.busId);
+        const resolved = await resolveVehicle(Array.isArray(body.busId) ? body.busId[0] : body.busId);
         if (!resolved) return res.status(404).json({ message: 'Vehicle not found' });
         const { vehicle, vehicleType } = resolved;
 
@@ -392,7 +402,7 @@ exports.updateBillById = async (req, res) => {
             billNo: req.body.billNo || bill.billNo
         });
 
-        const resolved = await resolveVehicle(body.busId);
+        const resolved = await resolveVehicle(Array.isArray(body.busId) ? body.busId[0] : body.busId);
         if (!resolved) return res.status(404).json({ message: 'Vehicle not found' });
         const { vehicle, vehicleType } = resolved;
 
@@ -554,8 +564,10 @@ exports.getBills = async (req, res) => {
         if (busId && busId !== 'all') {
             const resolved = await resolveVehicle(busId);
             if (!resolved) return res.status(200).json([]);
-            query.busId = resolved.vehicle._id;
-            query.vehicleType = resolved.vehicleType;
+            query.$or = [
+                { busId: resolved.vehicle._id, vehicleType: resolved.vehicleType },
+                { "lines.busId": resolved.vehicle._id, "lines.vehicleType": resolved.vehicleType }
+            ];
         }
 
         const bills = await populateBill(MaintenanceBill.find(query).sort({ date: -1 }));
