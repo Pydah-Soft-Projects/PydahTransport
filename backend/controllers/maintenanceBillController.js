@@ -198,7 +198,7 @@ const buildBillDocument = async ({ body, vehicle, vehicleType, existingAttachmen
 
     return {
         billNo: String(body.billNo || '').trim(),
-        date: body.date ? new Date(body.date) : new Date(),
+        date: body.billDate ? new Date(body.billDate) : (body.date ? new Date(body.date) : new Date()),
         busId: vehicle ? vehicle._id : null,
         busIds,
         vehicleType: vehicleType || 'Bus',

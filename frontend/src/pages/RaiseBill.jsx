@@ -149,6 +149,7 @@ const emptyBillFormData = {
     busId: [],
     vendorId: '',
     billNo: '',
+    billDate: new Date().toISOString().split('T')[0],
     taxMode: 'lineLevel',
     discountMode: 'none',
     billGstPercent: '',
@@ -201,10 +202,14 @@ const mapBillToFormData = (bill) => {
     const sgst = billTaxes.find((t) => /sgst|utgst/i.test(t.name));
     const singleGst = billTaxes.length === 1 ? billTaxes[0] : null;
 
+    // Format bill date to YYYY-MM-DD for input[type="date"]
+    const billDateStr = bill.date ? new Date(bill.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+
     return {
         busId: vehicleNumber ? [vehicleNumber] : [],
         vendorId: String(vendorId),
         billNo: bill.billNo || '',
+        billDate: billDateStr,
         taxMode: bill.taxMode || 'lineLevel',
         discountMode: bill.discountMode || 'none',
         billGstPercent: singleGst && !cgst && !sgst ? String(singleGst.rate) : '',
@@ -1569,6 +1574,20 @@ const RaiseBill = () => {
                                                     />
                                                 </div>
                                             </div>
+
+                                            <div>
+                                                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Bill Date *</label>
+                                                <div className="relative">
+                                                    <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                    <input
+                                                        type="date"
+                                                        required
+                                                        className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all"
+                                                        value={billFormData.billDate}
+                                                        onChange={(e) => setBillFormData({ ...billFormData, billDate: e.target.value })}
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 border-t border-slate-50 pt-3.5">
                                             <div>
@@ -2213,6 +2232,19 @@ const RaiseBill = () => {
                             <div className="flex justify-between">
                                 <span>Bill Number:</span>
                                 <span className="text-slate-800 font-bold">#{billFormData.billNo || 'N/A'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span>Bill Date:</span>
+                                <span className="text-slate-800 font-bold">
+                                    {billFormData.billDate 
+                                        ? new Date(billFormData.billDate).toLocaleDateString('en-IN', { 
+                                            year: 'numeric', 
+                                            month: 'short', 
+                                            day: 'numeric' 
+                                          })
+                                        : 'N/A'
+                                    }
+                                </span>
                             </div>
                             {billTotals.insuranceClaimAmount > 0 && (
                                 <div className="flex justify-between text-slate-500 font-semibold">
