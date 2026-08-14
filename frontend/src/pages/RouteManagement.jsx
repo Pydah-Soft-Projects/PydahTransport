@@ -18,7 +18,9 @@ import {
     IndianRupee,
     ChevronDown,
     ChevronUp,
-    Search
+    Search,
+    AlertTriangle,
+    Bus
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -40,6 +42,174 @@ const RouteManagement = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [expandedRouteId, setExpandedRouteId] = useState(null);
+
+    // Route-to-Bus Mapping States
+    const [buses, setBuses] = useState([]);
+    const [expandedRouteEditId, setExpandedRouteEditId] = useState(null);
+    const [routeWiseDrafts, setRouteWiseDrafts] = useState({});
+    const [mappingPreview, setMappingPreview] = useState({});
+    const [assigningBusId, setAssigningBusId] = useState(null);
+
+    const fetchBuses = async () => {
+        try {
+            const response = await apiFetch(`${API}/buses`);
+            if (response.ok) {
+                const data = await response.json();
+                setBuses(Array.isArray(data) ? data : []);
+            }
+        } catch (error) {
+            console.error('Error fetching buses:', error);
+        }
+    };
+
+    const todayDateInput = () => {
+        const today = new Date();
+        return today.toISOString().split('T')[0];
+    };
+
+    const buildRouteWiseDraft = (routeId) => {
+        const currentBus = buses.find((b) => b.assignedRouteId === routeId);
+        return {
+            busId: currentBus ? currentBus._id : '',
+            exitDate: todayDateInput(),
+            entryDate: todayDateInput(),
+        };
+    };
+
+    const handleRouteWiseDraftChange = (routeId, busId) => {
+        setRouteWiseDrafts((prev) => ({
+            ...prev,
+            [routeId]: {
+                ...(prev[routeId] || { exitDate: todayDateInput(), entryDate: todayDateInput() }),
+                busId,
+            },
+        }));
+        const selectedBus = buses.find((b) => b._id === busId);
+        const selectedBusNumber = selectedBus ? selectedBus.busNumber : '';
+        if (routeId) {
+            fetchMappingPreview(routeId, 'route', selectedBusNumber, routeId);
+        } else {
+            setMappingPreview((prev) => { const n = { ...prev }; delete n[routeId]; return n; });
+        }
+    };
+
+    const handleRouteWiseDraftDateChange = (routeId, field, value) => {
+        setRouteWiseDrafts((prev) => ({
+            ...prev,
+            [routeId]: { ...prev[routeId], [field]: value },
+        }));
+    };
+
+    const fetchMappingPreview = async (previewKey, mode, busNumber, routeId) => {
+        setMappingPreview((prev) => ({ ...prev, [previewKey]: { ...(prev[previewKey] || {}), loading: true } }));
+        try {
+            const params = new URLSearchParams();
+            if (mode) params.set('mode', mode);
+            if (busNumber) params.set('busNumber', busNumber);
+            if (routeId) params.set('routeId', routeId);
+            const res = await apiFetch(`${API}/buses/mapping-preview?${params.toString()}`);
+            if (res.ok) {
+                const data = await res.json();
+                setMappingPreview((prev) => ({
+                    ...prev,
+                    [previewKey]: { 
+                        studentCount: data.studentCount || 0, 
+                        employeeCount: data.employeeCount || 0, 
+                        affectedPassengers: data.affectedPassengers || [],
+                        busCapacityAlerts: data.busCapacityAlerts || [],
+                        loading: false 
+                    },
+                }));
+            } else {
+                setMappingPreview((prev) => ({ ...prev, [previewKey]: { studentCount: 0, employeeCount: 0, affectedPassengers: [], busCapacityAlerts: [], loading: false } }));
+            }
+        } catch {
+            setMappingPreview((prev) => ({ ...prev, [previewKey]: { studentCount: 0, employeeCount: 0, affectedPassengers: [], busCapacityAlerts: [], loading: false } }));
+        }
+    };
+
+    const handleRouteWiseDetachClick = async (route, assignedBus) => {
+        const draft = routeWiseDrafts[route.routeId] || buildRouteWiseDraft(route.routeId);
+        if (!draft.exitDate) {
+            alert('Please set the exit date for detaching the bus.');
+            return;
+        }
+
+        const confirmDetach = window.confirm(`Are you sure you want to detach Bus ${assignedBus.busNumber} from Route ${route.routeName}? This will clear bus assignments for all passengers on this route.`);
+        if (!confirmDetach) return;
+
+        setAssigningBusId(route._id);
+        try {
+            const res = await apiFetch(`${API}/buses/${assignedBus._id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    routeChange: {
+                        newRouteId: null,
+                        exitDate: draft.exitDate,
+                        entryDate: null,
+                    },
+                }),
+            });
+
+            if (res.ok) {
+                await fetchBuses();
+                await fetchRoutes();
+                setExpandedRouteEditId(null);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                alert(err.message || 'Error detaching bus from route');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error detaching bus from route');
+        } finally {
+            setAssigningBusId(null);
+        }
+    };
+
+    const handleRouteWiseAttachClick = async (route) => {
+        const draft = routeWiseDrafts[route.routeId] || buildRouteWiseDraft(route.routeId);
+        const newBusId = draft.busId || '';
+
+        if (!newBusId) {
+            alert('Please select a bus to attach.');
+            return;
+        }
+        if (!draft.entryDate) {
+            alert('Please set the assignment date.');
+            return;
+        }
+
+        setAssigningBusId(route._id);
+        try {
+            const res = await apiFetch(`${API}/buses/${newBusId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    routeChange: {
+                        newRouteId: route.routeId,
+                        exitDate: null,
+                        entryDate: draft.entryDate,
+                    },
+                }),
+            });
+
+            if (res.ok) {
+                await fetchBuses();
+                await fetchRoutes();
+                setExpandedRouteEditId(null);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                alert(err.message || 'Error attaching bus to route');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error attaching bus');
+        } finally {
+            setAssigningBusId(null);
+        }
+    };
     const [formData, setFormData] = useState({
         routeId: '',
         routeName: '',
@@ -92,8 +262,10 @@ const RouteManagement = () => {
 
     // Transfer History States
     const [transferHistoryList, setTransferHistoryList] = useState([]);
+    const [mappingHistoryList, setMappingHistoryList] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [expandedHistoryId, setExpandedHistoryId] = useState(null);
+    const [historySubTab, setHistorySubTab] = useState('transfers'); // 'transfers' | 'mappings'
 
     const fetchCampuses = async () => {
         try {
@@ -131,7 +303,16 @@ const RouteManagement = () => {
         setExpandedRouteId(null);
         fetchRoutes(academicYear);
         fetchCampuses();
+        fetchBuses();
     }, [academicYear]);
+
+    useEffect(() => {
+        if (routes.length) {
+            setRouteWiseDrafts(
+                Object.fromEntries(routes.map((r) => [r.routeId, buildRouteWiseDraft(r.routeId)]))
+            );
+        }
+    }, [routes, buses]);
 
     const toggleRoute = (id) => {
         setExpandedRouteId(expandedRouteId === id ? null : id);
@@ -468,13 +649,20 @@ const RouteManagement = () => {
             const fetchHistory = async () => {
                 setHistoryLoading(true);
                 try {
-                    const response = await apiFetch(`${API}/routes/transfer-history`);
-                    const data = await response.json();
-                    if (response.ok) {
-                        setTransferHistoryList(data.history || []);
+                    const [transferRes, mappingRes] = await Promise.all([
+                        apiFetch(`${API}/routes/transfer-history`),
+                        apiFetch(`${API}/routes/mapping-history`)
+                    ]);
+                    const transferData = await transferRes.json();
+                    const mappingData = await mappingRes.json();
+                    if (transferRes.ok) {
+                        setTransferHistoryList(transferData.history || []);
+                    }
+                    if (mappingRes.ok) {
+                        setMappingHistoryList(mappingData.history || []);
                     }
                 } catch (error) {
-                    console.error('Error fetching transfer history:', error);
+                    console.error('Error fetching history logs:', error);
                 } finally {
                     setHistoryLoading(false);
                 }
@@ -598,20 +786,22 @@ const RouteManagement = () => {
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
                 <div>
                     <h2 className="text-xl font-bold text-slate-800 tracking-tight">
-                        {activeTab === 'network' ? `Route Network (${filteredRoutes.length})` : activeTab === 'transfer' ? 'Stage Migration' : activeTab === 'student-transfer' ? 'Student & Passenger Transfer' : 'Transfer History'}
+                        {activeTab === 'network' ? `Route Network (${filteredRoutes.length})` : activeTab === 'bus-mapping' ? `Bus–Route Mapping` : activeTab === 'transfer' ? 'Stage Migration' : activeTab === 'student-transfer' ? 'Student & Passenger Transfer' : 'Transfer History'}
                     </h2>
                     <p className="text-slate-500 text-xs mt-0.5">
                         {activeTab === 'network' 
                             ? 'Design routes, manage stages, and set fares per academic year.' 
-                            : activeTab === 'transfer'
-                                ? 'Transfer a route stage to another route network, remapping all linked passengers.'
-                                : activeTab === 'student-transfer'
-                                    ? 'Transfer specific students/passengers to a different route and stage.'
-                                    : 'Log history of all past stage and passenger transfers.'}
+                            : activeTab === 'bus-mapping'
+                                ? 'Assign buses to routes, manage seating capacities, and preview passenger assignments.'
+                                : activeTab === 'transfer'
+                                    ? 'Transfer a route stage to another route network, remapping all linked passengers.'
+                                    : activeTab === 'student-transfer'
+                                        ? 'Transfer specific students/passengers to a different route and stage.'
+                                        : 'Log history of all past stage and passenger transfers.'}
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    {activeTab === 'network' && (
+                    {(activeTab === 'network' || activeTab === 'bus-mapping') && (
                         <div className="relative flex-shrink-0 w-64">
                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                             <input
@@ -623,7 +813,7 @@ const RouteManagement = () => {
                             />
                         </div>
                     )}
-                    {activeTab === 'network' && allowedCampuses.length > 1 && (
+                    {(activeTab === 'network' || activeTab === 'bus-mapping') && allowedCampuses.length > 1 && (
                         <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
                             <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Campus</span>
                             <select
@@ -671,6 +861,12 @@ const RouteManagement = () => {
                     Route Network
                 </button>
                 <button
+                    onClick={() => { setActiveTab('bus-mapping'); setTransferMessage({ text: '', type: '' }); setStudentTransferMessage({ text: '', type: '' }); }}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'bus-mapping' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    Bus–Route Mapping
+                </button>
+                <button
                     onClick={() => { setActiveTab('transfer'); setSaveMessage({ text: '', type: '' }); setStudentTransferMessage({ text: '', type: '' }); }}
                     className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'transfer' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                 >
@@ -686,7 +882,7 @@ const RouteManagement = () => {
                     onClick={() => { setActiveTab('history'); setSaveMessage({ text: '', type: '' }); setTransferMessage({ text: '', type: '' }); setStudentTransferMessage({ text: '', type: '' }); }}
                     className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'history' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                 >
-                    Transfer History
+                    History Logs
                 </button>
             </div>
 
@@ -750,20 +946,18 @@ const RouteManagement = () => {
                                                                     </span>
                                                                     <span className="font-bold text-slate-800 text-xs">{route.routeName}</span>
                                                                 </div>
-                                                                {route.campus && (
-                                                                    <div>
+                                                                <div className="flex flex-wrap gap-1.5 items-center mt-0.5">
+                                                                    {route.campus && (
                                                                         <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] font-semibold rounded border border-blue-100">
                                                                             Campus: {route.campus.name || route.campus}
                                                                         </span>
-                                                                    </div>
-                                                                )}
-                                                                {route.zone && (
-                                                                    <div>
+                                                                    )}
+                                                                    {route.zone && (
                                                                         <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[9px] font-semibold rounded border border-purple-100">
                                                                             Zone: {route.zone}
                                                                         </span>
-                                                                    </div>
-                                                                )}
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </td>
                                                         <td className="px-3 py-2">
@@ -887,6 +1081,105 @@ const RouteManagement = () => {
                                                         </tr>
                                                     )}
                                                 </React.Fragment>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                </>
+            ) : activeTab === 'bus-mapping' ? (
+                <>
+                    {loading ? (
+                        <div className="flex items-center justify-center py-20">
+                            <Loader size={40} text="Loading route mapping..." />
+                        </div>
+                    ) : filteredRoutes.length === 0 ? (
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px] flex flex-col items-center justify-center p-8">
+                            <div className="bg-slate-50 p-6 rounded-full mb-4">
+                                <Bus size={48} className="text-slate-400" />
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-800 mb-2 text-center">No Routes Found</h3>
+                            <p className="text-slate-500 text-center max-w-md mx-auto">
+                                There are no routes matching the selected campus.
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                            <th className="px-3 py-2 w-72">Route Details</th>
+                                            <th className="px-3 py-2">Path (Start → End)</th>
+                                            <th className="px-3 py-2">Assigned Bus</th>
+                                            <th className="px-3 py-2 w-36">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {filteredRoutes.map((route) => {
+                                            const assignedBus = buses.find((b) => b.assignedRouteId === route.routeId);
+                                            return (
+                                                <tr key={route._id} className="hover:bg-slate-50/50 transition-colors text-xs">
+                                                    <td className="px-3 py-3">
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded border border-blue-200 font-mono whitespace-nowrap">
+                                                                    {route.routeId}
+                                                                </span>
+                                                                <span className="font-bold text-slate-800 text-xs">{route.routeName}</span>
+                                                            </div>
+                                                            <div className="flex flex-wrap gap-1.5 items-center mt-0.5">
+                                                                {route.campus && (
+                                                                    <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] font-semibold rounded border border-blue-100">
+                                                                        Campus: {route.campus.name || route.campus}
+                                                                    </span>
+                                                                )}
+                                                                {route.zone && (
+                                                                    <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[9px] font-semibold rounded border border-purple-100">
+                                                                        Zone: {route.zone}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-3 py-3 text-slate-600 font-medium">
+                                                        {route.startPoint} ➔ {route.endPoint}
+                                                    </td>
+                                                    <td className="px-3 py-3">
+                                                        {assignedBus ? (
+                                                            <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-800 font-bold border border-blue-200 px-2.5 py-1 rounded-lg text-xs shadow-sm">
+                                                                <Bus size={13} className="text-blue-600" />
+                                                                Bus {assignedBus.busNumber} ({assignedBus.type})
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-xs text-slate-400 font-bold italic">Unassigned</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-3 py-3">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setExpandedRouteEditId(route._id);
+                                                                const draftBusId = assignedBus ? assignedBus._id : '';
+                                                                setRouteWiseDrafts(prev => ({
+                                                                    ...prev,
+                                                                    [route.routeId]: {
+                                                                        busId: draftBusId,
+                                                                        exitDate: todayDateInput(),
+                                                                        entryDate: todayDateInput()
+                                                                    }
+                                                                }));
+                                                                fetchMappingPreview(route.routeId, 'route', assignedBus ? assignedBus.busNumber : '', route.routeId);
+                                                            }}
+                                                            className="flex items-center text-blue-900 font-bold hover:underline gap-1 text-xs"
+                                                        >
+                                                            <Edit size={13} />
+                                                            Edit Mapping
+                                                        </button>
+                                                    </td>
+                                                </tr>
                                             );
                                         })}
                                     </tbody>
@@ -1308,93 +1601,182 @@ const RouteManagement = () => {
                         </div>
                     </div>
 
+                    {/* Sub-tab selection */}
+                    <div className="flex border-b border-slate-200 mb-6 text-xs gap-6 font-bold">
+                        <button
+                            type="button"
+                            onClick={() => setHistorySubTab('transfers')}
+                            className={`pb-2.5 transition-all outline-none border-b-2 ${historySubTab === 'transfers' ? 'text-blue-900 border-blue-900 font-bold' : 'text-slate-400 hover:text-slate-600 border-transparent'}`}
+                        >
+                            Passenger Transfers
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setHistorySubTab('mappings')}
+                            className={`pb-2.5 transition-all outline-none border-b-2 ${historySubTab === 'mappings' ? 'text-blue-900 border-blue-900 font-bold' : 'text-slate-400 hover:text-slate-600 border-transparent'}`}
+                        >
+                            Bus–Route Assignments
+                        </button>
+                    </div>
+
                     {historyLoading ? (
                         <div className="flex items-center justify-center py-20">
                             <span className="text-xs text-slate-400">Loading history...</span>
                         </div>
-                    ) : transferHistoryList.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-                            <p className="text-xs italic">No transfer logs found.</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
-                            {transferHistoryList.map((log) => (
-                                <div key={log._id} className="border border-slate-200 rounded-2xl p-4 bg-slate-50/30 hover:bg-slate-50 transition-colors">
-                                    <div className="flex flex-wrap justify-between items-start gap-2 mb-3">
-                                        <div className="flex items-center gap-2">
-                                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
-                                                log.type === 'stage' 
-                                                    ? 'bg-blue-100 text-blue-800 border border-blue-200' 
-                                                    : 'bg-purple-100 text-purple-800 border border-purple-200'
-                                            }`}>
-                                                {log.type === 'stage' ? 'Stage Migration' : 'Passenger Transfer'}
-                                            </span>
-                                            <span className="text-[10px] text-slate-400 font-bold">
-                                                {new Date(log.timestamp).toLocaleString()}
-                                            </span>
+                    ) : historySubTab === 'transfers' ? (
+                        transferHistoryList.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                                <p className="text-xs italic">No transfer logs found.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar animate-in fade-in duration-200">
+                                {transferHistoryList.map((log) => (
+                                    <div key={log._id} className="border border-slate-200 rounded-2xl p-4 bg-slate-50/30 hover:bg-slate-50 transition-colors">
+                                        <div className="flex flex-wrap justify-between items-start gap-2 mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
+                                                    log.type === 'stage' 
+                                                        ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+                                                        : 'bg-purple-100 text-purple-800 border border-purple-200'
+                                                }`}>
+                                                    {log.type === 'stage' ? 'Stage Migration' : 'Passenger Transfer'}
+                                                </span>
+                                                <span className="text-[10px] text-slate-400 font-bold">
+                                                    {new Date(log.timestamp).toLocaleString()}
+                                                </span>
+                                            </div>
+                                            <div className="text-[10px] text-slate-500 font-bold">
+                                                By: <span className="text-slate-800">{log.performedBy || 'System'}</span>
+                                            </div>
                                         </div>
-                                        <div className="text-[10px] text-slate-500 font-bold">
-                                            By: <span className="text-slate-800">{log.performedBy || 'System'}</span>
-                                        </div>
-                                    </div>
 
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-xs">
-                                        <div>
-                                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Source</p>
-                                            <p className="font-bold text-slate-700 truncate" title={log.sourceRouteName}>
-                                                {log.sourceRouteName} ({log.sourceRouteId})
-                                            </p>
-                                            <p className="text-[10px] text-slate-400 font-semibold mt-0.5 truncate" title={log.sourceStageName}>
-                                                Stage: {log.sourceStageName || 'All'}
-                                            </p>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-xs">
+                                            <div>
+                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Source</p>
+                                                <p className="font-bold text-slate-700 truncate" title={log.sourceRouteName}>
+                                                    {log.sourceRouteName} ({log.sourceRouteId})
+                                                </p>
+                                                <p className="text-[10px] text-slate-400 font-semibold mt-0.5 truncate" title={log.sourceStageName}>
+                                                    Stage: {log.sourceStageName || 'All'}
+                                                </p>
+                                            </div>
+                                            <div className="flex justify-center text-slate-350 shrink-0 select-none">
+                                                ➔
+                                            </div>
+                                            <div>
+                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Destination</p>
+                                                <p className="font-bold text-slate-700 truncate" title={log.destinationRouteName}>
+                                                    {log.destinationRouteName} ({log.destinationRouteId})
+                                                </p>
+                                                <p className="text-[10px] text-slate-400 font-semibold mt-0.5 truncate" title={log.destinationStageName}>
+                                                    Stage: {log.destinationStageName || 'All'}
+                                                </p>
+                                            </div>
                                         </div>
-                                        <div className="flex justify-center text-slate-350 shrink-0 select-none">
-                                            ➔
-                                        </div>
-                                        <div>
-                                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Destination</p>
-                                            <p className="font-bold text-slate-700 truncate" title={log.destinationRouteName}>
-                                                {log.destinationRouteName} ({log.destinationRouteId})
-                                            </p>
-                                            <p className="text-[10px] text-slate-400 font-semibold mt-0.5 truncate" title={log.destinationStageName}>
-                                                Stage: {log.destinationStageName || 'All'}
-                                            </p>
-                                        </div>
-                                    </div>
 
-                                    <div className="mt-3 flex items-center justify-between">
-                                        <span className="text-[10px] font-bold text-slate-500">
-                                            {log.passengersCount} passenger(s) affected
-                                        </span>
-                                        {log.passengers && log.passengers.length > 0 && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setExpandedHistoryId(expandedHistoryId === log._id ? null : log._id)}
-                                                className="text-[10px] font-black text-blue-900 hover:text-blue-700 underline focus:outline-none transition-colors"
-                                            >
-                                                {expandedHistoryId === log._id ? 'Hide Passengers' : 'View Passengers'}
-                                            </button>
+                                        <div className="mt-3 flex items-center justify-between">
+                                            <span className="text-[10px] font-bold text-slate-500">
+                                                {log.passengersCount} passenger(s) affected
+                                            </span>
+                                            {log.passengers && log.passengers.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setExpandedHistoryId(expandedHistoryId === log._id ? null : log._id)}
+                                                    className="text-[10px] font-black text-blue-900 hover:text-blue-700 underline focus:outline-none transition-colors"
+                                                >
+                                                    {expandedHistoryId === log._id ? 'Hide Passengers' : 'View Passengers'}
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {expandedHistoryId === log._id && log.passengers && (
+                                            <div className="mt-3 pt-3 border-t border-slate-200/60 grid grid-cols-1 sm:grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                                {log.passengers.map((p, idx) => (
+                                                    <div key={idx} className="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-100 text-[10px]">
+                                                        <div className="min-w-0 pr-1 flex-1">
+                                                            <p className="font-bold text-slate-800 truncate" title={p.name}>{p.name}</p>
+                                                            <p className="text-[8px] text-slate-400 font-mono font-medium truncate">{p.admissionNumber}</p>
+                                                        </div>
+                                                        <span className={`px-1 rounded text-[7px] font-black uppercase shrink-0 ${p.type === 'student' ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-purple-50 text-purple-700 border border-purple-100'}`}>
+                                                            {p.type}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         )}
                                     </div>
-
-                                    {expandedHistoryId === log._id && log.passengers && (
-                                        <div className="mt-3 pt-3 border-t border-slate-200/60 grid grid-cols-1 sm:grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
-                                            {log.passengers.map((p, idx) => (
-                                                <div key={idx} className="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-100 text-[10px]">
-                                                    <div className="min-w-0 pr-1 flex-1">
-                                                        <p className="font-bold text-slate-800 truncate" title={p.name}>{p.name}</p>
-                                                        <p className="text-[8px] text-slate-400 font-mono font-medium truncate">{p.admissionNumber}</p>
-                                                    </div>
-                                                    <span className={`px-1 rounded text-[7px] font-black uppercase shrink-0 ${p.type === 'student' ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-purple-50 text-purple-700 border border-purple-100'}`}>
-                                                        {p.type}
-                                                    </span>
-                                                </div>
-                                            ))}
+                                ))}
+                            </div>
+                        )
+                    ) : (
+                        mappingHistoryList.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                                <p className="text-xs italic">No bus mapping history logs found.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar animate-in fade-in duration-200">
+                                {mappingHistoryList.map((log) => (
+                                    <div key={log._id} className="border border-slate-200 rounded-2xl p-4 bg-slate-50/30 hover:bg-slate-50 transition-colors">
+                                        <div className="flex flex-wrap justify-between items-start gap-2 mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase border ${
+                                                    log.action === 'assigned' 
+                                                        ? 'bg-green-50 text-green-700 border-green-200' 
+                                                        : log.action === 'changed'
+                                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                            : 'bg-red-50 text-red-700 border-red-200'
+                                                }`}>
+                                                    {log.action === 'assigned' ? 'Bus Assigned' : log.action === 'changed' ? 'Assignment Changed' : 'Bus Detached'}
+                                                </span>
+                                                <span className="text-[10px] text-slate-400 font-bold">
+                                                    {new Date(log.createdAt || log.assignedAt).toLocaleString()}
+                                                </span>
+                                            </div>
+                                            <div className="text-[10px] text-slate-500 font-bold">
+                                                By: <span className="text-slate-800">{log.changedBy || 'System'}</span>
+                                            </div>
                                         </div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-xs font-semibold">
+                                            <div>
+                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Bus Number</p>
+                                                <p className="font-bold text-slate-800 font-mono mt-0.5">
+                                                    Bus {log.busNumber}
+                                                </p>
+                                            </div>
+                                            
+                                            {log.action === 'removed' ? (
+                                                <div className="col-span-3">
+                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Action Description</p>
+                                                    <p className="text-slate-600 mt-0.5">
+                                                        Detached from route <span className="font-bold text-slate-800">{log.previousRouteName || log.previousRouteId} ({log.previousRouteId})</span>
+                                                        {log.previousRouteExitDate && <> (Exit Date: <span className="font-bold">{new Date(log.previousRouteExitDate).toLocaleDateString()}</span>)</>}.
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div>
+                                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Previous Route</p>
+                                                        <p className="font-bold text-slate-500 truncate" title={log.previousRouteName || 'None'}>
+                                                            {log.previousRouteName ? `${log.previousRouteName} (${log.previousRouteId})` : '—'}
+                                                        </p>
+                                                    </div>
+                                                    <div className="flex justify-center text-slate-350 shrink-0 select-none">
+                                                        ➔
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Assigned Route</p>
+                                                        <p className="font-bold text-slate-800 truncate" title={log.routeName || 'None'}>
+                                                            {log.routeName ? `${log.routeName} (${log.routeId})` : '—'}
+                                                        </p>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )
                     )}
                 </div>
             )}
@@ -1561,6 +1943,241 @@ const RouteManagement = () => {
                     </div>
                 </div>
             </Modal>
+
+            {/* Route-Wise Mapping Edit Modal */}
+            {expandedRouteEditId && (() => {
+                const route = routes.find(r => r._id === expandedRouteEditId);
+                if (!route) return null;
+                const assignedBus = buses.find((b) => b.assignedRouteId === route.routeId);
+                const draft = routeWiseDrafts[route.routeId] || buildRouteWiseDraft(route.routeId);
+                const routeWiseChanged = (draft.busId || '') !== (assignedBus ? assignedBus._id : '');
+                const preview = mappingPreview[route.routeId];
+                const total = preview ? (preview.studentCount + preview.employeeCount) : 0;
+                const isOverCapacity = preview?.busCapacityAlerts?.some(alert => alert.isOverCapacity) || false;
+
+                return (
+                    <Modal
+                        isOpen={!!expandedRouteEditId}
+                        onClose={() => setExpandedRouteEditId(null)}
+                        title={`Edit Bus Assignment: Route ${route.routeName}`}
+                        maxWidth="max-w-2xl"
+                    >
+                        <div className="space-y-5">
+                            {/* Preview & Loading State */}
+                            {preview && preview.loading ? (
+                                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 py-10">
+                                    <div className="w-6 h-6 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+                                    <p className="text-xs font-semibold text-slate-500">Checking seat vacancy & passenger reassignments…</p>
+                                </div>
+                            ) : (
+                                <>
+                                    {isOverCapacity && (
+                                        <div className="flex items-center gap-2.5 p-3.5 rounded-xl border border-red-200 bg-red-50 text-red-800 text-xs font-bold shadow-sm">
+                                            <AlertTriangle size={16} className="text-red-500 shrink-0" />
+                                            <span>❌ Capacity Exceeded: Proposed assignment exceeds the bus seating capacity limit. Saving is blocked.</span>
+                                        </div>
+                                    )}
+
+                                    {/* Live Seat Seating & Vacancy Preview */}
+                                    {preview && preview.busCapacityAlerts && preview.busCapacityAlerts.length > 0 && (
+                                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
+                                            <p className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">Live Bus Seating & Vacancy Preview</p>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                                                {preview.busCapacityAlerts.map(alert => {
+                                                    const occupancyPercent = alert.capacity > 0 ? Math.min(100, Math.round((alert.proposedPassengers / alert.capacity) * 100)) : 0;
+                                                    const progressColor = alert.isOverCapacity 
+                                                        ? 'bg-red-600' 
+                                                        : occupancyPercent > 85 
+                                                        ? 'bg-amber-500' 
+                                                        : 'bg-emerald-600';
+                                                    
+                                                    return (
+                                                        <div key={alert.busNumber} className="bg-white border border-slate-200 rounded-lg p-3 space-y-2 shadow-sm">
+                                                            <div className="flex items-center justify-between text-[11px] font-semibold">
+                                                                <span className="text-slate-800 font-bold">Bus {alert.busNumber}</span>
+                                                                <span className={alert.isOverCapacity ? 'text-red-600 font-bold' : 'text-slate-500'}>
+                                                                    {alert.proposedPassengers} / {alert.capacity} seats filled
+                                                                </span>
+                                                            </div>
+                                                            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                                                                <div className={`h-full ${progressColor} transition-all duration-300`} style={{ width: `${occupancyPercent}%` }} />
+                                                            </div>
+                                                            <div className="flex justify-between items-center text-[10px] font-semibold">
+                                                                <span className="text-slate-400 font-bold">Vacancy</span>
+                                                                <span className={alert.proposedSeatsAvailable < 0 ? 'text-red-600 font-bold' : 'text-emerald-700 font-bold'}>
+                                                                    {alert.proposedSeatsAvailable < 0 ? `${Math.abs(alert.proposedSeatsAvailable)} Overlimit` : `${alert.proposedSeatsAvailable} Available`}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Warning & Info */}
+                                    {routeWiseChanged && preview && total > 0 && (
+                                        <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                                            <div className="flex items-start gap-2.5">
+                                                <AlertTriangle size={15} className="text-amber-500 mt-0.5 shrink-0" />
+                                                <div>
+                                                    <p className="text-xs font-bold text-amber-800">Passenger Impact Warning</p>
+                                                    <p className="text-xs text-amber-700 mt-0.5">
+                                                        This mapping update affects <span className="font-bold">{preview.studentCount} student{preview.studentCount !== 1 ? 's' : ''}</span>
+                                                        {preview.employeeCount > 0 && <> and <span className="font-bold">{preview.employeeCount} employee{preview.employeeCount !== 1 ? 's' : ''}</span></>}.
+                                                        Their bus assignment will be automatically updated to match the new mapping.
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* Passenger Table */}
+                                            {preview.affectedPassengers && preview.affectedPassengers.length > 0 && (
+                                                <div className="mt-2 border border-amber-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto bg-white shadow-sm">
+                                                    <table className="w-full text-left border-collapse text-[10px]">
+                                                        <thead>
+                                                            <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 font-bold uppercase tracking-wider text-[9px]">
+                                                                <th className="px-3 py-1.5">Passenger</th>
+                                                                <th className="px-3 py-1.5">Route</th>
+                                                                <th className="px-3 py-1.5">Proposed Change</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+                                                            {preview.affectedPassengers.map(p => (
+                                                                <tr key={p.id} className="hover:bg-slate-50">
+                                                                    <td className="px-3 py-1.5 whitespace-nowrap">
+                                                                        <span className="font-bold text-slate-800">{p.name}</span>
+                                                                        <span className="text-slate-400 text-[9px] ml-1 font-semibold">({p.identifier})</span>
+                                                                        <span className="ml-1 text-[8px] bg-slate-100 text-slate-500 px-1 py-0.5 rounded uppercase font-bold">{p.type}</span>
+                                                                    </td>
+                                                                    <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">
+                                                                        <div className="font-semibold text-slate-800">{p.routeName}</div>
+                                                                        {p.stageName && p.stageName !== 'N/A' && (
+                                                                            <div className="text-[9px] text-slate-400 font-bold bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5 inline-block mt-0.5">
+                                                                                Stage: {p.stageName}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-3 py-1.5 whitespace-nowrap text-slate-700">
+                                                                        <span className="text-slate-500">{p.currentBus}</span>
+                                                                        <span className="mx-1 text-slate-400">➔</span>
+                                                                        <span className={p.proposedBus === 'Unassigned' ? 'text-red-600 font-bold' : 'text-emerald-700 font-bold'}>
+                                                                            {p.proposedBus}
+                                                                        </span>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </>
+                            )}
+
+                            {/* Form Input fields */}
+                            {assignedBus ? (
+                                <div className="rounded-xl border border-red-200 bg-red-50/30 p-5 space-y-4 shadow-sm">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <p className="text-[10px] font-bold text-red-700 uppercase tracking-wider">Currently Assigned Bus</p>
+                                            <h4 className="text-base font-black text-slate-800 mt-1">Bus {assignedBus.busNumber}</h4>
+                                            <p className="text-xs text-slate-500 font-medium mt-0.5">{assignedBus.type} • {assignedBus.capacity} seats</p>
+                                        </div>
+                                        <div className="bg-red-100 text-red-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-red-200">
+                                            Assigned
+                                        </div>
+                                    </div>
+
+                                    <div className="pt-2 max-w-xs">
+                                        <label className="block text-xs font-semibold text-slate-750 mb-1">Exit Date (Detachment Date)</label>
+                                        <input
+                                            type="date"
+                                            value={draft.exitDate}
+                                            onChange={(e) => handleRouteWiseDraftDateChange(route.routeId, 'exitDate', e.target.value)}
+                                            className="w-full px-3 py-2 rounded-lg border border-slate-350 bg-white text-xs focus:ring-2 focus:ring-red-500 outline-none"
+                                        />
+                                    </div>
+
+                                    <div className="flex justify-end pt-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRouteWiseDetachClick(route, assignedBus)}
+                                            disabled={assigningBusId === route._id}
+                                            className="px-5 py-2.5 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-1.5"
+                                        >
+                                            {assigningBusId === route._id ? 'Detaching…' : 'Detach Bus from Route'}
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="rounded-xl border border-blue-200 bg-white p-5 space-y-4 shadow-sm">
+                                    <div>
+                                        <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Assign Bus to Route</p>
+                                        <p className="text-xs text-slate-500 font-medium mt-0.5 font-bold">Choose an unassigned eligible bus for this route network.</p>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <label className="block text-xs font-semibold text-slate-650">Eligible Buses</label>
+                                            <select
+                                                value={draft.busId}
+                                                onChange={(e) => handleRouteWiseDraftChange(route.routeId, e.target.value)}
+                                                disabled={assigningBusId === route._id}
+                                                className="w-full text-xs rounded-lg border border-slate-355 py-2.5 px-3 focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium text-slate-800 cursor-pointer"
+                                            >
+                                                <option value="">— Select Bus —</option>
+                                                {buses.filter((b) => !b.assignedRouteId).map((b) => {
+                                                    const isInactive = b.status === 'Inactive';
+                                                    return (
+                                                        <option key={b._id} value={b._id} disabled={isInactive}>
+                                                            {b.busNumber} ({b.type} - {b.capacity} seats) {isInactive ? ' [Inactive]' : ''}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+                                        </div>
+
+                                        {draft.busId && (
+                                            <div className="space-y-1">
+                                                <label className="block text-xs font-semibold text-slate-650">Assignment Date</label>
+                                                <input
+                                                    type="date"
+                                                    value={draft.entryDate}
+                                                    onChange={(e) => handleRouteWiseDraftDateChange(route.routeId, 'entryDate', e.target.value)}
+                                                    className="w-full px-3 py-2.5 rounded-lg border border-blue-200 bg-white text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="flex justify-end pt-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRouteWiseAttachClick(route)}
+                                            disabled={assigningBusId === route._id || !draft.busId || isOverCapacity}
+                                            className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-900 hover:bg-blue-800 text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                        >
+                                            {assigningBusId === route._id ? 'Saving…' : 'Attach Bus to Route'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Modal Actions */}
+                            <div className="flex justify-end pt-3 border-t border-slate-100">
+                                <button
+                                    type="button"
+                                    onClick={() => setExpandedRouteEditId(null)}
+                                    className="px-4 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all"
+                                >
+                                    Close Modal
+                                </button>
+                            </div>
+                        </div>
+                    </Modal>
+                );
+            })()}
         </Layout>
     );
 };

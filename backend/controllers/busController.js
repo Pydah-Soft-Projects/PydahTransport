@@ -279,37 +279,199 @@ const getBusDetails = async (req, res) => {
 // @route   GET /api/buses/mapping-preview
 // @access  Private/Admin
 const getMappingPreview = async (req, res) => {
-    const { busNumber, routeId, academicYear } = req.query;
+    const { mode, busNumber, routeId, academicYear } = req.query;
+    const resolvedAcademicYear = academicYear || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027';
     
     try {
         const TransportRequest = require('../models/TransportRequest');
         const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
+        const Route = require('../models/Route');
+
+        // 1. Fetch all buses in the system to compute the current mapping
+        const buses = await Bus.find({}).lean();
+
+        // 2. Build the simulated/proposed mapping map: routeId -> busNumber
+        const currentRouteToBus = {};
+        const proposedRouteToBus = {};
         
+        buses.forEach(b => {
+            if (b.assignedRouteId) {
+                currentRouteToBus[b.assignedRouteId] = b.busNumber;
+                proposedRouteToBus[b.assignedRouteId] = b.busNumber;
+            }
+        });
+
+        // Track affected bus numbers to calculate capacity warnings
+        const affectedBusNumbers = new Set();
+
+        // 3. Apply the proposed change depending on mode
+        if (mode === 'bus') {
+            // We are changing the route assigned to busNumber
+            const targetBus = buses.find(b => b.busNumber === busNumber);
+            if (targetBus) {
+                const oldRouteId = targetBus.assignedRouteId;
+                const newRouteId = routeId && routeId !== 'unassigned' && routeId !== '' ? routeId : null;
+
+                affectedBusNumbers.add(busNumber);
+
+                // Remove from old route
+                if (oldRouteId && proposedRouteToBus[oldRouteId] === busNumber) {
+                    delete proposedRouteToBus[oldRouteId];
+                }
+
+                // If assigning to a new route, remove any bus already mapped to that route, and set new mapping
+                if (newRouteId) {
+                    const otherBus = buses.find(b => b.assignedRouteId === newRouteId && b.busNumber !== busNumber);
+                    if (otherBus) {
+                        affectedBusNumbers.add(otherBus.busNumber);
+                    }
+                    proposedRouteToBus[newRouteId] = busNumber;
+                }
+            }
+        } else if (mode === 'route') {
+            // We are changing the bus assigned to routeId
+            const newBusNumber = busNumber && busNumber !== 'unassigned' && busNumber !== '' ? busNumber : null;
+
+            // Bus previously on this route is affected
+            const oldBus = buses.find(b => b.assignedRouteId === routeId);
+            if (oldBus) {
+                affectedBusNumbers.add(oldBus.busNumber);
+            }
+
+            // Remove proposed bus's mapping from its old route
+            if (newBusNumber) {
+                affectedBusNumbers.add(newBusNumber);
+                const targetBus = buses.find(b => b.busNumber === newBusNumber);
+                if (targetBus && targetBus.assignedRouteId) {
+                    delete proposedRouteToBus[targetBus.assignedRouteId];
+                }
+                proposedRouteToBus[routeId] = newBusNumber;
+            } else {
+                // If unassigning the route
+                delete proposedRouteToBus[routeId];
+            }
+        } else {
+            // Legacy / fallback mode: check passengers currently assigned to the bus
+            let busNumToCheck = busNumber;
+            if (routeId && !busNumToCheck) {
+                const bus = buses.find(b => b.assignedRouteId === routeId);
+                if (bus) busNumToCheck = bus.busNumber;
+            }
+            if (busNumToCheck) {
+                const query = { 
+                    bus_id: busNumToCheck, 
+                    status: 'approved'
+                };
+                const rawStudents = await TransportRequest.find(query).lean();
+                await resolveStudentExpiries(rawStudents, mysqlPool);
+                const studentCount = rawStudents.filter(s => {
+                    const isSameYear = (s.academic_year || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027') === resolvedAcademicYear;
+                    return isSameYear || !s.is_expired;
+                }).length;
+
+                const rawEmployees = await EmployeeTransportRequest.find(query).lean();
+                const employeeCount = rawEmployees.filter(e => {
+                    const isSameYear = (e.academic_year || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027') === resolvedAcademicYear;
+                    return isSameYear || e.status === 'approved';
+                }).length;
+
+                return res.json({ studentCount, employeeCount, affectedPassengers: [], busCapacityAlerts: [] });
+            }
+            return res.json({ studentCount: 0, employeeCount: 0, affectedPassengers: [], busCapacityAlerts: [] });
+        }
+
+        // 4. Find all approved requests for students and employees
+        const rawStudents = await TransportRequest.find({ status: 'approved' }).lean();
+        await resolveStudentExpiries(rawStudents, mysqlPool);
+
+        const rawEmployees = await EmployeeTransportRequest.find({ status: 'approved' }).lean();
+
+        // Filter active passengers (current academic year, or any other academic year that is not expired)
+        const activeStudents = rawStudents.filter(s => {
+            const isSameYear = (s.academic_year || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027') === resolvedAcademicYear;
+            return isSameYear || !s.is_expired;
+        });
+
+        const activeEmployees = rawEmployees.filter(e => {
+            const isSameYear = (e.academic_year || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027') === resolvedAcademicYear;
+            return isSameYear || e.status === 'approved';
+        });
+
+        const affectedPassengers = [];
         let studentCount = 0;
         let employeeCount = 0;
-        let busNumToCheck = busNumber;
 
-        // If routeId is provided and no busNumber, check passengers assigned to the bus currently mapped to that route
-        if (routeId && !busNumToCheck) {
-            const bus = await Bus.findOne({ assignedRouteId: routeId });
-            if (bus) {
-                busNumToCheck = bus.busNumber;
+        // Fetch all routes to resolve route names efficiently
+        const routes = await Route.find({}).lean();
+        const routeNameMap = Object.fromEntries(routes.map(r => [r.routeId, r.routeName]));
+
+        // Calculate proposed passenger counts per bus
+        const proposedBusCounts = {};
+        buses.forEach(b => {
+            proposedBusCounts[b.busNumber] = 0;
+        });
+
+        const checkPassenger = (p, type) => {
+            const currentBus = p.bus_id || null;
+            const rId = p.route_id;
+            const proposedBus = proposedRouteToBus[rId] || null;
+
+            // Normalize values for comparison
+            const currNorm = currentBus === '' ? null : currentBus;
+            const propNorm = proposedBus === '' ? null : proposedBus;
+
+            // Add to proposed bus counts if assigned
+            if (propNorm && proposedBusCounts[propNorm] !== undefined) {
+                proposedBusCounts[propNorm]++;
             }
-        }
 
-        if (busNumToCheck) {
-            const query = { 
-                bus_id: busNumToCheck, 
-                status: 'approved',
-                academic_year: academicYear || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027'
-            };
-            studentCount = await TransportRequest.countDocuments(query);
-            employeeCount = await EmployeeTransportRequest.countDocuments(query);
-        }
+            if (currNorm !== propNorm) {
+                if (type === 'student') studentCount++;
+                else employeeCount++;
+
+                affectedPassengers.push({
+                    id: p._id.toString(),
+                    name: type === 'student' ? p.student_name : p.employee_name,
+                    identifier: type === 'student' ? p.admission_number : p.emp_no,
+                    type,
+                    routeId: rId,
+                    routeName: p.route_name || routeNameMap[rId] || rId,
+                    stageName: p.stage_name || 'N/A',
+                    currentBus: currNorm || 'Unassigned',
+                    proposedBus: propNorm || 'Unassigned'
+                });
+            }
+        };
+
+        activeStudents.forEach(s => checkPassenger(s, 'student'));
+        activeEmployees.forEach(e => checkPassenger(e, 'employee'));
+
+        // Build vacancy warnings for affected buses
+        const busCapacityAlerts = [];
+        affectedBusNumbers.forEach(bNum => {
+            const bus = buses.find(b => b.busNumber === bNum);
+            if (bus) {
+                const cap = bus.capacity || 0;
+                const propPassengers = proposedBusCounts[bNum] || 0;
+                const propSeatsAvail = cap - propPassengers;
+                busCapacityAlerts.push({
+                    busNumber: bNum,
+                    capacity: cap,
+                    proposedPassengers: propPassengers,
+                    proposedSeatsAvailable: propSeatsAvail,
+                    isOverCapacity: propSeatsAvail < 0
+                });
+            }
+        });
+
+        // Sort affected passengers
+        affectedPassengers.sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
 
         res.json({
             studentCount,
-            employeeCount
+            employeeCount,
+            affectedPassengers,
+            busCapacityAlerts
         });
     } catch (error) {
         console.error('Error fetching mapping preview:', error);
@@ -339,46 +501,103 @@ const getBusesOverview = async (req, res) => {
         const liveOccupancy = isLiveOccupancyMode(req.query);
 
         let counts = {};
+        let unassignedStudentsCount = 0;
+        let unassignedEmployeesCount = 0;
+
+        let studentQuery = { status: 'approved' };
+        let employeeQuery = { status: 'approved' };
+
+        // Handle Campus filtering for requests
+        let allowedRouteIds = null;
+        if (req.user || req.query.campus) {
+            const campusFilter = campusService.buildCampusFilter(req.user || {}, req.query.campus);
+            if (campusFilter.campus) {
+                const campusRoutes = await Route.find({ campus: campusFilter.campus }).select('routeId').lean();
+                allowedRouteIds = campusRoutes.map(r => r.routeId);
+                studentQuery.route_id = { $in: allowedRouteIds };
+                employeeQuery.route_id = { $in: allowedRouteIds };
+            }
+        }
+
+        const mongoStudents = await TransportRequest.find(studentQuery).lean();
+        // Resolve student request expiry details dynamically from SQL
+        await resolveStudentExpiries(mongoStudents, mysqlPool);
+
+        const activeStudents = mongoStudents.filter((r) => {
+            if (liveOccupancy) {
+                return !r.is_expired;
+            }
+            return (r.academic_year || fallbackAcademicYear) === academicYear;
+        });
+
+        const mongoEmployees = await EmployeeTransportRequest.find(employeeQuery).lean();
+        const activeEmployees = mongoEmployees.filter((r) => 
+            liveOccupancy || (r.academic_year || fallbackAcademicYear) === academicYear
+        );
+
+        const allUniqueRouteIds = [...new Set([
+            ...activeStudents.map(s => s.route_id),
+            ...activeEmployees.map(e => e.route_id)
+        ].filter(Boolean))];
+        const allRoutes = await Route.find({ routeId: { $in: allUniqueRouteIds } }).lean();
+        const allRouteMap = Object.fromEntries(allRoutes.map(r => [r.routeId, r.routeName]));
+
+        const studentCountsByBus = {};
+        const employeeCountsByBus = {};
+        const unassignedRouteBreakdown = {};
+
         if (buses.length > 0) {
             const busNumbers = buses.map((b) => b.busNumber);
 
-            const mongoStudents = await TransportRequest.find({
-                status: 'approved',
-                bus_id: { $in: busNumbers }
-            }).lean();
-
-            // Resolve student request expiry details dynamically from SQL
-            await resolveStudentExpiries(mongoStudents, mysqlPool);
-
-            const studentCountsByBus = {};
-            mongoStudents
-                .filter((r) => {
-                    if (liveOccupancy) {
-                        return !r.is_expired;
+            activeStudents.forEach((r) => {
+                if (r.bus_id && busNumbers.includes(r.bus_id)) {
+                    studentCountsByBus[r.bus_id] = (studentCountsByBus[r.bus_id] || 0) + 1;
+                } else {
+                    unassignedStudentsCount++;
+                    const rid = r.route_id || 'Unknown';
+                    if (!unassignedRouteBreakdown[rid]) {
+                        unassignedRouteBreakdown[rid] = { routeId: rid, routeName: allRouteMap[rid] || rid, students: 0, employees: 0, total: 0 };
                     }
-                    return (r.academic_year || fallbackAcademicYear) === academicYear;
-                })
-                .forEach((r) => {
-                    if (r.bus_id) {
-                        studentCountsByBus[r.bus_id] = (studentCountsByBus[r.bus_id] || 0) + 1;
-                    }
-                });
+                    unassignedRouteBreakdown[rid].students++;
+                    unassignedRouteBreakdown[rid].total++;
+                }
+            });
 
-            const mongoEmployees = await EmployeeTransportRequest.find({
-                status: 'approved',
-                bus_id: { $in: busNumbers }
-            }).lean();
-            const employeeCountsByBus = {};
-            mongoEmployees
-                .filter((r) => liveOccupancy || (r.academic_year || fallbackAcademicYear) === academicYear)
-                .forEach((r) => {
-                    if (r.bus_id) {
-                        employeeCountsByBus[r.bus_id] = (employeeCountsByBus[r.bus_id] || 0) + 1;
+            activeEmployees.forEach((r) => {
+                if (r.bus_id && busNumbers.includes(r.bus_id)) {
+                    employeeCountsByBus[r.bus_id] = (employeeCountsByBus[r.bus_id] || 0) + 1;
+                } else {
+                    unassignedEmployeesCount++;
+                    const rid = r.route_id || 'Unknown';
+                    if (!unassignedRouteBreakdown[rid]) {
+                        unassignedRouteBreakdown[rid] = { routeId: rid, routeName: allRouteMap[rid] || rid, students: 0, employees: 0, total: 0 };
                     }
-                });
+                    unassignedRouteBreakdown[rid].employees++;
+                    unassignedRouteBreakdown[rid].total++;
+                }
+            });
 
             busNumbers.forEach((bn) => {
                 counts[bn] = (studentCountsByBus[bn] || 0) + (employeeCountsByBus[bn] || 0);
+            });
+        } else {
+            activeStudents.forEach((r) => {
+                unassignedStudentsCount++;
+                const rid = r.route_id || 'Unknown';
+                if (!unassignedRouteBreakdown[rid]) {
+                    unassignedRouteBreakdown[rid] = { routeId: rid, routeName: allRouteMap[rid] || rid, students: 0, employees: 0, total: 0 };
+                }
+                unassignedRouteBreakdown[rid].students++;
+                unassignedRouteBreakdown[rid].total++;
+            });
+            activeEmployees.forEach((r) => {
+                unassignedEmployeesCount++;
+                const rid = r.route_id || 'Unknown';
+                if (!unassignedRouteBreakdown[rid]) {
+                    unassignedRouteBreakdown[rid] = { routeId: rid, routeName: allRouteMap[rid] || rid, students: 0, employees: 0, total: 0 };
+                }
+                unassignedRouteBreakdown[rid].employees++;
+                unassignedRouteBreakdown[rid].total++;
             });
         }
 
@@ -404,7 +623,15 @@ const getBusesOverview = async (req, res) => {
                 occupancyPercent,
             };
         });
-        res.json({ academicYear, occupancyMode: liveOccupancy ? 'live' : 'academicYear', buses: list });
+        res.json({ 
+            academicYear, 
+            occupancyMode: liveOccupancy ? 'live' : 'academicYear', 
+            buses: list,
+            unassignedPassengerCount: unassignedStudentsCount + unassignedEmployeesCount,
+            unassignedStudentsCount,
+            unassignedEmployeesCount,
+            unassignedRouteBreakdown: Object.values(unassignedRouteBreakdown)
+        });
     } catch (error) {
         console.error('Error fetching buses overview:', error);
         res.status(500).json({ message: error.message });
@@ -511,6 +738,74 @@ const createBus = async (req, res) => {
     }
 };
 
+// Helper function to sync approved transport requests when bus-route mapping changes
+const syncPassengersToBusMapping = async () => {
+    try {
+        const TransportRequest = require('../models/TransportRequest');
+        const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
+        const Route = require('../models/Route');
+
+        // 1. Get all buses and their assignedRouteId
+        const buses = await Bus.find({}).lean();
+        
+        // 2. Build a map of routeId -> busNumber
+        const routeToBus = {};
+        buses.forEach(b => {
+            if (b.assignedRouteId) {
+                routeToBus[b.assignedRouteId] = b.busNumber;
+            }
+        });
+
+        // 3. Get all approved student requests and resolve expiries dynamically
+        const rawStudents = await TransportRequest.find({ status: 'approved' }).lean();
+        await resolveStudentExpiries(rawStudents, mysqlPool);
+        
+        // Match only active students (not expired)
+        const activeStudents = rawStudents.filter(s => !s.is_expired);
+
+        // Get all approved employee requests
+        const activeEmployees = await EmployeeTransportRequest.find({ status: 'approved' }).lean();
+
+        // 4. Reassign active student requests to their mapped bus
+        for (const s of activeStudents) {
+            const targetBusNum = routeToBus[s.route_id] || null;
+            if (s.bus_id !== targetBusNum) {
+                await TransportRequest.updateOne(
+                    { _id: s._id },
+                    { $set: { bus_id: targetBusNum } }
+                );
+            }
+        }
+
+        // 5. Reassign active employee requests to their mapped bus
+        for (const e of activeEmployees) {
+            const targetBusNum = routeToBus[e.route_id] || null;
+            if (e.bus_id !== targetBusNum) {
+                await EmployeeTransportRequest.updateOne(
+                    { _id: e._id },
+                    { $set: { bus_id: targetBusNum } }
+                );
+            }
+        }
+
+        // 6. For requests whose route_id is invalid (not in routes directory), set bus_id to null
+        const routes = await Route.find({}).lean();
+        const activeRouteIds = routes.map(r => r.routeId);
+        await TransportRequest.updateMany(
+            { status: 'approved', route_id: { $nin: activeRouteIds }, bus_id: { $ne: null } },
+            { $set: { bus_id: null } }
+        );
+        await EmployeeTransportRequest.updateMany(
+            { status: 'approved', route_id: { $nin: activeRouteIds }, bus_id: { $ne: null } },
+            { $set: { bus_id: null } }
+        );
+
+        console.log('[Sync] Passenger bus allocations synced successfully to bus-route mapping.');
+    } catch (error) {
+        console.error('[Sync] Error syncing passengers to bus mapping:', error);
+    }
+};
+
 // @desc    Update a bus
 // @route   PUT /api/buses/:id
 // @access  Private/Admin
@@ -544,6 +839,31 @@ const updateBus = async (req, res) => {
             const existingBus = await Bus.findOne({ assignedRouteId: newRouteId, _id: { $ne: bus._id } });
             if (existingBus) {
                 return res.status(400).json({ message: `Route is already assigned to bus ${existingBus.busNumber}` });
+            }
+        }
+
+        const routeToCheck = newRouteId !== undefined ? newRouteId : (bus.assignedRouteId || null);
+        if (routeToCheck) {
+            const targetCapacity = req.body.capacity !== undefined ? Number(req.body.capacity) : (bus.capacity || 0);
+            
+            const rawStudents = await TransportRequest.find({ route_id: routeToCheck, status: 'approved' }).lean();
+            await resolveStudentExpiries(rawStudents, mysqlPool);
+            const activeStudentsCount = rawStudents.filter(s => {
+                const isSameYear = (s.academic_year || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027') === (process.env.CURRENT_ACADEMIC_YEAR || '2026-2027');
+                return isSameYear || !s.is_expired;
+            }).length;
+
+            const rawEmployees = await EmployeeTransportRequest.find({ route_id: routeToCheck, status: 'approved' }).lean();
+            const activeEmployeesCount = rawEmployees.filter(e => {
+                const isSameYear = (e.academic_year || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027') === (process.env.CURRENT_ACADEMIC_YEAR || '2026-2027');
+                return isSameYear || e.status === 'approved';
+            }).length;
+
+            const totalRoutePassengers = activeStudentsCount + activeEmployeesCount;
+            if (totalRoutePassengers > targetCapacity) {
+                return res.status(400).json({ 
+                    message: `Capacity exceeded: Bus capacity is ${targetCapacity}, but Route has ${totalRoutePassengers} passenger requests.` 
+                });
             }
         }
 
@@ -599,40 +919,27 @@ const updateBus = async (req, res) => {
         }
 
         if (req.body.routeChange) {
-            const newRouteId = req.body.routeChange.newRouteId || null;
-            if (newRouteId !== previousRouteId) {
-                bus.assignedRouteId = newRouteId;
-                await recordRouteHistory(bus, previousRouteId, newRouteId, changedBy, {
+            const newRouteIdVal = req.body.routeChange.newRouteId || null;
+            if (newRouteIdVal !== previousRouteId) {
+                bus.assignedRouteId = newRouteIdVal;
+                await recordRouteHistory(bus, previousRouteId, newRouteIdVal, changedBy, {
                     exitDate: req.body.routeChange.exitDate,
                     entryDate: req.body.routeChange.entryDate,
                 });
             }
         } else if (req.body.assignedRouteId !== undefined) {
-            const newRouteId = req.body.assignedRouteId || null;
-            if (newRouteId !== previousRouteId) {
-                bus.assignedRouteId = newRouteId;
-                await recordRouteHistory(bus, previousRouteId, newRouteId, changedBy);
+            const newRouteIdVal = req.body.assignedRouteId || null;
+            if (newRouteIdVal !== previousRouteId) {
+                bus.assignedRouteId = newRouteIdVal;
+                await recordRouteHistory(bus, previousRouteId, newRouteIdVal, changedBy);
             }
         }
 
         const updatedBus = await bus.save();
 
-        // If route assignment changed, clean up passenger bus allocations
+        // If route assignment changed, run the passenger allocation sync to match the new mapping
         if (newRouteId !== undefined && newRouteId !== previousRouteId) {
-            const TransportRequest = require('../models/TransportRequest');
-            const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
-            
-            // Clear bus allocation for students whose route doesn't match the new bus route
-            await TransportRequest.updateMany(
-                { bus_id: bus.busNumber, route_id: { $ne: newRouteId } },
-                { $set: { bus_id: null } }
-            );
-            
-            // Clear bus allocation for employees whose route doesn't match the new bus route
-            await EmployeeTransportRequest.updateMany(
-                { bus_id: bus.busNumber, route_id: { $ne: newRouteId } },
-                { $set: { bus_id: null } }
-            );
+            await syncPassengersToBusMapping();
         }
 
         res.json(updatedBus);

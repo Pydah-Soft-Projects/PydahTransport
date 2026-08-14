@@ -9,7 +9,8 @@ const {
     transferStage,
     getRoutePassengers,
     transferPassengers,
-    getTransferHistory
+    getTransferHistory,
+    getGlobalMappingHistory
 } = require('../controllers/routeController');
 
 router.route('/').get(getRoutes).post(createRoute);
@@ -18,6 +19,7 @@ router.route('/transfer-preview').get(getTransferPreview);
 router.route('/transfer-stage').post(transferStage);
 router.route('/transfer-passengers').post(transferPassengers);
 router.route('/transfer-history').get(getTransferHistory);
+router.route('/mapping-history').get(getGlobalMappingHistory);
 router.route('/:id').put(updateRoute).delete(deleteRoute);
 
 module.exports = router;

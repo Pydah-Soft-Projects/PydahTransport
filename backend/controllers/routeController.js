@@ -567,6 +567,20 @@ const getTransferHistory = async (req, res) => {
     }
 };
 
+// @desc    Get global bus route mapping history logs
+// @route   GET /api/routes/mapping-history
+// @access  Private/Admin
+const getGlobalMappingHistory = async (req, res) => {
+    try {
+        const BusRouteHistory = require('../models/BusRouteHistory');
+        const history = await BusRouteHistory.find().sort({ createdAt: -1 }).limit(100);
+        res.json({ history });
+    } catch (error) {
+        console.error('Error fetching global mapping history:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     getRoutes,
     createRoute,
@@ -576,6 +590,7 @@ module.exports = {
     transferStage,
     getRoutePassengers,
     transferPassengers,
-    getTransferHistory
+    getTransferHistory,
+    getGlobalMappingHistory
 };
 

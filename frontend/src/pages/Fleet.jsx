@@ -29,6 +29,8 @@ const API = API_BASE;
 
 const Fleet = () => {
     const [list, setList] = useState([]);
+    const [unassignedPassengerCount, setUnassignedPassengerCount] = useState(0);
+    const [unassignedRouteBreakdown, setUnassignedRouteBreakdown] = useState([]);
     const [loading, setLoading] = useState(true);
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
     const [searchQuery, setSearchQuery] = useState('');
@@ -267,11 +269,17 @@ const Fleet = () => {
                 const data = await response.json();
                 const rows = Array.isArray(data) ? data : (data.buses || []);
                 setList(rows);
+                setUnassignedPassengerCount(data.unassignedPassengerCount || 0);
+                setUnassignedRouteBreakdown(data.unassignedRouteBreakdown || []);
             } else {
                 setList([]);
+                setUnassignedPassengerCount(0);
+                setUnassignedRouteBreakdown([]);
             }
         } catch (e) {
             setList([]);
+            setUnassignedPassengerCount(0);
+            setUnassignedRouteBreakdown([]);
         } finally {
             setLoading(false);
         }
@@ -531,6 +539,34 @@ const Fleet = () => {
                             <Users size={16} />
                         </div>
                     </div>
+                </div>
+            )}
+
+            {unassignedPassengerCount > 0 && (
+                <div className="mb-4 flex flex-col gap-2 p-3.5 rounded-xl border border-amber-200 bg-amber-50/50 text-amber-800 shadow-sm">
+                    <div className="flex items-center gap-2.5">
+                        <AlertCircle size={18} className="text-amber-600 shrink-0" />
+                        <div>
+                            <p className="text-xs font-bold text-amber-900">
+                                {unassignedPassengerCount} Passenger{unassignedPassengerCount !== 1 ? 's' : ''} not attached to any bus
+                            </p>
+                            <p className="text-[10px] text-amber-700 font-medium mt-0.5">
+                                These passengers are mapped to active routes but have no bus assignment (possibly due to route-bus detachment).
+                            </p>
+                        </div>
+                    </div>
+                    {unassignedRouteBreakdown.length > 0 && (
+                        <div className="pl-7 flex flex-wrap gap-1.5">
+                            {unassignedRouteBreakdown.map((routeData) => (
+                                <span 
+                                    key={routeData.routeId} 
+                                    className="inline-flex items-center px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 text-[10px] font-bold border border-amber-200 shadow-sm"
+                                >
+                                    {routeData.total} from {routeData.routeName} ({routeData.routeId})
+                                </span>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
