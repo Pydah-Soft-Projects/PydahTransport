@@ -4,6 +4,7 @@ const { resolveStudentPhoto } = require('../utils/studentPhoto');
 const { validateStudentAcademicContext } = require('../utils/studentAcademicValidation');
 const { getCollegesForCampuses } = require('./campusController');
 const TransportRequest = require('../models/TransportRequest');
+const { resolveStudentExpiries } = require('../utils/expiryResolver');
 
 const getRestrictedCollegesForUser = async (user, selectedCampusId = null) => {
     const isSuperAdmin = user && user.roles && user.roles.includes('superadmin');
@@ -204,6 +205,9 @@ const getCourseExpiry = async (req, res) => {
         const approvedMongoReqs = await TransportRequest.find({ status: 'approved' }).lean();
         const filteredMongoReqs = approvedMongoReqs.filter(r => (r.academic_year || fallbackAcademicYear) === academicYear);
 
+        // Resolve student request expiry details dynamically from SQL
+        await resolveStudentExpiries(filteredMongoReqs, mysqlPool);
+
         const admissionNos = [...new Set(filteredMongoReqs.map(r => r.admission_number).filter(Boolean))];
         let studentMap = {};
         if (admissionNos.length > 0) {
@@ -218,7 +222,6 @@ const getCourseExpiry = async (req, res) => {
         }
 
         const countsMap = {};
-        const now = new Date();
 
         for (const r of filteredMongoReqs) {
             const student = (r.admission_number && studentMap[r.admission_number]) || {};
@@ -232,12 +235,7 @@ const getCourseExpiry = async (req, res) => {
             }
             countsMap[key].passenger_count += 1;
 
-            let isExpired = false;
-            if (r.expiry_date) {
-                isExpired = new Date(r.expiry_date) < now;
-            } else if (r.semester_end_date) {
-                isExpired = new Date(r.semester_end_date) < now;
-            }
+            const isExpired = r.is_expired;
 
             if (isExpired) {
                 countsMap[key].expired_passenger_count += 1;

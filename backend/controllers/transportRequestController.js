@@ -12,6 +12,7 @@ const { resolveApplicationNumberContext } = require('../utils/applicationNumberC
 const { resolveRouteStageFare } = require('../utils/stageFare');
 const { getCollegesForCampuses } = require('./campusController');
 const campusService = require('../services/campusService');
+const { resolveStudentExpiries } = require('../utils/expiryResolver');
 
 const getRestrictedCollegesForUser = async (user, selectedCampusId = null) => {
     const isSuperAdmin = user && user.roles && user.roles.includes('superadmin');
@@ -426,17 +427,13 @@ async function getBusesWithSeatsForRoute(routeId) {
     const studentDocs = await TransportRequest.find({
         status: 'approved',
         bus_id: { $in: busNumbers },
-    }).select('bus_id expiry_date semester_end_date').lean();
+    }).select('bus_id admission_number academic_year year_of_study semester_id').lean();
+
+    await resolveStudentExpiries(studentDocs, mysqlPool);
 
     const studentCountMap = {};
     studentDocs.forEach((r) => {
-        let isExpired = false;
-        if (r.expiry_date) {
-            isExpired = new Date(r.expiry_date) < now;
-        } else if (r.semester_end_date) {
-            isExpired = new Date(r.semester_end_date) < now;
-        }
-        if (!isExpired && r.bus_id) {
+        if (!r.is_expired && r.bus_id) {
             studentCountMap[r.bus_id] = (studentCountMap[r.bus_id] || 0) + 1;
         }
     });
@@ -724,6 +721,9 @@ const getTransportRequests = async (req, res) => {
             )
             : rawStudentMongoRows;
 
+        // Resolve student request expiry details dynamically from SQL
+        await resolveStudentExpiries(filteredStudentMongoRows, mysqlPool);
+
         // Fetch student info from MySQL students table for course, branch, college, pin_no
         const admissionNos = [...new Set(filteredStudentMongoRows.map(r => r.admission_number).filter(Boolean))];
         let studentMap = {};
@@ -740,7 +740,6 @@ const getTransportRequests = async (req, res) => {
             }
         }
 
-        const now = new Date();
         const formattedStudentRows = [];
 
         for (const r of filteredStudentMongoRows) {
@@ -757,12 +756,7 @@ const getTransportRequests = async (req, res) => {
             if (restrictedColleges !== null && (!itemCollege || !restrictedColleges.includes(itemCollege))) continue;
             if (hasCourseRestriction && (!itemCourse || !req.user.courses.includes(itemCourse))) continue;
 
-            let isExpired = false;
-            if (r.expiry_date) {
-                isExpired = new Date(r.expiry_date) < now;
-            } else if (r.semester_end_date) {
-                isExpired = new Date(r.semester_end_date) < now;
-            }
+            const isExpired = r.is_expired;
 
             if (status === 'expired' && (!isExpired || r.status !== 'approved')) continue;
             if (status === 'active' && (isExpired || r.status !== 'approved')) continue;
@@ -776,7 +770,7 @@ const getTransportRequests = async (req, res) => {
                 course: itemCourse,
                 branch: itemBranch,
                 pin_no: itemPinNo,
-                effective_expiry_date: r.expiry_date || r.semester_end_date || null,
+                effective_expiry_date: r.effective_expiry_date,
                 is_expired: isExpired,
             });
         }
@@ -1013,13 +1007,11 @@ async function checkBusCapacityGuard(busNumber) {
     const studentDocs = await TransportRequest.find({
         status: 'approved',
         bus_id: busNumber,
-    }).select('expiry_date semester_end_date').lean();
+    }).select('admission_number academic_year year_of_study semester_id').lean();
 
-    const studentCount = studentDocs.filter((r) => {
-        if (r.expiry_date) return new Date(r.expiry_date) >= now;
-        if (r.semester_end_date) return new Date(r.semester_end_date) >= now;
-        return true; // no expiry set → still active
-    }).length;
+    await resolveStudentExpiries(studentDocs, mysqlPool);
+
+    const studentCount = studentDocs.filter((r) => !r.is_expired).length;
 
     // Count live employees from MongoDB (no expiry mechanism)
     const [empAgg] = await EmployeeTransportRequest.aggregate([
@@ -1632,10 +1624,9 @@ async function updateTransportRequestSemester(mysqlPool, requestId, fields) {
     if (mongoReq) {
         if (semester_id != null) mongoReq.semester_id = semester_id;
         if (semester_start_date != null) mongoReq.semester_start_date = semester_start_date;
-        if (semester_end_date != null) {
-            mongoReq.semester_end_date = semester_end_date;
-            mongoReq.expiry_date = semester_end_date;
-        }
+        // Dates are resolved dynamically from SQL; we set them to null in MongoDB to avoid stale data
+        mongoReq.semester_end_date = null;
+        mongoReq.expiry_date = null;
         if (academic_year_id != null) mongoReq.academic_year_id = academic_year_id;
         if (year_of_study != null) mongoReq.year_of_study = year_of_study;
         if (semester_number != null) mongoReq.semester_number = semester_number;

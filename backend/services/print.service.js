@@ -18,6 +18,7 @@ const { mysqlPool } = require('../config/db');
 const { resolveStudentPhoto } = require('../utils/studentPhoto');
 const { getEmployeeModel } = require('../models/Employee');
 const campusService = require('./campusService');
+const { resolveStudentExpiries } = require('../utils/expiryResolver');
 
 // Pre-load logo to inline as Base64 to handle cross-origin printing
 const logoPath = path.join(__dirname, '../../frontend/public/PYDAH_LOGO_PHOTO.jpg');
@@ -300,6 +301,9 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
     const studentMongoRequests = await TransportRequest.find(passengerQuery).lean();
     const filteredStudentRequests = studentMongoRequests;
 
+    // Resolve student request expiry details dynamically from SQL
+    await resolveStudentExpiries(filteredStudentRequests, mysqlPool);
+
     const admissionNos = [...new Set(filteredStudentRequests.map(r => r.admission_number).filter(Boolean))];
     let studentMap = {};
     if (mysqlPool && admissionNos.length > 0) {
@@ -318,15 +322,9 @@ const fetchBusPassengers = async (busNumber, academicYear, liveOccupancy = true,
         }
     }
 
-    const now = new Date();
     mysqlPassengers = filteredStudentRequests.map((r) => {
         const student = (r.admission_number && studentMap[r.admission_number]) || {};
-        let isExpired = false;
-        if (r.expiry_date) {
-            isExpired = new Date(r.expiry_date) < now;
-        } else if (r.semester_end_date) {
-            isExpired = new Date(r.semester_end_date) < now;
-        }
+        const isExpired = r.is_expired;
         const combinedRow = {
             ...r,
             id: r.id != null ? r.id : String(r._id),
@@ -501,6 +499,13 @@ const fetchPassengerReportData = async (data) => {
         }
 
         if (mongoIds.length > 0) {
+            const studentMongoRequests = await TransportRequest.find({ _id: { $in: mongoIds } }).lean();
+            const studentPassengers = studentMongoRequests.map(r => ({
+                ...r,
+                id: r._id.toString(),
+                user_type: 'student'
+            }));
+
             const mongoRequests = await EmployeeTransportRequest.find({ _id: { $in: mongoIds } }).lean();
             
             const empNos = [...new Set(mongoRequests.map(r => r.emp_no).filter(Boolean))];
@@ -530,7 +535,7 @@ const fetchPassengerReportData = async (data) => {
                 course: 'Employee',
                 student_photo: r.emp_no ? (employeePhotoMap[r.emp_no] || null) : null,
             }));
-            passengers = [...passengers, ...mongoPassengers];
+            passengers = [...passengers, ...studentPassengers, ...mongoPassengers];
         }
     } else if (data.busId) {
         passengers = await fetchBusPassengers(data.busId, academicYear, activeOnly, data.campus, false);
@@ -552,6 +557,9 @@ const fetchPassengerReportData = async (data) => {
         const studentMongoRequests = await TransportRequest.find(studentMongoQuery).lean();
         const filteredStudentRequests = studentMongoRequests;
 
+    // Resolve student request expiry details dynamically from SQL
+    await resolveStudentExpiries(filteredStudentRequests, mysqlPool);
+
     const admissionNos = [...new Set(filteredStudentRequests.map(r => r.admission_number).filter(Boolean))];
     let studentMap = {};
     if (mysqlPool && admissionNos.length > 0) {
@@ -567,15 +575,9 @@ const fetchPassengerReportData = async (data) => {
         }
     }
 
-    const now = new Date();
     passengers = filteredStudentRequests.map((r) => {
         const student = (r.admission_number && studentMap[r.admission_number]) || {};
-        let isExpired = false;
-        if (r.expiry_date) {
-            isExpired = new Date(r.expiry_date) < now;
-        } else if (r.semester_end_date) {
-            isExpired = new Date(r.semester_end_date) < now;
-        }
+        const isExpired = r.is_expired;
         return {
             ...r,
             id: r.id != null ? r.id : String(r._id),

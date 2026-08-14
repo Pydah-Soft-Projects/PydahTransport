@@ -13,6 +13,7 @@ const {
     enrichTransportFareAdjustments,
 } = require('./transportRequestController');
 const campusService = require('../services/campusService');
+const { resolveStudentExpiries } = require('../utils/expiryResolver');
 
 const LEGACY_CHANGED_BY = 'Existing assignment';
 
@@ -165,6 +166,9 @@ const getBusDetails = async (req, res) => {
             liveOccupancy ? true : (r.academic_year || fallbackAcademicYear) === academicYear
         ));
 
+        // Resolve student request expiry details dynamically from SQL
+        await resolveStudentExpiries(filteredStudentRequests, mysqlPool);
+
         const admissionNos = [...new Set(filteredStudentRequests.map(r => r.admission_number).filter(Boolean))];
         let studentMap = {};
         if (mysqlPool && admissionNos.length > 0) {
@@ -180,15 +184,9 @@ const getBusDetails = async (req, res) => {
             }
         }
 
-        const now = new Date();
         const formattedStudentRows = filteredStudentRequests.map((r) => {
             const student = (r.admission_number && studentMap[r.admission_number]) || {};
-            let isExpired = false;
-            if (r.expiry_date) {
-                isExpired = new Date(r.expiry_date) < now;
-            } else if (r.semester_end_date) {
-                isExpired = new Date(r.semester_end_date) < now;
-            }
+            const isExpired = r.is_expired;
             return {
                 ...r,
                 id: r.id != null ? r.id : String(r._id),
@@ -349,18 +347,14 @@ const getBusesOverview = async (req, res) => {
                 bus_id: { $in: busNumbers }
             }).lean();
 
-            const now = new Date();
+            // Resolve student request expiry details dynamically from SQL
+            await resolveStudentExpiries(mongoStudents, mysqlPool);
+
             const studentCountsByBus = {};
             mongoStudents
                 .filter((r) => {
                     if (liveOccupancy) {
-                        let isExpired = false;
-                        if (r.expiry_date) {
-                            isExpired = new Date(r.expiry_date) < now;
-                        } else if (r.semester_end_date) {
-                            isExpired = new Date(r.semester_end_date) < now;
-                        }
-                        return !isExpired;
+                        return !r.is_expired;
                     }
                     return (r.academic_year || fallbackAcademicYear) === academicYear;
                 })
