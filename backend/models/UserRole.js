@@ -22,7 +22,13 @@ const userRoleSchema = new mongoose.Schema({
     }],
     courses: [{
         type: String
-    }]
+    }],
+    email: {
+        type: String
+    },
+    phone: {
+        type: String
+    }
 }, { timestamps: true });
 
 const UserRole = mongoose.model('UserRole', userRoleSchema);

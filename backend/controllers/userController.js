@@ -9,6 +9,50 @@ const Admin = require('../models/Admin');
 // @desc    Get all users (Employees + Roles)
 // @route   GET /api/users
 // @access  Private/Admin
+const extractEmployeePhone = (emp, roleData) => {
+    if (emp.phone_number) return emp.phone_number;
+    if (emp.phone) return emp.phone;
+    if (emp.mobile) return emp.mobile;
+    if (emp.mobile_no) return emp.mobile_no;
+    if (emp.phone_no) return emp.phone_no;
+    if (emp.alt_phone_number) return emp.alt_phone_number;
+
+    // Check dynamicFields object from HRMS
+    if (emp.dynamicFields && typeof emp.dynamicFields === 'object') {
+        const fields = emp.dynamicFields;
+        for (const key of Object.keys(fields)) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.includes('phone') || lowerKey.includes('mobile') || lowerKey.includes('contact') || lowerKey.includes('number')) {
+                const val = fields[key];
+                if (val && typeof val === 'string' && val.trim()) return val.trim();
+                if (val && typeof val === 'number') return String(val);
+            }
+        }
+    }
+
+    return roleData?.phone || '';
+};
+
+const extractEmployeeEmail = (emp, roleData) => {
+    if (emp.email) return emp.email;
+    if (emp.official_email) return emp.official_email;
+    if (emp.personal_email) return emp.personal_email;
+
+    // Check dynamicFields object from HRMS
+    if (emp.dynamicFields && typeof emp.dynamicFields === 'object') {
+        const fields = emp.dynamicFields;
+        for (const key of Object.keys(fields)) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.includes('email') || lowerKey.includes('mail')) {
+                const val = fields[key];
+                if (val && typeof val === 'string' && val.trim()) return val.trim();
+            }
+        }
+    }
+
+    return roleData?.email || '';
+};
+
 // @desc    Get all users (Employees + Roles)
 // @route   GET /api/users
 // @access  Private/Admin
@@ -29,10 +73,10 @@ const getUsers = async (req, res) => {
         // 2. Get list of employee IDs that have roles
         const employeeIds = userRoles.map(role => role.employeeId);
 
-        // 3. Fetch specific employees from HRMS (Updated fields based on user edits)
+        // 3. Fetch specific employees from HRMS (fetching full document for email, phone, dynamicFields, etc.)
         const employees = await Employee.find({
             '_id': { $in: employeeIds }
-        }, 'emp_no employee_name is_active').lean();
+        }).lean();
 
         // 4. Merge data
         const roleMap = {};
@@ -42,13 +86,17 @@ const getUsers = async (req, res) => {
 
         const mergedUsers = employees.map(emp => {
             const roleData = roleMap[emp._id.toString()] || {};
+            const email = extractEmployeeEmail(emp, roleData);
+            const phone = extractEmployeePhone(emp, roleData);
             return {
                 ...emp,
                 roles: roleData.roles || ['user'],
                 permissions: roleData.permissions || [],
                 campuses: roleData.campuses || [],
                 colleges: roleData.colleges || [],
-                courses: roleData.courses || []
+                courses: roleData.courses || [],
+                email,
+                phone
             };
         });
 
@@ -82,7 +130,7 @@ const getUsers = async (req, res) => {
 // @access  Private/Admin
 const updateUserRole = async (req, res) => {
     const { id } = req.params; // Employee ID (mongoose ObjectId from HRMS)
-    const { roles, permissions, campuses, colleges, courses } = req.body;
+    const { roles, permissions, campuses, colleges, courses, email, phone } = req.body;
  
     try {
         console.log(`[Backend] Updating user ${id} role/permissions`);
@@ -105,18 +153,20 @@ const updateUserRole = async (req, res) => {
         // Update or Create UserRole in Local DB
         // Ensure roles is an array
         const rolesArray = Array.isArray(roles) ? roles : [roles];
+
+        const updateFields = {
+            roles: rolesArray,
+            permissions: permissions || [],
+            campuses: campusService.normalizeCampusIds(campuses || []),
+            colleges: colleges || [],
+            courses: courses || []
+        };
+        if (email !== undefined) updateFields.email = email;
+        if (phone !== undefined) updateFields.phone = phone;
  
         const updatedRole = await UserRole.findOneAndUpdate(
             { employeeId: id },
-            {
-                $set: {
-                    roles: rolesArray,
-                    permissions: permissions || [],
-                    campuses: campusService.normalizeCampusIds(campuses || []),
-                    colleges: colleges || [],
-                    courses: courses || []
-                }
-            },
+            { $set: updateFields },
             { new: true, upsert: true, setDefaultsOnInsert: true }
         );
 
@@ -168,13 +218,13 @@ const searchEmployees = async (req, res) => {
             return res.status(503).json({ message: 'Employee DB connection not available' });
         }
 
-        // 1. Find employees matching the search query (Updated fields)
+        // 1. Find employees matching the search query (fetching full document for email & phone)
         const employees = await Employee.find({
             $or: [
                 { employee_name: { $regex: q, $options: 'i' } },
                 { emp_no: { $regex: q, $options: 'i' } }
             ]
-        }, 'emp_no employee_name').limit(20).lean();
+        }).limit(20).lean();
 
         console.log(`[Search] Raw matches from HRMS: ${employees.length}`);
 
@@ -197,9 +247,15 @@ const searchEmployees = async (req, res) => {
         // 4. Filter out employees who already have a role
         const newCandidates = employees.filter(emp => !existingEmployeeIds.has(emp._id.toString()));
 
-        console.log(`[Search] Final candidates: ${newCandidates.length}`);
+        const formattedCandidates = newCandidates.map(emp => ({
+            ...emp,
+            phone: extractEmployeePhone(emp, null),
+            email: extractEmployeeEmail(emp, null)
+        }));
 
-        res.json(newCandidates);
+        console.log(`[Search] Final candidates: ${formattedCandidates.length}`);
+
+        res.json(formattedCandidates);
     } catch (error) {
         console.error('Error searching employees:', error);
         res.status(500).json({ message: 'Failed to search employees' });
