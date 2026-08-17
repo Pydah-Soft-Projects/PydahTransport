@@ -12,6 +12,7 @@ import TransportRequests from './pages/TransportRequests';
 import TransportDues from './pages/TransportDues';
 import UserManagement from './pages/UserManagement';
 import AdminRaiseRequest from './pages/AdminRaiseRequest';
+import Renewals from './pages/Renewals';
 import Concessions from './pages/Concessions';
 import Inventory from './pages/Inventory';
 import RaiseBill from './pages/RaiseBill';
@@ -33,6 +34,7 @@ function App() {
           <Route path="/fleet" element={<ProtectedRoute><Fleet /></ProtectedRoute>} />
           <Route path="/routes" element={<ProtectedRoute><RouteManagement /></ProtectedRoute>} />
           <Route path="/transport-requests" element={<ProtectedRoute><TransportRequests /></ProtectedRoute>} />
+          <Route path="/renewals" element={<ProtectedRoute><Renewals /></ProtectedRoute>} />
           <Route path="/transport-dues" element={<ProtectedRoute><TransportDues /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
           <Route path="/raise-request" element={<ProtectedRoute><AdminRaiseRequest /></ProtectedRoute>} />

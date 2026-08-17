@@ -18,7 +18,8 @@ import {
     ChevronDown,
     ChevronLeft,
     ChevronRight,
-    Truck
+    Truck,
+    RefreshCw
 } from 'lucide-react';
 
 const Layout = ({ children }) => {
@@ -70,8 +71,9 @@ const Layout = ({ children }) => {
         {
             title: 'OPERATIONS',
             items: [
-                { path: '/raise-request', label: 'Raise Request', permission: 'raise_request', icon: <PlusCircle size={20} /> },
+                { path: '/raise-request', label: 'Raise New Request', permission: 'raise_request', icon: <PlusCircle size={20} /> },
                 { path: '/transport-requests', label: 'Passenger Requests', permission: 'transport_requests', icon: <ClipboardList size={20} /> },
+                { path: '/renewals', label: 'Renewals', permission: 'renewals', icon: <RefreshCw size={20} /> },
                 { path: '/concessions', label: 'Concessions', permission: 'concessions', icon: <Percent size={20} /> },
             ]
         },
