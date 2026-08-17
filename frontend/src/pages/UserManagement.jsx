@@ -84,6 +84,7 @@ const UserManagement = () => {
         { id: 'bus_management', label: 'Bus Management' },
         { id: 'fleet_passengers', label: 'Fleet & Passengers' },
         { id: 'route_management', label: 'Route Management' },
+        { id: 'gps_tracking', label: 'GPS Live Tracking' },
         { id: 'transport_requests', label: 'Transport Requests' },
         { id: 'transport_dues', label: 'Transport Dues' },
         { id: 'user_management', label: 'User Management' },
