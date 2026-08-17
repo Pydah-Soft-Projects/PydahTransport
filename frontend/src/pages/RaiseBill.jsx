@@ -195,7 +195,15 @@ const preventNumberInputScroll = (event) => {
 };
 
 const mapBillToFormData = (bill) => {
-    const vehicleNumber = bill.busId?.busNumber || bill.busId?.vehicleNumber || '';
+    let selectedVehicles = [];
+    if (Array.isArray(bill.busIds) && bill.busIds.length > 0) {
+        selectedVehicles = bill.busIds.map(b => b.busNumber || b.vehicleNumber || (typeof b === 'string' ? b : '')).filter(Boolean);
+    } else if (bill.busId) {
+        const vehicleNumber = bill.busId.busNumber || bill.busId.vehicleNumber || (typeof bill.busId === 'string' ? bill.busId : '');
+        if (vehicleNumber) {
+            selectedVehicles = [vehicleNumber];
+        }
+    }
     const vendorId = bill.vendorId?._id || bill.vendorId || '';
     const billTaxes = Array.isArray(bill.taxes) ? bill.taxes : [];
     const cgst = billTaxes.find((t) => /cgst/i.test(t.name));
@@ -206,7 +214,7 @@ const mapBillToFormData = (bill) => {
     const billDateStr = bill.date ? new Date(bill.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
     return {
-        busId: vehicleNumber ? [vehicleNumber] : [],
+        busId: selectedVehicles,
         vendorId: String(vendorId),
         billNo: bill.billNo || '',
         billDate: billDateStr,
@@ -968,39 +976,55 @@ const RaiseBill = () => {
         setPageTab(PAGE_TABS.raise);
     };
 
-    const getFormattedVehicleLabel = (busIds) => {
-        if (!busIds || (Array.isArray(busIds) && busIds.length === 0)) {
+    const getFormattedVehicleLabel = (busIdsInput) => {
+        if (!busIdsInput || (Array.isArray(busIdsInput) && busIdsInput.length === 0)) {
             return '-- Choose Vehicle --';
         }
-        if (!Array.isArray(busIds)) {
-            return busIds;
+
+        const rawArray = Array.isArray(busIdsInput) ? busIdsInput : [busIdsInput];
+        const ids = rawArray.map(b => {
+            if (!b) return '';
+            if (typeof b === 'string') {
+                const foundBus = buses.find(x => x._id === b || x.busNumber === b);
+                if (foundBus) return foundBus.busNumber;
+                const foundOther = otherVehicles.find(x => x._id === b || x.vehicleNumber === b);
+                if (foundOther) return foundOther.vehicleNumber;
+                return b;
+            }
+            const foundBus = buses.find(x => x._id === b._id || x.busNumber === b.busNumber);
+            if (foundBus) return foundBus.busNumber;
+            const foundOther = otherVehicles.find(x => x._id === b._id || x.vehicleNumber === b.vehicleNumber);
+            if (foundOther) return foundOther.vehicleNumber;
+            return b.busNumber || b.vehicleNumber || b._id || '';
+        }).filter(Boolean);
+
+        if (ids.length === 0) {
+            return '-- Choose Vehicle --';
+        }
+
+        if (!Array.isArray(busIdsInput)) {
+            return ids[0];
         }
 
         const totalVehiclesCount = buses.length + otherVehicles.length;
 
-        if (totalVehiclesCount > 0 && busIds.length === totalVehiclesCount) {
+        if (totalVehiclesCount > 0 && ids.length === totalVehiclesCount) {
             return `All Vehicles`;
         }
         
-        if (buses.length > 0 && busIds.length === buses.length && buses.every((b) => busIds.includes(b.busNumber))) {
+        if (buses.length > 0 && ids.length === buses.length && buses.every((b) => ids.includes(b.busNumber))) {
             return `All Buses`;
         }
 
-        if (otherVehicles.length > 0 && busIds.length === otherVehicles.length && otherVehicles.every((o) => busIds.includes(o.vehicleNumber))) {
+        if (otherVehicles.length > 0 && ids.length === otherVehicles.length && otherVehicles.every((o) => ids.includes(o.vehicleNumber))) {
             return `All Other Vehicles`;
         }
 
-        if (busIds.length <= 2) {
-            return busIds.join(', ');
+        if (ids.length > 1) {
+            return `Multiple Vehicles`;
         }
 
-        // Check if all selected are buses
-        const selectedBusesCount = busIds.filter(id => buses.map(b => b.busNumber).includes(id)).length;
-        if (selectedBusesCount === busIds.length) {
-            return `${busIds.length} Buses Selected (${busIds.slice(0, 2).join(', ')}...)`;
-        }
-
-        return `${busIds.length} Vehicles Selected (${busIds.slice(0, 2).join(', ')}...)`;
+        return ids[0];
     };
 
     const handleBillSubmit = (e) => {
@@ -2347,10 +2371,15 @@ const RaiseBill = () => {
                 {printBill && (
                     <div id="print-container">
                         <BillPrint
-                            billData={printBill}
+                            billData={{
+                                ...printBill,
+                                vehicleDisplayLabel: getFormattedVehicleLabel(printBill.busIds || printBill.busId)
+                            }}
                             vendor={vendors.find((v) => (v._id?.toString() || v._id) === (printBill.vendorId?._id?.toString() || printBill.vendorId?.toString() || printBill.vendorId))}
-                            bus={buses.find((b) => b.busNumber === (printBill.busId?.busNumber || printBill.busId))
-                                || otherVehicles.find((v) => v.vehicleNumber === (printBill.busId?.busNumber || printBill.busId?.vehicleNumber || printBill.busId))}
+                            bus={(Array.isArray(printBill.busIds) && printBill.busIds.length > 1)
+                                ? { vehicleNumber: getFormattedVehicleLabel(printBill.busIds), busNumber: getFormattedVehicleLabel(printBill.busIds) }
+                                : (buses.find((b) => b.busNumber === (printBill.busId?.busNumber || printBill.busId))
+                                    || otherVehicles.find((v) => v.vehicleNumber === (printBill.busId?.busNumber || printBill.busId?.vehicleNumber || printBill.busId)))}
                         />
                     </div>
                 )}

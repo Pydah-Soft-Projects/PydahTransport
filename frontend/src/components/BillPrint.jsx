@@ -56,13 +56,18 @@ const BillPrint = ({ billData, vendor, bus }) => {
         month: '2-digit',
         year: 'numeric'
     });
-    const vehicleNumber = billData.vehicleDisplayLabel
-        || (billData.busIds && billData.busIds.length > 0
-            ? billData.busIds.map(b => b.busNumber || b.vehicleNumber || (typeof b === 'string' ? b : '')).filter(Boolean).join(', ')
-            : (bus?.vehicleNumber || bus?.busNumber
-               || billData.items[0]?.busId?.vehicleNumber || billData.items[0]?.busId?.busNumber
-               || (typeof billData.busId === 'string' ? billData.busId : (billData.busId?.vehicleNumber || billData.busId?.busNumber))
-               || 'N/A'));
+    const getPrintVehicleNumber = () => {
+        if (billData.vehicleDisplayLabel) return billData.vehicleDisplayLabel;
+        const busIds = billData.busIds || [];
+        if (busIds.length > 1) {
+            return "Multiple Vehicles";
+        }
+        const singleBus = busIds[0] || bus || billData.items?.[0]?.busId || billData.busId;
+        if (!singleBus) return 'N/A';
+        if (typeof singleBus === 'string') return singleBus;
+        return singleBus.busNumber || singleBus.vehicleNumber || 'N/A';
+    };
+    const vehicleNumber = getPrintVehicleNumber();
     const vendorName = vendor?.name || billData.vendorId?.name || 'Generic Vendor';
     const vendorAddress = vendor?.address || billData.vendorId?.address || 'Address not provided';
     const vendorPhone = vendor?.phone || billData.vendorId?.phone || null;
