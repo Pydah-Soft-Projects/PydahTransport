@@ -979,15 +979,15 @@ const RaiseBill = () => {
         const totalVehiclesCount = buses.length + otherVehicles.length;
 
         if (totalVehiclesCount > 0 && busIds.length === totalVehiclesCount) {
-            return `All Vehicles (${totalVehiclesCount} Vehicles)`;
+            return `All Vehicles`;
         }
         
         if (buses.length > 0 && busIds.length === buses.length && buses.every((b) => busIds.includes(b.busNumber))) {
-            return `All Buses (${buses.length} Buses)`;
+            return `All Buses`;
         }
 
         if (otherVehicles.length > 0 && busIds.length === otherVehicles.length && otherVehicles.every((o) => busIds.includes(o.vehicleNumber))) {
-            return `All Other Vehicles (${otherVehicles.length} Vehicles)`;
+            return `All Other Vehicles`;
         }
 
         if (busIds.length <= 2) {

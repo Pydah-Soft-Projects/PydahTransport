@@ -112,6 +112,8 @@ const TransportRequests = () => {
     const [idCardApplicationsLoading, setIdCardApplicationsLoading] = useState(false);
     const [idCardFromSerial, setIdCardFromSerial] = useState('');
     const [idCardToSerial, setIdCardToSerial] = useState('');
+    const [idCardStartDate, setIdCardStartDate] = useState('');
+    const [idCardEndDate, setIdCardEndDate] = useState('');
     const [idCardPerPage, setIdCardPerPage] = useState(6);
     const [idCardPassengers, setIdCardPassengers] = useState([]);
     const [idCardPadToFullPage, setIdCardPadToFullPage] = useState(true);
@@ -302,15 +304,19 @@ const TransportRequests = () => {
         });
         if (idCardCollegeCode) params.append('collegeCode', idCardCollegeCode);
         if (idCardCourseCode) params.append('courseCode', idCardCourseCode);
+        if (idCardStartDate) params.append('startDate', idCardStartDate);
+        if (idCardEndDate) params.append('endDate', idCardEndDate);
         return params.toString();
     };
 
-    const fetchIdCardApplications = async (year) => {
+    const fetchIdCardApplications = async (year, startD = idCardStartDate, endD = idCardEndDate) => {
         setIdCardApplicationsLoading(true);
         try {
-            const response = await apiFetch(
-                `${API_BASE}/transport-requests/id-card-application-numbers?academicYear=${encodeURIComponent(year)}`
-            );
+            let url = `${API_BASE}/transport-requests/id-card-application-numbers?academicYear=${encodeURIComponent(year)}`;
+            if (startD) url += `&startDate=${encodeURIComponent(startD)}`;
+            if (endD) url += `&endDate=${encodeURIComponent(endD)}`;
+
+            const response = await apiFetch(url);
             const data = await response.json().catch(() => ({}));
             if (response.ok) {
                 const apps = data.applications || [];
@@ -349,6 +355,8 @@ const TransportRequests = () => {
 
     const openIdCardModal = () => {
         setIdCardAcademicYear(academicYear);
+        setIdCardStartDate('');
+        setIdCardEndDate('');
         setIdCardPreviewCount(null);
         setIdCardPrintMode(selectedRequestIds.length > 0 ? 'selected' : 'range');
         setIdCardModalOpen(true);
@@ -798,9 +806,9 @@ const TransportRequests = () => {
 
     useEffect(() => {
         if (idCardModalOpen) {
-            fetchIdCardApplications(idCardAcademicYear);
+            fetchIdCardApplications(idCardAcademicYear, idCardStartDate, idCardEndDate);
         }
-    }, [idCardModalOpen, idCardAcademicYear]);
+    }, [idCardModalOpen, idCardAcademicYear, idCardStartDate, idCardEndDate]);
 
     useEffect(() => {
         fetchRequests();
@@ -2104,61 +2112,94 @@ const TransportRequests = () => {
                         </div>
                     ) : (
                         <>
+                            {/* Date Range Filters */}
                             <div>
                                 <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                    Academic Year
+                                    Application Created Date Range
                                 </label>
-                                <select
-                                    value={idCardAcademicYear}
-                                    onChange={(e) => setIdCardAcademicYear(e.target.value)}
-                                    disabled={idCardPrintLoading}
-                                    className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
-                                >
-                                    {academicYearOptions.map((year) => (
-                                        <option key={year} value={year}>{year}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {idCardAllApplications.length > 0 && (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                            College Code
-                                        </label>
-                                        <select
-                                            value={idCardCollegeCode}
+                                        <label className="block text-[10px] text-slate-400 mb-1">From Date</label>
+                                        <input
+                                            type="date"
+                                            value={idCardStartDate}
                                             onChange={(e) => {
-                                                setIdCardCollegeCode(e.target.value);
-                                                setIdCardCourseCode('');
+                                                setIdCardStartDate(e.target.value);
+                                                setIdCardPreviewCount(null);
                                             }}
                                             disabled={idCardPrintLoading}
-                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
-                                        >
-                                            <option value="">All Colleges</option>
-                                            {idCardCollegeOptions.map((code) => (
-                                                <option key={code} value={code}>{code}</option>
-                                            ))}
-                                        </select>
+                                            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
+                                        />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                            Course Code
-                                        </label>
-                                        <select
-                                            value={idCardCourseCode}
-                                            onChange={(e) => setIdCardCourseCode(e.target.value)}
+                                        <label className="block text-[10px] text-slate-400 mb-1">To Date</label>
+                                        <input
+                                            type="date"
+                                            value={idCardEndDate}
+                                            onChange={(e) => {
+                                                setIdCardEndDate(e.target.value);
+                                                setIdCardPreviewCount(null);
+                                            }}
                                             disabled={idCardPrintLoading}
-                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
-                                        >
-                                            <option value="">All Courses</option>
-                                            {idCardCourseOptions.map((code) => (
-                                                <option key={code} value={code}>{code}</option>
-                                            ))}
-                                        </select>
+                                            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
+                                        />
                                     </div>
                                 </div>
-                            )}
+                            </div>
+
+                            {/* Academic Year, College and Course in single row */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                        Academic Year
+                                    </label>
+                                    <select
+                                        value={idCardAcademicYear}
+                                        onChange={(e) => setIdCardAcademicYear(e.target.value)}
+                                        disabled={idCardPrintLoading}
+                                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
+                                    >
+                                        {academicYearOptions.map((year) => (
+                                            <option key={year} value={year}>{year}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                        College Code
+                                    </label>
+                                    <select
+                                        value={idCardCollegeCode}
+                                        onChange={(e) => {
+                                            setIdCardCollegeCode(e.target.value);
+                                            setIdCardCourseCode('');
+                                        }}
+                                        disabled={idCardPrintLoading || idCardAllApplications.length === 0}
+                                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
+                                    >
+                                        <option value="">All Colleges</option>
+                                        {idCardCollegeOptions.map((code) => (
+                                            <option key={code} value={code}>{code}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                        Course Code
+                                    </label>
+                                    <select
+                                        value={idCardCourseCode}
+                                        onChange={(e) => setIdCardCourseCode(e.target.value)}
+                                        disabled={idCardPrintLoading || idCardAllApplications.length === 0}
+                                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
+                                    >
+                                        <option value="">All Courses</option>
+                                        {idCardCourseOptions.map((code) => (
+                                            <option key={code} value={code}>{code}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
 
                             {!idCardApplications.length ? (
                                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">

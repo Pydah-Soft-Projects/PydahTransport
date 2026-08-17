@@ -2655,6 +2655,8 @@ const getIdCardApplicationNumbers = async (req, res) => {
         const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
         const collegeCode = req.query.collegeCode || req.query.college_code || null;
         const courseCode = req.query.courseCode || req.query.course_code || null;
+        const startDate = req.query.startDate || null;
+        const endDate = req.query.endDate || null;
 
         const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
         const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
@@ -2685,6 +2687,12 @@ const getIdCardApplicationNumbers = async (req, res) => {
                 { academic_year: { $exists: false } },
             ],
         };
+        if (startDate || endDate) {
+            const dateRange = {};
+            if (startDate) dateRange.$gte = new Date(new Date(startDate).setHours(0, 0, 0, 0));
+            if (endDate) dateRange.$lte = new Date(new Date(endDate).setHours(23, 59, 59, 999));
+            studentQuery.request_date = dateRange;
+        }
         if (collegeCode) studentQuery.application_college_code = collegeCode;
         if (courseCode) studentQuery.application_course_code = courseCode;
 
@@ -2720,6 +2728,12 @@ const getIdCardApplicationNumbers = async (req, res) => {
                 { academic_year: { $exists: false } },
             ],
         };
+        if (startDate || endDate) {
+            const dateRange = {};
+            if (startDate) dateRange.$gte = new Date(new Date(startDate).setHours(0, 0, 0, 0));
+            if (endDate) dateRange.$lte = new Date(new Date(endDate).setHours(23, 59, 59, 999));
+            mongoQuery.request_date = dateRange;
+        }
         if (collegeCode) mongoQuery.application_college_code = collegeCode;
         if (courseCode) mongoQuery.application_course_code = courseCode;
 
@@ -2780,6 +2794,8 @@ const getIdCardsForPrint = async (req, res) => {
         const toSerial = Number(req.query.toSerial ?? req.query.to_serial ?? fromSerial);
         const collegeCode = req.query.collegeCode || req.query.college_code || null;
         const courseCode = req.query.courseCode || req.query.course_code || null;
+        const startDate = req.query.startDate || null;
+        const endDate = req.query.endDate || null;
 
         if (!Number.isFinite(fromSerial) || !Number.isFinite(toSerial) || fromSerial < 1 || toSerial < fromSerial) {
             return res.status(400).json({ message: 'Valid fromSerial and toSerial are required (fromSerial <= toSerial, both >= 1).' });
@@ -2816,6 +2832,12 @@ const getIdCardsForPrint = async (req, res) => {
                 { academic_year: { $exists: false } },
             ],
         };
+        if (startDate || endDate) {
+            const dateRange = {};
+            if (startDate) dateRange.$gte = new Date(new Date(startDate).setHours(0, 0, 0, 0));
+            if (endDate) dateRange.$lte = new Date(new Date(endDate).setHours(23, 59, 59, 999));
+            studentQuery.request_date = dateRange;
+        }
         if (collegeCode) studentQuery.application_college_code = collegeCode;
         if (courseCode) studentQuery.application_course_code = courseCode;
 
@@ -2872,6 +2894,12 @@ const getIdCardsForPrint = async (req, res) => {
                 { academic_year: { $exists: false } },
             ],
         };
+        if (startDate || endDate) {
+            const dateRange = {};
+            if (startDate) dateRange.$gte = new Date(new Date(startDate).setHours(0, 0, 0, 0));
+            if (endDate) dateRange.$lte = new Date(new Date(endDate).setHours(23, 59, 59, 999));
+            mongoQuery.request_date = dateRange;
+        }
         if (collegeCode) mongoQuery.application_college_code = collegeCode;
         if (courseCode) mongoQuery.application_course_code = courseCode;
 
