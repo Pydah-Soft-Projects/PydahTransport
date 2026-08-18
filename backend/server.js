@@ -6,6 +6,7 @@ const cors = require('cors');
 const cron = require('node-cron');
 const { connectDB, connectFeeDB, connectEmployeeDB } = require('./config/db');
 const { expireStaffTransportRequests } = require('./jobs/expireStaffTransportRequests');
+const { expireStudentTransportRequests } = require('./jobs/expireStudentTransportRequests');
 
 const app = express();
 
@@ -69,19 +70,20 @@ startDbs()
     .then(() => {
         app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-        // ── Nightly Staff Transport Expiry Job ──────────────────────────────────
-        // Runs every night at 2:00 AM server time.
-        // Checks HRMS for employees with a past left-date and expires their
-        // active (pending/approved) transport requests automatically.
+        // ── Nightly Expiry Jobs (Staff & Students) ──────────────────────────────
+        // Runs every night at 2:00 AM IST.
         cron.schedule('0 2 * * *', async () => {
             console.log('[Cron] Running nightly staff transport expiry check...');
             await expireStaffTransportRequests();
+
+            console.log('[Cron] Running nightly student transport expiry check...');
+            await expireStudentTransportRequests();
         }, {
             scheduled: true,
             timezone: 'Asia/Kolkata'
         });
-
-        console.log('[Cron] Staff transport expiry job scheduled — runs daily at 02:00 AM IST');
+ 
+        console.log('[Cron] Expiry jobs scheduled — runs daily at 02:00 AM IST');
     })
     .catch((err) => {
         console.error('Failed to start:', err);

@@ -127,6 +127,10 @@ const transportRequestSchema = new mongoose.Schema({
     new_id_card_needed: {
         type: Boolean,
         default: false
+    },
+    expiry_reason: {
+        type: String,
+        default: null
     }
 }, {
     timestamps: { createdAt: 'request_date', updatedAt: 'updated_at' },

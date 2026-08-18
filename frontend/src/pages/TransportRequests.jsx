@@ -102,7 +102,7 @@ const TransportRequests = () => {
     const [editingYears, setEditingYears] = useState({});
     const [detailModal, setDetailModal] = useState({ open: false, request: null, loading: false });
     const [idCardStatusLoading, setIdCardStatusLoading] = useState(false);
-    const [cancelFormOpen, setCancelFormOpen] = useState(false);
+    const [cancelModalOpen, setCancelModalOpen] = useState(false);
     const [cancelReason, setCancelReason] = useState('');
     const [idCardModalOpen, setIdCardModalOpen] = useState(false);
     const [idCardAcademicYear, setIdCardAcademicYear] = useState(getDefaultAcademicYear());
@@ -953,10 +953,6 @@ const TransportRequests = () => {
             return;
         }
 
-        if (!window.confirm('Cancel this transport request? The seat will be vacated but the record will be kept.')) {
-            return;
-        }
-
         setActionLoading(id);
         setMessage({ text: '', type: '' });
         try {
@@ -968,6 +964,8 @@ const TransportRequests = () => {
             const data = await response.json().catch(() => ({}));
             if (response.ok) {
                 setMessage({ text: data.message || 'Transport request cancelled.', type: 'success' });
+                setCancelModalOpen(false);
+                setCancelReason('');
                 closeDetailModal();
                 fetchRequests();
             } else {
@@ -1658,52 +1656,18 @@ const TransportRequests = () => {
                                                         {idCardStatusLoading ? 'Updating…' : 'Mark ID Card as Given'}
                                                     </button>
                                                 )}
-                                                {!cancelFormOpen ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setCancelFormOpen(true);
-                                                            setCancelReason('');
-                                                        }}
-                                                        disabled={actionLoading !== null}
-                                                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white text-orange-700 text-sm font-bold border border-orange-200 hover:bg-orange-50 disabled:opacity-50 transition-colors"
-                                                    >
-                                                        <Ban size={17} />
-                                                        Cancel Request
-                                                    </button>
-                                                ) : (
-                                                    <div className="rounded-xl border border-orange-200 bg-orange-50/60 p-3 space-y-2">
-                                                        <p className="text-xs font-bold text-orange-800">Cancellation reason</p>
-                                                        <textarea
-                                                            value={cancelReason}
-                                                            onChange={(e) => setCancelReason(e.target.value)}
-                                                            rows={3}
-                                                            placeholder="e.g. Student withdrew transport for this year"
-                                                            className="w-full rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-400 resize-none"
-                                                        />
-                                                        <div className="flex gap-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleCancelRequest(req.id)}
-                                                                disabled={actionLoading !== null}
-                                                                className="flex-1 py-2 rounded-lg bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 disabled:opacity-50"
-                                                            >
-                                                                {actionLoading === req.id ? 'Cancelling…' : 'Confirm Cancel'}
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setCancelFormOpen(false);
-                                                                    setCancelReason('');
-                                                                }}
-                                                                disabled={actionLoading !== null}
-                                                                className="px-3 py-2 rounded-lg border border-orange-200 text-orange-700 text-xs font-bold hover:bg-white disabled:opacity-50"
-                                                            >
-                                                                Back
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setCancelModalOpen(true);
+                                                        setCancelReason('');
+                                                    }}
+                                                    disabled={actionLoading !== null}
+                                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white text-orange-700 text-sm font-bold border border-orange-200 hover:bg-orange-50 disabled:opacity-50 transition-colors"
+                                                >
+                                                    <Ban size={17} />
+                                                    Cancel Request
+                                                </button>
                                             </>
                                         )}
                                         {statusKey === 'cancelled' && (
@@ -1732,6 +1696,56 @@ const TransportRequests = () => {
                         </div>
                     );
                 })()}
+            </Modal>
+
+            <Modal
+                isOpen={cancelModalOpen}
+                onClose={() => {
+                    setCancelModalOpen(false);
+                    setCancelReason('');
+                }}
+                title="Cancel Transport Request"
+                maxWidth="max-w-md"
+            >
+                <div className="space-y-4">
+                    <p className="text-xs text-slate-500">
+                        Please provide a cancellation reason. The seat for this passenger will be vacated, but the record will be retained in history.
+                    </p>
+                    
+                    <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">
+                            Cancellation Reason
+                        </label>
+                        <textarea
+                            value={cancelReason}
+                            onChange={(e) => setCancelReason(e.target.value)}
+                            rows={3}
+                            placeholder="e.g. Student withdrew transport for this year"
+                            className="w-full rounded-lg border border-slate-350 bg-white px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-orange-400 resize-none font-semibold text-slate-800"
+                        />
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setCancelModalOpen(false);
+                                setCancelReason('');
+                            }}
+                            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition-all"
+                        >
+                            Back
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleCancelRequest(detailModal.request?.id || detailModal.request?._id)}
+                            disabled={actionLoading !== null || !cancelReason.trim()}
+                            className="px-6 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs rounded-lg transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {actionLoading !== null ? 'Cancelling…' : 'Confirm Cancel'}
+                        </button>
+                    </div>
+                </div>
             </Modal>
 
             <Modal

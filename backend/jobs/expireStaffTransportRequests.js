@@ -97,9 +97,11 @@ async function expireStaffTransportRequests() {
         scanned: 0,
         expiredByLeftDate: 0,
         expiredByAcademicYear: 0,
+        reactivatedCount: 0,
         skipped: 0,
         leftEmployees: [],
         ayExpiredEmployees: [],
+        reactivatedEmployees: []
     };
 
     try {
@@ -111,20 +113,27 @@ async function expireStaffTransportRequests() {
 
         const empCollection = hrmsConn.collection('employees');
 
-        // ── Step 1: Load all active employee transport requests ───────────────
+        // ── Step 1: Load active requests and previously expired requests to check reactivation ──
         const activeRequests = await EmployeeTransportRequest.find({
             status: { $in: ['pending', 'approved'] },
         }).lean();
 
+        const expiredLeftRequests = await EmployeeTransportRequest.find({
+            status: 'expired',
+            expiry_reason: 'employee_left'
+        }).lean();
+
         summary.scanned = activeRequests.length;
-        if (!activeRequests.length) {
-            console.log('[Staff Expiry] No active staff transport requests found. Nothing to process.');
+
+        const allRequestsToCheck = [...activeRequests, ...expiredLeftRequests];
+        if (!allRequestsToCheck.length) {
+            console.log('[Staff Expiry] No staff transport requests found to process.');
             return summary;
         }
 
-        const uniqueEmpNos = [...new Set(activeRequests.map((r) => r.emp_no).filter(Boolean))];
+        const uniqueEmpNos = [...new Set(allRequestsToCheck.map((r) => r.emp_no).filter(Boolean))];
         if (!uniqueEmpNos.length) {
-            console.warn('[Staff Expiry] Active requests found but none have an emp_no. Skipping.');
+            console.warn('[Staff Expiry] Requests found but none have an emp_no. Skipping.');
             return summary;
         }
 
@@ -145,7 +154,7 @@ async function expireStaffTransportRequests() {
             }
         ).toArray();
 
-        // Build a lookup map: emp_no → HRMS doc (or null if not in HRMS)
+        // Build a lookup map: emp_no → HRMS doc
         const hrmsMap = new Map();
         for (const emp of hrmsEmployees) {
             if (emp.emp_no) hrmsMap.set(String(emp.emp_no), emp);
@@ -161,6 +170,11 @@ async function expireStaffTransportRequests() {
         const ayExpiredRequestIds = [];
         const ayExpiredEmpNos = new Set();
 
+        // request _ids to reactivate (rejoined staff)
+        const reactivateRequestIds = [];
+        const reactivateEmpNos = new Set();
+
+        // Check active requests for expiry
         for (const request of activeRequests) {
             const empNo = String(request.emp_no || '');
             const hrmsDoc = hrmsMap.get(empNo);
@@ -168,18 +182,15 @@ async function expireStaffTransportRequests() {
             // ── Strategy A: Check HRMS left date ──────────────────────────────
             const leftDate = hrmsDoc ? resolveLeftDate(hrmsDoc) : null;
             if (leftDate && leftDate < today) {
-                // Employee has left — expire all their requests in bulk later
                 leftDateEmpNos.add(empNo);
                 console.log(
                     `[Staff Expiry] [LeftDate] emp_no=${empNo} (${hrmsDoc?.employee_name}) ` +
                     `left on ${leftDate.toISOString().split('T')[0]}`
                 );
-                continue; // No need to check AY expiry if already left
+                continue;
             }
 
             // ── Strategy B: Academic Year expiry fallback ─────────────────────
-            // Only applies if the employee has NO past left date.
-            // If they're not in HRMS at all, we still apply AY expiry.
             const ayExpiry = resolveAcademicYearExpiry(request.academic_year);
             if (ayExpiry && ayExpiry < today) {
                 ayExpiredRequestIds.push(request._id);
@@ -188,6 +199,25 @@ async function expireStaffTransportRequests() {
                     `[Staff Expiry] [AY Expiry] emp_no=${empNo}, academic_year=${request.academic_year}, ` +
                     `expiry=${ayExpiry.toISOString().split('T')[0]}`
                 );
+            }
+        }
+
+        // Check expired requests for reactivation
+        for (const request of expiredLeftRequests) {
+            const empNo = String(request.emp_no || '');
+            const hrmsDoc = hrmsMap.get(empNo);
+
+            // If employee exists in HRMS and has rejoin indicator (no left date or future left date)
+            if (hrmsDoc) {
+                const leftDate = resolveLeftDate(hrmsDoc);
+                if (!leftDate || leftDate >= today) {
+                    reactivateRequestIds.push(request._id);
+                    reactivateEmpNos.add(empNo);
+                    console.log(
+                        `[Staff Expiry] [Rejoined] emp_no=${empNo} (${hrmsDoc.employee_name}) ` +
+                        `has rejoined / is active. Reactivating request.`
+                    );
+                }
             }
         }
 
@@ -219,7 +249,7 @@ async function expireStaffTransportRequests() {
             const resultB = await EmployeeTransportRequest.updateMany(
                 {
                     _id: { $in: ayExpiredRequestIds },
-                    status: { $in: ['pending', 'approved'] }, // safety re-check
+                    status: { $in: ['pending', 'approved'] },
                 },
                 {
                     $set: {
@@ -232,16 +262,37 @@ async function expireStaffTransportRequests() {
             console.log(`[Staff Expiry] [AY Expiry] Expired ${summary.expiredByAcademicYear} request(s) across ${ayExpiredEmpNos.size} employee(s).`);
         }
 
+        // ── Step 6: Apply Reactivations for Rejoined Staff ────────────────────
+        if (reactivateRequestIds.length > 0) {
+            summary.reactivatedEmployees = [...reactivateEmpNos];
+
+            const resultRejoined = await EmployeeTransportRequest.updateMany(
+                {
+                    _id: { $in: reactivateRequestIds },
+                    status: 'expired'
+                },
+                {
+                    $set: {
+                        status: 'approved',
+                        expiry_reason: null
+                    }
+                }
+            );
+            summary.reactivatedCount = resultRejoined.modifiedCount;
+            console.log(`[Staff Expiry] [Rejoined] Reactivated ${summary.reactivatedCount} request(s) for ${reactivateEmpNos.size} employee(s).`);
+        }
+
         // ── Summary ───────────────────────────────────────────────────────────
         const totalExpired = summary.expiredByLeftDate + summary.expiredByAcademicYear;
         summary.skipped = summary.scanned - totalExpired;
 
         console.log(
             `[Staff Expiry] ─────────────────────────────────────────────\n` +
-            `  Scanned  : ${summary.scanned}\n` +
-            `  By Left  : ${summary.expiredByLeftDate}\n` +
-            `  By AY    : ${summary.expiredByAcademicYear}\n` +
-            `  Skipped  : ${summary.skipped}\n` +
+            `  Scanned      : ${summary.scanned}\n` +
+            `  By Left      : ${summary.expiredByLeftDate}\n` +
+            `  By AY        : ${summary.expiredByAcademicYear}\n` +
+            `  Reactivated  : ${summary.reactivatedCount}\n` +
+            `  Skipped      : ${summary.skipped}\n` +
             `[Staff Expiry] ─────────────────────────────────────────────`
         );
     } catch (err) {

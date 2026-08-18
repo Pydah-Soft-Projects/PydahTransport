@@ -1,92 +1,89 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const mongoose = require('mongoose');
-const { connectEmployeeDB } = require('./config/db');
+const { connectEmployeeDB, getEmployeeConnection } = require('./config/db');
 const UserRole = require('./models/UserRole');
+const Admin = require('./models/Admin');
 const { getEmployeeModel } = require('./models/Employee');
 
 async function run() {
     try {
-        console.log("Connecting to MongoDB...");
+        console.log("Connecting to main MongoDB...");
         await mongoose.connect(process.env.MONGO_URI);
         console.log("Connecting to Employee MongoDB...");
         await connectEmployeeDB();
-        
-        const Employee = getEmployeeModel();
-        if (!Employee) {
-            console.error("Employee model not initialized.");
-            process.exit(1);
+
+        const dbConnection = mongoose.connection;
+        console.log("\n==========================================");
+        console.log("MAIN DATABASE COLLECTIONS");
+        console.log("==========================================");
+        const collections = await dbConnection.db.listCollections().toArray();
+        console.log(collections.map(c => ` - ${c.name}`).join('\n'));
+
+        // Check if there is a 'users' collection in the main database
+        const mainHasUsers = collections.some(c => c.name === 'users');
+        let mainUsersCount = 0;
+        let mainUsers = [];
+        if (mainHasUsers) {
+            mainUsers = await dbConnection.db.collection('users').find({}).toArray();
+            mainUsersCount = mainUsers.length;
         }
 
-        console.log("Retrieving data...");
-        // 1. Fetch all user roles from Main DB
-        const userRoles = await UserRole.find({}).lean();
-        const mappedEmployeeIds = new Set(userRoles.map(role => role.employeeId.toString()));
-        
-        // 2. Fetch all active employees from HRMS Employee DB
-        const allEmployees = await Employee.find({ is_active: true }).lean();
-        
-        // 3. Separate mapped vs unmapped
-        const mappedEmployees = allEmployees.filter(emp => mappedEmployeeIds.has(emp._id.toString()));
-        const unmappedEmployees = allEmployees.filter(emp => !mappedEmployeeIds.has(emp._id.toString()));
+        // Fetch Legacy Admins from Main DB
+        const legacyAdmins = await Admin.find({}).lean();
 
+        // Fetch UserRoles
+        const userRoles = await UserRole.find({}).lean();
+        const roleEmployeeIds = new Set(userRoles.map(r => r.employeeId.toString()));
+
+        // Fetch all active employees
+        const Employee = getEmployeeModel();
+        let employees = [];
+        if (Employee) {
+            employees = await Employee.find({ is_active: true }).lean();
+        }
         const employeeMap = {};
-        allEmployees.forEach(emp => {
+        employees.forEach(emp => {
             employeeMap[emp._id.toString()] = emp;
         });
 
-        // Collect all unique roles present in UserRoles
-        const allRolesInDb = new Set();
-        userRoles.forEach(role => {
-            if (role.roles) {
-                role.roles.forEach(r => allRolesInDb.add(r));
-            }
+        console.log("\n==========================================");
+        console.log("LEGACY ADMINS (Admin Collection in Main DB)");
+        console.log("==========================================");
+        console.log(`Total Legacy Admins: ${legacyAdmins.length}`);
+        legacyAdmins.forEach(admin => {
+            console.log(`- Username: ${admin.username}, Name: ${admin.name || 'N/A'}, Email: ${admin.email || 'N/A'}`);
         });
 
-        console.log("\n==========================================");
-        console.log("ALL ROLES ASSIGNED IN DATABASE");
-        console.log("==========================================");
-        if (allRolesInDb.size === 0) {
-            console.log("No roles found.");
-        } else {
-            console.log(Array.from(allRolesInDb).map(role => ` - ${role}`).join('\n'));
-        }
-
-        console.log("\n==========================================");
-        console.log("MAPPED USERS AND THEIR ASSIGNED ROLES");
-        console.log("==========================================");
-        if (userRoles.length === 0) {
-            console.log("No users with roles registered.");
-        } else {
-            userRoles.forEach(role => {
-                const emp = employeeMap[role.employeeId.toString()] || {};
-                const name = emp.employee_name || "N/A";
-                const empNo = emp.emp_no || "N/A";
-                const roles = (role.roles && role.roles.length > 0) ? role.roles.join(', ') : 'No roles';
+        if (mainHasUsers) {
+            console.log("\n==========================================");
+            console.log("USERS COLLECTION IN MAIN DB");
+            console.log("==========================================");
+            console.log(`Total users in main db collection 'users': ${mainUsersCount}`);
+            
+            // Check which main db users are associated with roles in UserRole
+            let unmappedMainUsersCount = 0;
+            mainUsers.forEach(u => {
+                // Check if this user matches any employee ID or email in UserRole
+                const isMapped = userRoles.some(r => {
+                    const matchId = r.employeeId && r.employeeId.toString() === (u.employeeId || u.employeeRef || u._id).toString();
+                    const matchEmail = r.email && u.email && r.email.toLowerCase() === u.email.toLowerCase();
+                    return matchId || matchEmail;
+                });
                 
-                console.log(`User: ${name} (ID: ${empNo})`);
-                console.log(`  Assigned Roles: ${roles}`);
-                console.log(`  Permissions:    ${role.permissions && role.permissions.length > 0 ? role.permissions.join(', ') : 'None'}`);
-                console.log(`------------------------------------------`);
-            });
-        }
-
-        console.log("\n==========================================");
-        console.log("UNMAPPED ACTIVE EMPLOYEES (NO ROLES)");
-        console.log("==========================================");
-        if (unmappedEmployees.length === 0) {
-            console.log("All active employees are mapped to a role.");
-        } else {
-            unmappedEmployees.forEach(emp => {
-                console.log(` - ${emp.employee_name} (ID: ${emp.emp_no})`);
+                if (!isMapped) {
+                    unmappedMainUsersCount++;
+                    console.log(` - Username: ${u.username || u.name || 'N/A'}, Email: ${u.email || 'N/A'}, Role field: ${u.role || 'N/A'}`);
+                }
             });
             console.log(`------------------------------------------`);
-            console.log(`Total Active Unmapped Employees: ${unmappedEmployees.length}`);
+            console.log(`Total Main DB Users NOT in UserRole: ${unmappedMainUsersCount}`);
+        } else {
+            console.log("\nNo 'users' collection exists in the main Transport DB. (Only 'admins' is present).");
         }
 
-        // Close mongoose connections
+        // Close connections
         await mongoose.disconnect();
-        const { getEmployeeConnection } = require('./config/db');
         const empConn = getEmployeeConnection();
         if (empConn) {
             await empConn.close();
