@@ -58,8 +58,10 @@ export default function GpsTracking() {
   }, []);
 
   // Fetch Live Vehicles List
-  const loadVehicles = useCallback(async () => {
-    setLoading(true);
+  const loadVehicles = useCallback(async (isBackground = false) => {
+    if (!isBackground) {
+      setLoading(true);
+    }
     try {
       const response = await apiFetch(`${API_BASE}/gps/vehicles`);
       const data = await response.json();
@@ -73,7 +75,9 @@ export default function GpsTracking() {
       console.warn('API fetch notice:', err);
       setVehicles([]);
     } finally {
-      setLoading(false);
+      if (!isBackground) {
+        setLoading(false);
+      }
       setLastUpdated(new Date());
     }
   }, []);
@@ -119,13 +123,13 @@ export default function GpsTracking() {
   }, []);
 
   useEffect(() => {
-    loadVehicles();
+    loadVehicles(false);
   }, [loadVehicles]);
 
   // Periodic 30-second background sync for fleet vehicles
   useEffect(() => {
     const interval = setInterval(() => {
-      loadVehicles();
+      loadVehicles(true);
     }, 30000);
     return () => clearInterval(interval);
   }, [loadVehicles]);
@@ -158,8 +162,8 @@ export default function GpsTracking() {
   // Custom styled bus icon marker helper (Green for Moving, Red for Stopped)
   const createVehicleIcon = useCallback((isMoving) => {
     if (!window.L) return null;
-    const bgColor = isMoving ? '#059669' : '#dc2626';
-    const shadowColor = isMoving ? 'rgba(5, 150, 105, 0.45)' : 'rgba(220, 38, 38, 0.45)';
+    const bgColor = isMoving ? '#10B981' : '#EF4444'; // High-contrast neon green / rose red
+    const shadowColor = isMoving ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)';
     return window.L.divIcon({
       className: 'custom-bus-marker',
       html: `
@@ -173,17 +177,26 @@ export default function GpsTracking() {
           <div style="
             background: ${bgColor};
             color: #ffffff;
-            width: 36px;
-            height: 36px;
+            width: 38px;
+            height: 38px;
             border-radius: 50%;
-            border: 2.5px solid #ffffff;
-            box-shadow: 0 4px 12px ${shadowColor};
+            border: 2px solid #ffffff;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35), 0 0 10px ${shadowColor};
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 18px;
           ">
-            🚌
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 20px; height: 20px;">
+                <path d="M4 6 2 7" />
+                <path d="M10 6h4" />
+                <path d="m22 7-2-1" />
+                <rect width="16" height="16" x="4" y="3" rx="2" fill="currentColor" fill-opacity="0.1" />
+                <path d="M4 11h16" />
+                <path d="M8 15h.01" stroke-width="3" />
+                <path d="M16 15h.01" stroke-width="3" />
+                <path d="M6 19v2" />
+                <path d="M18 21v-2" />
+            </svg>
           </div>
           <div style="
             width: 0;
@@ -192,12 +205,13 @@ export default function GpsTracking() {
             border-right: 6px solid transparent;
             border-top: 7px solid ${bgColor};
             margin-top: -2px;
+            filter: drop-shadow(0 2px 2px rgba(0,0,0,0.2));
           "></div>
         </div>
       `,
-      iconSize: [36, 43],
-      iconAnchor: [18, 43],
-      popupAnchor: [0, -43]
+      iconSize: [38, 45],
+      iconAnchor: [19, 45],
+      popupAnchor: [0, -45]
     });
   }, []);
 
@@ -264,7 +278,7 @@ export default function GpsTracking() {
     };
 
     pollSelectedVehicle();
-    const interval = setInterval(pollSelectedVehicle, 500);
+    const interval = setInterval(pollSelectedVehicle, 5000);
 
     return () => clearInterval(interval);
   }, [selectedVehicle?.name, loadTraceHistoryFast]);
@@ -283,9 +297,10 @@ export default function GpsTracking() {
         zoomControl: true
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap'
+      L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '© Google Maps'
       }).addTo(map);
 
       layerGroupRef.current = L.layerGroup().addTo(map);
@@ -350,9 +365,9 @@ export default function GpsTracking() {
         mainMarker.bindPopup(`<b>${selectedVehicle.name}</b><br/>Unit: ${selectedVehicle.units}<br/>Speed: ${selectedVehicle.speed} km/h`);
         mainMarker.addTo(layerGroup);
 
-        // Center map ONCE when vehicle selection changes, then pan smoothly without zooming in/out
+        // Center map ONCE when vehicle selection changes with a sliding/zooming flight, then pan smoothly without zooming in/out
         if (centeredVehicleNameRef.current !== vehName) {
-          map.setView([lat, lng], 15);
+          map.flyTo([lat, lng], 15, { animate: true, duration: 1.5 });
           centeredVehicleNameRef.current = vehName;
         } else {
           map.panTo([lat, lng], { animate: true });

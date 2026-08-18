@@ -12,8 +12,18 @@ const getTggConfig = (customConfig = {}) => {
   return { baseUrl, token, username, password };
 };
 
+const cleanVehicleName = (name) => {
+  if (!name) return '';
+  return name.replace(/[^a-zA-Z0-9]/g, '');
+};
+
 // In-memory store for received Geofence alerts
 const alertStore = [];
+
+// In-memory cache for vehicles list to prevent rate-limiting and handle third-party server load gracefully
+let vehiclesCache = null;
+let lastCacheTime = 0;
+const CACHE_TTL_MS = 6000; // 6 seconds cache TTL
 
 /**
  * Safe JSON parser that handles various PHP / TGG API response formats
@@ -84,13 +94,20 @@ const fetchVehiclesListFromTgg = async (options = {}) => {
     };
   }
 
+  // Serve from cache if still fresh to prevent third-party rate limits/PHP crash errors
+  const now = Date.now();
+  if (vehiclesCache && (now - lastCacheTime < CACHE_TTL_MS)) {
+    return {
+      success: true,
+      data: vehiclesCache
+    };
+  }
+
   try {
     const url = `${baseUrl}/vehicleslist_api.php?token=${encodeURIComponent(token)}`;
     const params = new URLSearchParams();
     params.append('Username', username);
     params.append('Password', password);
-    params.append('username', username);
-    params.append('password', password);
 
     console.log(`[TGG Service] Sending POST request to: ${url}`);
 
@@ -109,9 +126,21 @@ const fetchVehiclesListFromTgg = async (options = {}) => {
     }
 
     const vehicles = parseTggResponse(rawText);
-    console.log(`[TGG Service] Response 200 OK — Successfully fetched ${vehicles.length} vehicles.`);
-    if (vehicles.length === 0) {
+    
+    if (vehicles.length > 0) {
+      vehiclesCache = vehicles;
+      lastCacheTime = Date.now();
+      console.log(`[TGG Service] Response 200 OK — Successfully fetched and cached ${vehicles.length} vehicles.`);
+    } else {
       console.log(`[TGG Service] Debug Raw Response: "${rawText}"`);
+      // Fallback: If API returned an error string or empty array but we have cached data, reuse cache
+      if (vehiclesCache && (rawText.includes('Error') || rawText.includes('items') || rawText.includes('details'))) {
+        console.log('[TGG Service] API returned error response. Falling back to active cached vehicles list.');
+        return {
+          success: true,
+          data: vehiclesCache
+        };
+      }
     }
 
     return {
@@ -120,6 +149,16 @@ const fetchVehiclesListFromTgg = async (options = {}) => {
     };
   } catch (error) {
     console.error('[TGG Service] Error fetching vehicles list:', error.message);
+    
+    // Fallback: if network fails but we have a cache, return the cache
+    if (vehiclesCache) {
+      console.log('[TGG Service] Network exception. Falling back to cached vehicles list.');
+      return {
+        success: true,
+        data: vehiclesCache
+      };
+    }
+
     return {
       success: false,
       error: error.message,
@@ -149,11 +188,9 @@ const fetchReportsFromTgg = async (reportQuery = {}) => {
     const params = new URLSearchParams();
     params.append('username', username);
     params.append('password', password);
-    params.append('Username', username);
-    params.append('Password', password);
     params.append('date_from', reportQuery.date_from || '');
     params.append('date_to', reportQuery.date_to || '');
-    params.append('vehicle_name', reportQuery.vehicle_name || '');
+    params.append('vehicle_name', cleanVehicleName(reportQuery.vehicle_name) || '');
     if (reportQuery.template) {
       params.append('template', reportQuery.template);
     }
@@ -222,12 +259,10 @@ const fetchVehicleMessagesFromTgg = async (historyQuery = {}) => {
     const params = new URLSearchParams();
     params.append('username', username);
     params.append('password', password);
-    params.append('Username', username);
-    params.append('Password', password);
     params.append('date_from', dateFrom);
     params.append('date_to', dateTo);
     if (historyQuery.vehicle_name) {
-      params.append('vehicle_name', historyQuery.vehicle_name);
+      params.append('vehicle_name', cleanVehicleName(historyQuery.vehicle_name));
     }
 
     const response = await fetch(url, {

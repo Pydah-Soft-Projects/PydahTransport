@@ -188,7 +188,7 @@ const VehicleDetails = () => {
             <Layout>
                 <div className="text-center py-20">
                     <p className="text-gray-500 mb-4">Vehicle not found.</p>
-                    <Link to="/buses" className="text-blue-600 hover:underline">← Back to Fleet</Link>
+                    <Link to="/fleet" className="text-blue-600 hover:underline">← Back to Fleet</Link>
                 </div>
             </Layout>
         );
@@ -197,7 +197,7 @@ const VehicleDetails = () => {
     return (
         <Layout>
             <div className="mb-6 flex items-center justify-between">
-                <Link to="/buses" className="text-blue-600 hover:underline text-sm font-medium flex items-center gap-1">
+                <Link to="/fleet" className="text-blue-600 hover:underline text-sm font-medium flex items-center gap-1">
                     <span>←</span> Back to Fleet
                 </Link>
             </div>

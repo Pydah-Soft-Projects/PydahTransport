@@ -113,10 +113,18 @@ const Layout = ({ children }) => {
         items: category.items.filter((item) => hasPermission(item.permission))
     })).filter((category) => category.items.length > 0);
 
-    const isPathActive = (path) => (
-        location.pathname === path
-        || (path !== '/inventory' && location.pathname.startsWith(`${path}/`))
-    );
+    const isPathActive = (path) => {
+        if (path === '/fleet') {
+            return location.pathname === '/fleet'
+                || location.pathname.startsWith('/buses/')
+                || location.pathname.startsWith('/other-vehicles/');
+        }
+        if (path === '/buses') {
+            return location.pathname === '/buses';
+        }
+        return location.pathname === path
+            || (path !== '/inventory' && location.pathname.startsWith(`${path}/`));
+    };
 
     const isGroupActive = (item) => {
         if (item.children) {

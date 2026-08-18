@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
     Download,
@@ -18,6 +18,12 @@ import {
     Milestone,
     Bus,
     Loader2,
+    RefreshCw,
+    Zap,
+    ExternalLink,
+    Activity,
+    Layers,
+    ChevronLeft,
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
@@ -27,6 +33,11 @@ import { printHtmlDocument, exportHtmlAsExcel } from '../utils/printHtml';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 
 const API = API_BASE;
+
+const normalizeVehicleNumber = (num) => {
+    if (!num) return '';
+    return num.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+};
 
 const getInventoryItemName = (item) => {
     if (!item) return 'Deleted Item';
@@ -82,8 +93,8 @@ const DonutChart = ({ percent }) => {
 };
 
 const StatCard = ({ title, children, className = '' }) => (
-    <div className={`bg-white rounded-2xl border border-slate-200 p-5 shadow-sm h-full ${className}`}>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">{title}</p>
+    <div className={`bg-white rounded-2xl border border-slate-200 p-5 shadow-sm h-full flex flex-col ${className}`}>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 shrink-0">{title}</p>
         {children}
     </div>
 );
@@ -133,6 +144,7 @@ const BusDetails = () => {
     const [staffHistoryLoading, setStaffHistoryLoading] = useState(false);
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
     const [occupancyMode, setOccupancyMode] = useState('live');
+    const [passengersLoading, setPassengersLoading] = useState(false);
     const academicYearOptions = getAcademicYearOptions();
     
     // For expired taxes warning
@@ -147,6 +159,325 @@ const BusDetails = () => {
     const [reportOptions, setReportOptions] = useState({ abstract: true, detailed: true });
     const [reportModalError, setReportModalError] = useState('');
     const [reportLoadingAction, setReportLoadingAction] = useState(null);
+
+    // GPS States and Refs
+    const [isLeafletReady, setIsLeafletReady] = useState(false);
+    const [gpsVehicle, setGpsVehicle] = useState(null);
+    const [gpsTraceLogs, setGpsTraceLogs] = useState([]);
+    const [gpsLoading, setGpsLoading] = useState(false);
+    const [gpsError, setGpsError] = useState(null);
+    const [hasCenteredFirstTime, setHasCenteredFirstTime] = useState(false);
+    const gpsLiveBreadcrumbsRef = useRef([]);
+    const isFirstLoadRef = useRef(true);
+
+    const mapContainerRef = useRef(null);
+    const mapInstanceRef = useRef(null);
+    const layerGroupRef = useRef(null);
+    const centeredVehicleNameRef = useRef(null);
+
+    // Dynamically load Leaflet library for fast interactive map & polyline tracing
+    useEffect(() => {
+        if (!document.getElementById('leaflet-css')) {
+            const css = document.createElement('link');
+            css.id = 'leaflet-css';
+            css.rel = 'stylesheet';
+            css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            document.head.appendChild(css);
+        }
+
+        if (!window.L && !document.getElementById('leaflet-js')) {
+            const script = document.createElement('script');
+            script.id = 'leaflet-js';
+            script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+            script.onload = () => setIsLeafletReady(true);
+            document.head.appendChild(script);
+        } else if (window.L) {
+            setIsLeafletReady(true);
+        }
+    }, []);
+
+    // Custom styled bus icon marker helper
+    const createVehicleIcon = useCallback((isMoving) => {
+        if (!window.L) return null;
+        const L = window.L;
+        const bgColor = isMoving ? '#10B981' : '#EF4444'; // High-contrast neon green / rose red
+        const shadowColor = isMoving ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)';
+        return L.divIcon({
+            className: 'custom-bus-marker',
+            html: `
+                <div style="
+                    position: relative;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    cursor: pointer;
+                ">
+                    <div style="
+                        background: ${bgColor};
+                        color: #ffffff;
+                        width: 34px;
+                        height: 34px;
+                        border-radius: 50%;
+                        border: 2px solid #ffffff;
+                        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35), 0 0 10px ${shadowColor};
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    ">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px;">
+                            <path d="M4 6 2 7" />
+                            <path d="M10 6h4" />
+                            <path d="m22 7-2-1" />
+                            <rect width="16" height="16" x="4" y="3" rx="2" fill="currentColor" fill-opacity="0.1" />
+                            <path d="M4 11h16" />
+                            <path d="M8 15h.01" stroke-width="3" />
+                            <path d="M16 15h.01" stroke-width="3" />
+                            <path d="M6 19v2" />
+                            <path d="M18 21v-2" />
+                        </svg>
+                    </div>
+                    <div style="
+                        width: 0;
+                        height: 0;
+                        border-left: 5px solid transparent;
+                        border-right: 5px solid transparent;
+                        border-top: 6px solid ${bgColor};
+                        margin-top: -2px;
+                        filter: drop-shadow(0 2px 2px rgba(0,0,0,0.2));
+                    "></div>
+                </div>
+            `,
+            iconSize: [34, 40],
+            iconAnchor: [17, 40],
+            popupAnchor: [0, -40]
+        });
+    }, []);
+
+    // Reset map state when bus ID changes
+    useEffect(() => {
+        gpsLiveBreadcrumbsRef.current = [];
+        setGpsTraceLogs([]);
+        setGpsVehicle(null);
+        setGpsError(null);
+        centeredVehicleNameRef.current = null;
+        setHasCenteredFirstTime(false);
+        isFirstLoadRef.current = true;
+        
+        return () => {
+            if (mapInstanceRef.current) {
+                mapInstanceRef.current.remove();
+                mapInstanceRef.current = null;
+                layerGroupRef.current = null;
+            }
+        };
+    }, [id]);
+
+    const fetchGpsData = useCallback(async () => {
+        if (!data?.bus?.busNumber) return;
+        const normalizedBusNumber = normalizeVehicleNumber(data.bus.busNumber);
+
+        try {
+            const response = await apiFetch(`${API}/gps/vehicles`);
+            if (!response.ok) throw new Error('Failed to fetch vehicle list');
+            const resData = await response.json();
+
+            if (resData.success && Array.isArray(resData.data)) {
+                const matched = resData.data.find(
+                    v => normalizeVehicleNumber(v.name) === normalizedBusNumber
+                );
+
+                if (matched) {
+                    setGpsVehicle(matched);
+                    setGpsError(null);
+
+                    // Accumulate breadcrumbs
+                    if (typeof matched.latitude === 'number' && typeof matched.longitude === 'number' && matched.latitude !== 0 && matched.longitude !== 0) {
+                        const currentPath = gpsLiveBreadcrumbsRef.current;
+                        const lastCoord = currentPath[currentPath.length - 1];
+
+                        if (!lastCoord || lastCoord[0] !== matched.latitude || lastCoord[1] !== matched.longitude) {
+                            currentPath.push([matched.latitude, matched.longitude]);
+                        }
+                    }
+                } else {
+                    setGpsVehicle(null);
+                    setGpsError(`Vehicle '${normalizedBusNumber}' not found in active GPS tracking list.`);
+                }
+            }
+        } catch (err) {
+            console.warn('GPS Live Fetch Error:', err);
+        }
+    }, [data?.bus?.busNumber]);
+
+    const fetchGpsHistory = useCallback(async () => {
+        if (!data?.bus?.busNumber) return;
+        const normalizedBusNumber = normalizeVehicleNumber(data.bus.busNumber);
+
+        setGpsLoading(true);
+        try {
+            const res = await apiFetch(`${API}/gps/history`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vehicle_name: normalizedBusNumber })
+            });
+            if (!res.ok) throw new Error('Failed to fetch GPS history');
+            const resData = await res.json();
+
+            if (resData.success && Array.isArray(resData.data)) {
+                setGpsTraceLogs(resData.data);
+            }
+        } catch (err) {
+            console.warn('GPS History Fetch Error:', err);
+        } finally {
+            setGpsLoading(false);
+        }
+    }, [data?.bus?.busNumber]);
+
+    // Set up polling intervals
+    useEffect(() => {
+        if (!data?.bus?.busNumber) return;
+
+        fetchGpsData();
+        fetchGpsHistory();
+
+        const liveInterval = setInterval(fetchGpsData, 5000);
+        const historyInterval = setInterval(fetchGpsHistory, 20000);
+
+        return () => {
+            clearInterval(liveInterval);
+            clearInterval(historyInterval);
+        };
+    }, [data?.bus?.busNumber, fetchGpsData, fetchGpsHistory]);
+
+    // Render/Update Leaflet Map
+    useEffect(() => {
+        if (!isLeafletReady || !mapContainerRef.current || !window.L) return;
+        const L = window.L;
+
+        const hasGpsCoords = gpsVehicle && 
+                            typeof gpsVehicle.latitude === 'number' && 
+                            typeof gpsVehicle.longitude === 'number' && 
+                            gpsVehicle.latitude !== 0 && 
+                            gpsVehicle.longitude !== 0;
+
+        // Initialize Map if not yet initialized
+        if (!mapInstanceRef.current) {
+            const initialCenter = hasGpsCoords ? [gpsVehicle.latitude, gpsVehicle.longitude] : [17.544, 80.616];
+            const initialZoom = hasGpsCoords ? 15 : 13;
+
+            const map = L.map(mapContainerRef.current, {
+                center: initialCenter,
+                zoom: initialZoom,
+                zoomControl: true
+            });
+
+            L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+                attribution: '© Google Maps'
+            }).addTo(map);
+
+            layerGroupRef.current = L.layerGroup().addTo(map);
+            mapInstanceRef.current = map;
+        }
+
+        const map = mapInstanceRef.current;
+        const layerGroup = layerGroupRef.current;
+        layerGroup.clearLayers();
+
+        // Invalidate size immediately to ensure container dimensions are calculated correctly
+        map.invalidateSize();
+
+        let timer = null;
+
+        if (hasGpsCoords) {
+            const lat = gpsVehicle.latitude;
+            const lng = gpsVehicle.longitude;
+            const isMoving = (gpsVehicle.speed || 0) > 0;
+            const icon = createVehicleIcon(isMoving);
+
+            const marker = L.marker([lat, lng], { icon });
+            const popupHtml = `
+                <div style="font-family: sans-serif; font-size: 11px; padding: 2px;">
+                    <strong style="font-size: 12px; color: #0f172a;">${gpsVehicle.name}</strong><br/>
+                    <span style="color: #64748b;">Unit ID: ${gpsVehicle.units}</span><br/>
+                    <span style="color: ${isMoving ? '#059669' : '#dc2626'}; font-weight: bold;">
+                        ${isMoving ? `🚌 Speed: ${gpsVehicle.speed} km/h` : '⏹ Stopped'}
+                    </span><br/>
+                    <span style="color: #94a3b8; font-size: 10px;">${gpsVehicle.timestamp || ''}</span>
+                </div>
+            `;
+            marker.bindPopup(popupHtml);
+            marker.addTo(layerGroup);
+
+            // Center map on the bus coordinates inside a short timeout to handle DOM reflow correctly
+            timer = setTimeout(() => {
+                if (mapInstanceRef.current) {
+                    mapInstanceRef.current.invalidateSize();
+                    if (centeredVehicleNameRef.current !== gpsVehicle.name) {
+                        mapInstanceRef.current.flyTo([lat, lng], 15, { animate: true, duration: 1.5 });
+                        centeredVehicleNameRef.current = gpsVehicle.name;
+                        setHasCenteredFirstTime(true);
+                    } else {
+                        mapInstanceRef.current.panTo([lat, lng], { animate: true });
+                    }
+                }
+            }, 150);
+
+            // Draw polyline trace
+            const historyPoints = (gpsTraceLogs || [])
+                .filter(t => typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0)
+                .map(t => [t.latitude, t.longitude]);
+
+            const livePoints = gpsLiveBreadcrumbsRef.current || [];
+
+            const allPointsMap = new Map();
+            [...historyPoints, ...livePoints, [lat, lng]].forEach(pt => {
+                if (Array.isArray(pt) && pt.length === 2 && !isNaN(pt[0]) && !isNaN(pt[1])) {
+                    const key = `${pt[0].toFixed(5)},${pt[1].toFixed(5)}`;
+                    if (!allPointsMap.has(key)) {
+                        allPointsMap.set(key, pt);
+                    }
+                }
+            });
+
+            const latLngs = Array.from(allPointsMap.values());
+            if (latLngs.length >= 2) {
+                // outer glow polyline
+                L.polyline(latLngs, {
+                    color: '#1d4ed8',
+                    weight: 8,
+                    opacity: 0.4,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(layerGroup);
+
+                // inner route polyline
+                L.polyline(latLngs, {
+                    color: '#2563eb',
+                    weight: 4,
+                    opacity: 0.95,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(layerGroup);
+
+                // draw trace points
+                latLngs.forEach((point) => {
+                    L.circleMarker(point, {
+                        radius: 3,
+                        fillColor: '#60a5fa',
+                        color: '#ffffff',
+                        weight: 1,
+                        fillOpacity: 1
+                    }).addTo(layerGroup);
+                });
+            }
+        }
+
+        return () => {
+            if (timer) clearTimeout(timer);
+        };
+    }, [isLeafletReady, gpsVehicle, gpsTraceLogs, createVehicleIcon]);
 
     const handlePrint = async (options = reportOptions) => {
         if (!data?.bus?.busNumber) return;
@@ -331,7 +662,12 @@ const BusDetails = () => {
     useEffect(() => {
         const fetchDetails = async () => {
             if (!id) return;
-            setLoading(true);
+            if (isFirstLoadRef.current) {
+                setLoading(true);
+                isFirstLoadRef.current = false;
+            } else {
+                setPassengersLoading(true);
+            }
             try {
                 const params = new URLSearchParams({ occupancyMode });
                 if (occupancyMode !== 'live') params.append('academicYear', academicYear);
@@ -349,6 +685,7 @@ const BusDetails = () => {
                 setData(null);
             } finally {
                 setLoading(false);
+                setPassengersLoading(false);
             }
         };
         fetchDetails();
@@ -444,7 +781,7 @@ const BusDetails = () => {
             <Layout>
                 <div className="text-center py-20">
                     <p className="text-gray-500 mb-4">Bus not found.</p>
-                    <Link to="/buses" className="text-blue-600 hover:underline">← Back to Bus Fleet</Link>
+                    <Link to="/fleet" className="text-blue-600 hover:underline">← Back to Fleet & Passengers</Link>
                 </div>
             </Layout>
         );
@@ -498,11 +835,38 @@ const BusDetails = () => {
 
     return (
         <Layout>
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <Link to="/buses" className="text-blue-600 hover:underline text-xs font-bold flex items-center gap-1.5 w-fit">
-                    <span>←</span> Back to Bus Fleet
-                </Link>
-                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm">
+                <div className="flex items-center gap-3">
+                    <Link 
+                        to="/fleet" 
+                        title="Back to Fleet & Passengers"
+                        className="p-1.5 hover:bg-slate-50 border border-slate-200 rounded-lg text-slate-600 transition-colors flex items-center justify-center"
+                    >
+                        <ChevronLeft size={18} />
+                    </Link>
+                    <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h1 className="text-lg font-black text-slate-900 tracking-tight leading-none">{bus.busNumber}</h1>
+                            {route && (
+                                <span className="text-xs font-bold bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100 leading-none">
+                                    {route.routeName || route.routeId} ({route.routeId})
+                                </span>
+                            )}
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider leading-none ${
+                                String(bus.status || 'active').toLowerCase() === 'active' ? 'bg-green-100 text-green-800 border border-green-200' :
+                                String(bus.status || 'active').toLowerCase() === 'inactive' ? 'bg-slate-100 text-slate-800 border border-slate-200' :
+                                'bg-red-100 text-red-800 border border-red-200'
+                            }`}>
+                                {bus.status || 'active'}
+                            </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-semibold leading-none pl-0.5 mt-0.5">
+                            {bus.type || 'Standard'}{bus.vehicleModel ? ` · ${bus.vehicleModel}` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-2">
                     <button
                         type="button"
                         onClick={openReportModal}
@@ -512,16 +876,6 @@ const BusDetails = () => {
                         <Download size={14} className="mr-1.5 text-blue-600" />
                         Download Report
                     </button>
-                    {route && (
-                        <button
-                            type="button"
-                            onClick={openAssignModal}
-                            className="inline-flex items-center justify-center w-full sm:w-auto text-xs bg-blue-600 text-white px-3.5 py-1.5 rounded-lg font-semibold hover:bg-blue-700 shadow-sm transition-all border-none"
-                        >
-                            <UserPlus size={14} className="mr-1.5" />
-                            Assign Passengers
-                        </button>
-                    )}
                 </div>
             </div>
 
@@ -601,241 +955,280 @@ const BusDetails = () => {
                 </div>
             </Modal>
 
-            <div className="mb-5">
-                <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                    <h1 className="text-2xl font-black text-slate-900 tracking-tight">{bus.busNumber}</h1>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                        String(bus.status || 'active').toLowerCase() === 'active' ? 'bg-green-100 text-green-800 border border-green-200' :
-                        String(bus.status || 'active').toLowerCase() === 'inactive' ? 'bg-slate-100 text-slate-800 border border-slate-200' :
-                        'bg-red-100 text-red-800 border border-red-200'
-                    }`}>
-                        {bus.status || 'active'}
-                    </span>
-                </div>
-                <div className="text-xs text-slate-500 font-medium flex items-start gap-1.5 flex-wrap">
-                    <MapPin size={14} className="text-blue-500 mt-0.5 shrink-0" />
-                    <span>
-                        <span className="font-bold text-slate-600">{bus.type || 'Standard Bus'}{bus.vehicleModel ? ` · ${bus.vehicleModel}` : ''}</span>
-                        {route ? (
-                            <>
-                                {' · Route: '}
-                                <span className="text-slate-800 font-semibold">{routePathLabel}</span>
-                            </>
-                        ) : (
-                            <span className="text-slate-400"> · No route assigned</span>
-                        )}
-                    </span>
-                </div>
-            </div>
+            {/* Title space refactored into top bar */}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
-                <StatCard title="Occupancy">
-                    <div className="flex items-center gap-4">
-                        <DonutChart percent={occupancyPercent} />
-                        <div className="space-y-1 text-xs font-semibold text-slate-500">
-                            <div className="flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-blue-600" />
-                                <span>{seatsFilled} Occupied</span>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6 items-stretch">
+                {/* Left Column: Combined Cards & Route Highlights */}
+                <div className="lg:col-span-5 xl:col-span-5 flex flex-col">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-full">
+                        {/* Combined Card: Occupancy, Bus Staff & Live Status */}
+                        <StatCard title="Occupancy & Crew Details">
+                            <div className="flex flex-col gap-4">
+                                <div className="flex items-center gap-4">
+                                    <DonutChart percent={occupancyPercent} />
+                                    <div className="space-y-1 text-xs font-semibold text-slate-500">
+                                        <div className="flex items-baseline gap-1 text-slate-900 mb-1">
+                                            <span className="text-xl font-black">{seatsFilled}</span>
+                                            <span className="text-[10px] text-slate-400 font-bold">/ {capacity} Seats</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-blue-600" />
+                                            <span>{seatsFilled} Occupied</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-slate-200" />
+                                            <span>{seatsAvailable} Available</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-slate-100 my-1"></div>
+
+                                <div className="flex flex-col gap-2.5">
+                                    <div>
+                                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-700 mb-1">
+                                            <span>{studentCount} STUDENTS</span>
+                                            <span>{passengers.length > 0 ? Math.round((studentCount / passengers.length) * 100) : 0}%</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                            <div className="bg-blue-600 h-full rounded-full" style={{ width: `${passengers.length > 0 ? (studentCount / passengers.length) * 100 : 0}%` }}></div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-700 mb-1">
+                                            <span>{employeeCount} STAFF</span>
+                                            <span>{passengers.length > 0 ? Math.round((employeeCount / passengers.length) * 100) : 0}%</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                            <div className="bg-slate-300 h-full rounded-full" style={{ width: `${passengers.length > 0 ? (employeeCount / passengers.length) * 100 : 0}%` }}></div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-slate-200" />
-                                <span>{seatsAvailable} Available</span>
+
+                            <div className="border-t border-slate-100 my-4"></div>
+
+                            {/* Bus Staff Section */}
+                            <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">Bus Staff</p>
+                                <div className="space-y-2.5">
+                                    <div className="flex items-center justify-between border border-slate-100 rounded-xl p-2 bg-slate-50/30">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
+                                                <User size={14} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-[9px] font-bold uppercase tracking-wide text-slate-600">Driver</p>
+                                                <p className={`text-xs font-bold truncate ${bus.driverName ? 'text-slate-800' : 'text-red-500'}`}>
+                                                    {bus.driverName || 'Not Assigned'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {!bus.driverName ? (
+                                            <Link to="/buses" className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-blue-600 hover:bg-slate-50 shadow-sm whitespace-nowrap">
+                                                + Assign
+                                            </Link>
+                                        ) : (
+                                            <span className="text-[9px] text-slate-400 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">Assigned</span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center justify-between border border-slate-100 rounded-xl p-2 bg-slate-50/30">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
+                                                <UserCheck size={14} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-[9px] font-bold uppercase tracking-wide text-slate-600">Attendant</p>
+                                                <p className={`text-xs font-bold truncate ${bus.attendantName ? 'text-slate-800' : 'text-red-500'}`}>
+                                                    {bus.attendantName || 'Not Assigned'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {!bus.attendantName ? (
+                                            <Link to="/buses" className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-blue-600 hover:bg-slate-50 shadow-sm whitespace-nowrap">
+                                                + Assign
+                                            </Link>
+                                        ) : (
+                                            <span className="text-[9px] text-slate-400 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">Assigned</span>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+
+                            <div className="border-t border-slate-100 my-4"></div>
+
+                            {/* Live Status & Academic Year Section */}
+                            <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">Live Status & Academic Year</p>
+                                <div className="flex flex-col gap-3">
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1.5"></p>
+                                        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 w-full">
+                                            <button
+                                                type="button"
+                                                onClick={() => setOccupancyMode('live')}
+                                                className={`flex-1 py-1 rounded-md text-[9px] font-bold uppercase tracking-wide transition-colors ${occupancyMode === 'live' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
+                                            >
+                                                Live
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setOccupancyMode('academicYear')}
+                                                className={`flex-1 py-1 rounded-md text-[9px] font-bold uppercase tracking-wide transition-colors ${occupancyMode === 'academicYear' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
+                                            >
+                                                AY
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1.5">Academic Year</p>
+                                        <div className="relative">
+                                            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 pointer-events-none" size={14} />
+                                            <select
+                                                value={academicYear}
+                                                onChange={(e) => setAcademicYear(e.target.value)}
+                                                disabled={occupancyMode === 'live'}
+                                                className="w-full rounded-xl border border-slate-200 pl-8 pr-3 py-1.5 text-xs font-semibold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 appearance-none"
+                                            >
+                                                {academicYearOptions.map((year) => (
+                                                    <option key={year} value={year}>{year}</option>
+                                                ))}
+                                            </select>
+                                            <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-500 w-0 h-0" />
+                                        </div>
+                                    </div>
+
+                                    {occupancyMode !== 'live' && (
+                                        <div className="mt-1 border-t border-slate-100 pt-2 flex items-center gap-2">
+                                            <span className="relative flex h-2 w-2 shrink-0">
+                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                                            </span>
+                                            <div>
+                                                <p className="text-xs font-bold text-blue-700 uppercase tracking-wide">AY Mode</p>
+                                                <p className="text-[9px] text-slate-400 font-semibold leading-none">Showing {academicYear} occupancy.</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </StatCard>
+
+                        {/* Card 2: Route Highlights */}
+                        <StatCard title="Route Highlights">
+                            {route ? (
+                                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
+                                    <div className="relative pl-3 border-l border-blue-100 ml-1.5 h-full min-h-[450px] flex flex-col justify-between py-1">
+                                        {routeStops.map((stop, index) => (
+                                            <div key={index} className="relative flex items-center py-0.5">
+                                                <div className="absolute -left-4 w-2 h-2 rounded-full border-2 border-blue-500 bg-white" />
+                                                <span className="text-[11px] font-bold text-slate-700 leading-none truncate max-w-[180px] inline-block" title={stop}>
+                                                    {stop}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-xs text-slate-400 italic">No route assigned</p>
+                            )}
+                        </StatCard>
                     </div>
-                </StatCard>
+                </div>
 
-                <StatCard title="Seat Capacity">
-                    <div className="flex items-start gap-3">
-                        <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 shrink-0">
-                            <Bus size={22} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <div className="flex items-baseline gap-1">
-                                <span className="text-3xl font-black text-slate-900 leading-none">{seatsFilled}</span>
-                                <span className="text-sm text-slate-400 font-bold">/ {capacity}</span>
+                {/* Right Column: GPS Map Card */}
+                <div className="lg:col-span-7 xl:col-span-7">
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm h-full flex flex-col min-h-[580px] space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs shrink-0">
+                                    <Activity size={15} />
+                                </div>
+                                <div className="min-w-0">
+                                    <h2 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                                        Live GPS Tracking
+                                        {gpsVehicle && (
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                                        )}
+                                    </h2>
+                                    <p className="text-[9px] text-slate-400 font-mono truncate">
+                                        {gpsVehicle ? `Unit: ${gpsVehicle.units}` : `Reg: ${normalizeVehicleNumber(bus.busNumber)}`}
+                                    </p>
+                                </div>
                             </div>
-                            <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2.5 overflow-hidden">
-                                <div className="bg-blue-600 h-full rounded-full" style={{ width: `${occupancyPercent}%` }}></div>
-                            </div>
-                            <p className="text-[10px] font-bold text-emerald-600 mt-2">{seatsAvailable} Seats Available</p>
-                        </div>
-                    </div>
-                </StatCard>
 
-                <StatCard title="Route Highlights">
-                    {route ? (
-                        <div className="max-h-[92px] overflow-y-auto custom-scrollbar pr-1">
-                            <div className="relative pl-3 border-l border-blue-100 ml-1.5 space-y-3 mt-1.5 py-0.5">
-                                {routeStops.map((stop, index) => (
-                                    <div key={index} className="relative flex items-center">
-                                        <div className="absolute -left-4 w-2 h-2 rounded-full border-2 border-blue-500 bg-white" />
-                                        <span className="text-[11px] font-bold text-slate-700 leading-none truncate max-w-[130px] inline-block" title={stop}>
-                                            {stop}
+                            {gpsVehicle && (
+                                <div className="hidden sm:flex items-center gap-3 text-[10px] font-mono border-l border-slate-100 pl-3 mr-auto ml-3">
+                                    <div>
+                                        <span className="text-slate-400 block text-[8px] uppercase leading-none">Speed</span>
+                                        <span className="font-bold text-slate-700">
+                                            {(gpsVehicle.speed || 0) > 0 ? `🟢 ${gpsVehicle.speed} km/h` : '🔴 Stopped'}
                                         </span>
                                     </div>
-                                ))}
+                                    <div>
+                                        <span className="text-slate-400 block text-[8px] uppercase leading-none">Last Signal</span>
+                                        <span className="font-bold text-slate-700">
+                                            {gpsVehicle.timestamp ? gpsVehicle.timestamp.split(' ')[1] || gpsVehicle.timestamp : '—'}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex items-center gap-1">
+                                {gpsVehicle && gpsVehicle.uiiframe && (
+                                    <a
+                                        href={gpsVehicle.uiiframe}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-50 rounded transition-colors"
+                                        title="Direct Frame Link"
+                                    >
+                                        <ExternalLink size={13} />
+                                    </a>
+                                )}
+                                <button
+                                    onClick={() => {
+                                        fetchGpsData();
+                                        fetchGpsHistory();
+                                    }}
+                                    disabled={gpsLoading}
+                                    className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-50 rounded transition-colors disabled:opacity-50"
+                                    title="Refresh GPS"
+                                >
+                                    <RefreshCw size={13} className={gpsLoading ? 'animate-spin' : ''} />
+                                </button>
                             </div>
                         </div>
-                    ) : (
-                        <p className="text-xs text-slate-400 italic">No route assigned</p>
-                    )}
-                </StatCard>
 
-                <StatCard title="Bus Staff">
-                    <div className="space-y-2.5">
-                        <div className="flex items-center justify-between border border-slate-100 rounded-xl p-2 bg-slate-50/30">
-                            <div className="flex items-center gap-2 min-w-0">
-                                <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
-                                    <User size={14} />
+                        {/* Map or Error Display */}
+                        <div className="flex-1 rounded-xl border border-slate-200 overflow-hidden relative bg-slate-50 min-h-[450px] flex flex-col w-full h-full">
+                            {/* Map element is kept in DOM at all times to prevent Leaflet container initialization errors */}
+                            <div 
+                                ref={mapContainerRef} 
+                                className="absolute inset-0 w-full h-full min-h-[450px] z-0"
+                            />
+                            
+                            {/* Error Overlay */}
+                            {gpsError && (
+                                <div className="absolute inset-0 flex flex-col justify-center items-center bg-slate-50 p-6 text-center z-10">
+                                    <AlertTriangle size={24} className="text-amber-500 mb-2" />
+                                    <p className="text-xs font-bold text-slate-800 mb-1">GPS Not Connected</p>
+                                    <p className="text-[10px] text-slate-400 leading-normal">{gpsError}</p>
                                 </div>
-                                <div className="min-w-0">
-                                    <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Driver</p>
-                                    <p className={`text-xs font-bold truncate ${bus.driverName ? 'text-slate-800' : 'text-red-500'}`}>
-                                        {bus.driverName || 'Not Assigned'}
+                            )}
+
+                            {/* Loading Overlay */}
+                            {!gpsError && (!isLeafletReady || !gpsVehicle || !hasCenteredFirstTime) && (
+                                <div className="absolute inset-0 flex flex-col justify-center items-center bg-slate-50 z-10">
+                                    <Loader2 size={24} className="animate-spin text-blue-600 mb-2" />
+                                    <p className="text-[10px] text-slate-400 font-medium">
+                                        {!isLeafletReady ? 'Initializing Map Layers...' : 'Locating Bus Position...'}
                                     </p>
                                 </div>
-                            </div>
-                            {!bus.driverName ? (
-                                <Link to="/buses" className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-blue-600 hover:bg-slate-50 shadow-sm whitespace-nowrap">
-                                    + Assign
-                                </Link>
-                            ) : (
-                                <span className="text-[9px] text-slate-400 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">Assigned</span>
-                            )}
-                        </div>
-                        <div className="flex items-center justify-between border border-slate-100 rounded-xl p-2 bg-slate-50/30">
-                            <div className="flex items-center gap-2 min-w-0">
-                                <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
-                                    <UserCheck size={14} />
-                                </div>
-                                <div className="min-w-0">
-                                    <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Attendant</p>
-                                    <p className={`text-xs font-bold truncate ${bus.attendantName ? 'text-slate-800' : 'text-red-500'}`}>
-                                        {bus.attendantName || 'Not Assigned'}
-                                    </p>
-                                </div>
-                            </div>
-                            {!bus.attendantName ? (
-                                <Link to="/buses" className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-blue-600 hover:bg-slate-50 shadow-sm whitespace-nowrap">
-                                    + Assign
-                                </Link>
-                            ) : (
-                                <span className="text-[9px] text-slate-400 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">Assigned</span>
                             )}
                         </div>
                     </div>
-                </StatCard>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <StatCard title="Live Status" className="relative overflow-hidden">
-                    <div className="flex items-center gap-2">
-                        {occupancyMode === 'live' ? (
-                            <>
-                                <span className="relative flex h-2 w-2">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-                                </span>
-                                <div>
-                                    <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Live</p>
-                                    <p className="text-[10px] text-slate-400 font-semibold">Bus is active and running.</p>
-                                </div>
-                            </>
-                        ) : (
-                            <div>
-                                <p className="text-xs font-bold text-blue-700 uppercase tracking-wide">Academic Year</p>
-                                <p className="text-[10px] text-slate-400 font-semibold">Showing {academicYear} occupancy.</p>
-                            </div>
-                        )}
-                    </div>
-                    <div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-                        <button
-                            type="button"
-                            onClick={() => setOccupancyMode('live')}
-                            className={`px-3 py-1 rounded-md text-[9px] font-bold uppercase tracking-wide transition-colors ${occupancyMode === 'live' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
-                        >
-                            Live
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setOccupancyMode('academicYear')}
-                            className={`px-3 py-1 rounded-md text-[9px] font-bold uppercase tracking-wide transition-colors ${occupancyMode === 'academicYear' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
-                        >
-                            AY
-                        </button>
-                    </div>
-
-                    {/* SVG Skyline + Bus vector illustration */}
-                    <div className="absolute right-0 bottom-0 pointer-events-none opacity-30 select-none overflow-hidden h-14 w-36">
-                        <svg className="w-full h-full text-slate-200" viewBox="0 0 200 100" fill="currentColor">
-                            <rect x="10" y="50" width="15" height="50" />
-                            <rect x="30" y="30" width="20" height="70" />
-                            <rect x="55" y="40" width="18" height="60" />
-                            <rect x="78" y="20" width="22" height="80" />
-                            <rect x="105" y="45" width="15" height="55" />
-                            <rect x="125" y="35" width="25" height="65" />
-                        </svg>
-                        <div className="absolute bottom-0 right-1 text-blue-500">
-                            <svg className="w-14 h-7" viewBox="0 0 80 40" fill="currentColor">
-                                <rect x="5" y="10" width="70" height="20" rx="3" />
-                                <path d="M 65,10 H 75 V 20 H 65 Z" fill="white" opacity="0.8" />
-                                <rect x="10" y="13" width="8" height="6" rx="1" fill="white" opacity="0.8" />
-                                <rect x="21" y="13" width="8" height="6" rx="1" fill="white" opacity="0.8" />
-                                <rect x="32" y="13" width="8" height="6" rx="1" fill="white" opacity="0.8" />
-                                <rect x="43" y="13" width="8" height="6" rx="1" fill="white" opacity="0.8" />
-                                <rect x="54" y="13" width="8" height="6" rx="1" fill="white" opacity="0.8" />
-                                <circle cx="20" cy="30" r="5" fill="#334155" />
-                                <circle cx="20" cy="30" r="2" fill="#cbd5e1" />
-                                <circle cx="60" cy="30" r="5" fill="#334155" />
-                                <circle cx="60" cy="30" r="2" fill="#cbd5e1" />
-                            </svg>
-                        </div>
-                    </div>
-                </StatCard>
-
-                <StatCard title="Academic Year">
-                    <div className="relative">
-                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 pointer-events-none" size={14} />
-                        <select
-                            value={academicYear}
-                            onChange={(e) => setAcademicYear(e.target.value)}
-                            disabled={occupancyMode === 'live'}
-                            className="w-full rounded-xl border border-slate-200 pl-8 pr-3 py-2 text-xs font-semibold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 appearance-none"
-                        >
-                            {academicYearOptions.map((year) => (
-                                <option key={year} value={year}>{year}</option>
-                            ))}
-                        </select>
-                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-500 w-0 h-0" />
-                    </div>
-                    <p className="text-[10px] text-slate-400 font-bold mt-3">
-                        {occupancyMode === 'live' ? 'Switch to AY mode to filter by academic year.' : `Passengers for ${academicYear}.`}
-                    </p>
-                </StatCard>
-
-                <StatCard title="Passenger Mix">
-                    <div className="flex flex-col justify-center h-full gap-3 py-0.5">
-                        <div>
-                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-700 mb-1">
-                                <span>{studentCount} STUDENTS</span>
-                                <span>{passengers.length > 0 ? Math.round((studentCount / passengers.length) * 100) : 0}%</span>
-                            </div>
-                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                <div className="bg-blue-600 h-full rounded-full" style={{ width: `${passengers.length > 0 ? (studentCount / passengers.length) * 100 : 0}%` }}></div>
-                            </div>
-                        </div>
-                        <div>
-                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-700 mb-1">
-                                <span>{employeeCount} STAFF</span>
-                                <span>{passengers.length > 0 ? Math.round((employeeCount / passengers.length) * 100) : 0}%</span>
-                            </div>
-                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                <div className="bg-slate-300 h-full rounded-full" style={{ width: `${passengers.length > 0 ? (employeeCount / passengers.length) * 100 : 0}%` }}></div>
-                            </div>
-                        </div>
-                    </div>
-                </StatCard>
+                </div>
             </div>
 
             {expiredTaxesWarning.length > 0 && (
@@ -866,7 +1259,7 @@ const BusDetails = () => {
                         onClick={() => setActiveTab('passengers')}
                         className={`px-6 py-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === 'passengers' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
                     >
-                        <UsersIcon size={18} /> Passenger List
+                        <UsersIcon size={18} /> Passenger List ({filteredPassengers.length})
                     </button>
                     <button
                         onClick={() => setActiveTab('history')}
@@ -877,21 +1270,15 @@ const BusDetails = () => {
                 </div>
 
                 {activeTab === 'passengers' ? (
-                    <>
-                        <div className="flex items-center justify-between p-3.5 border-b border-slate-100">
-                            <h2 className="text-xs font-black text-slate-800 uppercase tracking-wider">
-                                Passenger List ({filteredPassengers.length})
-                            </h2>
-                            {route && (
-                                <button
-                                    type="button"
-                                    onClick={openAssignModal}
-                                    className="inline-flex items-center text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-700 shadow-sm transition-all border-none"
-                                >
-                                    Assign Passengers
-                                </button>
-                            )}
-                        </div>
+                    <div className="relative">
+                        {passengersLoading && (
+                            <div className="absolute inset-0 bg-white/70 backdrop-blur-[1px] flex items-center justify-center z-10 transition-all">
+                                <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-slate-200 shadow-md">
+                                    <Loader2 size={16} className="animate-spin text-blue-600" />
+                                    <span className="text-xs font-bold text-slate-600 tracking-wide">Loading passenger table...</span>
+                                </div>
+                            </div>
+                        )}
                         <div className="p-3 border-b border-slate-100 flex flex-col md:flex-row gap-2 items-center">
                             <div className="relative flex-1 w-full">
                                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1001,7 +1388,7 @@ const BusDetails = () => {
                                 </table>
                             </div>
                         )}
-                    </>
+                    </div>
                 ) : (
                     <div>
                         <div className="px-6 pt-4 border-b border-gray-100 flex flex-wrap gap-2">
