@@ -44,12 +44,12 @@ const UserManagement = () => {
 
     // Custom Roles state (Image 2)
     const [rolesList, setRolesList] = useState([
-        { id: 'office_staff', name: 'Office Staff', description: 'Standard office staff user with collection and reporting access', userCount: 4 },
-        { id: 'cashier', name: 'Cashier', description: 'Handles daily fee collection and cashier summaries', userCount: 2 },
-        { id: 'ao', name: 'AO', description: 'Administrative Officer with college wide oversight', userCount: 1 },
-        { id: 'manager', name: 'Manager', description: 'Manages departmental permissions and staff', userCount: 1 },
-        { id: 'admin', name: 'Admin', description: 'Full system management and configuration access', userCount: 2 },
-        { id: 'support_staff', name: 'Support Staff', description: 'Helps with student queries and bus pass views', userCount: 0 }
+        { id: 'office_staff', name: 'Office Staff', description: 'Standard office staff user with collection and reporting access' },
+        { id: 'cashier', name: 'Cashier', description: 'Handles daily fee collection and cashier summaries' },
+        { id: 'ao', name: 'AO', description: 'Administrative Officer with college wide oversight' },
+        { id: 'manager', name: 'Manager', description: 'Manages departmental permissions and staff' },
+        { id: 'admin', name: 'Admin', description: 'Full system management and configuration access' },
+        { id: 'support_staff', name: 'Support Staff', description: 'Helps with student queries and bus pass views' }
     ]);
     const [newRoleName, setNewRoleName] = useState('');
     const [newRoleDesc, setNewRoleDesc] = useState('');
@@ -769,7 +769,9 @@ const UserManagement = () => {
                                 ) : (
                                     filteredUsers.map((user) => {
                                         const isSuperAdmin = user.is_superadmin || (user.roles && user.roles.includes('superadmin'));
-                                        const displayRole = user.roles && user.roles[0] ? user.roles[0] : 'office_staff';
+                                        const displayRoleKey = user.roles && user.roles[0] ? user.roles[0] : 'office_staff';
+                                        const roleOption = ROLE_OPTIONS.find(r => r.id === displayRoleKey);
+                                        const displayRole = roleOption ? roleOption.label : displayRoleKey;
 
                                         return (
                                             <tr key={user._id} className="hover:bg-slate-50/70 transition-colors">
@@ -787,7 +789,7 @@ const UserManagement = () => {
 
                                                 {/* Role */}
                                                 <td className="py-3 px-3">
-                                                    <span className="inline-block px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px] lowercase">
+                                                    <span className="inline-block px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px]">
                                                         {displayRole}
                                                     </span>
                                                 </td>
@@ -896,7 +898,9 @@ const UserManagement = () => {
                                     <p className="text-xs text-slate-500 mb-4">{role.description}</p>
                                 </div>
                                 <div className="pt-3 border-t border-slate-200/60 flex justify-between items-center text-xs">
-                                    <span className="text-slate-400 font-medium">{role.userCount || 0} active users</span>
+                                    <span className="text-slate-400 font-medium">
+                                        {users.filter(u => u.roles && u.roles.includes(role.id)).length} active users
+                                    </span>
                                     <button
                                         type="button"
                                         onClick={() => handleEditRoleClick(role)}
