@@ -18,6 +18,7 @@ import Inventory from './pages/Inventory';
 import RaiseBill from './pages/RaiseBill';
 import TransportVerify from './pages/TransportVerify';
 import GpsTracking from './pages/GpsTracking';
+import Attendance from './pages/Attendance';
 import './App.css';
 
 function App() {
@@ -41,6 +42,7 @@ function App() {
           <Route path="/users" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
           <Route path="/raise-request" element={<ProtectedRoute><AdminRaiseRequest /></ProtectedRoute>} />
           <Route path="/concessions" element={<ProtectedRoute><Concessions /></ProtectedRoute>} />
+          <Route path="/attendance" element={<ProtectedRoute><Attendance /></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
           <Route path="/inventory/raise-bill" element={<ProtectedRoute><RaiseBill /></ProtectedRoute>} />
         </Routes>

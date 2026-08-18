@@ -3091,7 +3091,172 @@ module.exports = {
     getActivePassengerSqlParts,
     enrichTransportFareAdjustments,
     triggerStaffExpiry,
+    getAttendanceRecords,
+    getStudentAttendanceDetails,
 };
+
+// @route   GET /api/transport-requests/attendance
+// @access  Private
+async function getAttendanceRecords(req, res) {
+    try {
+        const academicYear = resolveAcademicYear(req.query);
+        const { startDate, endDate, course, route, search } = req.query;
+
+        if (!startDate || !endDate) {
+            return res.status(400).json({ message: 'startDate and endDate parameters are required.' });
+        }
+
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+        const hasCollegeRestriction = restrictedColleges !== null;
+
+        let allowedCollegeCodes = [];
+        if (hasCollegeRestriction && mysqlPool) {
+            const [rows] = await mysqlPool.query('SELECT code FROM colleges WHERE name IN (?)', [restrictedColleges.length > 0 ? restrictedColleges : ['']]);
+            allowedCollegeCodes = rows.map(r => formatApplicationCode(r.code));
+        }
+
+        let allowedCourseCodes = [];
+        if (hasCourseRestriction && mysqlPool) {
+            const [rows] = await mysqlPool.query('SELECT code FROM courses WHERE name IN (?)', [req.user.courses]);
+            allowedCourseCodes = rows.map(r => formatApplicationCode(r.code));
+        }
+
+        // Build MongoDB query for student transport requests
+        const studentQuery = { status: 'approved' };
+        if (academicYear) {
+            studentQuery.academic_year = academicYear;
+        }
+        if (route) {
+            studentQuery.$or = [
+                { route_name: route },
+                { route_id: route }
+            ];
+        }
+        if (hasCollegeRestriction) {
+            studentQuery.application_college_code = { $in: allowedCollegeCodes };
+        }
+        if (hasCourseRestriction) {
+            studentQuery.application_course_code = { $in: allowedCourseCodes };
+        }
+
+        const studentDocs = await TransportRequest.find(studentQuery).lean();
+        const admissionNos = [...new Set(studentDocs.map(r => r.admission_number).filter(Boolean))];
+
+        let studentMap = {};
+        if (mysqlPool && admissionNos.length > 0) {
+            const [studentRows] = await mysqlPool.query(
+                `SELECT admission_number, admission_no, course, branch, student_name FROM students WHERE admission_number IN (?) OR admission_no IN (?)`,
+                [admissionNos, admissionNos]
+            );
+            for (const s of studentRows) {
+                if (s.admission_number) studentMap[s.admission_number] = s;
+                if (s.admission_no) studentMap[s.admission_no] = s;
+            }
+        }
+
+        let attendanceMap = {};
+        if (mysqlPool && admissionNos.length > 0) {
+            const [attendanceRows] = await mysqlPool.query(
+                `SELECT admission_number, attendance_date, status, remarks, holiday_reason FROM attendance_records WHERE attendance_date BETWEEN ? AND ? AND (admission_number IN (?))`,
+                [startDate, endDate, admissionNos]
+            );
+            for (const row of attendanceRows) {
+                const adm = row.admission_number;
+                if (!attendanceMap[adm]) {
+                    attendanceMap[adm] = [];
+                }
+                attendanceMap[adm].push(row);
+            }
+        }
+
+        const summary = studentDocs.map(doc => {
+            const adm = doc.admission_number;
+            const mysqlStudent = studentMap[adm] || {};
+            const records = attendanceMap[adm] || [];
+
+            const present_days = records.filter(r => r.status === 'present').length;
+            const absent_days = records.filter(r => r.status === 'absent').length;
+            const holiday_days = records.filter(r => r.status === 'holiday').length;
+            const total_days = records.length;
+
+            const presentAndAbsent = present_days + absent_days;
+            const attendance_percentage = presentAndAbsent > 0
+                ? Number(((present_days / presentAndAbsent) * 100).toFixed(2))
+                : 0;
+
+            return {
+                admission_number: adm,
+                student_name: doc.student_name || mysqlStudent.student_name || 'N/A',
+                course: mysqlStudent.course || doc.application_course_code || 'N/A',
+                branch: mysqlStudent.branch || 'N/A',
+                route_name: doc.route_name || 'N/A',
+                stage_name: doc.stage_name || 'N/A',
+                total_days,
+                present_days,
+                absent_days,
+                holiday_days,
+                attendance_percentage
+            };
+        });
+
+        let filteredSummary = summary;
+        if (course) {
+            filteredSummary = filteredSummary.filter(item =>
+                String(item.course).toLowerCase().includes(course.toLowerCase())
+            );
+        }
+        if (search) {
+            const queryLower = search.toLowerCase();
+            filteredSummary = filteredSummary.filter(item =>
+                String(item.student_name).toLowerCase().includes(queryLower) ||
+                String(item.admission_number).toLowerCase().includes(queryLower)
+            );
+        }
+
+        return res.json({ summary: filteredSummary });
+    } catch (err) {
+        console.error('getAttendanceRecords error:', err);
+        return res.status(500).json({ message: 'Failed to load attendance summary records.' });
+    }
+}
+
+// @route   GET /api/transport-requests/attendance/:admission_number
+// @access  Private
+async function getStudentAttendanceDetails(req, res) {
+    try {
+        const { admission_number } = req.params;
+        const { startDate, endDate } = req.query;
+
+        if (!startDate || !endDate) {
+            return res.status(400).json({ message: 'startDate and endDate parameters are required.' });
+        }
+
+        if (!mysqlPool) {
+            return res.status(500).json({ message: 'MySQL connection not established.' });
+        }
+
+        const [rows] = await mysqlPool.query(
+            `SELECT attendance_date, status, remarks, holiday_reason FROM attendance_records WHERE admission_number = ? AND attendance_date BETWEEN ? AND ? ORDER BY attendance_date ASC`,
+            [admission_number, startDate, endDate]
+        );
+
+        return res.json({
+            admission_number,
+            records: rows.map(r => ({
+                attendance_date: r.attendance_date,
+                status: r.status,
+                remarks: r.remarks || '',
+                holiday_reason: r.holiday_reason || ''
+            }))
+        });
+    } catch (error) {
+        console.error('getStudentAttendanceDetails error:', error);
+        return res.status(500).json({ message: 'Failed to fetch student attendance details.' });
+    }
+}
 
 // ── Manual Admin Trigger: Staff Transport Expiry ──────────────────────────────
 // @route   POST /api/transport-requests/expire-staff-requests

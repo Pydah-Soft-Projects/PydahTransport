@@ -75,73 +75,62 @@ const UserManagement = () => {
 
     const DEFAULT_ROLE_PERMISSIONS = {
         office_staff: [
-            'students',
-            'fee_collection',
-            'enable_fee_collection',
-            'reports_analytics',
-            'daily_collection',
-            'cashier_summary'
+            'dashboard',
+            'fleet_passengers',
+            'raise_request',
+            'transport_requests',
+            'renewals',
+            'transport_dues',
+            'concessions',
+            'attendance'
         ],
         cashier: [
-            'fee_collection',
-            'enable_fee_collection',
-            'reports_analytics',
-            'daily_collection',
-            'cashier_summary'
+            'dashboard',
+            'transport_dues'
         ],
         ao: [
             'dashboard',
-            'students',
-            'fee_collection',
-            'enable_fee_collection',
-            'enable_fee_concession',
-            'concessions_declaration',
-            'concessions_application',
-            'reports_analytics',
-            'daily_collection',
-            'cashier_summary'
+            'fleet_passengers',
+            'gps_tracking',
+            'transport_requests',
+            'transport_dues',
+            'attendance'
         ],
         manager: [
             'dashboard',
-            'students',
-            'fee_collection',
-            'enable_fee_collection',
-            'enable_fee_concession',
-            'enable_edit_transaction',
-            'concessions_declaration',
-            'concessions_application',
-            'bulk_fee_upload',
-            'proceedings',
-            'reports_analytics',
-            'daily_collection',
-            'cashier_summary'
+            'bus_management',
+            'route_management',
+            'fleet_passengers',
+            'gps_tracking',
+            'raise_request',
+            'transport_requests',
+            'renewals',
+            'transport_dues',
+            'concessions',
+            'attendance',
+            'inventory'
         ],
         admin: [
             'dashboard',
-            'students',
-            'fee_collection',
-            'enable_fee_collection',
-            'enable_fee_concession',
-            'enable_edit_transaction',
-            'enable_delete_transaction',
-            'concessions_declaration',
-            'concessions_application',
-            'bulk_fee_upload',
-            'proceedings',
-            'renewals',
-            'reports_analytics',
-            'daily_collection',
-            'cashier_summary',
-            'user_management',
             'bus_management',
-            'route_management'
+            'route_management',
+            'fleet_passengers',
+            'gps_tracking',
+            'raise_request',
+            'transport_requests',
+            'renewals',
+            'transport_dues',
+            'concessions',
+            'attendance',
+            'inventory',
+            'user_management'
         ],
         support_staff: [
-            'students',
-            'renewals'
+            'dashboard',
+            'gps_tracking'
         ],
         user: [
-            'students'
+            'dashboard'
         ]
     };
 
@@ -156,17 +145,18 @@ const UserManagement = () => {
 
     const ROLE_PERMISSIONS_LIST = [
         { id: 'dashboard', label: 'Dashboard', path: '/dashboard' },
-        { id: 'students', label: 'Students', path: '/students' },
-        { id: 'fee_collection', label: 'Fee Collection', path: '/fee-collection' },
-        { id: 'concessions_declaration', label: 'Concessions (Declaration)', path: '/overall-concessions' },
-        { id: 'concessions_application', label: 'Concessions (Application)', path: '/concessions' },
-        { id: 'bulk_fee_upload', label: 'Bulk Fee Upload', path: '/bulk-fee-upload' },
-        { id: 'proceedings', label: 'Proceedings', path: '/proceedings' },
-        { id: 'renewals', label: 'Renewals', path: '/renewals' },
-        { id: 'reports_analytics', label: 'Reports & Analytics', path: '/reports' },
-        { id: 'user_management', label: 'User Management', path: '/users' },
-        { id: 'bus_management', label: 'Bus Management', path: '/buses' },
+        { id: 'bus_management', label: 'Vehicle Management', path: '/buses' },
         { id: 'route_management', label: 'Route Management', path: '/routes' },
+        { id: 'fleet_passengers', label: 'Fleet & Passengers', path: '/fleet' },
+        { id: 'gps_tracking', label: 'GPS Live Tracking', path: '/gps-tracking' },
+        { id: 'raise_request', label: 'Raise New Request', path: '/raise-request' },
+        { id: 'transport_requests', label: 'Passenger Requests', path: '/transport-requests' },
+        { id: 'renewals', label: 'Renewals', path: '/renewals' },
+        { id: 'transport_dues', label: 'Transport Dues', path: '/transport-dues' },
+        { id: 'concessions', label: 'Concessions', path: '/concessions' },
+        { id: 'attendance', label: 'Attendance', path: '/attendance' },
+        { id: 'inventory', label: 'Inventory', path: '/inventory' },
+        { id: 'user_management', label: 'User Management', path: '/users' },
     ];
 
     useEffect(() => {
@@ -448,7 +438,7 @@ const UserManagement = () => {
         setEditRole('office_staff');
         setEditEmail('');
         setEditMobile('');
-        setPermissions(['students', 'fee_collection', 'enable_fee_collection']);
+        setPermissions(DEFAULT_ROLE_PERMISSIONS.office_staff || []);
         setSelectedCampuses([]);
         setSelectedColleges([]);
         setSelectedCourses([]);
@@ -1215,163 +1205,26 @@ const UserManagement = () => {
                                 </label>
 
                                 <div className="border border-slate-300 rounded-xl p-4 bg-white max-h-[380px] overflow-y-auto custom-scrollbar space-y-3">
-                                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                                    {/* Dashboard */}
-                                    <label className="flex items-center space-x-2 text-xs font-semibold text-slate-800 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={permissions.includes('dashboard')}
-                                            onChange={() => togglePermission('dashboard')}
-                                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                        />
-                                        <span>Dashboard</span>
-                                    </label>
-
-                                    {/* Students */}
-                                    <label className="flex items-center space-x-2 text-xs font-semibold text-slate-800 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={permissions.includes('students')}
-                                            onChange={() => togglePermission('students')}
-                                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                        />
-                                        <span>Students</span>
-                                    </label>
-                                </div>
-
-                                {/* Fee Collection + Nested options */}
-                                <div className="pt-2 border-t border-slate-100">
-                                    <label className="flex items-center space-x-2 text-xs font-bold text-slate-900 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={permissions.includes('fee_collection')}
-                                            onChange={() => togglePermission('fee_collection')}
-                                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                        />
-                                        <span>Fee Collection</span>
-                                    </label>
-                                    <div className="ml-6 mt-1.5 space-y-1">
-                                        <label className="flex items-center space-x-2 text-[11px] font-medium text-slate-600 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={permissions.includes('enable_fee_collection')}
-                                                onChange={() => togglePermission('enable_fee_collection')}
-                                                className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                            />
-                                            <span>Enable Fee Collection</span>
-                                        </label>
-                                        <label className="flex items-center space-x-2 text-[11px] font-medium text-slate-600 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={permissions.includes('enable_fee_concession')}
-                                                onChange={() => togglePermission('enable_fee_concession')}
-                                                className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                            />
-                                            <span>Enable Fee Concession</span>
-                                        </label>
-                                        <label className="flex items-center space-x-2 text-[11px] font-medium text-slate-600 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={permissions.includes('enable_edit_transaction')}
-                                                onChange={() => togglePermission('enable_edit_transaction')}
-                                                className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                            />
-                                            <span>Enable Edit Transaction</span>
-                                        </label>
-                                        <label className="flex items-center space-x-2 text-[11px] font-medium text-slate-600 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={permissions.includes('enable_delete_transaction')}
-                                                onChange={() => togglePermission('enable_delete_transaction')}
-                                                className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                            />
-                                            <span>Enable Delete Transaction</span>
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2 border-t border-slate-100">
-                                    {/* Concessions Declaration */}
-                                    <label className="flex items-center space-x-2 text-xs font-semibold text-slate-800 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={permissions.includes('concessions_declaration')}
-                                            onChange={() => togglePermission('concessions_declaration')}
-                                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                        />
-                                        <span>Concessions (Declaration)</span>
-                                    </label>
-
-                                    {/* Concessions Application */}
-                                    <label className="flex items-center space-x-2 text-xs font-semibold text-slate-800 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={permissions.includes('concessions_application')}
-                                            onChange={() => togglePermission('concessions_application')}
-                                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                        />
-                                        <span>Concessions (Application)</span>
-                                    </label>
-
-                                    {/* Bulk Fee Upload */}
-                                    <label className="flex items-center space-x-2 text-xs font-semibold text-slate-800 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={permissions.includes('bulk_fee_upload')}
-                                            onChange={() => togglePermission('bulk_fee_upload')}
-                                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                        />
-                                        <span>Bulk Fee Upload</span>
-                                    </label>
-
-                                    {/* Proceedings */}
-                                    <label className="flex items-center space-x-2 text-xs font-semibold text-slate-800 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={permissions.includes('proceedings')}
-                                            onChange={() => togglePermission('proceedings')}
-                                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                        />
-                                        <span>Proceedings</span>
-                                    </label>
-                                </div>
-
-                                {/* Reports & Analytics + Sub Options */}
-                                <div className="pt-2 border-t border-slate-100">
-                                    <label className="flex items-center space-x-2 text-xs font-bold text-slate-900 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={permissions.includes('reports_analytics')}
-                                            onChange={() => togglePermission('reports_analytics')}
-                                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                        />
-                                        <span>Reports & Analytics</span>
-                                    </label>
-                                    <div className="ml-6 mt-1.5 space-y-1">
-                                        <label className="flex items-center space-x-2 text-[11px] font-medium text-slate-600 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={permissions.includes('daily_collection')}
-                                                onChange={() => togglePermission('daily_collection')}
-                                                className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                            />
-                                            <span>Daily Collection</span>
-                                        </label>
-                                        <label className="flex items-center space-x-2 text-[11px] font-medium text-slate-600 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={permissions.includes('cashier_summary')}
-                                                onChange={() => togglePermission('cashier_summary')}
-                                                className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                                            />
-                                            <span>Cashier Summary</span>
-                                        </label>
+                                    <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                                        {ROLE_PERMISSIONS_LIST.map((perm) => {
+                                            const isChecked = permissions.includes(perm.id);
+                                            return (
+                                                <label key={perm.id} className="flex items-center space-x-2 text-xs font-semibold text-slate-800 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={() => togglePermission(perm.id)}
+                                                        className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                                                    />
+                                                    <span>{perm.label}</span>
+                                                </label>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
 
                 {/* Bottom Modal Actions (Matching Image 3 Footer with Vibrant Orange Button) */}
                     <div className="pt-4 flex justify-between gap-3 border-t border-slate-100">

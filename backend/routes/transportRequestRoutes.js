@@ -19,6 +19,8 @@ const {
     getIdCardsForPrint,
     getIdCardApplicationNumbers,
     triggerStaffExpiry,
+    getAttendanceRecords,
+    getStudentAttendanceDetails,
 } = require('../controllers/transportRequestController');
 
 router.get('/', getTransportRequests);
@@ -27,6 +29,8 @@ router.get('/route-buses', getRouteBusVacancy);
 router.get('/approved-passengers', getApprovedPassengers);
 router.get('/id-cards-print', getIdCardsForPrint);
 router.get('/id-card-application-numbers', getIdCardApplicationNumbers);
+router.get('/attendance', getAttendanceRecords);
+router.get('/attendance/:admission_number', getStudentAttendanceDetails);
 router.post('/change-request', submitRouteChangeRequest);
 router.post('/expire-staff-requests', triggerStaffExpiry);
 router.get('/concessions', getConcessions);

@@ -20,7 +20,8 @@ import {
     ChevronRight,
     Truck,
     RefreshCw,
-    Navigation
+    Navigation,
+    UserCheck
 } from 'lucide-react';
 
 const Layout = ({ children }) => {
@@ -76,13 +77,14 @@ const Layout = ({ children }) => {
                 { path: '/raise-request', label: 'Raise New Request', permission: 'raise_request', icon: <PlusCircle size={20} /> },
                 { path: '/transport-requests', label: 'Passenger Requests', permission: 'transport_requests', icon: <ClipboardList size={20} /> },
                 { path: '/renewals', label: 'Renewals', permission: 'renewals', icon: <RefreshCw size={20} /> },
-                { path: '/concessions', label: 'Concessions', permission: 'concessions', icon: <Percent size={20} /> },
             ]
         },
         {
-            title: 'FINANCE',
+            title: 'ACADEMIC',
             items: [
                 { path: '/transport-dues', label: 'Transport Dues', permission: 'transport_dues', icon: <CreditCard size={20} /> },
+                { path: '/concessions', label: 'Concessions', permission: 'concessions', icon: <Percent size={20} /> },
+                { path: '/attendance', label: 'Attendance', permission: 'attendance', icon: <UserCheck size={20} /> },
             ]
         },
         {
