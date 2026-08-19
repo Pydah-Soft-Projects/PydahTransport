@@ -1550,7 +1550,7 @@ const RouteManagement = () => {
                                 <table className="w-full text-left border-collapse">
                                     <thead>
                                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
-                                            <th className="px-3 py-2">Route Details</th>
+                                            <th className="px-3 py-2 w-[28rem]">Route Details</th>
                                             <th className="px-3 py-2">Path (Start → End)</th>
                                             <th className="px-3 py-2">Distance & Time</th>
                                             <th className="px-3 py-2">Stages</th>
@@ -1749,8 +1749,8 @@ const RouteManagement = () => {
                                 <table className="w-full text-left border-collapse">
                                     <thead>
                                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
-                                            <th className="px-3 py-2 w-72">Route Details</th>
-                                            <th className="px-3 py-2">Path (Start → End)</th>
+                                            <th className="px-3 py-2">Route Details</th>
+                                            <th className="px-3 py-2 w-48">Path (Start → End)</th>
                                             <th className="px-3 py-2">Assigned Bus</th>
                                             <th className="px-3 py-2 w-36">Action</th>
                                         </tr>
