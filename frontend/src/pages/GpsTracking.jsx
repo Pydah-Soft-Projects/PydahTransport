@@ -13,8 +13,23 @@ import {
   Zap,
   Map as MapIcon,
   Loader2,
-  Download
+  Download,
+  ChevronDown
 } from 'lucide-react';
+import GpsFinalDestinationModal from '../components/GpsFinalDestinationModal';
+
+const formatGeofenceTime = (val) => {
+  if (!val) return '—';
+  const d = new Date(val.replace(' ', 'T'));
+  if (isNaN(d.getTime())) return val;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${hh}:${mi}:${ss}  ${dd}-${mm}-${yyyy}`;
+};
 
 export default function GpsTracking() {
   const [vehicles, setVehicles] = useState([]);
@@ -65,6 +80,26 @@ export default function GpsTracking() {
   const [fleetDateTo, setFleetDateTo] = useState(() => {
     return sessionStorage.getItem('gps_fleet_date_to') || new Date().toISOString().split('T')[0];
   });
+
+  // Geofence accordion state for Distance Travelled table
+  const [expandedFleetVehicle, setExpandedFleetVehicle] = useState(null);
+  const [geofenceData, setGeofenceData] = useState({});
+  const [geofenceLoading, setGeofenceLoading] = useState({});
+
+  // Final Destination modal
+  const [campuses, setCampuses] = useState([]);
+
+  // Load campuses once
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch(`${API_BASE}/campuses`);
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) setCampuses(json.data);
+        else if (Array.isArray(json)) setCampuses(json);
+      } catch { /* ignore */ }
+    })();
+  }, []);
 
   // Dynamically load Leaflet library for fast interactive multi-marker map & polyline tracing
   useEffect(() => {
@@ -324,13 +359,38 @@ export default function GpsTracking() {
     document.body.removeChild(link);
   };
 
+  const toggleGeofenceAccordion = useCallback(async (vehicleName) => {
+    if (expandedFleetVehicle === vehicleName) {
+      setExpandedFleetVehicle(null);
+      return;
+    }
+    setExpandedFleetVehicle(vehicleName);
+
+    const cacheKey = `${vehicleName}_${fleetDateFrom}_${fleetDateTo}`;
+    if (geofenceData[cacheKey]) return;
+
+    setGeofenceLoading((prev) => ({ ...prev, [vehicleName]: true }));
+    try {
+      const res = await apiFetch(
+        `${API_BASE}/gps/geofence-report?vehicle_name=${encodeURIComponent(vehicleName)}&date_from=${fleetDateFrom}&date_to=${fleetDateTo}`
+      );
+      const json = await res.json();
+      const rows = json.success && json.data ? (Array.isArray(json.data) ? json.data : (json.data.report || json.data.rows || [])) : [];
+      setGeofenceData((prev) => ({ ...prev, [cacheKey]: rows }));
+    } catch {
+      setGeofenceData((prev) => ({ ...prev, [cacheKey]: [] }));
+    } finally {
+      setGeofenceLoading((prev) => ({ ...prev, [vehicleName]: false }));
+    }
+  }, [expandedFleetVehicle, fleetDateFrom, fleetDateTo, geofenceData]);
+
   useEffect(() => {
     if (mapInstanceRef.current) {
       setTimeout(() => {
         mapInstanceRef.current.invalidateSize();
       }, 350);
     }
-  }, [kmTab]);
+  }, [kmTab, activePageTab]);
 
   const loadTraceHistoryFast = useCallback(async (vehName) => {
     if (!vehName) {
@@ -526,20 +586,36 @@ export default function GpsTracking() {
     return () => clearInterval(interval);
   }, [selectedVehicle?.name, loadTraceHistoryFast]);
 
-  // Clean up Leaflet map when tab changes or component unmounts
+  // Recalculate map size and re-fit bounds when switching back to the live tab
   useEffect(() => {
-    return () => {
-      if (mapInstanceRef.current) {
-        try {
-          mapInstanceRef.current.remove();
-        } catch (e) {
-          console.warn('Map cleanup warning:', e);
+    if (activePageTab === 'live' && mapInstanceRef.current && window.L) {
+      const map = mapInstanceRef.current;
+      const L = window.L;
+
+      setTimeout(() => {
+        map.invalidateSize({ animate: false });
+
+        // Re-fit bounds so the view isn't stuck on a blank area
+        if (selectedVehicle) {
+          const lat = selectedVehicle.latitude;
+          const lng = selectedVehicle.longitude;
+          if (typeof lat === 'number' && typeof lng === 'number') {
+            map.setView([lat, lng], map.getZoom(), { animate: false });
+          }
+        } else if (filteredVehicles.length > 0) {
+          const bounds = L.latLngBounds();
+          filteredVehicles.forEach(v => {
+            if (typeof v.latitude === 'number' && typeof v.longitude === 'number') {
+              bounds.extend([v.latitude, v.longitude]);
+            }
+          });
+          if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [50, 50], animate: false });
+          }
         }
-        mapInstanceRef.current = null;
-        layerGroupRef.current = null;
-      }
-    };
-  }, [activePageTab]);
+      }, 300);
+    }
+  }, [activePageTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Initialize & Update Leaflet Map when vehicles or selectedVehicle or traceLogs change
   useEffect(() => {
@@ -749,11 +825,24 @@ export default function GpsTracking() {
             >
               Distance Travelled Summary
             </button>
+            <button
+              onClick={() => {
+                setActivePageTab('destination');
+                sessionStorage.setItem('gps_active_page_tab', 'destination');
+              }}
+              className={`px-4 py-1.5 rounded-md transition-all ${
+                activePageTab === 'destination'
+                  ? 'bg-blue-600 text-white font-bold shadow-sm'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50/50'
+              }`}
+            >
+              Final Destination
+            </button>
           </div>
         </div>
 
-        {activePageTab === 'live' ? (
-          /* Main 2-Column Split: Compact Left Vehicles List + Right Big Map & Fast Tracing */
+        <div className={activePageTab === 'live' ? '' : 'hidden'}>
+          {/* Main 2-Column Split: Compact Left Vehicles List + Right Big Map & Fast Tracing */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
             {/* Left Column: Compact Vehicles & Status List */}
             <div className="lg:col-span-4 xl:col-span-4 bg-white rounded-xl p-4 shadow-sm border border-slate-200 flex flex-col h-[650px] space-y-3">
@@ -1079,7 +1168,8 @@ export default function GpsTracking() {
               )}
             </div>
           </div>
-        ) : (
+        </div>
+        {activePageTab === 'travelled' ? (
           /* Distance Travelled Summary View */
           <div className="space-y-4">
             {/* Date Filters, Search Box & Export */}
@@ -1224,7 +1314,6 @@ export default function GpsTracking() {
                         </div>
                       </th>
                       <th className="px-6 py-4">Bus / Vehicle</th>
-                      <th className="px-6 py-4">Unit ID</th>
                       <th className="px-6 py-4">Live Status</th>
                       <th className="px-6 py-4">Coordinates</th>
                       <th 
@@ -1239,9 +1328,10 @@ export default function GpsTracking() {
                         </div>
                       </th>
                       <th className="px-6 py-4 text-right">Data Source</th>
+                      <th className="px-4 py-4 w-10"></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50 text-xs font-semibold text-slate-700">
+                  <tbody className="divide-y divide-slate-50 text-xs text-slate-700">
                     {(() => {
                       const filtered = vehicles.filter(v => {
                         if (!fleetSearchQuery) return true;
@@ -1280,16 +1370,23 @@ export default function GpsTracking() {
                       return sorted.map((veh) => {
                         const isMoving = (veh.speed || 0) > 0;
                         const kmInfo = fleetKmValues[veh.name] || { totalKm: 0, isMock: false, loading: false };
+                        const isExpanded = expandedFleetVehicle === veh.name;
+                        const cacheKey = `${veh.name}_${fleetDateFrom}_${fleetDateTo}`;
+                        const gfRows = geofenceData[cacheKey] || [];
+                        const gfLoading = geofenceLoading[veh.name];
                         return (
-                          <tr key={veh.name} className="hover:bg-slate-50/50 transition-colors">
+                          <React.Fragment key={veh.name}>
+                          <tr
+                            onClick={() => toggleGeofenceAccordion(veh.name)}
+                            className={`hover:bg-slate-50/50 transition-colors cursor-pointer select-none ${isExpanded ? 'bg-blue-50/40' : ''}`}
+                          >
                             <td className="px-6 py-4 whitespace-nowrap">
-                              <span className="text-slate-900 font-bold">{veh.routeId || 'Unassigned'}</span>
-                              <span className="text-[10px] text-slate-400 block font-normal">{veh.routeName || 'No Route'}</span>
+                              <span className="text-slate-900 font-semibold">{veh.routeId || 'Unassigned'}</span>
+                              <span className="text-[10px] text-slate-400 ml-1.5">{veh.routeName || 'No Route'}</span>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-slate-900 font-extrabold">{veh.name}</td>
-                            <td className="px-6 py-4 font-mono text-slate-500">{veh.units}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-slate-900 font-semibold">{veh.name}</td>
                             <td className="px-6 py-4">
-                              <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${isMoving ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-medium uppercase ${isMoving ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
                                 {isMoving ? 'Moving' : 'Stopped'}
                               </span>
                             </td>
@@ -1302,7 +1399,7 @@ export default function GpsTracking() {
                                   <Loader2 size={12} className="animate-spin text-blue-500" /> loading...
                                 </span>
                               ) : (
-                                <span className="text-sm font-black text-blue-700">
+                                <span className="text-sm font-semibold text-blue-700">
                                   {kmInfo.totalKm.toFixed(1)} km
                                 </span>
                               )}
@@ -1311,12 +1408,57 @@ export default function GpsTracking() {
                               {kmInfo.loading ? (
                                 <span className="text-[10px] text-slate-400 italic">pending</span>
                               ) : (
-                                <span className={`text-[10px] font-bold ${kmInfo.isMock ? 'text-amber-600' : 'text-blue-600'}`}>
+                                <span className={`text-[10px] font-medium ${kmInfo.isMock ? 'text-amber-600' : 'text-blue-600'}`}>
                                   {kmInfo.isMock ? 'Demo Log' : 'Live GPS'}
                                 </span>
                               )}
                             </td>
+                            <td className="px-4 py-4 text-center">
+                              <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                            </td>
                           </tr>
+                          {isExpanded && (
+                            <tr>
+                              <td colSpan="7" className="px-6 py-0 bg-slate-50/80">
+                                <div className="py-3">
+                                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Geofence In / Out Report</p>
+                                  {gfLoading ? (
+                                    <div className="flex items-center gap-2 py-4 justify-center text-xs text-slate-400">
+                                      <Loader2 size={14} className="animate-spin text-blue-500" /> Loading geofence data...
+                                    </div>
+                                  ) : gfRows.length === 0 ? (
+                                    <p className="text-xs text-slate-400 italic py-3 text-center">No geofence records found for this date range.</p>
+                                  ) : (
+                                    <table className="w-full text-left border border-slate-200 rounded-lg overflow-hidden">
+                                      <thead>
+                                        <tr className="bg-slate-100 text-[9px] uppercase text-slate-400 font-bold tracking-wider">
+                                          <th className="px-4 py-2">#</th>
+                                          <th className="px-4 py-2">Geofence</th>
+                                          <th className="px-4 py-2">Time In</th>
+                                          <th className="px-4 py-2">Time Out</th>
+                                          <th className="px-4 py-2">Duration</th>
+                                          <th className="px-4 py-2">Mileage</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100 text-[11px] text-slate-700 font-semibold">
+                                        {gfRows.map((row, idx) => (
+                                          <tr key={idx} className="hover:bg-white/60">
+                                            <td className="px-4 py-2 text-slate-400">{idx + 1}</td>
+                                            <td className="px-4 py-2 font-bold text-slate-800">{row.geofence || row.Geofence || row.name || '—'}</td>
+                                            <td className="px-4 py-2 text-emerald-700">{formatGeofenceTime(row.time_in || row['Time in'] || row.timeIn)}</td>
+                                            <td className="px-4 py-2 text-rose-600">{formatGeofenceTime(row.time_out || row['Time out'] || row.timeOut)}</td>
+                                            <td className="px-4 py-2">{row.duration_in || row['Duration in'] || row.duration || '—'}</td>
+                                            <td className="px-4 py-2">{row.mileage || row.Mileage || '—'}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          </React.Fragment>
                         );
                       });
                     })()}
@@ -1325,7 +1467,12 @@ export default function GpsTracking() {
               </div>
             </div>
           </div>
-        )}
+        ) : activePageTab === 'destination' ? (
+          <GpsFinalDestinationModal
+            isInline
+            campuses={campuses}
+          />
+        ) : null}
       </div>
     </Layout>
   );

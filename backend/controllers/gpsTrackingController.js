@@ -9,6 +9,7 @@ const {
 } = require('../services/tggGpsService');
 const Bus = require('../models/Bus');
 const Route = require('../models/Route');
+const GpsFinalDestination = require('../models/GpsFinalDestination');
 
 const cleanRegNo = (str) => {
   if (!str) return '';
@@ -325,6 +326,118 @@ const fetchFleetTravelled = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/gps/final-destination?campus=1
+ */
+const getFinalDestination = async (req, res) => {
+  try {
+    const campus = Number(req.query.campus);
+    if (!Number.isFinite(campus)) {
+      return res.status(400).json({ success: false, message: 'campus query parameter is required' });
+    }
+
+    const dest = await GpsFinalDestination.findOne({ campus });
+    return res.status(200).json({ success: true, data: dest || null });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Failed to fetch final destination' });
+  }
+};
+
+/**
+ * GET /api/gps/final-destinations (all saved destinations)
+ */
+const getAllFinalDestinations = async (req, res) => {
+  try {
+    const destinations = await GpsFinalDestination.find({ isActive: true }).sort({ campus: 1 });
+    return res.status(200).json({ success: true, data: destinations });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Failed to fetch destinations' });
+  }
+};
+
+/**
+ * GET /api/gps/geofence-report?vehicle_name=X&date_from=Y&date_to=Z
+ * Fetches the "Geofences" section from the TGG Daily Report and normalises it
+ * into a flat array of { geofence, timeIn, timeOut, duration, mileage, latIn, lngIn, latOut, lngOut }.
+ */
+const fetchGeofenceReport = async (req, res) => {
+  try {
+    const { vehicle_name, date_from, date_to } = req.query;
+    if (!vehicle_name) {
+      return res.status(400).json({ success: false, message: 'vehicle_name is required' });
+    }
+
+    const dfFrom = date_from ? `${date_from} 00:00` : '';
+    const dfTo = date_to ? `${date_to} 23:59` : '';
+
+    const result = await fetchReportsFromTgg({
+      vehicle_name,
+      date_from: dfFrom,
+      date_to: dfTo,
+      template: 'Daily Report',
+    });
+
+    if (!result.success || !result.data) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    const vehData = result.data[vehicle_name] || result.data;
+    const geofencesRaw = vehData?.Geofences?.[vehicle_name] || {};
+
+    const rows = Object.values(geofencesRaw).map((entry) => {
+      const c = entry.c || {};
+      return {
+        geofence: c['1'] || '—',
+        timeIn: c['2']?.t || '—',
+        latIn: c['2']?.y ?? null,
+        lngIn: c['2']?.x ?? null,
+        timeOut: c['3']?.t || '—',
+        latOut: c['3']?.y ?? null,
+        lngOut: c['3']?.x ?? null,
+        duration: c['4'] || '—',
+        mileage: c['5'] || '—',
+      };
+    });
+
+    return res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Failed to fetch geofence report' });
+  }
+};
+
+/**
+ * PUT /api/gps/final-destination
+ */
+const saveFinalDestination = async (req, res) => {
+  try {
+    const { name, campus, latitude, longitude, radius } = req.body;
+
+    if (!name || campus === undefined || campus === null) {
+      return res.status(400).json({ success: false, message: 'name and campus are required' });
+    }
+    if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) {
+      return res.status(400).json({ success: false, message: 'Valid latitude and longitude are required' });
+    }
+
+    const dest = await GpsFinalDestination.findOneAndUpdate(
+      { campus: Number(campus) },
+      {
+        name: String(name).trim(),
+        campus: Number(campus),
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        radius: Number(radius) || 200,
+        isActive: true,
+      },
+      { upsert: true, new: true, runValidators: true }
+    );
+
+    return res.status(200).json({ success: true, message: 'Final destination saved successfully', data: dest });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Failed to save final destination' });
+  }
+};
+
 module.exports = {
   fetchLiveVehicles,
   fetchVehicleReports,
@@ -333,5 +446,9 @@ module.exports = {
   fetchRecentAlerts,
   getGpsConfigStatus,
   fetchDailyKilometers,
-  fetchFleetTravelled
+  fetchFleetTravelled,
+  getFinalDestination,
+  getAllFinalDestinations,
+  saveFinalDestination,
+  fetchGeofenceReport
 };

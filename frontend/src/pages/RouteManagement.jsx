@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
@@ -20,7 +20,9 @@ import {
     ChevronUp,
     Search,
     AlertTriangle,
-    Bus
+    Bus,
+    Layers,
+    GripVertical
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -30,6 +32,134 @@ const resolveStageFareForYear = (stage, year) => {
     const match = overrides.find((item) => item.academicYear === year);
     if (match) return Number(match.fare);
     return Number(stage.baseFare ?? stage.fare ?? 0);
+};
+
+const hasStageCoordinateValue = (value) => (
+    value !== '' && value !== null && value !== undefined
+);
+
+const getStageCoords = (stage) => {
+    if (!hasStageCoordinateValue(stage?.latitude) || !hasStageCoordinateValue(stage?.longitude)) {
+        return null;
+    }
+    const lat = Number(stage.latitude);
+    const lng = Number(stage.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+};
+
+const createLocalStageId = () => `stage-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+const DEFAULT_MAP_CENTER = { lat: 16.9891, lng: 82.2475 }; // Kakinada — map view default only
+
+const focusMapOnStagePoints = (map, points, L) => {
+    if (!map || !L || !Array.isArray(points) || points.length === 0) return;
+
+    if (points.length === 1) {
+        map.setView(points[0], 15, { animate: true });
+        return;
+    }
+
+    const bounds = L.latLngBounds(points);
+    // Expand bounds slightly so markers and radius circles are not clipped at the edges.
+    bounds.pad(0.18);
+
+    map.fitBounds(bounds, {
+        padding: [36, 36],
+        maxZoom: 16,
+        animate: true,
+    });
+};
+
+const RouteSummaryMap = ({ stages }) => {
+    const mapContainerRef = useRef(null);
+    const mapInstanceRef = useRef(null);
+
+    useEffect(() => {
+        if (!mapContainerRef.current || !window.L) return;
+
+        const L = window.L;
+        const validStages = (stages || []).map((stage) => getStageCoords(stage)).filter(Boolean);
+        if (validStages.length === 0) return;
+
+        const bounds = L.latLngBounds();
+        validStages.forEach(({ lat, lng }) => {
+            bounds.extend([lat, lng]);
+        });
+
+        if (!mapInstanceRef.current) {
+            const map = L.map(mapContainerRef.current, {
+                zoomControl: false,
+                attributionControl: false
+            });
+
+            L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+            }).addTo(map);
+
+            mapInstanceRef.current = map;
+        }
+
+        const map = mapInstanceRef.current;
+        
+        map.eachLayer((layer) => {
+            if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+                map.removeLayer(layer);
+            }
+        });
+
+        const lineCoords = [];
+        (stages || []).forEach((stage, idx) => {
+            const coords = getStageCoords(stage);
+            if (!coords) return;
+            const { lat: latVal, lng: lngVal } = coords;
+            lineCoords.push([latVal, lngVal]);
+
+            L.marker([latVal, lngVal], {
+                icon: L.divIcon({
+                    className: 'custom-stage-summary-marker',
+                    html: `<div class="w-4 h-4 rounded-full bg-blue-600 border-2 border-white text-white flex items-center justify-center font-bold text-[8px] shadow-sm">${idx + 1}</div>`,
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8]
+                })
+            }).addTo(map).bindPopup(`<b>${idx + 1}. ${stage.stageName}</b>`);
+        });
+
+        if (lineCoords.length > 1) {
+            L.polyline(lineCoords, {
+                color: '#2563eb',
+                weight: 2.5,
+                opacity: 0.8
+            }).addTo(map);
+        }
+
+        map.fitBounds(bounds, { padding: [15, 15] });
+
+        return () => {
+            if (mapInstanceRef.current) {
+                try {
+                    mapInstanceRef.current.remove();
+                } catch (e) {}
+                mapInstanceRef.current = null;
+            }
+        };
+    }, [stages]);
+
+    const hasPoints = (stages || []).some((stage) => Boolean(getStageCoords(stage)));
+    if (!hasPoints) {
+        return (
+            <div className="bg-slate-55 bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-[10px] text-slate-400 italic">
+                No stages have coordinates configured yet. Edit the route to plot them.
+            </div>
+        );
+    }
+
+    return (
+        <div className="rounded-xl border border-slate-200 overflow-hidden relative w-full h-[220px]">
+            <div ref={mapContainerRef} className="w-full h-full z-0" />
+        </div>
+    );
 };
 
 const RouteManagement = () => {
@@ -42,6 +172,457 @@ const RouteManagement = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [expandedRouteId, setExpandedRouteId] = useState(null);
+
+    const [formData, setFormData] = useState({
+        routeId: '',
+        routeName: '',
+        startPoint: '',
+        endPoint: '',
+        totalDistance: '',
+        estimatedTime: '',
+        campus: '',
+        zone: '',
+        stages: []
+    });
+
+    // Modal Edit Mode Tabs & Interactive Stages map states
+    const [modalActiveTab, setModalActiveTab] = useState('details');
+    const [selectedStageIndex, setSelectedStageIndex] = useState(null);
+    const [isLeafletReady, setIsLeafletReady] = useState(false);
+    const modalMapContainerRef = useRef(null);
+    const modalMapInstanceRef = useRef(null);
+    const modalMarkerRef = useRef(null);
+    const modalCircleRef = useRef(null);
+
+    const destroyModalMap = useCallback(() => {
+        if (modalMapInstanceRef.current) {
+            try {
+                modalMapInstanceRef.current.remove();
+            } catch (e) {
+                console.warn(e);
+            }
+            modalMapInstanceRef.current = null;
+        }
+        modalMarkerRef.current = null;
+        modalCircleRef.current = null;
+    }, []);
+
+    const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+    const [successModalMessage, setSuccessModalMessage] = useState('');
+    const [mapSearchQuery, setMapSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState([]);
+    const [isSearchingLocation, setIsSearchingLocation] = useState(false);
+    const [showAllStagesOnMap, setShowAllStagesOnMap] = useState(false);
+    const [draggedStageIndex, setDraggedStageIndex] = useState(null);
+    const [dragOverStageIndex, setDragOverStageIndex] = useState(null);
+
+    // Dynamically load Leaflet library for route maps
+    useEffect(() => {
+        if (!document.getElementById('leaflet-css')) {
+            const css = document.createElement('link');
+            css.id = 'leaflet-css';
+            css.rel = 'stylesheet';
+            css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            document.head.appendChild(css);
+        }
+
+        if (!window.L && !document.getElementById('leaflet-js')) {
+            const script = document.createElement('script');
+            script.id = 'leaflet-js';
+            script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+            script.onload = () => setIsLeafletReady(true);
+            document.head.appendChild(script);
+        } else if (window.L) {
+            setIsLeafletReady(true);
+        }
+    }, []);
+
+    const updateActiveStageCoords = useCallback((lat, lng) => {
+        if (selectedStageIndex === null || selectedStageIndex === undefined) return;
+        setFormData(prev => {
+            const nextStages = [...prev.stages];
+            if (nextStages[selectedStageIndex]) {
+                nextStages[selectedStageIndex].latitude = parseFloat(lat.toFixed(6));
+                nextStages[selectedStageIndex].longitude = parseFloat(lng.toFixed(6));
+            }
+            return { ...prev, stages: nextStages };
+        });
+    }, [selectedStageIndex]);
+
+    const handleLocationSearch = async () => {
+        if (!mapSearchQuery.trim()) return;
+        setIsSearchingLocation(true);
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(mapSearchQuery)}`);
+            if (res.ok) {
+                const data = await res.json();
+                setSearchResults(data || []);
+                if (!data || data.length === 0) {
+                    alert('No matching locations found.');
+                }
+            } else {
+                alert('Location search failed.');
+            }
+        } catch (error) {
+            console.error('Error geocoding location:', error);
+        } finally {
+            setIsSearchingLocation(false);
+        }
+    };
+
+    const handleSelectSearchResult = (result) => {
+        const lat = parseFloat(result.lat);
+        const lon = parseFloat(result.lon);
+        updateActiveStageCoords(lat, lon);
+        if (modalMapInstanceRef.current) {
+            modalMapInstanceRef.current.flyTo([lat, lon], 15);
+        }
+        setSearchResults([]);
+        setMapSearchQuery('');
+    };
+
+    const [isSavingStage, setIsSavingStage] = useState(false);
+    const [isSavingStageOrder, setIsSavingStageOrder] = useState(false);
+    const [hasPendingStageOrder, setHasPendingStageOrder] = useState(false);
+
+    const buildRouteUpdatePayload = (routeForm, stages = routeForm.stages) => ({
+        routeId: routeForm.routeId,
+        routeName: routeForm.routeName,
+        startPoint: routeForm.startPoint,
+        endPoint: routeForm.endPoint,
+        totalDistance: routeForm.totalDistance,
+        estimatedTime: routeForm.estimatedTime,
+        campus: routeForm.campus || null,
+        zone: routeForm.zone || '',
+        stages: stages.map((stage) => ({
+            stageName: stage.stageName,
+            distanceFromStart: Number(stage.distanceFromStart),
+            fare: Number(stage.fare),
+            baseFare: stage.baseFare,
+            academicYearFares: stage.academicYearFares || [],
+            latitude: stage.latitude !== '' && stage.latitude !== null ? Number(stage.latitude) : null,
+            longitude: stage.longitude !== '' && stage.longitude !== null ? Number(stage.longitude) : null,
+            radius: stage.radius !== '' && stage.radius !== null ? Number(stage.radius) : 100,
+        })),
+        editingAcademicYear: academicYear,
+    });
+
+    const persistRouteStages = async (stages, routeForm = formData) => {
+        if (!editingId) return true;
+
+        const response = await apiFetch(`${API}/routes/${editingId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(buildRouteUpdatePayload(routeForm, stages)),
+        });
+
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.message || 'Failed to save stage order');
+        }
+
+        await fetchRoutes(academicYear);
+        return true;
+    };
+
+    const handleSaveStageOrder = async () => {
+        if (!editingId || !hasPendingStageOrder) return;
+
+        setIsSavingStageOrder(true);
+        try {
+            await persistRouteStages(formData.stages);
+            setHasPendingStageOrder(false);
+            setSuccessModalMessage('Route stage order saved successfully.');
+            setIsSuccessModalOpen(true);
+        } catch (error) {
+            console.error('Error saving stage order:', error);
+            setSaveMessage({ text: error.message || 'Failed to save route sorting', type: 'error' });
+        } finally {
+            setIsSavingStageOrder(false);
+        }
+    };
+
+    const handleSaveStage = async () => {
+        if (!editingId) return;
+        setIsSavingStage(true);
+        try {
+            await persistRouteStages(formData.stages);
+            const stageName = formData.stages[selectedStageIndex]?.stageName || `Stage ${selectedStageIndex + 1}`;
+            setSuccessModalMessage(`Stage "${stageName}" details saved successfully.`);
+            setIsSuccessModalOpen(true);
+        } catch (error) {
+            console.error('Error saving stage:', error);
+            setSaveMessage({ text: error.message || 'Error saving stage details', type: 'error' });
+        } finally {
+            setIsSavingStage(false);
+        }
+    };
+
+    // Destroy the Leaflet map when leaving the Stages tab so it can be recreated on return.
+    useEffect(() => {
+        if (modalActiveTab !== 'stages') {
+            destroyModalMap();
+        } else {
+            setShowAllStagesOnMap(true);
+            setSelectedStageIndex(null);
+        }
+    }, [modalActiveTab, destroyModalMap]);
+
+    // Modal Map synchronization effect
+    useEffect(() => {
+        if (modalActiveTab !== 'stages' || !isLeafletReady || !modalMapContainerRef.current || !window.L) {
+            return;
+        }
+
+        const L = window.L;
+        const activeStage = selectedStageIndex !== null ? formData.stages[selectedStageIndex] : null;
+        const activeStageCoords = getStageCoords(activeStage);
+        
+        let centerLat = DEFAULT_MAP_CENTER.lat;
+        let centerLng = DEFAULT_MAP_CENTER.lng;
+        let zoom = 12;
+
+        // Collect all stages with coords for bounds fitting
+        const allCoordsPoints = formData.stages
+            .map((stage) => getStageCoords(stage))
+            .filter(Boolean)
+            .map(({ lat, lng }) => [lat, lng]);
+
+        if (activeStageCoords) {
+            centerLat = activeStageCoords.lat;
+            centerLng = activeStageCoords.lng;
+            zoom = 15;
+        } else if (allCoordsPoints.length > 0) {
+            // No coords on active stage => fly to neutral showing all points
+            centerLat = allCoordsPoints.reduce((s, c) => s + c[0], 0) / allCoordsPoints.length;
+            centerLng = allCoordsPoints.reduce((s, c) => s + c[1], 0) / allCoordsPoints.length;
+            zoom = 12;
+        }
+
+        const existingMap = modalMapInstanceRef.current;
+        const existingContainer = existingMap?.getContainer?.();
+        if (existingMap && existingContainer !== modalMapContainerRef.current) {
+            destroyModalMap();
+        }
+
+        if (!modalMapInstanceRef.current) {
+            const map = L.map(modalMapContainerRef.current, {
+                center: [centerLat, centerLng],
+                zoom: zoom,
+                zoomControl: false
+            });
+
+            L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+            L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+                attribution: '© Google Maps'
+            }).addTo(map);
+
+            modalMapInstanceRef.current = map;
+            // Invalidate size after layout settles when the Stages tab remounts the map container
+            setTimeout(() => map.invalidateSize(), 250);
+        }
+
+        const map = modalMapInstanceRef.current;
+
+        if (modalMarkerRef.current) {
+            map.removeLayer(modalMarkerRef.current);
+            modalMarkerRef.current = null;
+        }
+        if (modalCircleRef.current) {
+            map.removeLayer(modalCircleRef.current);
+            modalCircleRef.current = null;
+        }
+
+        map.eachLayer((layer) => {
+            if (layer instanceof L.Marker || layer instanceof L.Circle || layer instanceof L.Polyline) {
+                map.removeLayer(layer);
+            }
+        });
+
+        const lineCoords = [];
+
+        const bindStageMarker = (stage, idx, { draggable = false, isActive = false, showCircle = true } = {}) => {
+            const coords = getStageCoords(stage);
+            if (!coords) return null;
+            const { lat: latVal, lng: lngVal } = coords;
+            const radiusVal = Number(stage.radius) || 100;
+
+            lineCoords.push([latVal, lngVal]);
+
+            const marker = L.marker([latVal, lngVal], {
+                draggable,
+                icon: L.divIcon({
+                    className: isActive ? 'custom-stage-marker-active' : 'custom-stage-marker-inactive',
+                    html: isActive
+                        ? `<div class="w-7 h-7 rounded-full bg-red-600 border-2 border-white text-white flex items-center justify-center font-black text-xs shadow-lg">${idx + 1}</div>`
+                        : `<div class="w-5 h-5 rounded-full bg-slate-500 border-2 border-white text-white flex items-center justify-center font-bold text-[9px] shadow-md">${idx + 1}</div>`,
+                    iconSize: isActive ? [28, 28] : [20, 20],
+                    iconAnchor: isActive ? [14, 14] : [10, 10]
+                })
+            }).addTo(map).bindPopup(
+                `<b>Stage ${idx + 1}: ${stage.stageName || 'Unnamed'}</b><br/>Distance: ${stage.distanceFromStart || 0} km${showCircle ? `<br/>Radius: ${radiusVal} m` : ''}`
+            );
+
+            if (showCircle) {
+                const circle = L.circle([latVal, lngVal], {
+                    radius: radiusVal,
+                    color: isActive ? '#ef4444' : '#3b82f6',
+                    fillColor: isActive ? '#ef4444' : '#3b82f6',
+                    fillOpacity: isActive ? 0.15 : 0.08,
+                    weight: isActive ? 1.5 : 1
+                }).addTo(map);
+
+                if (isActive) {
+                    modalCircleRef.current = circle;
+                }
+            }
+
+            if (isActive) {
+                modalMarkerRef.current = marker;
+                if (draggable) {
+                    marker.on('dragend', (e) => {
+                        const { lat, lng } = e.target.getLatLng();
+                        updateActiveStageCoords(lat, lng);
+                    });
+                }
+            }
+
+            return marker;
+        };
+
+        if (showAllStagesOnMap) {
+            formData.stages.forEach((stage, idx) => {
+                const isActive = selectedStageIndex !== null && idx === selectedStageIndex;
+                bindStageMarker(stage, idx, {
+                    draggable: isActive,
+                    isActive,
+                    showCircle: true
+                });
+            });
+
+            if (lineCoords.length > 1) {
+                L.polyline(lineCoords, {
+                    color: '#2563eb',
+                    weight: 3,
+                    opacity: 0.75
+                }).addTo(map);
+            }
+        } else {
+            formData.stages.forEach((stage, idx) => {
+                if (selectedStageIndex !== null && idx !== selectedStageIndex) {
+                    bindStageMarker(stage, idx, { draggable: false, isActive: false, showCircle: false });
+                }
+            });
+
+            if (lineCoords.length > 1) {
+                L.polyline(lineCoords, {
+                    color: '#64748b',
+                    weight: 3,
+                    dashArray: '5, 8',
+                    opacity: 0.6
+                }).addTo(map);
+            }
+
+            if (activeStageCoords && selectedStageIndex !== null) {
+                bindStageMarker(activeStage, selectedStageIndex, { draggable: true, isActive: true, showCircle: true });
+            }
+        }
+
+        // Wait for the modal layout to finish before sizing/zooming the map.
+        const viewTimer = setTimeout(() => {
+            map.invalidateSize();
+
+            if (showAllStagesOnMap && allCoordsPoints.length > 0) {
+                focusMapOnStagePoints(map, allCoordsPoints, L);
+            } else if (activeStageCoords) {
+                map.flyTo([activeStageCoords.lat, activeStageCoords.lng], 15, { duration: 0.8 });
+            } else {
+                map.flyTo([DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng], 13, { duration: 0.8 });
+            }
+        }, 220);
+
+        const onMapClick = (e) => {
+            if (selectedStageIndex === null || selectedStageIndex === undefined) return;
+            const { lat, lng } = e.latlng;
+            updateActiveStageCoords(lat, lng);
+        };
+        map.on('click', onMapClick);
+
+        return () => {
+            clearTimeout(viewTimer);
+            map.off('click', onMapClick);
+        };
+    }, [modalActiveTab, isLeafletReady, selectedStageIndex, formData.stages, showAllStagesOnMap, updateActiveStageCoords, destroyModalMap]);
+
+    // Sync active marker and circle with state changes (e.g. input fields, drag events, or first click on map)
+    useEffect(() => {
+        if (showAllStagesOnMap) return;
+        if (modalActiveTab !== 'stages' || !modalMapInstanceRef.current || !window.L) return;
+        if (selectedStageIndex === null || selectedStageIndex === undefined) return;
+        const activeStage = formData.stages[selectedStageIndex];
+        const activeStageCoords = getStageCoords(activeStage);
+        if (!activeStageCoords) return;
+
+        const L = window.L;
+        const map = modalMapInstanceRef.current;
+        const { lat: latVal, lng: lngVal } = activeStageCoords;
+        const radVal = Number(activeStage.radius) || 100;
+
+        // If marker doesn't exist yet (new stage just got coords via click), create it
+        if (!modalMarkerRef.current) {
+            const activeMarker = L.marker([latVal, lngVal], {
+                draggable: true,
+                icon: L.divIcon({
+                    className: 'custom-stage-marker-active',
+                    html: `<div class="w-7 h-7 rounded-full bg-red-600 border-2 border-white text-white flex items-center justify-center font-black text-xs shadow-lg">${selectedStageIndex + 1}</div>`,
+                    iconSize: [28, 28],
+                    iconAnchor: [14, 14]
+                })
+            }).addTo(map);
+
+            activeMarker.on('dragend', (e) => {
+                const { lat, lng } = e.target.getLatLng();
+                updateActiveStageCoords(lat, lng);
+            });
+
+            modalMarkerRef.current = activeMarker;
+        } else {
+            const curLatLng = modalMarkerRef.current.getLatLng();
+            if (curLatLng.lat !== latVal || curLatLng.lng !== lngVal) {
+                modalMarkerRef.current.setLatLng([latVal, lngVal]);
+            }
+        }
+
+        if (!modalCircleRef.current) {
+            const activeCircle = L.circle([latVal, lngVal], {
+                radius: radVal,
+                color: '#ef4444',
+                fillColor: '#ef4444',
+                fillOpacity: 0.15,
+                weight: 1.5
+            }).addTo(map);
+            modalCircleRef.current = activeCircle;
+        } else {
+            const curLatLng = modalCircleRef.current.getLatLng();
+            if (curLatLng.lat !== latVal || curLatLng.lng !== lngVal) {
+                modalCircleRef.current.setLatLng([latVal, lngVal]);
+            }
+            if (modalCircleRef.current.getRadius() !== radVal) {
+                modalCircleRef.current.setRadius(radVal);
+            }
+        }
+    }, [
+        modalActiveTab,
+        selectedStageIndex,
+        formData.stages[selectedStageIndex]?.latitude ?? null,
+        formData.stages[selectedStageIndex]?.longitude ?? null,
+        formData.stages[selectedStageIndex]?.radius ?? null,
+        showAllStagesOnMap,
+        updateActiveStageCoords
+    ]);
 
     // Route-to-Bus Mapping States
     const [buses, setBuses] = useState([]);
@@ -210,17 +791,7 @@ const RouteManagement = () => {
             setAssigningBusId(null);
         }
     };
-    const [formData, setFormData] = useState({
-        routeId: '',
-        routeName: '',
-        startPoint: '',
-        endPoint: '',
-        totalDistance: '',
-        estimatedTime: '',
-        campus: '',
-        zone: '',
-        stages: []
-    });
+
 
     const [campuses, setCampuses] = useState([]);
 
@@ -334,15 +905,77 @@ const RouteManagement = () => {
     };
 
     const addStage = () => {
-        setFormData(prev => ({
-            ...prev,
-            stages: [...prev.stages, { stageName: '', distanceFromStart: '', fare: 0, academicYearFares: [] }]
-        }));
+        setFormData(prev => {
+            const nextStages = [...prev.stages, {
+                _localId: createLocalStageId(),
+                stageName: '',
+                distanceFromStart: '',
+                fare: 0,
+                academicYearFares: [],
+                latitude: null,
+                longitude: null,
+                radius: 100
+            }];
+            setSelectedStageIndex(nextStages.length - 1);
+            return {
+                ...prev,
+                stages: nextStages
+            };
+        });
+    };
+
+    const reorderStages = (fromIndex, toIndex) => {
+        if (fromIndex === toIndex) return;
+
+        const nextStages = [...formData.stages];
+        const [movedStage] = nextStages.splice(fromIndex, 1);
+        nextStages.splice(toIndex, 0, movedStage);
+
+        setFormData((prev) => ({ ...prev, stages: nextStages }));
+        setSelectedStageIndex((prev) => {
+            if (prev === fromIndex) return toIndex;
+            if (fromIndex < toIndex && prev > fromIndex && prev <= toIndex) return prev - 1;
+            if (fromIndex > toIndex && prev >= toIndex && prev < fromIndex) return prev + 1;
+            return prev;
+        });
+        setHasPendingStageOrder(true);
+    };
+
+    const handleStageDragStart = (e, idx) => {
+        setDraggedStageIndex(idx);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(idx));
+    };
+
+    const handleStageDragOver = (e, idx) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDragOverStageIndex(idx);
+    };
+
+    const handleStageDrop = (e, toIndex) => {
+        e.preventDefault();
+        const fromIndex = draggedStageIndex ?? Number(e.dataTransfer.getData('text/plain'));
+        if (Number.isFinite(fromIndex)) {
+            reorderStages(fromIndex, toIndex);
+        }
+        setDraggedStageIndex(null);
+        setDragOverStageIndex(null);
+    };
+
+    const handleStageDragEnd = () => {
+        setDraggedStageIndex(null);
+        setDragOverStageIndex(null);
     };
 
     const removeStage = (index) => {
         const newStages = formData.stages.filter((_, i) => i !== index);
         setFormData(prev => ({ ...prev, stages: newStages }));
+        setSelectedStageIndex(prev => {
+            if (newStages.length === 0) return null;
+            if (prev === null) return null;
+            return Math.max(0, Math.min(prev, newStages.length - 1));
+        });
     };
 
     const handleEdit = (route, e) => {
@@ -357,14 +990,21 @@ const RouteManagement = () => {
             campus: getCampusId(route.campus) || '',
             zone: route.zone || '',
             stages: (route.stages || []).map((stage) => ({
+                _localId: stage._localId || createLocalStageId(),
                 stageName: stage.stageName,
                 distanceFromStart: stage.distanceFromStart,
                 fare: resolveStageFareForYear(stage, academicYear),
                 baseFare: stage.baseFare ?? stage.fare,
                 academicYearFares: stage.academicYearFares || [],
+                latitude: stage.latitude !== undefined && stage.latitude !== null ? stage.latitude : '',
+                longitude: stage.longitude !== undefined && stage.longitude !== null ? stage.longitude : '',
+                radius: stage.radius !== undefined && stage.radius !== null ? stage.radius : 100,
             })),
         });
         setEditingId(route._id);
+        setModalActiveTab('details');
+        setSelectedStageIndex(null);
+        setHasPendingStageOrder(false);
         setIsModalOpen(true);
     };
 
@@ -391,6 +1031,13 @@ const RouteManagement = () => {
     const handleCloseModal = () => {
         setIsModalOpen(false);
         setEditingId(null);
+        setModalActiveTab('details');
+        setSelectedStageIndex(null);
+        setShowAllStagesOnMap(false);
+        setDraggedStageIndex(null);
+        setDragOverStageIndex(null);
+        setHasPendingStageOrder(false);
+        destroyModalMap();
         setFormData({
             routeId: '', routeName: '', startPoint: '', endPoint: '',
             totalDistance: '', estimatedTime: '', campus: '', zone: '', stages: []
@@ -406,24 +1053,7 @@ const RouteManagement = () => {
 
             const method = editingId ? 'PUT' : 'POST';
 
-            const payload = {
-                routeId: formData.routeId,
-                routeName: formData.routeName,
-                startPoint: formData.startPoint,
-                endPoint: formData.endPoint,
-                totalDistance: formData.totalDistance,
-                estimatedTime: formData.estimatedTime,
-                campus: formData.campus || null,
-                zone: formData.zone || '',
-                stages: formData.stages.map((stage) => ({
-                    stageName: stage.stageName,
-                    distanceFromStart: stage.distanceFromStart,
-                    fare: Number(stage.fare),
-                    baseFare: stage.baseFare,
-                    academicYearFares: stage.academicYearFares || [],
-                })),
-                editingAcademicYear: academicYear,
-            };
+            const payload = buildRouteUpdatePayload(formData);
 
             const response = await apiFetch(url, {
                 method: method,
@@ -435,10 +1065,8 @@ const RouteManagement = () => {
             if (response.ok) {
                 handleCloseModal();
                 await fetchRoutes(academicYear);
-                setSaveMessage({
-                    text: `Route ${editingId ? 'updated' : 'created'} for academic year ${academicYear}.`,
-                    type: 'success',
-                });
+                setSuccessModalMessage(`Route ${editingId ? 'updated' : 'created'} for academic year ${academicYear} successfully.`);
+                setIsSuccessModalOpen(true);
             } else {
                 setSaveMessage({
                     text: data.message || `Failed to ${editingId ? 'update' : 'create'} route`,
@@ -1047,33 +1675,43 @@ const RouteManagement = () => {
                                                                         )}
                                                                     </div>
 
-                                                                    {/* Right Side: Route Details */}
-                                                                    <div className="lg:col-span-1 bg-white rounded-xl border border-slate-100 shadow-sm p-5">
-                                                                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                                                    {/* Right Side: Route Details & Map */}
+                                                                    <div className="lg:col-span-1 bg-white rounded-xl border border-slate-100 shadow-sm p-5 space-y-4">
+                                                                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 pb-1 border-b border-slate-100">
                                                                             <Navigation size={12} className="text-blue-600" />
                                                                             Route Summary
                                                                         </h4>
-                                                                        <div className="space-y-3">
-                                                                            <div className="pb-3 border-b border-slate-100">
-                                                                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest mb-1">Route ID</p>
-                                                                                <p className="text-xs font-bold text-slate-800 font-mono bg-blue-50 p-2 rounded border border-blue-100">{route.routeId}</p>
-                                                                            </div>
-                                                                            <div className="pb-3 border-b border-slate-100">
-                                                                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest mb-1">Route Name</p>
-                                                                                <p className="text-xs font-bold text-slate-800">{route.routeName}</p>
-                                                                            </div>
-                                                                            {route.campus && (
-                                                                                <div className="pb-3 border-b border-slate-100">
-                                                                                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest mb-1">Campus</p>
-                                                                                    <p className="text-xs text-slate-700">{route.campus.name || route.campus}</p>
-                                                                                </div>
-                                                                            )}
-                                                                            {route.zone && (
+                                                                        
+                                                                        {/* Map Displays First */}
+                                                                        <RouteSummaryMap stages={route.stages} />
+
+                                                                        {/* Details below map */}
+                                                                        <div className="space-y-3 pt-2">
+                                                                            {/* Row: Route ID, Campus, Zone */}
+                                                                            <div className="grid grid-cols-3 gap-2">
                                                                                 <div>
-                                                                                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest mb-1">Zone</p>
-                                                                                    <p className="text-xs text-slate-700">{route.zone}</p>
+                                                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-1">Route ID</p>
+                                                                                    <p className="text-xs font-bold text-slate-800 font-mono bg-blue-50 p-2 rounded border border-blue-100 text-center">{route.routeId}</p>
                                                                                 </div>
-                                                                            )}
+                                                                                <div>
+                                                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-1">Campus</p>
+                                                                                    <p className="text-xs font-bold text-slate-700 bg-slate-50 p-2 rounded border border-slate-100 truncate text-center" title={route.campus?.name || 'None'}>
+                                                                                        {route.campus?.code || route.campus?.name || '—'}
+                                                                                    </p>
+                                                                                </div>
+                                                                                <div>
+                                                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-1">Zone</p>
+                                                                                    <p className="text-xs font-bold text-slate-700 bg-slate-50 p-2 rounded border border-slate-100 truncate text-center" title={route.zone || 'None'}>
+                                                                                        {route.zone || '—'}
+                                                                                    </p>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            {/* Route Name below */}
+                                                                            <div>
+                                                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-wider mb-1">Route Name</p>
+                                                                                <p className="text-xs font-extrabold text-slate-800 bg-slate-50/50 p-2 rounded border border-slate-200">{route.routeName}</p>
+                                                                            </div>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -1780,41 +2418,411 @@ const RouteManagement = () => {
                     )}
                 </div>
             )}
+            <Modal 
+                isOpen={isModalOpen} 
+                onClose={handleCloseModal} 
+                title={editingId ? (
+                    <div className="flex items-center gap-4 flex-wrap">
+                        <span className="text-lg font-bold text-slate-800">Edit Route</span>
+                        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[10px] font-bold">
+                            <button
+                                type="button"
+                                onClick={() => setModalActiveTab('details')}
+                                className={`px-3 py-1 rounded transition-all ${
+                                    modalActiveTab === 'details'
+                                        ? 'bg-white text-blue-900 shadow-sm border border-slate-200'
+                                        : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                            >
+                                Route Details
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setModalActiveTab('stages')}
+                                className={`px-3 py-1 rounded transition-all ${
+                                    modalActiveTab === 'stages'
+                                        ? 'bg-white text-blue-900 shadow-sm border border-slate-200'
+                                        : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                            >
+                                Stage Details
+                            </button>
+                        </div>
+                        {hasPendingStageOrder && (
+                            <button
+                                type="button"
+                                onClick={handleSaveStageOrder}
+                                disabled={isSavingStageOrder}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-sm transition-all disabled:opacity-60"
+                            >
+                                {isSavingStageOrder ? 'Saving...' : 'Save Route Sorting'}
+                            </button>
+                        )}
+                    </div>
+                ) : "Create New Route"} 
+                maxWidth={editingId && modalActiveTab === 'stages' ? 'max-w-[85vw]' : 'max-w-2xl'}
+                fixedHeight={editingId && modalActiveTab === 'stages'}
+            >
+                {editingId ? (
+                    /* Edit Mode: Tabbed interface */
+                    <div className={`${modalActiveTab === 'stages' ? 'h-full flex flex-col' : 'space-y-4'}`}>
 
-            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingId ? "Edit Route" : "Create New Route"} maxWidth="max-w-5xl">
-                <form onSubmit={handleSubmit}>
-                    <div className="flex flex-col lg:flex-row gap-6">
-                        {/* Left Side: Route Details */}
-                        <div className="flex-1 space-y-4">
+                        <form onSubmit={handleSubmit} className={`${modalActiveTab === 'stages' ? 'flex-1 flex flex-col overflow-hidden' : ''}`}>
+                            {modalActiveTab === 'details' ? (
+                                /* Tab 1: Route Details */
+                                <div className="space-y-4 max-w-xl mx-auto py-4">
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div className="col-span-1">
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Route ID</label>
+                                            <input type="text" name="routeId" required value={formData.routeId} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" placeholder="e.g. R01" />
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Route Name</label>
+                                            <input type="text" name="routeName" required value={formData.routeName} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" placeholder="e.g. Campus Express" />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Start Point</label>
+                                            <input type="text" name="startPoint" required value={formData.startPoint} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">End Point</label>
+                                            <input type="text" name="endPoint" required value={formData.endPoint} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Total Distance (km)</label>
+                                            <input type="number" name="totalDistance" value={formData.totalDistance} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Est. Time</label>
+                                            <input type="text" name="estimatedTime" value={formData.estimatedTime} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" placeholder="e.g. 45 mins" />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Campus</label>
+                                            <select
+                                                name="campus"
+                                                value={formData.campus || ''}
+                                                onChange={handleChange}
+                                                className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-white text-sm font-semibold"
+                                            >
+                                                <option value="">Select Campus (Optional)</option>
+                                                {allowedCampuses.map(campus => (
+                                                    <option key={getCampusId(campus)} value={getCampusId(campus)}>
+                                                        {campus.name} ({campus.code})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Zone</label>
+                                            <input type="text" name="zone" value={formData.zone} onChange={handleChange} placeholder="e.g., East, West, North" className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" />
+                                        </div>
+                                    </div>
+                                    <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mt-4 text-sm">
+                                        Update Route Details
+                                    </button>
+                                </div>
+                            ) : (
+                                /* Tab 2: Stages - 3-Column Layout */
+                                <div className="flex gap-4 py-2 flex-1 overflow-hidden">
+                                    {/* Column 1: All Stages List */}
+                                    <div className="w-[200px] shrink-0 flex flex-col bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
+                                        <div className="flex justify-between items-center p-3 border-b border-slate-200 bg-white shrink-0">
+                                            <div>
+                                                <h4 className="font-bold text-slate-800 text-[11px]">Stages ({formData.stages.length})</h4>
+                                                <p className="text-[9px] text-slate-400 mt-0.5">
+                                                    {hasPendingStageOrder
+                                                        ? 'Order changed — click Save Route Sorting in header'
+                                                        : 'Drag to reorder route'}
+                                                </p>
+                                            </div>
+                                            <button 
+                                                type="button" 
+                                                onClick={addStage} 
+                                                className="text-[10px] bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 py-1 rounded-lg font-bold transition-all"
+                                            >
+                                                + Add
+                                            </button>
+                                        </div>
+                                        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                                            {formData.stages.map((stage, idx) => (
+                                                <div
+                                                    key={stage._localId || `stage-${idx}`}
+                                                    onDragOver={(e) => handleStageDragOver(e, idx)}
+                                                    onDrop={(e) => handleStageDrop(e, idx)}
+                                                    onDragLeave={() => setDragOverStageIndex(null)}
+                                                    className={`rounded-xl border transition-all flex items-center gap-1.5 px-2 py-2.5 cursor-pointer ${
+                                                        selectedStageIndex === idx
+                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                                                            : 'bg-white text-slate-700 border-slate-100 hover:bg-blue-50 hover:border-blue-200'
+                                                    } ${
+                                                        dragOverStageIndex === idx && draggedStageIndex !== idx
+                                                            ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200'
+                                                            : draggedStageIndex === idx
+                                                                ? 'opacity-50'
+                                                                : ''
+                                                    }`}
+                                                    onClick={() => setSelectedStageIndex(idx)}
+                                                >
+                                                    <span
+                                                        draggable
+                                                        onDragStart={(e) => {
+                                                            e.stopPropagation();
+                                                            handleStageDragStart(e, idx);
+                                                        }}
+                                                        onDragEnd={handleStageDragEnd}
+                                                        className={`shrink-0 cursor-grab active:cursor-grabbing p-0.5 rounded ${
+                                                            selectedStageIndex === idx ? 'text-blue-100 hover:text-white' : 'text-slate-300 hover:text-slate-500'
+                                                        }`}
+                                                        title="Drag to reorder"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        <GripVertical size={14} />
+                                                    </span>
+                                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
+                                                        selectedStageIndex === idx ? 'bg-white text-blue-600' : 'bg-slate-100 text-slate-500'
+                                                    }`}>
+                                                        {idx + 1}
+                                                    </span>
+                                                    <span className="truncate text-[11px] font-semibold flex-1">
+                                                        {stage.stageName || `Stage ${idx + 1}`}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                            {formData.stages.length === 0 && (
+                                                <div className="text-center text-[10px] text-slate-400 py-8">
+                                                    No stages yet.<br />Click "+ Add" above.
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Column 2: Selected Stage Detail Form */}
+                                    <div className="w-[280px] shrink-0 flex flex-col">
+                                        {selectedStageIndex !== null && formData.stages[selectedStageIndex] ? (
+                                            <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3 relative flex-1 overflow-y-auto custom-scrollbar">
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => removeStage(selectedStageIndex)} 
+                                                    className="absolute top-3 right-3 text-slate-400 hover:text-red-500 transition-colors"
+                                                    title="Remove Stage"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+
+                                                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                                                    <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-[10px]">
+                                                        {selectedStageIndex + 1}
+                                                    </span>
+                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Stage Config</span>
+                                                </div>
+
+                                                <div className="space-y-2.5">
+                                                    <div>
+                                                        <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Stage Name</label>
+                                                        <input 
+                                                            type="text" 
+                                                            name="stageName" 
+                                                            placeholder="Stage Name" 
+                                                            value={formData.stages[selectedStageIndex].stageName} 
+                                                            onChange={(e) => handleStageChange(selectedStageIndex, e)} 
+                                                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800" 
+                                                            required 
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Distance (km)</label>
+                                                        <input 
+                                                            type="number" 
+                                                            name="distanceFromStart" 
+                                                            placeholder="Km from Start" 
+                                                            value={formData.stages[selectedStageIndex].distanceFromStart} 
+                                                            onChange={(e) => handleStageChange(selectedStageIndex, e)} 
+                                                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800" 
+                                                            required 
+                                                        />
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div>
+                                                            <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Fare (₹)</label>
+                                                            <div className="relative">
+                                                                <IndianRupee size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                                <input 
+                                                                    type="number" 
+                                                                    name="fare" 
+                                                                    placeholder="Amount" 
+                                                                    value={formData.stages[selectedStageIndex].fare} 
+                                                                    onChange={(e) => handleStageChange(selectedStageIndex, e)} 
+                                                                    className="w-full pl-7 pr-2 py-2 rounded-lg border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800" 
+                                                                    required 
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Radius (m)</label>
+                                                            <input 
+                                                                type="number" 
+                                                                name="radius" 
+                                                                placeholder="100" 
+                                                                value={formData.stages[selectedStageIndex].radius} 
+                                                                onChange={(e) => handleStageChange(selectedStageIndex, e)} 
+                                                                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-blue-500 outline-none bg-white text-slate-800" 
+                                                                required 
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                                                        <div>
+                                                            <label className="block text-[8px] font-black text-slate-400 uppercase tracking-wider mb-0.5">Latitude</label>
+                                                            <input 
+                                                                type="number" 
+                                                                step="any"
+                                                                name="latitude" 
+                                                                placeholder="Click map" 
+                                                                value={formData.stages[selectedStageIndex].latitude ?? ''} 
+                                                                onChange={(e) => handleStageChange(selectedStageIndex, e)} 
+                                                                className="w-full p-1.5 border border-slate-100 rounded text-[11px] font-semibold outline-none text-slate-600 bg-white" 
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-[8px] font-black text-slate-400 uppercase tracking-wider mb-0.5">Longitude</label>
+                                                            <input 
+                                                                type="number" 
+                                                                step="any"
+                                                                name="longitude" 
+                                                                placeholder="Click map" 
+                                                                value={formData.stages[selectedStageIndex].longitude ?? ''} 
+                                                                onChange={(e) => handleStageChange(selectedStageIndex, e)} 
+                                                                className="w-full p-1.5 border border-slate-100 rounded text-[11px] font-semibold outline-none text-slate-600 bg-white" 
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <button 
+                                                    type="button" 
+                                                    onClick={handleSaveStage}
+                                                    disabled={isSavingStage}
+                                                    className="w-full bg-blue-900 text-white font-bold py-2.5 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mt-3 text-xs disabled:opacity-50"
+                                                >
+                                                    {isSavingStage ? 'Saving...' : 'Save Stage Details'}
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex-1 flex items-center justify-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-center text-xs text-slate-400 p-6">
+                                                Select or add a stage to edit its configuration.
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Column 3: Leaflet Interactive Map with ALL stages */}
+                                    <div className="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200 overflow-hidden relative">
+                                        <div className="absolute top-2 left-2 z-[1000] flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowAllStagesOnMap((prev) => !prev)}
+                                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold shadow-sm transition-all ${
+                                                    showAllStagesOnMap
+                                                        ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                                                        : 'bg-white/95 backdrop-blur-[2px] border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                }`}
+                                                title={showAllStagesOnMap ? 'Zoom back to the selected stage' : 'Show every plotted stage on the map'}
+                                            >
+                                                <Layers size={12} />
+                                                {showAllStagesOnMap ? 'Focus Selected' : 'Show All Stages'}
+                                            </button>
+                                            <div className="bg-white/95 backdrop-blur-[2px] px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-700 shadow-sm pointer-events-none">
+                                                {showAllStagesOnMap ? 'All stages + radius circles shown' : selectedStageIndex === null ? 'Select a stage to edit on map' : '📍 Click map or drag marker'}
+                                            </div>
+                                        </div>
+                                        
+                                        {/* Floating Location Search */}
+                                        <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-[2px] p-2 rounded-xl border border-slate-200 z-[1000] shadow-md w-56 space-y-1.5">
+                                            <div className="flex gap-1">
+                                                <input
+                                                    type="text"
+                                                    placeholder="Search location..."
+                                                    value={mapSearchQuery}
+                                                    onChange={(e) => setMapSearchQuery(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            handleLocationSearch();
+                                                        }
+                                                    }}
+                                                    className="flex-1 px-2 py-1 rounded border border-slate-300 text-[10px] font-semibold outline-none focus:border-blue-500 bg-white text-slate-800"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={handleLocationSearch}
+                                                    disabled={isSearchingLocation}
+                                                    className="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded font-bold text-[10px] transition-all whitespace-nowrap"
+                                                >
+                                                    {isSearchingLocation ? '...' : 'Search'}
+                                                </button>
+                                            </div>
+                                            {searchResults.length > 0 && (
+                                                <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm max-h-[120px] overflow-y-auto custom-scrollbar text-[9px] font-semibold">
+                                                    {searchResults.map((result, idx) => (
+                                                        <button
+                                                            key={idx}
+                                                            type="button"
+                                                            onClick={() => handleSelectSearchResult(result)}
+                                                            className="w-full text-left px-2 py-1 hover:bg-slate-50 border-b border-slate-100 last:border-0 block truncate text-slate-700"
+                                                            title={result.display_name}
+                                                        >
+                                                            📍 {result.display_name}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div ref={modalMapContainerRef} className="w-full h-full z-0" />
+                                    </div>
+                                </div>
+                            )}
+                        </form>
+                    </div>
+                ) : (
+                    /* Create Mode: Only basic route details */
+                    <form onSubmit={handleSubmit}>
+                        <div className="space-y-4 max-w-xl mx-auto py-6">
                             <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Route Details</h4>
                             <div className="grid grid-cols-3 gap-4">
                                 <div className="col-span-1">
                                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Route ID</label>
-                                    <input type="text" name="routeId" required value={formData.routeId} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="e.g. R01" />
+                                    <input type="text" name="routeId" required value={formData.routeId} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" placeholder="e.g. R01" />
                                 </div>
                                 <div className="col-span-2">
                                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Route Name</label>
-                                    <input type="text" name="routeName" required value={formData.routeName} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="e.g. Campus Express" />
+                                    <input type="text" name="routeName" required value={formData.routeName} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" placeholder="e.g. Campus Express" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Start Point</label>
-                                    <input type="text" name="startPoint" required value={formData.startPoint} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" />
+                                    <input type="text" name="startPoint" required value={formData.startPoint} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">End Point</label>
-                                    <input type="text" name="endPoint" required value={formData.endPoint} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" />
+                                    <input type="text" name="endPoint" required value={formData.endPoint} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Total Distance (km)</label>
-                                    <input type="number" name="totalDistance" value={formData.totalDistance} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" />
+                                    <input type="number" name="totalDistance" value={formData.totalDistance} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Est. Time</label>
-                                    <input type="text" name="estimatedTime" value={formData.estimatedTime} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="e.g. 45 mins" />
+                                    <input type="text" name="estimatedTime" value={formData.estimatedTime} onChange={handleChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" placeholder="e.g. 45 mins" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
@@ -1824,7 +2832,7 @@ const RouteManagement = () => {
                                         name="campus"
                                         value={formData.campus || ''}
                                         onChange={handleChange}
-                                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-white"
+                                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-white text-sm font-semibold"
                                     >
                                         <option value="">Select Campus (Optional)</option>
                                         {allowedCampuses.map(campus => (
@@ -1836,55 +2844,15 @@ const RouteManagement = () => {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Zone</label>
-                                    <input type="text" name="zone" value={formData.zone} onChange={handleChange} placeholder="e.g., East, West, North" className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" />
+                                    <input type="text" name="zone" value={formData.zone} onChange={handleChange} placeholder="e.g., East, West, North" className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" />
                                 </div>
                             </div>
-                            <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mt-2">
-                                {editingId ? 'Update Route Structure' : 'Create Route Structure'}
+                            <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mt-6 text-sm">
+                                Create Route Structure
                             </button>
                         </div>
-
-                        {/* Divider */}
-                        <div className="hidden lg:block w-px bg-slate-200 self-stretch" />
-
-                        {/* Right Side: Route Stages */}
-                        <div className="flex-1 flex flex-col">
-                            <div className="flex justify-between items-center mb-3">
-                                <div>
-                                    <h4 className="font-bold text-slate-800">Route Stages</h4>
-                                    <p className="text-xs text-slate-500 mt-0.5">Fares below apply to academic year <span className="font-semibold text-slate-700">{academicYear}</span>.</p>
-                                </div>
-                                <button type="button" onClick={addStage} className="text-sm bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-100 transition-colors whitespace-nowrap">+ Add Stage</button>
-                            </div>
-                            <div className="space-y-3 overflow-y-auto pr-1 custom-scrollbar" style={{ maxHeight: '420px' }}>
-                                {formData.stages.length === 0 && (
-                                    <p className="text-sm text-slate-400 italic text-center py-8">No stages added yet. Click "+ Add Stage" to begin.</p>
-                                )}
-                                {formData.stages.map((stage, index) => (
-                                    <div key={index} className="bg-slate-50 p-3 rounded-xl relative border border-slate-200 group">
-                                        <button type="button" onClick={() => removeStage(index)} className="absolute top-2 right-2 text-slate-400 hover:text-red-500 transition-colors">
-                                            <Trash2 size={16} />
-                                        </button>
-                                        <div className="flex items-center mb-3">
-                                            <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs mr-2">
-                                                {index + 1}
-                                            </span>
-                                            <span className="text-sm font-medium text-slate-700">Stage Details</span>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-3 mb-3">
-                                            <input type="text" name="stageName" placeholder="Stage Name" value={stage.stageName} onChange={(e) => handleStageChange(index, e)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none" required />
-                                            <input type="number" name="distanceFromStart" placeholder="Km from Start" value={stage.distanceFromStart} onChange={(e) => handleStageChange(index, e)} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none" required />
-                                        </div>
-                                        <div className="relative">
-                                            <IndianRupee size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                            <input type="number" name="fare" placeholder={`Fare for ${academicYear}`} value={stage.fare} onChange={(e) => handleStageChange(index, e)} className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none" required />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                </form>
+                    </form>
+                )}
             </Modal>
 
             <Modal isOpen={isConfirmModalOpen} onClose={() => setIsConfirmModalOpen(false)} title="Confirm Stage Migration">
@@ -2178,6 +3146,27 @@ const RouteManagement = () => {
                     </Modal>
                 );
             })()}
+
+            <Modal isOpen={isSuccessModalOpen} onClose={() => setIsSuccessModalOpen(false)} title="Success" maxWidth="max-w-md">
+                <div className="text-center p-6 space-y-4">
+                    <div className="w-16 h-16 bg-green-55 bg-green-50 text-green-600 rounded-full flex items-center justify-center mx-auto shadow-md border border-green-100">
+                        <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 className="text-base font-bold text-slate-800">Success!</h3>
+                        <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{successModalMessage}</p>
+                    </div>
+                    <button 
+                        type="button" 
+                        onClick={() => setIsSuccessModalOpen(false)}
+                        className="w-full bg-blue-900 text-white font-bold py-2.5 rounded-xl hover:bg-blue-800 transition-colors mt-2 text-xs"
+                    >
+                        Dismiss
+                    </button>
+                </div>
+            </Modal>
         </Layout>
     );
 };

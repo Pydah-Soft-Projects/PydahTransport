@@ -13,6 +13,9 @@ const stageSchema = new mongoose.Schema({
         type: [academicYearFareSchema],
         default: [],
     },
+    latitude: { type: Number, default: null },
+    longitude: { type: Number, default: null },
+    radius: { type: Number, default: 100 },
 });
 
 const routeSchema = new mongoose.Schema({

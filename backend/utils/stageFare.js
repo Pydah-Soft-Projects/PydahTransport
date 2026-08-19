@@ -53,6 +53,9 @@ function resolveStageForAcademicYear(stage, academicYear) {
         academicYearFares,
         hasYearOverride: Boolean(yearEntry),
         fareSource: yearEntry ? 'year-override' : 'base-fare',
+        latitude: stage.latitude !== undefined ? stage.latitude : null,
+        longitude: stage.longitude !== undefined ? stage.longitude : null,
+        radius: stage.radius !== undefined ? stage.radius : 100,
     };
 }
 
@@ -110,6 +113,9 @@ function normalizeStagesForSave(stages, editingAcademicYear = null) {
             distanceFromStart: Number(stage.distanceFromStart),
             fare: baseFare,
             academicYearFares,
+            latitude: stage.latitude !== undefined ? (stage.latitude === '' || stage.latitude === null ? null : Number(stage.latitude)) : null,
+            longitude: stage.longitude !== undefined ? (stage.longitude === '' || stage.longitude === null ? null : Number(stage.longitude)) : null,
+            radius: stage.radius !== undefined ? (stage.radius === '' || stage.radius === null ? 100 : Number(stage.radius)) : 100,
         };
     });
 }

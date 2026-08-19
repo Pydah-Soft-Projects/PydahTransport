@@ -8,7 +8,11 @@ const {
   fetchRecentAlerts,
   getGpsConfigStatus,
   fetchDailyKilometers,
-  fetchFleetTravelled
+  fetchFleetTravelled,
+  getFinalDestination,
+  getAllFinalDestinations,
+  saveFinalDestination,
+  fetchGeofenceReport
 } = require('../controllers/gpsTrackingController');
 
 // Configuration Status Route
@@ -36,5 +40,13 @@ router.post('/daily-km', fetchDailyKilometers);
 
 // 6. Fleet Travelled Summary
 router.get('/fleet-travelled', fetchFleetTravelled);
+
+// 7. Final Destination Geofence (per campus)
+router.get('/final-destination', getFinalDestination);
+router.get('/final-destinations', getAllFinalDestinations);
+router.put('/final-destination', saveFinalDestination);
+
+// 8. Geofence Report (in/out times from TGG)
+router.get('/geofence-report', fetchGeofenceReport);
 
 module.exports = router;
