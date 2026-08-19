@@ -71,7 +71,7 @@ const focusMapOnStagePoints = (map, points, L) => {
     });
 };
 
-const RouteSummaryMap = ({ stages }) => {
+const RouteSummaryMap = ({ stages, finalDestinations = [] }) => {
     const mapContainerRef = useRef(null);
     const mapInstanceRef = useRef(null);
 
@@ -134,6 +134,32 @@ const RouteSummaryMap = ({ stages }) => {
             }).addTo(map);
         }
 
+        const lastStageCoord = lineCoords.length > 0 ? lineCoords[lineCoords.length - 1] : null;
+
+        finalDestinations.forEach((d) => {
+            if (!Number.isFinite(d.latitude) || !Number.isFinite(d.longitude)) return;
+            const destPoint = [d.latitude, d.longitude];
+
+            if (lastStageCoord) {
+                L.polyline([lastStageCoord, destPoint], {
+                    color: '#2563eb',
+                    weight: 2,
+                    opacity: 0.6,
+                    dashArray: '6 4',
+                }).addTo(map);
+            }
+
+            L.marker(destPoint, {
+                icon: L.divIcon({
+                    className: 'custom-stage-summary-marker',
+                    html: `<div class="w-4 h-4 rounded-full bg-green-600 border-2 border-white text-white flex items-center justify-center font-bold text-[8px] shadow-sm">F</div>`,
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8],
+                }),
+            }).addTo(map).bindPopup(`<b>Final: ${d.name}</b>`);
+            bounds.extend(destPoint);
+        });
+
         map.fitBounds(bounds, { padding: [15, 15] });
 
         return () => {
@@ -144,7 +170,7 @@ const RouteSummaryMap = ({ stages }) => {
                 mapInstanceRef.current = null;
             }
         };
-    }, [stages]);
+    }, [stages, finalDestinations]);
 
     const hasPoints = (stages || []).some((stage) => Boolean(getStageCoords(stage)));
     if (!hasPoints) {
@@ -207,6 +233,7 @@ const RouteManagement = () => {
         modalCircleRef.current = null;
     }, []);
 
+    const [finalDestinations, setFinalDestinations] = useState([]);
     const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
     const [successModalMessage, setSuccessModalMessage] = useState('');
     const [mapSearchQuery, setMapSearchQuery] = useState('');
@@ -531,6 +558,32 @@ const RouteManagement = () => {
             }
         }
 
+        // Connect final destinations to the last stage with a dashed line
+        const modalLastCoord = lineCoords.length > 0 ? lineCoords[lineCoords.length - 1] : null;
+
+        finalDestinations.forEach((d) => {
+            if (!Number.isFinite(d.latitude) || !Number.isFinite(d.longitude)) return;
+            const destPoint = [d.latitude, d.longitude];
+
+            if (modalLastCoord) {
+                L.polyline([modalLastCoord, destPoint], {
+                    color: '#2563eb',
+                    weight: 2,
+                    opacity: 0.6,
+                    dashArray: '6 4',
+                }).addTo(map);
+            }
+
+            L.marker(destPoint, {
+                icon: L.divIcon({
+                    className: 'custom-stage-summary-marker',
+                    html: `<div class="w-5 h-5 rounded-full bg-green-600 border-2 border-white text-white flex items-center justify-center font-bold text-[9px] shadow-sm">F</div>`,
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10],
+                }),
+            }).addTo(map).bindPopup(`<b>Final: ${d.name}</b>`);
+        });
+
         // Wait for the modal layout to finish before sizing/zooming the map.
         const viewTimer = setTimeout(() => {
             map.invalidateSize();
@@ -555,7 +608,7 @@ const RouteManagement = () => {
             clearTimeout(viewTimer);
             map.off('click', onMapClick);
         };
-    }, [modalActiveTab, isLeafletReady, selectedStageIndex, formData.stages, showAllStagesOnMap, updateActiveStageCoords, destroyModalMap]);
+    }, [modalActiveTab, isLeafletReady, selectedStageIndex, formData.stages, showAllStagesOnMap, updateActiveStageCoords, destroyModalMap, finalDestinations]);
 
     // Sync active marker and circle with state changes (e.g. input fields, drag events, or first click on map)
     useEffect(() => {
@@ -875,6 +928,13 @@ const RouteManagement = () => {
         fetchRoutes(academicYear);
         fetchCampuses();
         fetchBuses();
+        (async () => {
+            try {
+                const res = await apiFetch(`${API}/gps/final-destinations`);
+                const json = await res.json();
+                if (json.success && Array.isArray(json.data)) setFinalDestinations(json.data);
+            } catch { /* ignore */ }
+        })();
     }, [academicYear]);
 
     useEffect(() => {
@@ -1683,7 +1743,7 @@ const RouteManagement = () => {
                                                                         </h4>
                                                                         
                                                                         {/* Map Displays First */}
-                                                                        <RouteSummaryMap stages={route.stages} />
+                                                                        <RouteSummaryMap stages={route.stages} finalDestinations={finalDestinations} />
 
                                                                         {/* Details below map */}
                                                                         <div className="space-y-3 pt-2">
