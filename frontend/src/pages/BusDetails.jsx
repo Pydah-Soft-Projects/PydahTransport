@@ -160,6 +160,18 @@ const BusDetails = () => {
     const [reportModalError, setReportModalError] = useState('');
     const [reportLoadingAction, setReportLoadingAction] = useState(null);
 
+    // GPS Daily Kilometer Tracking States
+    const [kmData, setKmData] = useState([]);
+    const [kmLoading, setKmLoading] = useState(false);
+    const [kmError, setKmError] = useState(null);
+    const [kmDateFrom, setKmDateFrom] = useState(() => {
+        return new Date().toISOString().split('T')[0];
+    });
+    const [kmDateTo, setKmDateTo] = useState(() => {
+        return new Date().toISOString().split('T')[0];
+    });
+    const [kmIsMock, setKmIsMock] = useState(false);
+
     // GPS States and Refs
     const [isLeafletReady, setIsLeafletReady] = useState(false);
     const [gpsVehicle, setGpsVehicle] = useState(null);
@@ -332,6 +344,58 @@ const BusDetails = () => {
             setGpsLoading(false);
         }
     }, [data?.bus?.busNumber]);
+
+    const fetchDailyKm = useCallback(async () => {
+        if (!data?.bus?.busNumber) return;
+        setKmLoading(true);
+        setKmError(null);
+        try {
+            const res = await apiFetch(
+                `${API}/gps/daily-km?vehicle_name=${encodeURIComponent(data.bus.busNumber)}&date_from=${kmDateFrom}&date_to=${kmDateTo}`
+            );
+            const resData = await res.json();
+            if (resData.success && Array.isArray(resData.data)) {
+                setKmData(resData.data);
+                setKmIsMock(resData.isMock || false);
+            } else {
+                throw new Error(resData.message || 'Failed to fetch kilometer data');
+            }
+        } catch (err) {
+            console.error('Error fetching daily KM tracking:', err);
+            setKmError(err.message || 'Something went wrong. Please try again.');
+        } finally {
+            setKmLoading(false);
+        }
+    }, [data?.bus?.busNumber, kmDateFrom, kmDateTo]);
+
+    useEffect(() => {
+        if (activeTab === 'kilometers') {
+            fetchDailyKm();
+        }
+    }, [activeTab, fetchDailyKm]);
+
+    const handleDownloadKmCsv = () => {
+        if (!kmData.length) return;
+        const headers = ['Date', 'Day', 'Distance (km)', 'Status', 'Data Source'];
+        const rows = kmData.map(r => {
+            const dateObj = new Date(r.date);
+            const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+            const status = r.kilometers > 0 ? 'Active Route Run' : 'Stationary';
+            const source = r.isMock ? 'Demo/Fallback Data' : 'Live GPS';
+            return [r.date, dayName, `${r.kilometers} km`, status, source];
+        });
+        
+        const csvContent = [headers, ...rows].map(e => e.map(val => `"${val}"`).join(',')).join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `Bus_${data?.bus?.busNumber}_GPS_Distance_Log.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     // Set up polling intervals
     useEffect(() => {
@@ -1267,9 +1331,15 @@ const BusDetails = () => {
                     >
                         <History size={18} /> History
                     </button>
+                    <button
+                        onClick={() => setActiveTab('kilometers')}
+                        className={`px-6 py-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${activeTab === 'kilometers' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
+                    >
+                        <Activity size={18} /> GPS Distance Log
+                    </button>
                 </div>
 
-                {activeTab === 'passengers' ? (
+                {activeTab === 'passengers' && (
                     <div className="relative">
                         {passengersLoading && (
                             <div className="absolute inset-0 bg-white/70 backdrop-blur-[1px] flex items-center justify-center z-10 transition-all">
@@ -1389,7 +1459,9 @@ const BusDetails = () => {
                             </div>
                         )}
                     </div>
-                ) : (
+                )}
+
+                {activeTab === 'history' && (
                     <div>
                         <div className="px-6 pt-4 border-b border-gray-100 flex flex-wrap gap-2">
                             {[
@@ -1576,6 +1648,196 @@ const BusDetails = () => {
                                 )
                             )}
                         </div>
+                    </div>
+                )}
+
+                {activeTab === 'kilometers' && (
+                    <div className="p-5 space-y-6">
+                        {/* Filters and Actions */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                                <div>
+                                    <label className="block text-[8px] font-bold text-slate-500 uppercase mb-1">From Date</label>
+                                    <input 
+                                        type="date" 
+                                        value={kmDateFrom} 
+                                        onChange={(e) => setKmDateFrom(e.target.value)}
+                                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-700 font-semibold outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[8px] font-bold text-slate-500 uppercase mb-1">To Date</label>
+                                    <input 
+                                        type="date" 
+                                        value={kmDateTo} 
+                                        onChange={(e) => setKmDateTo(e.target.value)}
+                                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-700 font-semibold outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                                    />
+                                </div>
+                                <div className="pt-4">
+                                    <button 
+                                        onClick={fetchDailyKm}
+                                        disabled={kmLoading}
+                                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                                    >
+                                        <RefreshCw size={12} className={kmLoading ? 'animate-spin' : ''} />
+                                        Fetch Data
+                                    </button>
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={handleDownloadKmCsv}
+                                disabled={!kmData.length || kmLoading}
+                                className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <Download size={13} />
+                                Download Log (CSV)
+                            </button>
+                        </div>
+
+                        {kmLoading ? (
+                            <div className="py-20 flex flex-col justify-center items-center gap-2">
+                                <Loader2 size={32} className="animate-spin text-blue-600" />
+                                <span className="text-xs font-bold text-slate-500">Querying daily GPS reporting database...</span>
+                            </div>
+                        ) : kmError ? (
+                            <div className="py-16 text-center bg-red-50 rounded-xl border border-red-200 p-6">
+                                <AlertTriangle className="text-red-500 mx-auto mb-2" size={32} />
+                                <p className="text-xs font-bold text-slate-800 mb-1">Failed to Load Logs</p>
+                                <p className="text-[10px] text-red-600">{kmError}</p>
+                            </div>
+                        ) : kmData.length === 0 ? (
+                            <div className="py-20 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                                <Activity className="mx-auto mb-3 opacity-20" size={48} />
+                                <p className="font-bold text-sm text-slate-600">No distance records found</p>
+                                <p className="text-xs text-slate-400 mt-1">Select a valid date range and verify the vehicle's GPS configuration status.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-6">
+                                {/* Summary KPIs */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Total Distance</span>
+                                            <span className="text-xl font-black text-slate-900 mt-1 block">
+                                                {kmData.reduce((acc, r) => acc + r.kilometers, 0).toFixed(1)} <span className="text-xs font-bold text-slate-500">km</span>
+                                            </span>
+                                        </div>
+                                        <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-lg">
+                                            📊
+                                        </div>
+                                    </div>
+                                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Daily Average</span>
+                                            <span className="text-xl font-black text-slate-900 mt-1 block">
+                                                {(kmData.reduce((acc, r) => acc + r.kilometers, 0) / kmData.length).toFixed(1)} <span className="text-xs font-bold text-slate-500">km</span>
+                                            </span>
+                                        </div>
+                                        <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-lg">
+                                            ⚡
+                                        </div>
+                                    </div>
+                                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Max Run / Day</span>
+                                            <span className="text-xl font-black text-slate-900 mt-1 block">
+                                                {Math.max(...kmData.map(r => r.kilometers)).toFixed(1)} <span className="text-xs font-bold text-slate-500">km</span>
+                                            </span>
+                                        </div>
+                                        <div className="w-10 h-10 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-lg">
+                                            🏆
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Source Warning */}
+                                {kmIsMock && (
+                                    <div className="bg-amber-50/50 border border-amber-200 rounded-lg p-3 text-amber-800 text-[10px] font-semibold flex items-center gap-2">
+                                        <Zap size={14} className="text-amber-500 shrink-0" />
+                                        <span>Showing simulated daily logs for testing and demo purposes (no live GPS distance readings exist for this date range).</span>
+                                    </div>
+                                )}
+
+                                {/* Visual Chart and Table Row */}
+                                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                                    {/* Chart */}
+                                    <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col justify-between">
+                                        <h3 className="text-xs font-bold text-slate-800 mb-4 flex items-center gap-1">
+                                            📈 Distance Run Chart (km)
+                                        </h3>
+                                        
+                                        <div className="flex items-end justify-between h-48 border-b border-slate-200 pb-2 pt-4 px-2 bg-slate-50/50 rounded-xl">
+                                            {kmData.map((day, idx) => {
+                                                const maxVal = Math.max(...kmData.map(r => r.kilometers));
+                                                const heightPercent = maxVal > 0 ? (day.kilometers / maxVal) * 100 : 0;
+                                                const dateObj = new Date(day.date);
+                                                const dayStr = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+                                                const dateNum = dateObj.getDate();
+                                                return (
+                                                    <div key={idx} className="flex flex-col items-center flex-1 group relative mx-0.5">
+                                                        <div className="absolute bottom-full mb-2 bg-slate-900 text-white text-[9px] font-bold py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none shadow-md">
+                                                            {day.date}: {day.kilometers.toFixed(1)} km
+                                                        </div>
+                                                        <div 
+                                                            style={{ height: `${Math.max(heightPercent, 4)}%` }} 
+                                                            className={`w-full max-w-[20px] rounded-t transition-all duration-300 ${day.kilometers > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-200'}`}
+                                                        />
+                                                        <span className="text-[8px] text-slate-500 font-bold mt-1.5">{dayStr}</span>
+                                                        <span className="text-[8px] text-slate-400 font-bold">{dateNum}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="text-[9px] text-slate-400 italic text-center mt-3">
+                                            Hover over bars to inspect distance readings.
+                                        </div>
+                                    </div>
+
+                                    {/* Table */}
+                                    <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left border-collapse">
+                                                <thead>
+                                                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase text-slate-400 font-bold tracking-wider">
+                                                        <th className="px-5 py-3.5">Date</th>
+                                                        <th className="px-5 py-3.5">Day</th>
+                                                        <th className="px-5 py-3.5">Distance</th>
+                                                        <th className="px-5 py-3.5">Status</th>
+                                                        <th className="px-5 py-3.5 text-right">Source</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-50 text-xs font-semibold text-slate-700">
+                                                    {kmData.map((day, idx) => {
+                                                        const dateObj = new Date(day.date);
+                                                        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+                                                        const isSunday = dateObj.getDay() === 0;
+                                                        return (
+                                                            <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                                                                <td className="px-5 py-3 font-mono">{day.date}</td>
+                                                                <td className="px-5 py-3 text-slate-500">{dayName}</td>
+                                                                <td className="px-5 py-3 text-slate-900 font-black">{day.kilometers.toFixed(1)} km</td>
+                                                                <td className="px-5 py-3">
+                                                                    <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${day.kilometers > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500 border border-slate-100'}`}>
+                                                                        {day.kilometers > 0 ? 'Active Run' : isSunday ? 'Sunday Holiday' : 'Stationary'}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-5 py-3 text-right">
+                                                                    <span className={`text-[10px] font-bold ${day.isMock ? 'text-amber-600' : 'text-blue-600'}`}>
+                                                                        {day.isMock ? 'Demo Log' : 'Live GPS'}
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>TGG API Documentation</title>
+		<!-- Meta -->
+		<meta charset="utf-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<meta name="description" content="">
+		<meta name="author" content="">    
+		<link rel="shortcut icon" href="favicon.ico">  
+		<link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+		<!-- FontAwesome JS -->
+		<script defer src="assets/fontawesome/js/all.js"></script>
+		<!-- Global CSS -->
+		<link rel="stylesheet" href="assets/plugins/bootstrap/css/bootstrap.min.css">   
+		<!-- Plugins CSS -->    
+		<link rel="stylesheet" href="assets/plugins/prism/prism.css">
+		<link rel="stylesheet" href="assets/plugins/elegant_font/css/style.css">  
+		
+		<!-- Theme CSS -->
+		<link id="theme-style" rel="stylesheet" href="assets/css/styles.css">
+		
+	</head> 
+	
+	<body class="body-green">
+		<div class="page-wrapper">
+			<!-- ******Header****** -->
+			<header id="header" class="header">
+				<div class="container">
+					<div class="branding">
+						<h1 class="logo">
+							<a href="#">
+								<!--<span class="text-highlight">Trans Global Geomatics  </span><span class="text-bold"> API Docs</span>-->
+								<img class="pull-right" src="http://trackmyindia.in/apsrtctrips_hold/images/TGG_logo.png" style="width: 46%;margin-top: -10px;"><span class="text-bold"> API Docs</span>
+							</a>
+						</h1>
+					</div><!--//branding-->
+					
+					<ol class="breadcrumb">
+						<li class="breadcrumb-item"><a href="#">Home</a></li>
+						<li class="breadcrumb-item active">Quick Start API Document</li>
+					</ol>
+				</div><!--//container-->
+			</header><!--//header-->
+			<div class="doc-wrapper">
+				<div class="container">
+					<div id="doc-header" class="doc-header text-center">
+						<h1 class="doc-title"><i class="icon fa fa-paper-plane"></i> Quick Start</h1>
+						<!--<div class="meta"><i class="far fa-clock"></i> Last updated: Jan 7th, 2021</div>-->
+					</div><!--//doc-header-->
+					<div class="doc-body row">
+						<div class="doc-content col-md-9 col-12 order-1">
+							<div class="content-inner">
+								<section id="download-section" class="doc-section">
+									<h2 class="section-title">Description</h2>
+									<div class="section-block">
+										<p>Reference documentation for API endpoints consists few general sections:  methods, parameters, sample/API requests, and sample responses. To document the reference endpoints of an API, provide detailed information for each of these sections.</p>
+										<ul>
+											<li>Vehicles list,</li>
+											<li>Reports</li>
+										<li> Vehicle Latitude Longitude complete details.</li></ul>
+										<p>To quickly find needed information use the search field at the left. </p>
+										
+										
+									</div>
+								</section><!--//doc-section-->
+								
+								
+								<section id="code-section" class="doc-section">
+									<div id="readvehlist" class="section-block">
+										<h2 class="section-title">Read Vehicle List </h2>
+										<div class="section-block">
+											
+										</div><!--//section-block-->
+										
+										<div class="callout-block callout-success">
+											<div class="icon-holder">
+												<i class="fas fa-thumbs-up"></i>
+											</div><!--//icon-holder-->
+											<div class="content">
+												<h4 class="callout-title">API Request</h4>
+												<p>https://pfmsledger.in/tggapi/vehicleslist_api.php?token=<span>TOKEN_ID</span></p>
+											</div><!--//content-->
+										</div>
+										<h5>Request Parameters : Post method </h5>
+										<h5>POST parameters : </h5>
+										
+										<div class="table-responsive" style="width: 40%;margin-left: 68px;">
+											<table class="table table-bordered">
+												
+												<tbody>
+													<tr>
+														<td><b>Username</b></td>
+														<td>xxxxxxxxxxxx</td>
+													</tr>
+													<tr>
+														<td><b>Password</b></td>
+														<td>xxxxxxxxxxxx</td>
+													</tr>
+												</tbody>
+											</table>
+										</div>
+										
+									    <h6>Response JSON string </h6>
+                                        <pre><code class="language-css">
+											Ex: { 
+											[ 
+											{ 
+											"name": "xxxxxxxxxxxx", 
+											"units": xxxxxxxxxxxx, 
+											"latitude": 17.5442123413, 
+											"longitude": 80.6162414551, 
+											"speed": 21, 
+											"timestamp": "2020-02-17 13:13:54", 
+											"uiiframe": 
+											"https://pfmsledger.in/tggapi/livevehicle.php?token=TOKEN_ID&vehicle=xxxxxxxxxxxx" }, 
+											{ 
+											"name": "xxxxxxxxxxxx", 
+											"units": xxxxxxxxxxxx, 
+											"latitude": 17.2022285461, 
+											"longitude": 80.7912826538, 
+											"speed": 0, 
+											"timestamp": "2020-02-17 13:12:24", 
+											"uiiframe": 
+											"https://pfmsledger.in/tggapi/livevehicle.php?token=TOKEN_ID&vehicle=xxxxxxxxxxxx"
+											},
+										</code></pre>
+										
+										
+									</div><!--//section-block-->
+									
+									<div id="readreports" class="section-block">
+										<div class="code-block">
+											<h2 class="section-title">Read Reports </h2>
+											
+											<div class="callout-block callout-success">
+												<div class="icon-holder">
+													<i class="fas fa-thumbs-up"></i>
+												</div><!--//icon-holder-->
+												<div class="content">
+													<h4 class="callout-title">Read Reports API Request</h4>
+													<p>https://pfmsledger.in/tggapi/reports_api.php?token=<span>TOKEN_ID</span></p>
+												</div><!--//content-->
+											</div>
+											<h5>Request Parameters : Post method </h5>
+											<h5>POST parameters : </h5>
+											
+											<div class="table-responsive" style="width: 40%;margin-left: 68px;">
+												<table class="table table-bordered">
+													
+													<tbody>
+														<tr>
+															<td><b>username</b></td>
+															<td>xxxxxxxxxxxx</td>
+														</tr>
+														<tr>
+															<td><b>password</b></td>
+															<td>xxxxxxxxxxxx</td>
+														</tr>
+														<tr>
+															<td><b>date_from </b></td>
+															<td>2017-04-01 00:00:00</td>
+														</tr>
+														<tr>
+															<td><b>date_to </b></td>
+															<td>2017-04-01 23:59:59</td>
+														</tr>
+														<tr>
+															<td><b>vehicle_name </b></td>
+															<td>AP1341TXXXXX</td>
+														</tr>
+														<tr>
+															<td><b>template  </b></td>
+															<td>template_name</td>
+														</tr>
+														
+														
+													</tbody>
+												</table>
+											</div>
+											
+											
+											<pre><code class="language-css">/* ======= JSON Response ======= */
+												Ex: {
+												"FUEL_UP64XXXXXX": {
+												"Total KMs Travelled": {
+												"FUEL_UP64XXXXXX": {
+												"0": {
+												"n": 0,
+												"i1": 0,
+												"i2": 10292,
+												"t1": 1593541815,
+												"t2": 1593843818,
+												"d": 0,
+												"c": {
+												"0": "1",
+												"1": "606.41 km"
+												}
+												}
+												}
+												},
+												"Fuel Data": {
+												"FUEL_UP64XXXXXX": {
+												"0": {
+												"n": 0,
+												"i1": 0,
+												"i2": 10292,
+												"t1": 1593541815,
+												"t2": 1593843818,
+												"d": 0,
+												"c": {
+												"0": "1",
+												"1": "287.61 l",
+												"2": "294.59 l",
+												"3": "216.33 l",
+												"4": "0.00 l",
+												"5": "209.35 l",
+												"6": "606.41 km",
+												"7": "7 km/h",
+												"8": {
+												"t": "79 km/h",
+												"y": 16.715975,
+												"x": 78.5207833
+												},
+												"9": "15:35:48",
+												"10": "2 days 20:17:35",
+												"11": "33.92 l/100 km",
+												"12": "0",
+												"13": "2"
+												}
+												}
+												}
+												},
+												"Fuel fillings": {
+												"FUEL_UP64XXXXXX": {
+												"0": {
+												"n": 0,
+												"i1": 3225,
+												"i2": 3227,
+												"t1": 1593595179,
+												"t2": 1593595299,
+												"d": 0,
+												"c": {
+												"0": "1",
+												"1": {
+												"t": "2020-07-01 09:21:39",
+												"v": 1593595299,
+												"y": 17.497435,
+												"x": 78.83906
+												},
+												"2": "1",
+												"3": "96.01 l",
+												"4": {
+												"t": "BIBINAGAR PLANT",
+												"y": 17.497435,
+												"x": 78.83906
+												}
+												}
+												},
+												"1": {
+												"n": 1,
+												"i1": 9190,
+												"i2": 9193,
+												"t1": 1593778746,
+												"t2": 1593778927,
+												"d": 0,
+												"c": {
+												"0": "2",
+												"1": {
+												"t": "2020-07-03 12:22:07",
+												"v": 1593778927,
+												"y": 17.4974916,
+												"x": 78.83911
+												},
+												"2": "1",
+												"3": "120.32 l",
+												"4": {
+												"t": "BIBINAGAR PLANT",
+												"y": 17.4974916,
+												"x": 78.83911
+												}
+												}
+												}
+												}
+												},
+												"Movement Report": {
+												"FUEL_UP64XXXXXX": {
+												"0": {
+												"n": 0,
+												"i1": 0,
+												"i2": 480,
+												"t1": 1593541815,
+												"t2": 1593546688,
+												"d": 0,
+												"c": {
+												"0": "1",
+												"1": "Trip",
+												"2": {
+												"t": "2020-06-30 18:30:15",
+												"v": 1593541815,
+												"y": 17.4973433,
+												"x": 78.8398466
+												},
+												"3": {
+												"t": "Rural Road, Telangana, India, 1.94 km from Anantharam",
+												"y": 17.4973433,
+												"x": 78.8398466
+												},
+												"4": {
+												"t": "2020-06-30 19:51:28",
+												"v": 1593546688,
+												"y": 17.226595,
+												"x": 79.137185
+												},
+												"5": {
+												"t": "Nh65, Telangana, India, Chityal",
+												"y": 17.226595,
+												"x": 79.137185
+												},
+												"6": "1:21:13"
+												}
+												},}
+												}
+												}
+											</code></pre>
+										</div><!--//code-block-->
+									</div><!--//section-block-->
+									
+									
+									
+									
+									<div id="vehlatlong" class="section-block">
+										<div class="code-block">
+											<h2 class="section-title"> Read Vehicle Latitude and longitude  </h2>
+											
+											<div class="callout-block callout-success">
+												<div class="icon-holder">
+													<i class="fas fa-thumbs-up"></i>
+												</div><!--//icon-holder-->
+												<div class="content">
+													<h4 class="callout-title"> API Request</h4>
+													<p>https://pfmsledger.in/tggapi/messages_api.php?token=<span>TOKEN_ID</span></p>
+												</div><!--//content-->
+											</div>
+											<h5>Request Parameters : Post method </h5>
+											<h5>POST parameters : </h5>
+											
+											<div class="table-responsive" style="width: 54%;margin-left: 68px;">
+												<table class="table table-bordered">
+													
+													<tbody>
+														<tr>
+															<td><b>username</b></td>
+															<td>xxxxxxxxxxxx</td>
+														</tr>
+														<tr>
+															<td><b>password</b></td>
+														<td>xxxxxxxxxxxx</td>
+														</tr>
+														<tr>
+														<td><b>date_from </b></td>
+														<td>2017-04-01 00:00:00</td>
+														</tr>
+														<tr>
+														<td><b>date_to </b></td>
+														<td>2017-04-01 23:59:59</td>
+														</tr>
+														<tr>
+														<td><b>vehicle_name (Optional) </b></td>
+														<td>AP1341TXXXXX</td>
+														</tr>
+														
+														
+														</tbody>
+														</table>
+														</div>
+														
+														
+														
+														<pre><code class="language-css">/* ======= JSON Response ======= */
+														Ex: { 
+														[ 
+														{ 
+														"name": "xxxxxxxxxxxx", 
+														"units": xxxxxxxxxxxx, 
+														"latitude": 17.5442123413, 
+														"longitude": 80.6162414551, 
+														"speed": 21, 
+														"timestamp": "2020-02-17 13:13:54", 
+														"uiiframe": 
+														"https://pfmsledger.in/tggapi/livevehicle.php?token=TOKEN_ID&vehicle=xxxxxxxxxxxx" }, 
+														{ 
+														"name": "xxxxxxxxxxxx", 
+														"units": xxxxxxxxxxxx, 
+														"latitude": 17.2022285461, 
+														"longitude": 80.7912826538, 
+														"speed": 0, 
+														"timestamp": "2020-02-17 13:12:24", 
+														"uiiframe": 
+														"https://pfmsledger.in/tggapi/livevehicle.php?token=TOKEN_ID&vehicle=xxxxxxxxxxxx"
+														},
+														</code></pre>
+														</div><!--//code-block-->
+														</div><!--//section-block-->
+														
+														<div id="alertstrigger" class="section-block">
+										<div class="code-block">
+											<h2 class="section-title"> Alerts/Notifications/Trigger  </h2>
+											
+											<div class="callout-block callout-success">
+												<div class="icon-holder">
+													<i class="fas fa-thumbs-up"></i>
+												</div><!--//icon-holder-->
+												<div class="content">
+													<h4 class="callout-title"> Cleint Server URL </h4>
+												<p>https://pfmsledger.in/tggapi/alerts.php</span></p>
+												</div><!--//content-->
+											</div>
+											<h5>Notification URL contains data  </h5>
+											<h5>POST parameters : </h5>
+											
+											<div class="table-responsive" style="width: 54%;margin-left: 68px;">
+												<table class="table table-bordered">
+													
+													<tbody>
+														<tr>
+															<td><b>unit</b></td>
+															<td>R1_TS08UGXXXX</td>
+														</tr>
+														<tr>
+															<td><b>time</b></td>
+														<td>2023-02-23 12:20PM</td>
+														</tr>
+														<tr>
+														<td><b>location </b></td>
+														<td>Meridian School</td>
+														</tr>
+														<tr>
+														<td><b>message</b></td>
+														<td>R1_TS08UGXXXX Geofence  in At 2023-02-23 12:20PM with name Meridian School</td>
+														</tr>
+														 
+														
+														
+														</tbody>
+														</table>
+														</div>
+														
+														
+														
+														 
+														</div><!--//code-block-->
+								</div>
+														
+														
+														
+														
+														</section><!--//doc-section-->
+														
+														</div><!--//content-inner-->
+														
+														</div><!--//doc-content-->
+														
+														
+														<div class="doc-sidebar col-md-3 col-12 order-0 d-none d-md-flex">
+														<div id="doc-nav" class="doc-nav">
+														
+														<nav id="doc-menu" class="nav doc-menu flex-column sticky">
+														<a class="nav-link scrollto" href="#download-section">Description</a>
+														<a class="nav-link scrollto" href="#code-section">API Document</a>
+														<nav class="doc-sub-menu nav flex-column">
+														<a class="nav-link scrollto" href="#readvehlist"> 1.Read Vehicle List </a>
+														<a class="nav-link scrollto" href="#readreports"> 2. Read Reports </a>
+		
+														<a class="nav-link scrollto" href="#vehlatlong"> 3. Read Vehicle Latitude and longitude </a>
+														<a class="nav-link scrollto"  href="#alertstrigger"> 4. Geofence Notification </a>
+
+														
+														</nav><!--//nav-->
+														</nav><!--//doc-menu-->
+														
+														</div>
+														</div><!--//doc-sidebar-->
+														</div><!--//doc-body-->              
+														</div><!--//container-->
+														</div><!--//doc-wrapper-->
+														
+														
+														</div><!--//page-wrapper-->
+														
+														<footer id="footer" class="footer text-center">
+														<div class="container">
+														<small class="copyright">powered by <a href="https://www.transglobalgeomatics.com" target="_blank">Trans Global Geomatics</small>
+														
+														</div><!--//container-->
+														</footer><!--//footer-->
+														
+														
+														<!-- Main Javascript -->          
+														<script type="text/javascript" src="assets/plugins/jquery-3.4.1.min.js"></script>
+														<script type="text/javascript" src="assets/plugins/bootstrap/js/bootstrap.min.js"></script>
+														<script type="text/javascript" src="assets/plugins/prism/prism.js"></script>    
+														<script type="text/javascript" src="assets/plugins/jquery-scrollTo/jquery.scrollTo.min.js"></script>      
+														<script type="text/javascript" src="assets/plugins/stickyfill/dist/stickyfill.min.js"></script>                                                             
+														<script type="text/javascript" src="assets/js/main.js"></script>
+														
+														</body>
+														</html> 
+														
+																												
