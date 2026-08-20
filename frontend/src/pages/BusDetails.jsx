@@ -209,6 +209,7 @@ const BusDetails = () => {
     const [highlightsTab, setHighlightsTab] = useState('in');
     const [animatingIndex, setAnimatingIndex] = useState(null);
     const [snappedRoutePath, setSnappedRoutePath] = useState([]);
+    const [snappedMissedPaths, setSnappedMissedPaths] = useState([]); // road-snapped paths for missed stage runs
     const [hasCenteredFirstTime, setHasCenteredFirstTime] = useState(false);
     const gpsLiveBreadcrumbsRef = useRef([]);
     const isFirstLoadRef = useRef(true);
@@ -292,6 +293,28 @@ const BusDetails = () => {
         // Interpolate intermediate coordinates for a fluid, high-frame-rate time-lapse glide animation
         return interpolatePath(baseCoords, 8);
     }, [stagesWithCoords, snappedRoutePath]);
+
+    // Calculate total distance travelled today from GPS trace logs (Haversine sum)
+    const distanceTravelledKm = useMemo(() => {
+        const pts = (gpsTraceLogs || []).filter(t =>
+            typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0
+        );
+        if (pts.length < 2) return null;
+        const haversine = (lat1, lon1, lat2, lon2) => {
+            const R = 6371;
+            const p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+            const dp = (lat2 - lat1) * Math.PI / 180;
+            const dl = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
+        let total = 0;
+        for (let i = 1; i < pts.length; i++) {
+            const d = haversine(pts[i - 1].latitude, pts[i - 1].longitude, pts[i].latitude, pts[i].longitude);
+            if (d < 5) total += d; // ignore teleports > 5km between two pings
+        }
+        return total > 0 ? total.toFixed(1) : null;
+    }, [gpsTraceLogs]);
 
     // Dynamically load Leaflet library for fast interactive map & polyline tracing
     useEffect(() => {
@@ -624,6 +647,87 @@ const BusDetails = () => {
         })();
     }, [stagesWithCoords]);
 
+    // Compute OSRM-snapped paths for missed stage runs in Live View
+    useEffect(() => {
+        if (!stagesWithCoords.length || !gpsTraceLogs.length) {
+            setSnappedMissedPaths([]);
+            return;
+        }
+
+        const calcDist = (lat1, lon1, lat2, lon2) => {
+            const R = 6371e3;
+            const p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+            const dp = (lat2 - lat1) * Math.PI / 180;
+            const dl = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
+
+        const tracePts = gpsTraceLogs.filter(t =>
+            typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0
+        );
+        if (tracePts.length < 5) { setSnappedMissedPaths([]); return; }
+
+        const visitedFlags = stagesWithCoords.map(stage => {
+            const r = Math.max(stage.radius || 200, 500);
+            return tracePts.some(pt => calcDist(stage.latitude, stage.longitude, pt.latitude, pt.longitude) <= r);
+        });
+
+        // Build runs of consecutive missed stages, bookended by the stage before and after
+        const missedRuns = [];
+        let i = 0;
+        while (i < stagesWithCoords.length) {
+            if (!visitedFlags[i]) {
+                // Found start of a missed run
+                const runStart = i;
+                while (i < stagesWithCoords.length && !visitedFlags[i]) i++;
+                const runEnd = i - 1; // inclusive
+
+                // Collect waypoints: stage before run (if any) + all missed stages + stage after run (if any)
+                const waypoints = [];
+                if (runStart > 0) {
+                    const prev = stagesWithCoords[runStart - 1];
+                    if (prev.latitude && prev.longitude) waypoints.push([prev.latitude, prev.longitude]);
+                }
+                for (let j = runStart; j <= runEnd; j++) {
+                    const s = stagesWithCoords[j];
+                    if (s.latitude && s.longitude) waypoints.push([s.latitude, s.longitude]);
+                }
+                if (i < stagesWithCoords.length) {
+                    const next = stagesWithCoords[i];
+                    if (next.latitude && next.longitude) waypoints.push([next.latitude, next.longitude]);
+                }
+
+                if (waypoints.length >= 2) missedRuns.push(waypoints);
+            } else {
+                i++;
+            }
+        }
+
+        if (!missedRuns.length) { setSnappedMissedPaths([]); return; }
+
+        // OSRM-snap each missed run
+        const snapPath = async (pts) => {
+            const coordStr = pts.map(c => `${c[1]},${c[0]}`).join(';');
+            try {
+                const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson&continue_straight=false`;
+                const res = await fetch(url);
+                if (res.ok) {
+                    const json = await res.json();
+                    if (json.routes?.[0]?.geometry?.coordinates) {
+                        return json.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                    }
+                }
+            } catch (_) { /* fallback below */ }
+            return pts; // fallback to straight line
+        };
+
+        (async () => {
+            const results = await Promise.all(missedRuns.map(run => snapPath(run)));
+            setSnappedMissedPaths(results);
+        })();
+    }, [stagesWithCoords, gpsTraceLogs]);
+
     // Time-lapse bus traveling animation along the snapped route path (loops direction-based)
     useEffect(() => {
         if (mapTab !== 'route' || animationPath.length === 0) {
@@ -632,7 +736,7 @@ const BusDetails = () => {
         }
 
         let currentIndex = highlightsTab === 'in' ? 0 : animationPath.length - 1;
-        const stepVal = highlightsTab === 'in' ? 4 : -4;
+        const stepVal = highlightsTab === 'in' ? 10 : -10; // faster animation
         const targetIndex = highlightsTab === 'in' ? animationPath.length - 1 : 0;
 
         setAnimatingIndex(currentIndex);
@@ -694,44 +798,135 @@ const BusDetails = () => {
 
         let timer = null;
 
-        // 1. Draw stage markers (ONLY for Route Map tab)
+        // 1. Draw stage markers (ALWAYS — both Route Map and Live View)
         const stageCoords = stagesWithCoords
             .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude !== 0 && s.longitude !== 0)
             .map(s => [s.latitude, s.longitude]);
 
-        if (mapTab === 'route') {
-            stagesWithCoords.forEach((stage, idx) => {
-                if (typeof stage.latitude === 'number' && typeof stage.longitude === 'number' && stage.latitude !== 0 && stage.longitude !== 0) {
-                    const isFinal = stage.isFinalDest;
-                    const icon = L.divIcon({
-                        html: isFinal ? `
-                            <div class="relative flex items-center justify-center">
-                                <span class="absolute inline-flex h-5 w-5 rounded-full bg-blue-400 opacity-75 animate-ping"></span>
-                                <div class="relative flex items-center justify-center rounded-full h-4.5 w-4.5 bg-blue-600 border border-white shadow-md">
-                                    <span class="text-[7px]">🏁</span>
-                                </div>
-                            </div>
-                        ` : `
-                            <div class="flex items-center justify-center rounded-full h-4.5 w-4.5 bg-blue-600 border border-white shadow-md text-white font-extrabold text-[8px] hover:scale-125 transition-transform duration-200">
-                                ${idx + 1}
-                            </div>
-                        `,
-                        className: 'custom-stage-marker-icon',
-                        iconSize: [18, 18],
-                        iconAnchor: [9, 9]
-                    });
+        // Helper: check if GPS trace has any point within a stage's radius
+        const calculateDistance = (lat1, lon1, lat2, lon2) => {
+            const R = 6371e3;
+            const phi1 = lat1 * Math.PI / 180, phi2 = lat2 * Math.PI / 180;
+            const dPhi = (lat2 - lat1) * Math.PI / 180;
+            const dLam = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dPhi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLam / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
 
-                    const marker = L.marker([stage.latitude, stage.longitude], { icon });
-                    const popupHtml = `
-                        <div style="font-family: sans-serif; font-size: 11px; padding: 2px;">
-                            <strong style="font-size: 12px; color: #1d4ed8;">${stage.stageName}</strong><br/>
-                            <span style="color: #64748b;">${isFinal ? '🏁 Final Campus Destination' : `📍 Stage #${idx + 1}`}</span>
+        const allTracePts = (gpsTraceLogs || []).filter(t =>
+            typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0
+        );
+        const hasEnoughHistory = allTracePts.length > 5; // only show visit status when we have data
+
+        stagesWithCoords.forEach((stage, idx) => {
+            if (typeof stage.latitude !== 'number' || typeof stage.longitude !== 'number' || stage.latitude === 0 || stage.longitude === 0) return;
+            const isFinal = stage.isFinalDest;
+            const searchRadius = Math.max(stage.radius || 200, 500);
+
+            // Determine visit status for live tab coloring
+            let visited = false;
+            if (mapTab === 'live' && hasEnoughHistory) {
+                visited = allTracePts.some(pt =>
+                    calculateDistance(stage.latitude, stage.longitude, pt.latitude, pt.longitude) <= searchRadius
+                );
+            }
+
+            let iconHtml;
+            if (mapTab === 'route') {
+                // Route Map: standard numbered blue badges
+                iconHtml = isFinal ? `
+                    <div class="relative flex items-center justify-center">
+                        <span class="absolute inline-flex h-5 w-5 rounded-full bg-blue-400 opacity-75 animate-ping"></span>
+                        <div class="relative flex items-center justify-center rounded-full h-4.5 w-4.5 bg-blue-600 border border-white shadow-md">
+                            <span class="text-[7px]">🏁</span>
                         </div>
-                    `;
-                    marker.bindPopup(popupHtml);
-                    marker.addTo(layerGroup);
-                }
+                    </div>
+                ` : `
+                    <div class="flex items-center justify-center rounded-full h-4.5 w-4.5 bg-blue-600 border border-white shadow-md text-white font-extrabold text-[8px]">
+                        ${idx + 1}
+                    </div>
+                `;
+            } else {
+                // Live View: numbered badges colored by visit status — always show the number
+                // Blue = visited, Amber = missed, Grey = no data yet
+                const bgColor = !hasEnoughHistory ? '#64748b' : (isFinal ? '#4f46e5' : (visited ? '#2563eb' : '#d97706'));
+                // Small status dot in corner: green tick or red cross
+                const statusDot = hasEnoughHistory && !isFinal
+                    ? `<span style="position:absolute;top:-3px;right:-3px;width:7px;height:7px;border-radius:50%;background:${visited ? '#22c55e' : '#ef4444'};border:1px solid white;"></span>`
+                    : '';
+                iconHtml = isFinal ? `
+                    <div class="relative flex items-center justify-center">
+                        <div class="relative flex items-center justify-center rounded-full h-5 w-5 border-2 border-white shadow-md" style="background:${bgColor}">
+                            <span class="text-[8px]">🏁</span>
+                        </div>
+                    </div>
+                ` : `
+                    <div style="position:relative;display:inline-flex;">
+                        <div class="flex items-center justify-center rounded-full border-2 border-white shadow-lg text-white font-extrabold" style="width:20px;height:20px;font-size:8px;background:${bgColor};">
+                            ${idx + 1}
+                        </div>
+                        ${statusDot}
+                    </div>
+                `;
+            }
+
+            const icon = L.divIcon({
+                html: iconHtml,
+                className: 'custom-stage-marker-icon',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
             });
+
+            const visitLabel = !hasEnoughHistory ? 'No GPS data yet' : (isFinal ? (visited ? '✓ Arrived' : '⏳ Not yet reached') : (visited ? '✓ Visited' : '⚠ Missed'));
+            const popupHtml = `
+                <div style="font-family: sans-serif; font-size: 11px; padding: 2px;">
+                    <strong style="font-size: 12px; color: #1d4ed8;">${stage.stageName}</strong><br/>
+                    <span style="color: #64748b;">${isFinal ? '🏁 Final Destination' : `📍 Stage #${idx + 1}`}</span><br/>
+                    ${mapTab === 'live' ? `<span style="color:${!hasEnoughHistory ? '#94a3b8' : (visited ? '#059669' : '#d97706')}; font-weight:bold;">${visitLabel}</span>` : ''}
+                </div>
+            `;
+            const marker = L.marker([stage.latitude, stage.longitude], { icon });
+            marker.bindPopup(popupHtml);
+            marker.addTo(layerGroup);
+        });
+
+        // Draw dashed yellow path for missed stage runs using pre-snapped road paths (Live View only)
+        if (mapTab === 'live' && hasEnoughHistory && snappedMissedPaths.length > 0) {
+            snappedMissedPaths.forEach(pts => {
+                if (pts.length < 2) return;
+                // outer glow
+                L.polyline(pts, {
+                    color: '#fbbf24',
+                    weight: 7,
+                    opacity: 0.25,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(layerGroup);
+                // inner dashed line
+                L.polyline(pts, {
+                    color: '#f59e0b',
+                    weight: 2.5,
+                    opacity: 0.9,
+                    dashArray: '8, 6',
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(layerGroup);
+            });
+        } else if (mapTab === 'live' && hasEnoughHistory && snappedMissedPaths.length === 0) {
+            // Fallback: draw straight dashed lines while OSRM snapping is in progress
+            for (let i = 0; i < stagesWithCoords.length - 1; i++) {
+                const s1 = stagesWithCoords[i];
+                const s2 = stagesWithCoords[i + 1];
+                if (typeof s1.latitude !== 'number' || typeof s2.latitude !== 'number') continue;
+                if (s1.latitude === 0 || s2.latitude === 0) continue;
+                const r2 = Math.max(s2.radius || 200, 500);
+                const visited2 = allTracePts.some(pt => calculateDistance(s2.latitude, s2.longitude, pt.latitude, pt.longitude) <= r2);
+                if (!visited2) {
+                    L.polyline([[s1.latitude, s1.longitude], [s2.latitude, s2.longitude]], {
+                        color: '#f59e0b', weight: 2, opacity: 0.5, dashArray: '8, 6', lineCap: 'round'
+                    }).addTo(layerGroup);
+                }
+            }
         }
 
         // 2. Draw connecting route lines (dynamic growth for Route Map, live coordinates trail for Live View)
@@ -745,7 +940,7 @@ const BusDetails = () => {
                 }
             }
         } else {
-            // Live View tab: show the actual vehicle's live points trail sorted chronologically by GPS signal timestamps
+            // Live View tab: show ONLY the current active trip segment (not the full day round-trip)
             const historyPoints = (gpsTraceLogs || [])
                 .filter(t => typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0);
 
@@ -774,10 +969,61 @@ const BusDetails = () => {
                 }
             });
 
-            // Sort chronologically by timestamp and convert to latlng array format for polyline drawing
-            linePoints = Array.from(allPointsMap.values())
-                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-                .map(pt => [pt.latitude, pt.longitude]);
+            // Sort all points chronologically
+            const sortedPoints = Array.from(allPointsMap.values())
+                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+            // Split into trip segments at ≥90 min gaps (bus parked between runs)
+            const GAP_MS = 90 * 60 * 1000;
+            const tripSegments = [];
+            let currentSegment = [];
+
+            for (let i = 0; i < sortedPoints.length; i++) {
+                if (i === 0) {
+                    currentSegment.push(sortedPoints[i]);
+                } else {
+                    const prev = new Date(sortedPoints[i - 1].timestamp).getTime();
+                    const curr = new Date(sortedPoints[i].timestamp).getTime();
+                    if (!isNaN(prev) && !isNaN(curr) && (curr - prev) >= GAP_MS) {
+                        // Gap detected — save current segment and start a new one
+                        if (currentSegment.length > 0) tripSegments.push(currentSegment);
+                        currentSegment = [sortedPoints[i]];
+                    } else {
+                        currentSegment.push(sortedPoints[i]);
+                    }
+                }
+            }
+            if (currentSegment.length > 0) tripSegments.push(currentSegment);
+
+            const today = new Date().toISOString().split('T')[0];
+            const isToday = (selectedDate || today) === today;
+
+            // For today: only draw the LAST segment (active trip). For past dates: draw ALL segments.
+            const segmentsToDraw = isToday ? tripSegments.slice(-1) : tripSegments;
+
+            // Draw each trip segment as its own independent polyline (no connecting line between trips)
+            segmentsToDraw.forEach(seg => {
+                const pts = seg.map(pt => [pt.latitude, pt.longitude]);
+                if (pts.length < 2) return;
+                // outer glow
+                L.polyline(pts, {
+                    color: '#1d4ed8',
+                    weight: 7,
+                    opacity: 0.35,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(layerGroup);
+                // inner route
+                L.polyline(pts, {
+                    color: '#2563eb',
+                    weight: 3.5,
+                    opacity: 0.95,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(layerGroup);
+            });
+
+            // linePoints stays [] so the shared polyline block below is skipped for live view
         }
 
         if (linePoints.length >= 2) {
@@ -875,7 +1121,7 @@ const BusDetails = () => {
         return () => {
             if (timer) clearTimeout(timer);
         };
-    }, [isLeafletReady, gpsVehicle, gpsTraceLogs, createVehicleIcon, mapTab, stagesWithCoords, snappedRoutePath, animatingIndex, animationPath, highlightsTab]);
+    }, [isLeafletReady, gpsVehicle, gpsTraceLogs, createVehicleIcon, mapTab, stagesWithCoords, snappedRoutePath, animatingIndex, animationPath, highlightsTab, snappedMissedPaths]);
 
     const handlePrint = async (options = reportOptions) => {
         if (!data?.bus?.busNumber) return;
@@ -1571,32 +1817,42 @@ const BusDetails = () => {
                         {/* Card 2: Route Highlights */}
                         <StatCard 
                             title="Route Highlights"
-                            action={mapTab === 'route' && (
-                                <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-sm shrink-0">
-                                    <button
-                                        type="button"
-                                        onClick={() => setHighlightsTab('in')}
-                                        className={`px-2.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
-                                            highlightsTab === 'in'
-                                                ? 'bg-white text-blue-600 shadow-sm'
-                                                : 'text-slate-500 hover:text-slate-700'
-                                        }`}
-                                    >
-                                        In
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setHighlightsTab('out')}
-                                        className={`px-2.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
-                                            highlightsTab === 'out'
-                                                ? 'bg-white text-blue-600 shadow-sm'
-                                                : 'text-slate-500 hover:text-slate-700'
-                                        }`}
-                                    >
-                                        Out
-                                    </button>
+                            action={
+                                <div className="flex items-center gap-2 shrink-0">
+                                    {distanceTravelledKm && (
+                                        <div className="flex items-center gap-1 bg-blue-50 border border-blue-100 rounded-lg px-2 py-0.5">
+                                            <span className="text-[9px] font-bold text-blue-500 uppercase tracking-wide">total travelled</span>
+                                            <span className="text-[10px] font-extrabold text-blue-700">{distanceTravelledKm} km</span>
+                                        </div>
+                                    )}
+                                    {mapTab === 'route' && (
+                                        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-sm">
+                                            <button
+                                                type="button"
+                                                onClick={() => setHighlightsTab('in')}
+                                                className={`px-2.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
+                                                    highlightsTab === 'in'
+                                                        ? 'bg-white text-blue-600 shadow-sm'
+                                                        : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                            >
+                                                In
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setHighlightsTab('out')}
+                                                className={`px-2.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
+                                                    highlightsTab === 'out'
+                                                        ? 'bg-white text-blue-600 shadow-sm'
+                                                        : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                            >
+                                                Out
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
+                            }
                         >
                             {route ? (
                                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
@@ -1606,28 +1862,35 @@ const BusDetails = () => {
                                             const isLast = index === stagesWithCoords.length - 1;
                                             const isFinal = stage.isFinalDest;
                                             const status = getStageGpsStatus(stage, isFirst, isFinal);
+                                            // A stage is 'missed' if both In and Out times are blank
+                                            const isMissed = !isFinal && status.morningTime === '—' && status.eveningTime === '—' && (morningTrace.length > 0 || eveningTrace.length > 0);
 
                                             return (
                                                 <div key={index} className="relative flex flex-col justify-center min-h-[40px] pl-1">
-                                                    {/* Bullet point indicator */}
+                                                    {/* Bullet point indicator — amber when missed */}
                                                     <div className={`absolute -left-[21px] w-3.5 h-3.5 rounded-full border-2 bg-white flex items-center justify-center ${
-                                                        isFinal ? 'border-indigo-600 ring-2 ring-indigo-100' : 'border-blue-500'
+                                                        isFinal ? 'border-indigo-600 ring-2 ring-indigo-100' : isMissed ? 'border-amber-400 ring-2 ring-amber-100' : 'border-blue-500'
                                                     }`}>
-                                                        <div className={`w-1.5 h-1.5 rounded-full ${isFinal ? 'bg-indigo-600' : 'bg-blue-500'}`} />
+                                                        <div className={`w-1.5 h-1.5 rounded-full ${isFinal ? 'bg-indigo-600' : isMissed ? 'bg-amber-400' : 'bg-blue-500'}`} />
                                                     </div>
                                                     
                                                     <div className="flex items-center justify-between gap-2">
-                                                        <span className={`text-[11px] font-extrabold truncate max-w-[140px] ${
-                                                            isFinal ? 'text-indigo-800' : 'text-slate-700'
-                                                        }`} title={stage.stageName}>
-                                                            {stage.stageName}
-                                                        </span>
+                                                        <div className="flex items-center gap-1 min-w-0">
+                                                            {isMissed && (
+                                                                <span className="shrink-0 text-[8px] font-extrabold text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 py-0.5 uppercase tracking-wide">Missed</span>
+                                                            )}
+                                                            <span className={`text-[11px] font-extrabold truncate max-w-[120px] ${
+                                                                isFinal ? 'text-indigo-800' : isMissed ? 'text-amber-700' : 'text-slate-700'
+                                                            }`} title={stage.stageName}>
+                                                                {stage.stageName}
+                                                            </span>
+                                                        </div>
                                                         <div className="flex gap-2 shrink-0">
                                                             {/* Morning "In" status */}
                                                             <div className="flex flex-col items-center">
                                                                 <span className="text-[7px] text-slate-400 font-bold uppercase leading-none mb-0.5">In</span>
                                                                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                                                    status.morningTime !== '—' && status.morningTime !== '...' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-400'
+                                                                    status.morningTime !== '—' && status.morningTime !== '...' ? 'bg-green-100 text-green-800' : isMissed ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'
                                                                 }`}>
                                                                     {status.morningTime}
                                                                 </span>
@@ -1636,7 +1899,7 @@ const BusDetails = () => {
                                                             <div className="flex flex-col items-center">
                                                                 <span className="text-[7px] text-slate-400 font-bold uppercase leading-none mb-0.5">Out</span>
                                                                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                                                    status.eveningTime !== '—' && status.eveningTime !== '...' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-400'
+                                                                    status.eveningTime !== '—' && status.eveningTime !== '...' ? 'bg-rose-100 text-rose-800' : isMissed ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'
                                                                 }`}>
                                                                     {status.eveningTime}
                                                                 </span>
