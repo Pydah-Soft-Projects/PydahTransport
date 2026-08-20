@@ -31,7 +31,8 @@ const Layout = ({ children }) => {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [openGroups, setOpenGroups] = useState(() => ({
-        inventory: location.pathname.startsWith('/inventory')
+        inventory: location.pathname.startsWith('/inventory'),
+        route_management: location.pathname.startsWith('/routes')
     }));
 
     const handleLogout = () => {
@@ -67,7 +68,19 @@ const Layout = ({ children }) => {
             title: 'MANAGEMENT',
             items: [
                 { path: '/buses', label: 'Vehicle Management', permission: 'bus_management', icon: <Bus size={20} /> },
-                { path: '/routes', label: 'Route Management', permission: 'route_management', icon: <Map size={20} /> },
+                {
+                    key: 'route_management',
+                    label: 'Route Management',
+                    icon: <Map size={20} />,
+                    permission: 'route_management',
+                    children: [
+                        { path: '/routes?tab=network', label: 'Route Network', icon: <Map size={16} /> },
+                        { path: '/routes?tab=bus-mapping', label: 'Bus–Route Mapping', icon: <Bus size={16} /> },
+                        { path: '/routes?tab=transfer', label: 'Transfer Stage', icon: <RefreshCw size={16} /> },
+                        { path: '/routes?tab=student-transfer', label: 'Transfer Students', icon: <Users size={16} /> },
+                        { path: '/routes?tab=history', label: 'History Logs', icon: <ClipboardList size={16} /> },
+                    ]
+                },
                 { path: '/fleet', label: 'Fleet & Passengers', permission: 'fleet_passengers', icon: <Users size={20} /> },
                 { path: '/gps-tracking', label: 'GPS Live Tracking', permission: 'gps_tracking', icon: <Navigation size={20} /> },
                 { path: '/communications', label: 'Communications', permission: 'communications', icon: <MessageSquare size={20} /> },
@@ -118,6 +131,13 @@ const Layout = ({ children }) => {
     })).filter((category) => category.items.length > 0);
 
     const isPathActive = (path) => {
+        if (path.includes('?')) {
+            const [basePath, searchStr] = path.split('?');
+            const params = new URLSearchParams(searchStr);
+            const activeTab = params.get('tab');
+            const currentTab = new URLSearchParams(location.search).get('tab') || 'network';
+            return location.pathname === basePath && currentTab === activeTab;
+        }
         if (path === '/fleet') {
             return location.pathname === '/fleet'
                 || location.pathname.startsWith('/buses/')
@@ -154,7 +174,7 @@ const Layout = ({ children }) => {
     const renderNavItem = (item, { mobile = false, collapsed = false } = {}) => {
         if (item.children) {
             const groupActive = isGroupActive(item);
-            const expanded = mobile || (!collapsed && (openGroups[item.key] || groupActive));
+            const expanded = mobile || (!collapsed && !!openGroups[item.key]);
 
             return (
                 <div key={item.key || item.label} className="space-y-1">
@@ -184,7 +204,7 @@ const Layout = ({ children }) => {
                         )}
                     </button>
                     {expanded && !collapsed && (
-                        <div className="space-y-0.5">
+                        <div className="space-y-0.5 ml-6 pl-1 border-l border-slate-700/30">
                             {item.children.map((child) => {
                                 const childActive = isPathActive(child.path);
                                 return (
@@ -192,14 +212,14 @@ const Layout = ({ children }) => {
                                         key={child.path}
                                         to={child.path}
                                         onClick={mobile ? () => setIsMobileMenuOpen(false) : undefined}
-                                        className={`flex items-center px-4 py-1.5 rounded-xl text-[11px] transition-all ${
+                                        className={`flex items-center px-3 py-1.5 rounded-lg text-[10px] transition-all ${
                                             childActive
                                                 ? 'bg-blue-100 text-blue-700 font-bold'
-                                                : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                                                : 'text-slate-400 hover:bg-white/10 hover:text-white'
                                         }`}
                                     >
-                                        <span className={`mr-3 ${childActive ? 'text-blue-700' : 'text-slate-400'}`}>
-                                            {child.icon}
+                                        <span className={`mr-2.5 ${childActive ? 'text-blue-700' : 'text-slate-500'}`}>
+                                            {React.cloneElement(child.icon, { size: 14 })}
                                         </span>
                                         <span className="truncate">{child.label}</span>
                                     </Link>

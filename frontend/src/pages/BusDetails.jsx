@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
     Download,
@@ -92,9 +92,12 @@ const DonutChart = ({ percent }) => {
     );
 };
 
-const StatCard = ({ title, children, className = '' }) => (
+const StatCard = ({ title, children, className = '', action = null }) => (
     <div className={`bg-white rounded-2xl border border-slate-200 p-5 shadow-sm h-full flex flex-col ${className}`}>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 shrink-0">{title}</p>
+        <div className="flex items-center justify-between mb-3 shrink-0">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0">{title}</p>
+            {action}
+        </div>
         {children}
     </div>
 );
@@ -123,6 +126,24 @@ const FareDisplay = ({ passenger, compact = false }) => {
             )}
         </div>
     );
+};
+
+// Interpolate intermediate coordinates for a fluid, high-frame-rate time-lapse glide animation
+const interpolatePath = (path, stepsPerSegment = 8) => {
+    if (path.length < 2) return path;
+    const result = [];
+    for (let i = 0; i < path.length - 1; i++) {
+        const start = path[i];
+        const end = path[i + 1];
+        for (let step = 0; step < stepsPerSegment; step++) {
+            const ratio = step / stepsPerSegment;
+            const lat = start[0] + (end[0] - start[0]) * ratio;
+            const lng = start[1] + (end[1] - start[1]) * ratio;
+            result.push([lat, lng]);
+        }
+    }
+    result.push(path[path.length - 1]);
+    return result;
 };
 
 const BusDetails = () => {
@@ -170,22 +191,130 @@ const BusDetails = () => {
     const [kmDateTo, setKmDateTo] = useState(() => {
         return new Date().toISOString().split('T')[0];
     });
+    const [selectedDate, setSelectedDate] = useState(() => {
+        return new Date().toISOString().split('T')[0];
+    });
     const [kmIsMock, setKmIsMock] = useState(false);
 
     // GPS States and Refs
     const [isLeafletReady, setIsLeafletReady] = useState(false);
     const [gpsVehicle, setGpsVehicle] = useState(null);
     const [gpsTraceLogs, setGpsTraceLogs] = useState([]);
+    const [morningTrace, setMorningTrace] = useState([]);
+    const [eveningTrace, setEveningTrace] = useState([]);
+    const [finalDestination, setFinalDestination] = useState(null);
     const [gpsLoading, setGpsLoading] = useState(false);
     const [gpsError, setGpsError] = useState(null);
+    const [mapTab, setMapTab] = useState('live');
+    const [highlightsTab, setHighlightsTab] = useState('in');
+    const [animatingIndex, setAnimatingIndex] = useState(null);
+    const [snappedRoutePath, setSnappedRoutePath] = useState([]);
+    const [snappedMissedPaths, setSnappedMissedPaths] = useState([]); // road-snapped paths for missed stage runs
     const [hasCenteredFirstTime, setHasCenteredFirstTime] = useState(false);
     const gpsLiveBreadcrumbsRef = useRef([]);
     const isFirstLoadRef = useRef(true);
+    const hasCenteredRouteRef = useRef(false);
 
     const mapContainerRef = useRef(null);
     const mapInstanceRef = useRef(null);
     const layerGroupRef = useRef(null);
     const centeredVehicleNameRef = useRef(null);
+
+    // Destructure data object at the top so it is available to all hooks
+    const { bus, route, passengers, seatsFilled, seatsAvailable, capacity, occupancyPercent } = data || {
+        bus: null,
+        route: null,
+        passengers: [],
+        seatsFilled: 0,
+        seatsAvailable: 0,
+        capacity: 0,
+        occupancyPercent: 0
+    };
+
+    const routeStops = (() => {
+        if (!route) return [];
+        if (Array.isArray(route.stages) && route.stages.length > 0) {
+            return route.stages
+                .map((stage) => stage.stageName || stage.name || stage.stage_name)
+                .filter(Boolean);
+        }
+        const stops = [];
+        if (route.startPoint) stops.push(route.startPoint);
+        if (route.endPoint && route.endPoint !== route.startPoint) stops.push(route.endPoint);
+        return stops;
+    })();
+
+    const stagesWithCoords = useMemo(() => {
+        if (!route) return [];
+        let items = [];
+        if (Array.isArray(route.stages) && route.stages.length > 0) {
+            items = [...route.stages];
+        } else {
+            items = [
+                { stageName: route.startPoint, latitude: 16.989, longitude: 82.247, radius: 200 },
+                { stageName: route.endPoint, latitude: 16.989, longitude: 82.247, radius: 200 }
+            ];
+        }
+
+        // Always show the final destination at the end of Route Highlights
+        if (finalDestination) {
+            items.push({
+                stageName: finalDestination.name,
+                latitude: finalDestination.latitude,
+                longitude: finalDestination.longitude,
+                radius: finalDestination.radius,
+                isFinalDest: true
+            });
+        } else if (route.endPoint) {
+            // Fallback if finalDestination configuration is still loading or not configured
+            // Use correct Patavala campus coordinates as default fallback instead of previous stage coordinates
+            items.push({
+                stageName: route.endPoint,
+                latitude: 16.839153,
+                longitude: 82.224924,
+                radius: 200,
+                isFinalDest: true
+            });
+        }
+
+        return items;
+    }, [route, finalDestination]);
+
+    // Calculate the path to use for animation, falling back to stage coordinates if road snapping is loading or failed
+    const animationPath = useMemo(() => {
+        let baseCoords = [];
+        if (snappedRoutePath && snappedRoutePath.length > 0) {
+            baseCoords = snappedRoutePath;
+        } else {
+            baseCoords = stagesWithCoords
+                .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude !== 0 && s.longitude !== 0)
+                .map(s => [s.latitude, s.longitude]);
+        }
+        // Interpolate intermediate coordinates for a fluid, high-frame-rate time-lapse glide animation
+        return interpolatePath(baseCoords, 8);
+    }, [stagesWithCoords, snappedRoutePath]);
+
+    // Calculate total distance travelled today from GPS trace logs (Haversine sum)
+    const distanceTravelledKm = useMemo(() => {
+        const pts = (gpsTraceLogs || []).filter(t =>
+            typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0
+        );
+        if (pts.length < 2) return null;
+        const haversine = (lat1, lon1, lat2, lon2) => {
+            const R = 6371;
+            const p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+            const dp = (lat2 - lat1) * Math.PI / 180;
+            const dl = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
+        let total = 0;
+        for (let i = 1; i < pts.length; i++) {
+            const d = haversine(pts[i - 1].latitude, pts[i - 1].longitude, pts[i].latitude, pts[i].longitude);
+            if (d < 5) total += d; // ignore teleports > 5km between two pings
+        }
+        return total > 0 ? total.toFixed(1) : null;
+    }, [gpsTraceLogs]);
 
     // Dynamically load Leaflet library for fast interactive map & polyline tracing
     useEffect(() => {
@@ -273,6 +402,7 @@ const BusDetails = () => {
         setGpsError(null);
         centeredVehicleNameRef.current = null;
         setHasCenteredFirstTime(false);
+        hasCenteredRouteRef.current = false;
         isFirstLoadRef.current = true;
         
         return () => {
@@ -283,6 +413,15 @@ const BusDetails = () => {
             }
         };
     }, [id]);
+
+    // Recenter route bounds or live bus when switching tabs
+    useEffect(() => {
+        if (mapTab === 'route') {
+            hasCenteredRouteRef.current = false;
+        } else {
+            centeredVehicleNameRef.current = null; // trigger live re-centering
+        }
+    }, [mapTab]);
 
     const fetchGpsData = useCallback(async () => {
         if (!data?.bus?.busNumber) return;
@@ -302,13 +441,17 @@ const BusDetails = () => {
                     setGpsVehicle(matched);
                     setGpsError(null);
 
-                    // Accumulate breadcrumbs
+                    // Accumulate breadcrumbs with signal timestamps for precise chronological sorting
                     if (typeof matched.latitude === 'number' && typeof matched.longitude === 'number' && matched.latitude !== 0 && matched.longitude !== 0) {
                         const currentPath = gpsLiveBreadcrumbsRef.current;
                         const lastCoord = currentPath[currentPath.length - 1];
 
-                        if (!lastCoord || lastCoord[0] !== matched.latitude || lastCoord[1] !== matched.longitude) {
-                            currentPath.push([matched.latitude, matched.longitude]);
+                        if (!lastCoord || lastCoord.latitude !== matched.latitude || lastCoord.longitude !== matched.longitude) {
+                            currentPath.push({
+                                latitude: matched.latitude,
+                                longitude: matched.longitude,
+                                timestamp: matched.timestamp || new Date().toISOString()
+                            });
                         }
                     }
                 } else {
@@ -321,29 +464,81 @@ const BusDetails = () => {
         }
     }, [data?.bus?.busNumber]);
 
+    // Fetch final destination geofence configuration for the campus
+    useEffect(() => {
+        if (!data?.route?.campus) return;
+        const campusId = typeof data.route.campus === 'object'
+            ? (data.route.campus.id || data.route.campus._id || data.route.campus)
+            : data.route.campus;
+
+        if (!campusId) return;
+
+        (async () => {
+            try {
+                const res = await apiFetch(`${API}/gps/final-destination?campus=${campusId}`);
+                const json = await res.json();
+                if (json.success && json.data) {
+                    setFinalDestination(json.data);
+                }
+            } catch (err) {
+                console.warn('Failed to load final destination:', err);
+            }
+        })();
+    }, [data?.route?.campus]);
+
     const fetchGpsHistory = useCallback(async () => {
         if (!data?.bus?.busNumber) return;
         const normalizedBusNumber = normalizeVehicleNumber(data.bus.busNumber);
 
-        setGpsLoading(true);
+        // Only show loading indicator on initial fetch
+        if (morningTrace.length === 0 && eveningTrace.length === 0) {
+            setGpsLoading(true);
+        }
         try {
-            const res = await apiFetch(`${API}/gps/history`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ vehicle_name: normalizedBusNumber })
-            });
-            if (!res.ok) throw new Error('Failed to fetch GPS history');
-            const resData = await res.json();
+            const targetDate = selectedDate || new Date().toISOString().split('T')[0];
 
-            if (resData.success && Array.isArray(resData.data)) {
-                setGpsTraceLogs(resData.data);
+            // 1. Fetch consolidated Daily History (which contains all raw coordinates logged throughout the day)
+            const resDaily = await apiFetch(`${API}/gps/daily-history?vehicle_name=${normalizedBusNumber}&date=${targetDate}`);
+
+            if (resDaily.ok) {
+                const json = await resDaily.json();
+                if (json.success && Array.isArray(json.data)) {
+                    // Only update traces if we received coordinate data points, preserving existing times during temporary API rate-limits/failures
+                    if (json.data.length > 0) {
+                        const morningPts = [];
+                        const eveningPts = [];
+
+                        json.data.forEach(pt => {
+                            if (!pt.timestamp) return;
+                            const timePart = pt.timestamp.split(' ')[1];
+                            if (timePart) {
+                                if (timePart < '12:00:00') {
+                                    morningPts.push(pt);
+                                } else {
+                                    eveningPts.push(pt);
+                                }
+                            }
+                        });
+
+                        setMorningTrace(morningPts);
+                        setEveningTrace(eveningPts);
+                        setGpsTraceLogs(json.data); // Set full daily path to be traced on map
+                    }
+                }
             }
         } catch (err) {
             console.warn('GPS History Fetch Error:', err);
         } finally {
             setGpsLoading(false);
         }
-    }, [data?.bus?.busNumber]);
+    }, [data?.bus?.busNumber, finalDestination, selectedDate]);
+
+    // Clear GPS traces and map path immediately when date changes to trigger fresh loading spinner
+    useEffect(() => {
+        setMorningTrace([]);
+        setEveningTrace([]);
+        setGpsTraceLogs([]);
+    }, [selectedDate]);
 
     const fetchDailyKm = useCallback(async () => {
         if (!data?.bus?.busNumber) return;
@@ -413,21 +608,170 @@ const BusDetails = () => {
         };
     }, [data?.bus?.busNumber, fetchGpsData, fetchGpsHistory]);
 
+    // Fetch road-snapped path from Open Source Routing Machine (OSRM) to snap points to roads
+    useEffect(() => {
+        const coords = stagesWithCoords
+            .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude !== 0 && s.longitude !== 0)
+            .map(s => [s.latitude, s.longitude]);
+
+        if (coords.length < 2) {
+            setSnappedRoutePath([]);
+            return;
+        }
+
+        const fetchRoadSnappedPath = async (pts) => {
+            const coordString = pts.map(c => `${c[1]},${c[0]}`).join(';');
+            try {
+                // Query OSRM routing service
+                const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson&continue_straight=false`;
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.routes && data.routes[0]) {
+                        const geom = data.routes[0].geometry;
+                        if (geom && geom.coordinates) {
+                            // Convert back to [lat, lng]
+                            return geom.coordinates.map(c => [c[1], c[0]]);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[OSRM Snapping] Failed to snap stages to road:', err);
+            }
+            return pts; // fallback to straight lines if API fails
+        };
+
+        (async () => {
+            const snapped = await fetchRoadSnappedPath(coords);
+            setSnappedRoutePath(snapped);
+        })();
+    }, [stagesWithCoords]);
+
+    // Compute OSRM-snapped paths for missed stage runs in Live View
+    useEffect(() => {
+        if (!stagesWithCoords.length || !gpsTraceLogs.length) {
+            setSnappedMissedPaths([]);
+            return;
+        }
+
+        const calcDist = (lat1, lon1, lat2, lon2) => {
+            const R = 6371e3;
+            const p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+            const dp = (lat2 - lat1) * Math.PI / 180;
+            const dl = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
+
+        const tracePts = gpsTraceLogs.filter(t =>
+            typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0
+        );
+        if (tracePts.length < 5) { setSnappedMissedPaths([]); return; }
+
+        const visitedFlags = stagesWithCoords.map(stage => {
+            const r = Math.max(stage.radius || 200, 500);
+            return tracePts.some(pt => calcDist(stage.latitude, stage.longitude, pt.latitude, pt.longitude) <= r);
+        });
+
+        // Build runs of consecutive missed stages, bookended by the stage before and after
+        const missedRuns = [];
+        let i = 0;
+        while (i < stagesWithCoords.length) {
+            if (!visitedFlags[i]) {
+                // Found start of a missed run
+                const runStart = i;
+                while (i < stagesWithCoords.length && !visitedFlags[i]) i++;
+                const runEnd = i - 1; // inclusive
+
+                // Collect waypoints: stage before run (if any) + all missed stages + stage after run (if any)
+                const waypoints = [];
+                if (runStart > 0) {
+                    const prev = stagesWithCoords[runStart - 1];
+                    if (prev.latitude && prev.longitude) waypoints.push([prev.latitude, prev.longitude]);
+                }
+                for (let j = runStart; j <= runEnd; j++) {
+                    const s = stagesWithCoords[j];
+                    if (s.latitude && s.longitude) waypoints.push([s.latitude, s.longitude]);
+                }
+                if (i < stagesWithCoords.length) {
+                    const next = stagesWithCoords[i];
+                    if (next.latitude && next.longitude) waypoints.push([next.latitude, next.longitude]);
+                }
+
+                if (waypoints.length >= 2) missedRuns.push(waypoints);
+            } else {
+                i++;
+            }
+        }
+
+        if (!missedRuns.length) { setSnappedMissedPaths([]); return; }
+
+        // OSRM-snap each missed run
+        const snapPath = async (pts) => {
+            const coordStr = pts.map(c => `${c[1]},${c[0]}`).join(';');
+            try {
+                const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson&continue_straight=false`;
+                const res = await fetch(url);
+                if (res.ok) {
+                    const json = await res.json();
+                    if (json.routes?.[0]?.geometry?.coordinates) {
+                        return json.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                    }
+                }
+            } catch (_) { /* fallback below */ }
+            return pts; // fallback to straight line
+        };
+
+        (async () => {
+            const results = await Promise.all(missedRuns.map(run => snapPath(run)));
+            setSnappedMissedPaths(results);
+        })();
+    }, [stagesWithCoords, gpsTraceLogs]);
+
+    // Time-lapse bus traveling animation along the snapped route path (loops direction-based)
+    useEffect(() => {
+        if (mapTab !== 'route' || animationPath.length === 0) {
+            setAnimatingIndex(null);
+            return;
+        }
+
+        let currentIndex = highlightsTab === 'in' ? 0 : animationPath.length - 1;
+        const stepVal = highlightsTab === 'in' ? 10 : -10; // faster animation
+        const targetIndex = highlightsTab === 'in' ? animationPath.length - 1 : 0;
+
+        setAnimatingIndex(currentIndex);
+
+        const interval = setInterval(() => {
+            const isFinished = highlightsTab === 'in'
+                ? currentIndex >= targetIndex
+                : currentIndex <= targetIndex;
+
+            if (isFinished) {
+                // Loop: reset to start point
+                currentIndex = highlightsTab === 'in' ? 0 : animationPath.length - 1;
+            } else {
+                currentIndex += stepVal;
+                // Clamp index to boundaries
+                if (currentIndex < 0) currentIndex = 0;
+                if (currentIndex >= animationPath.length) currentIndex = animationPath.length - 1;
+            }
+            setAnimatingIndex(currentIndex);
+        }, 20); // 20ms = ~50 FPS buttery-smooth glide!
+
+        return () => {
+            clearInterval(interval);
+        };
+    }, [mapTab, highlightsTab, animationPath]);
+
     // Render/Update Leaflet Map
     useEffect(() => {
         if (!isLeafletReady || !mapContainerRef.current || !window.L) return;
         const L = window.L;
 
-        const hasGpsCoords = gpsVehicle && 
-                            typeof gpsVehicle.latitude === 'number' && 
-                            typeof gpsVehicle.longitude === 'number' && 
-                            gpsVehicle.latitude !== 0 && 
-                            gpsVehicle.longitude !== 0;
-
         // Initialize Map if not yet initialized
         if (!mapInstanceRef.current) {
-            const initialCenter = hasGpsCoords ? [gpsVehicle.latitude, gpsVehicle.longitude] : [17.544, 80.616];
-            const initialZoom = hasGpsCoords ? 15 : 13;
+            const initialCenter = [17.544, 80.616];
+            const initialZoom = 13;
 
             const map = L.map(mapContainerRef.current, {
                 center: initialCenter,
@@ -454,94 +798,330 @@ const BusDetails = () => {
 
         let timer = null;
 
-        if (hasGpsCoords) {
-            const lat = gpsVehicle.latitude;
-            const lng = gpsVehicle.longitude;
-            const isMoving = (gpsVehicle.speed || 0) > 0;
-            const icon = createVehicleIcon(isMoving);
+        // 1. Draw stage markers (ALWAYS — both Route Map and Live View)
+        const stageCoords = stagesWithCoords
+            .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude !== 0 && s.longitude !== 0)
+            .map(s => [s.latitude, s.longitude]);
 
-            const marker = L.marker([lat, lng], { icon });
+        // Helper: check if GPS trace has any point within a stage's radius
+        const calculateDistance = (lat1, lon1, lat2, lon2) => {
+            const R = 6371e3;
+            const phi1 = lat1 * Math.PI / 180, phi2 = lat2 * Math.PI / 180;
+            const dPhi = (lat2 - lat1) * Math.PI / 180;
+            const dLam = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dPhi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLam / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
+
+        const allTracePts = (gpsTraceLogs || []).filter(t =>
+            typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0
+        );
+        const hasEnoughHistory = allTracePts.length > 5; // only show visit status when we have data
+
+        stagesWithCoords.forEach((stage, idx) => {
+            if (typeof stage.latitude !== 'number' || typeof stage.longitude !== 'number' || stage.latitude === 0 || stage.longitude === 0) return;
+            const isFinal = stage.isFinalDest;
+            const searchRadius = Math.max(stage.radius || 200, 500);
+
+            // Determine visit status for live tab coloring
+            let visited = false;
+            if (mapTab === 'live' && hasEnoughHistory) {
+                visited = allTracePts.some(pt =>
+                    calculateDistance(stage.latitude, stage.longitude, pt.latitude, pt.longitude) <= searchRadius
+                );
+            }
+
+            let iconHtml;
+            if (mapTab === 'route') {
+                // Route Map: standard numbered blue badges
+                iconHtml = isFinal ? `
+                    <div class="relative flex items-center justify-center">
+                        <span class="absolute inline-flex h-5 w-5 rounded-full bg-blue-400 opacity-75 animate-ping"></span>
+                        <div class="relative flex items-center justify-center rounded-full h-4.5 w-4.5 bg-blue-600 border border-white shadow-md">
+                            <span class="text-[7px]">🏁</span>
+                        </div>
+                    </div>
+                ` : `
+                    <div class="flex items-center justify-center rounded-full h-4.5 w-4.5 bg-blue-600 border border-white shadow-md text-white font-extrabold text-[8px]">
+                        ${idx + 1}
+                    </div>
+                `;
+            } else {
+                // Live View: numbered badges colored by visit status — always show the number
+                // Blue = visited, Amber = missed, Grey = no data yet
+                const bgColor = !hasEnoughHistory ? '#64748b' : (isFinal ? '#4f46e5' : (visited ? '#2563eb' : '#d97706'));
+                // Small status dot in corner: green tick or red cross
+                const statusDot = hasEnoughHistory && !isFinal
+                    ? `<span style="position:absolute;top:-3px;right:-3px;width:7px;height:7px;border-radius:50%;background:${visited ? '#22c55e' : '#ef4444'};border:1px solid white;"></span>`
+                    : '';
+                iconHtml = isFinal ? `
+                    <div class="relative flex items-center justify-center">
+                        <div class="relative flex items-center justify-center rounded-full h-5 w-5 border-2 border-white shadow-md" style="background:${bgColor}">
+                            <span class="text-[8px]">🏁</span>
+                        </div>
+                    </div>
+                ` : `
+                    <div style="position:relative;display:inline-flex;">
+                        <div class="flex items-center justify-center rounded-full border-2 border-white shadow-lg text-white font-extrabold" style="width:20px;height:20px;font-size:8px;background:${bgColor};">
+                            ${idx + 1}
+                        </div>
+                        ${statusDot}
+                    </div>
+                `;
+            }
+
+            const icon = L.divIcon({
+                html: iconHtml,
+                className: 'custom-stage-marker-icon',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+            });
+
+            const visitLabel = !hasEnoughHistory ? 'No GPS data yet' : (isFinal ? (visited ? '✓ Arrived' : '⏳ Not yet reached') : (visited ? '✓ Visited' : '⚠ Missed'));
             const popupHtml = `
                 <div style="font-family: sans-serif; font-size: 11px; padding: 2px;">
-                    <strong style="font-size: 12px; color: #0f172a;">${gpsVehicle.name}</strong><br/>
-                    <span style="color: #64748b;">Unit ID: ${gpsVehicle.units}</span><br/>
-                    <span style="color: ${isMoving ? '#059669' : '#dc2626'}; font-weight: bold;">
-                        ${isMoving ? `🚌 Speed: ${gpsVehicle.speed} km/h` : '⏹ Stopped'}
-                    </span><br/>
-                    <span style="color: #94a3b8; font-size: 10px;">${gpsVehicle.timestamp || ''}</span>
+                    <strong style="font-size: 12px; color: #1d4ed8;">${stage.stageName}</strong><br/>
+                    <span style="color: #64748b;">${isFinal ? '🏁 Final Destination' : `📍 Stage #${idx + 1}`}</span><br/>
+                    ${mapTab === 'live' ? `<span style="color:${!hasEnoughHistory ? '#94a3b8' : (visited ? '#059669' : '#d97706')}; font-weight:bold;">${visitLabel}</span>` : ''}
                 </div>
             `;
+            const marker = L.marker([stage.latitude, stage.longitude], { icon });
             marker.bindPopup(popupHtml);
             marker.addTo(layerGroup);
+        });
 
-            // Center map on the bus coordinates inside a short timeout to handle DOM reflow correctly
-            timer = setTimeout(() => {
-                if (mapInstanceRef.current) {
-                    mapInstanceRef.current.invalidateSize();
-                    if (centeredVehicleNameRef.current !== gpsVehicle.name) {
-                        mapInstanceRef.current.flyTo([lat, lng], 15, { animate: true, duration: 1.5 });
-                        centeredVehicleNameRef.current = gpsVehicle.name;
-                        setHasCenteredFirstTime(true);
-                    } else {
-                        mapInstanceRef.current.panTo([lat, lng], { animate: true });
-                    }
+        // Draw dashed yellow path for missed stage runs using pre-snapped road paths (Live View only)
+        if (mapTab === 'live' && hasEnoughHistory && snappedMissedPaths.length > 0) {
+            snappedMissedPaths.forEach(pts => {
+                if (pts.length < 2) return;
+                // outer glow
+                L.polyline(pts, {
+                    color: '#fbbf24',
+                    weight: 7,
+                    opacity: 0.25,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(layerGroup);
+                // inner dashed line
+                L.polyline(pts, {
+                    color: '#f59e0b',
+                    weight: 2.5,
+                    opacity: 0.9,
+                    dashArray: '8, 6',
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(layerGroup);
+            });
+        } else if (mapTab === 'live' && hasEnoughHistory && snappedMissedPaths.length === 0) {
+            // Fallback: draw straight dashed lines while OSRM snapping is in progress
+            for (let i = 0; i < stagesWithCoords.length - 1; i++) {
+                const s1 = stagesWithCoords[i];
+                const s2 = stagesWithCoords[i + 1];
+                if (typeof s1.latitude !== 'number' || typeof s2.latitude !== 'number') continue;
+                if (s1.latitude === 0 || s2.latitude === 0) continue;
+                const r2 = Math.max(s2.radius || 200, 500);
+                const visited2 = allTracePts.some(pt => calculateDistance(s2.latitude, s2.longitude, pt.latitude, pt.longitude) <= r2);
+                if (!visited2) {
+                    L.polyline([[s1.latitude, s1.longitude], [s2.latitude, s2.longitude]], {
+                        color: '#f59e0b', weight: 2, opacity: 0.5, dashArray: '8, 6', lineCap: 'round'
+                    }).addTo(layerGroup);
                 }
-            }, 150);
+            }
+        }
 
-            // Draw polyline trace
+        // 2. Draw connecting route lines (dynamic growth for Route Map, live coordinates trail for Live View)
+        let linePoints = [];
+        if (mapTab === 'route') {
+            if (animatingIndex !== null && animationPath.length > 0) {
+                if (highlightsTab === 'in') {
+                    linePoints = animationPath.slice(0, animatingIndex + 1);
+                } else {
+                    linePoints = animationPath.slice(animatingIndex, animationPath.length);
+                }
+            }
+        } else {
+            // Live View tab: show ONLY the current active trip segment (not the full day round-trip)
             const historyPoints = (gpsTraceLogs || [])
-                .filter(t => typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0)
-                .map(t => [t.latitude, t.longitude]);
+                .filter(t => typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0);
 
-            const livePoints = gpsLiveBreadcrumbsRef.current || [];
+            const livePoints = (gpsLiveBreadcrumbsRef.current || [])
+                .filter(t => typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0);
+            
+            // Add current active bus position to line if available
+            const hasGpsCoords = gpsVehicle && 
+                                typeof gpsVehicle.latitude === 'number' && 
+                                typeof gpsVehicle.longitude === 'number' && 
+                                gpsVehicle.latitude !== 0 && 
+                                gpsVehicle.longitude !== 0;
+            const currentPos = hasGpsCoords ? [{
+                latitude: gpsVehicle.latitude,
+                longitude: gpsVehicle.longitude,
+                timestamp: gpsVehicle.timestamp || new Date().toISOString()
+            }] : [];
 
             const allPointsMap = new Map();
-            [...historyPoints, ...livePoints, [lat, lng]].forEach(pt => {
-                if (Array.isArray(pt) && pt.length === 2 && !isNaN(pt[0]) && !isNaN(pt[1])) {
-                    const key = `${pt[0].toFixed(5)},${pt[1].toFixed(5)}`;
+            [...historyPoints, ...livePoints, ...currentPos].forEach(pt => {
+                if (pt && typeof pt.latitude === 'number' && typeof pt.longitude === 'number') {
+                    const key = `${pt.latitude.toFixed(5)},${pt.longitude.toFixed(5)}`;
                     if (!allPointsMap.has(key)) {
                         allPointsMap.set(key, pt);
                     }
                 }
             });
 
-            const latLngs = Array.from(allPointsMap.values());
-            if (latLngs.length >= 2) {
-                // outer glow polyline
-                L.polyline(latLngs, {
+            // Sort all points chronologically
+            const sortedPoints = Array.from(allPointsMap.values())
+                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+            // Split into trip segments at ≥90 min gaps (bus parked between runs)
+            const GAP_MS = 90 * 60 * 1000;
+            const tripSegments = [];
+            let currentSegment = [];
+
+            for (let i = 0; i < sortedPoints.length; i++) {
+                if (i === 0) {
+                    currentSegment.push(sortedPoints[i]);
+                } else {
+                    const prev = new Date(sortedPoints[i - 1].timestamp).getTime();
+                    const curr = new Date(sortedPoints[i].timestamp).getTime();
+                    if (!isNaN(prev) && !isNaN(curr) && (curr - prev) >= GAP_MS) {
+                        // Gap detected — save current segment and start a new one
+                        if (currentSegment.length > 0) tripSegments.push(currentSegment);
+                        currentSegment = [sortedPoints[i]];
+                    } else {
+                        currentSegment.push(sortedPoints[i]);
+                    }
+                }
+            }
+            if (currentSegment.length > 0) tripSegments.push(currentSegment);
+
+            const today = new Date().toISOString().split('T')[0];
+            const isToday = (selectedDate || today) === today;
+
+            // For today: only draw the LAST segment (active trip). For past dates: draw ALL segments.
+            const segmentsToDraw = isToday ? tripSegments.slice(-1) : tripSegments;
+
+            // Draw each trip segment as its own independent polyline (no connecting line between trips)
+            segmentsToDraw.forEach(seg => {
+                const pts = seg.map(pt => [pt.latitude, pt.longitude]);
+                if (pts.length < 2) return;
+                // outer glow
+                L.polyline(pts, {
                     color: '#1d4ed8',
-                    weight: 8,
-                    opacity: 0.4,
+                    weight: 7,
+                    opacity: 0.35,
                     lineCap: 'round',
                     lineJoin: 'round'
                 }).addTo(layerGroup);
-
-                // inner route polyline
-                L.polyline(latLngs, {
+                // inner route
+                L.polyline(pts, {
                     color: '#2563eb',
-                    weight: 4,
+                    weight: 3.5,
                     opacity: 0.95,
                     lineCap: 'round',
                     lineJoin: 'round'
                 }).addTo(layerGroup);
+            });
 
-                // draw trace points
-                latLngs.forEach((point) => {
-                    L.circleMarker(point, {
-                        radius: 3,
-                        fillColor: '#60a5fa',
-                        color: '#ffffff',
-                        weight: 1,
-                        fillOpacity: 1
-                    }).addTo(layerGroup);
-                });
+            // linePoints stays [] so the shared polyline block below is skipped for live view
+        }
+
+        if (linePoints.length >= 2) {
+            // outer glow
+            L.polyline(linePoints, {
+                color: '#1d4ed8',
+                weight: 7,
+                opacity: 0.35,
+                lineCap: 'round',
+                lineJoin: 'round'
+            }).addTo(layerGroup);
+
+            // inner route
+            L.polyline(linePoints, {
+                color: '#2563eb',
+                weight: 3.5,
+                opacity: 0.95,
+                lineCap: 'round',
+                lineJoin: 'round'
+            }).addTo(layerGroup);
+        }
+
+        // 3. Render tab-specific controls
+        if (mapTab === 'route') {
+            // Draw animating bus marker overlay representing the simulated bus ride
+            const activeAnimPos = (animatingIndex !== null && animationPath[animatingIndex]) || null;
+            if (activeAnimPos && activeAnimPos.length === 2) {
+                const icon = createVehicleIcon(true); // green active bus icon
+                const movingMarker = L.marker(activeAnimPos, { icon, zIndexOffset: 1000 });
+                movingMarker.bindPopup(`
+                    <div style="font-family: sans-serif; font-size: 11px; padding: 2px;">
+                        <strong style="color: #2563eb;">Time-Lapse Simulation</strong><br/>
+                        <span style="color: #64748b; font-weight: bold;">
+                            🚌 Direction: ${highlightsTab === 'in' ? 'Morning Campus Inward' : 'Evening Home Outward'}
+                        </span>
+                    </div>
+                `);
+                movingMarker.addTo(layerGroup);
+            }
+
+            // ROUTE MAP TAB: Fit bounds once
+            if (stageCoords.length > 0 && !hasCenteredRouteRef.current) {
+                timer = setTimeout(() => {
+                    if (mapInstanceRef.current && mapTab === 'route') {
+                        mapInstanceRef.current.invalidateSize();
+                        mapInstanceRef.current.fitBounds(L.latLngBounds(stageCoords), { padding: [45, 45] });
+                        hasCenteredRouteRef.current = true; // Mark as centered once
+                    }
+                }, 150);
+            }
+        } else {
+            // LIVE VIEW TAB: Draw live vehicle marker overlay on top of route, and center/pan on it
+            const hasGpsCoords = gpsVehicle && 
+                                typeof gpsVehicle.latitude === 'number' && 
+                                typeof gpsVehicle.longitude === 'number' && 
+                                gpsVehicle.latitude !== 0 && 
+                                gpsVehicle.longitude !== 0;
+
+            if (hasGpsCoords) {
+                const lat = gpsVehicle.latitude;
+                const lng = gpsVehicle.longitude;
+                const isMoving = (gpsVehicle.speed || 0) > 0;
+                const icon = createVehicleIcon(isMoving);
+
+                const marker = L.marker([lat, lng], { icon });
+                const popupHtml = `
+                    <div style="font-family: sans-serif; font-size: 11px; padding: 2px;">
+                        <strong style="font-size: 12px; color: #0f172a;">${gpsVehicle.name}</strong><br/>
+                        <span style="color: #64748b;">Unit ID: ${gpsVehicle.units}</span><br/>
+                        <span style="color: ${isMoving ? '#059669' : '#dc2626'}; font-weight: bold;">
+                            ${isMoving ? `🚌 Speed: ${gpsVehicle.speed} km/h` : '⏹ Stopped'}
+                        </span><br/>
+                        <span style="color: #94a3b8; font-size: 10px;">${gpsVehicle.timestamp || ''}</span>
+                    </div>
+                `;
+                marker.bindPopup(popupHtml);
+                marker.addTo(layerGroup);
+
+                // Center map on the bus coordinates
+                timer = setTimeout(() => {
+                    if (mapInstanceRef.current && mapTab === 'live') {
+                        mapInstanceRef.current.invalidateSize();
+                        if (centeredVehicleNameRef.current !== gpsVehicle.name) {
+                            mapInstanceRef.current.flyTo([lat, lng], 15, { animate: true, duration: 1.5 });
+                            centeredVehicleNameRef.current = gpsVehicle.name;
+                            setHasCenteredFirstTime(true);
+                        } else {
+                            mapInstanceRef.current.panTo([lat, lng], { animate: true });
+                        }
+                    }
+                }, 150);
             }
         }
 
         return () => {
             if (timer) clearTimeout(timer);
         };
-    }, [isLeafletReady, gpsVehicle, gpsTraceLogs, createVehicleIcon]);
+    }, [isLeafletReady, gpsVehicle, gpsTraceLogs, createVehicleIcon, mapTab, stagesWithCoords, snappedRoutePath, animatingIndex, animationPath, highlightsTab, snappedMissedPaths]);
 
     const handlePrint = async (options = reportOptions) => {
         if (!data?.bus?.busNumber) return;
@@ -851,23 +1431,66 @@ const BusDetails = () => {
         );
     }
 
-    const { bus, route, passengers, seatsFilled, seatsAvailable, capacity, occupancyPercent } = data;
     const occupancyLabel = occupancyMode === 'live' ? 'Live' : academicYear;
     const studentCount = (passengers || []).filter((p) => !p.user_type || p.user_type === 'student').length;
     const employeeCount = (passengers || []).filter((p) => p.user_type === 'employee').length;
 
-    const routeStops = (() => {
-        if (!route) return [];
-        if (Array.isArray(route.stages) && route.stages.length > 0) {
-            return route.stages
-                .map((stage) => stage.stageName || stage.name || stage.stage_name)
-                .filter(Boolean);
+    const getStageGpsStatus = (stage, isFirstStage, isFinalDest) => {
+        const calculateDistance = (lat1, lon1, lat2, lon2) => {
+            const R = 6371e3; // meters
+            const phi1 = lat1 * Math.PI / 180;
+            const phi2 = lat2 * Math.PI / 180;
+            const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+            const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+            const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                      Math.cos(phi1) * Math.cos(phi2) *
+                      Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+            return R * c; // in meters
+        };
+
+        let morningTime = '—';
+        let eveningTime = '—';
+        const searchRadius = Math.max(stage.radius || 200, 500);
+
+        // 1. Morning check ("In")
+        const morningInside = morningTrace
+            .filter(pt => calculateDistance(stage.latitude, stage.longitude, pt.latitude, pt.longitude) <= searchRadius)
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        if (morningInside.length > 0) {
+            if (isFinalDest) {
+                // Morning final campus stop: enters the campus (first point inside radius)
+                const firstPt = morningInside[0];
+                morningTime = firstPt.timestamp ? firstPt.timestamp.split(' ')[1].substring(0, 5) : '—';
+            } else {
+                // Morning boarding stages: leaving the stage radius (last point inside radius)
+                const lastPt = morningInside[morningInside.length - 1];
+                morningTime = lastPt.timestamp ? lastPt.timestamp.split(' ')[1].substring(0, 5) : '—';
+            }
         }
-        const stops = [];
-        if (route.startPoint) stops.push(route.startPoint);
-        if (route.endPoint && route.endPoint !== route.startPoint) stops.push(route.endPoint);
-        return stops;
-    })();
+
+        // 2. Evening check ("Out")
+        const eveningInside = eveningTrace
+            .filter(pt => calculateDistance(stage.latitude, stage.longitude, pt.latitude, pt.longitude) <= searchRadius)
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        if (eveningInside.length > 0) {
+            if (isFinalDest) {
+                // Evening campus start: leaving the campus (last point inside radius)
+                const lastPt = eveningInside[eveningInside.length - 1];
+                eveningTime = lastPt.timestamp ? lastPt.timestamp.split(' ')[1].substring(0, 5) : '—';
+            } else {
+                // Evening drop-off stages: enters the stage radius (first point inside radius)
+                const firstPt = eveningInside[0];
+                eveningTime = firstPt.timestamp ? firstPt.timestamp.split(' ')[1].substring(0, 5) : '—';
+            }
+        }
+
+        return { morningTime, eveningTime };
+    };
 
     const routePathLabel = routeStops.length > 0
         ? routeStops.join(' → ')
@@ -930,7 +1553,20 @@ const BusDetails = () => {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
+                    {/* Date filter dropdown */}
+                    <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-lg px-2.5 py-1.5 shadow-sm transition-all">
+                        <Calendar size={13} className="text-blue-500 shrink-0" />
+                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wide">Date:</span>
+                        <input
+                            type="date"
+                            value={selectedDate}
+                            onChange={(e) => setSelectedDate(e.target.value)}
+                            max={new Date().toISOString().split('T')[0]}
+                            className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer outline-none w-[110px]"
+                        />
+                    </div>
+
                     <button
                         type="button"
                         onClick={openReportModal}
@@ -1023,7 +1659,7 @@ const BusDetails = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6 items-stretch">
                 {/* Left Column: Combined Cards & Route Highlights */}
-                <div className="lg:col-span-5 xl:col-span-5 flex flex-col">
+                <div className="lg:col-span-7 xl:col-span-7 flex flex-col">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-full">
                         {/* Combined Card: Occupancy, Bus Staff & Live Status */}
                         <StatCard title="Occupancy & Crew Details">
@@ -1179,18 +1815,100 @@ const BusDetails = () => {
                         </StatCard>
 
                         {/* Card 2: Route Highlights */}
-                        <StatCard title="Route Highlights">
+                        <StatCard 
+                            title="Route Highlights"
+                            action={
+                                <div className="flex items-center gap-2 shrink-0">
+                                    {distanceTravelledKm && (
+                                        <div className="flex items-center gap-1 bg-blue-50 border border-blue-100 rounded-lg px-2 py-0.5">
+                                            <span className="text-[9px] font-bold text-blue-500 uppercase tracking-wide">total travelled</span>
+                                            <span className="text-[10px] font-extrabold text-blue-700">{distanceTravelledKm} km</span>
+                                        </div>
+                                    )}
+                                    {mapTab === 'route' && (
+                                        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-sm">
+                                            <button
+                                                type="button"
+                                                onClick={() => setHighlightsTab('in')}
+                                                className={`px-2.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
+                                                    highlightsTab === 'in'
+                                                        ? 'bg-white text-blue-600 shadow-sm'
+                                                        : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                            >
+                                                In
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setHighlightsTab('out')}
+                                                className={`px-2.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
+                                                    highlightsTab === 'out'
+                                                        ? 'bg-white text-blue-600 shadow-sm'
+                                                        : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                            >
+                                                Out
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            }
+                        >
                             {route ? (
                                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
-                                    <div className="relative pl-3 border-l border-blue-100 ml-1.5 h-full min-h-[450px] flex flex-col justify-between py-1">
-                                        {routeStops.map((stop, index) => (
-                                            <div key={index} className="relative flex items-center py-0.5">
-                                                <div className="absolute -left-4 w-2 h-2 rounded-full border-2 border-blue-500 bg-white" />
-                                                <span className="text-[11px] font-bold text-slate-700 leading-none truncate max-w-[180px] inline-block" title={stop}>
-                                                    {stop}
-                                                </span>
-                                            </div>
-                                        ))}
+                                    <div className="relative pl-4 border-l-2 border-blue-100 ml-2 h-full min-h-[450px] flex flex-col justify-between py-2 space-y-4">
+                                        {stagesWithCoords.map((stage, index) => {
+                                            const isFirst = index === 0;
+                                            const isLast = index === stagesWithCoords.length - 1;
+                                            const isFinal = stage.isFinalDest;
+                                            const status = getStageGpsStatus(stage, isFirst, isFinal);
+                                            // A stage is 'missed' if both In and Out times are blank
+                                            const isMissed = !isFinal && status.morningTime === '—' && status.eveningTime === '—' && (morningTrace.length > 0 || eveningTrace.length > 0);
+
+                                            return (
+                                                <div key={index} className="relative flex flex-col justify-center min-h-[40px] pl-1">
+                                                    {/* Bullet point indicator — amber when missed */}
+                                                    <div className={`absolute -left-[21px] w-3.5 h-3.5 rounded-full border-2 bg-white flex items-center justify-center ${
+                                                        isFinal ? 'border-indigo-600 ring-2 ring-indigo-100' : isMissed ? 'border-amber-400 ring-2 ring-amber-100' : 'border-blue-500'
+                                                    }`}>
+                                                        <div className={`w-1.5 h-1.5 rounded-full ${isFinal ? 'bg-indigo-600' : isMissed ? 'bg-amber-400' : 'bg-blue-500'}`} />
+                                                    </div>
+                                                    
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="flex items-center gap-1 min-w-0">
+                                                            {isMissed && (
+                                                                <span className="shrink-0 text-[8px] font-extrabold text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 py-0.5 uppercase tracking-wide">Missed</span>
+                                                            )}
+                                                            <span className={`text-[11px] font-extrabold truncate max-w-[120px] ${
+                                                                isFinal ? 'text-indigo-800' : isMissed ? 'text-amber-700' : 'text-slate-700'
+                                                            }`} title={stage.stageName}>
+                                                                {stage.stageName}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex gap-2 shrink-0">
+                                                            {/* Morning "In" status */}
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-[7px] text-slate-400 font-bold uppercase leading-none mb-0.5">In</span>
+                                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                                                    status.morningTime !== '—' && status.morningTime !== '...' ? 'bg-green-100 text-green-800' : isMissed ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'
+                                                                }`}>
+                                                                    {status.morningTime}
+                                                                </span>
+                                                            </div>
+                                                            {/* Evening "Out" status */}
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-[7px] text-slate-400 font-bold uppercase leading-none mb-0.5">Out</span>
+                                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                                                    status.eveningTime !== '—' && status.eveningTime !== '...' ? 'bg-rose-100 text-rose-800' : isMissed ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'
+                                                                }`}>
+                                                                    {status.eveningTime}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             ) : (
@@ -1201,7 +1919,7 @@ const BusDetails = () => {
                 </div>
 
                 {/* Right Column: GPS Map Card */}
-                <div className="lg:col-span-7 xl:col-span-7">
+                <div className="lg:col-span-5 xl:col-span-5">
                     <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm h-full flex flex-col min-h-[580px] space-y-3">
                         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                             <div className="flex items-center gap-2">
@@ -1238,6 +1956,32 @@ const BusDetails = () => {
                                 </div>
                             )}
 
+                            {/* View toggle tabs */}
+                            <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-sm shrink-0 mr-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setMapTab('live')}
+                                    className={`px-2.5 py-1 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
+                                        mapTab === 'live'
+                                            ? 'bg-white text-blue-600 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                    }`}
+                                >
+                                    Live
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setMapTab('route')}
+                                    className={`px-2.5 py-1 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
+                                        mapTab === 'route'
+                                            ? 'bg-white text-blue-600 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                    }`}
+                                >
+                                    Route Map
+                                </button>
+                            </div>
+
                             <div className="flex items-center gap-1">
                                 {gpsVehicle && gpsVehicle.uiiframe && (
                                     <a
@@ -1273,7 +2017,7 @@ const BusDetails = () => {
                             />
                             
                             {/* Error Overlay */}
-                            {gpsError && (
+                            {mapTab === 'live' && gpsError && (
                                 <div className="absolute inset-0 flex flex-col justify-center items-center bg-slate-50 p-6 text-center z-10">
                                     <AlertTriangle size={24} className="text-amber-500 mb-2" />
                                     <p className="text-xs font-bold text-slate-800 mb-1">GPS Not Connected</p>
@@ -1282,7 +2026,7 @@ const BusDetails = () => {
                             )}
 
                             {/* Loading Overlay */}
-                            {!gpsError && (!isLeafletReady || !gpsVehicle || !hasCenteredFirstTime) && (
+                            {(mapTab === 'route' ? !isLeafletReady : (!gpsError && (!isLeafletReady || !gpsVehicle || !hasCenteredFirstTime))) && (
                                 <div className="absolute inset-0 flex flex-col justify-center items-center bg-slate-50 z-10">
                                     <Loader2 size={24} className="animate-spin text-blue-600 mb-2" />
                                     <p className="text-[10px] text-slate-400 font-medium">

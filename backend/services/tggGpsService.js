@@ -20,9 +20,23 @@ const cleanVehicleName = (name) => {
 // In-memory store for received Geofence alerts
 const alertStore = [];
 
-// In-memory cache for vehicles list to prevent rate-limiting and handle third-party server load gracefully
+// Persistent & in-memory cache for vehicles list to prevent rate-limiting and handle third-party server load gracefully
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const CACHE_FILE_PATH = path.join(os.tmpdir(), 'pydah_transport_vehicles_cache.json');
+
 let vehiclesCache = null;
-let lastCacheTime = 0;
+try {
+  if (fs.existsSync(CACHE_FILE_PATH)) {
+    const raw = fs.readFileSync(CACHE_FILE_PATH, 'utf8');
+    vehiclesCache = JSON.parse(raw);
+    console.log(`[TGG Service] Loaded ${vehiclesCache.length} cached vehicles from persistent storage.`);
+  }
+} catch (e) {
+  // ignore
+}
+let lastCacheTime = vehiclesCache ? Date.now() : 0;
 const CACHE_TTL_MS = 6000; // 6 seconds cache TTL
 
 /**
@@ -108,6 +122,8 @@ const fetchVehiclesListFromTgg = async (options = {}) => {
     const params = new URLSearchParams();
     params.append('Username', username);
     params.append('Password', password);
+    params.append('username', username);
+    params.append('password', password);
 
     console.log(`[TGG Service] Sending POST request to: ${url}`);
 
@@ -131,6 +147,9 @@ const fetchVehiclesListFromTgg = async (options = {}) => {
       vehiclesCache = vehicles;
       lastCacheTime = Date.now();
       console.log(`[TGG Service] Response 200 OK — Successfully fetched and cached ${vehicles.length} vehicles.`);
+      try {
+        fs.writeFileSync(CACHE_FILE_PATH, JSON.stringify(vehicles, null, 2), 'utf8');
+      } catch (e) {}
     } else {
       console.log(`[TGG Service] Debug Raw Response: "${rawText}"`);
       // Fallback: If API returned an error string or empty array but we have cached data, reuse cache
