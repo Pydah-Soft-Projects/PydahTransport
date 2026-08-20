@@ -252,19 +252,46 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
                 attributionControl: false
             });
 
-            L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+            // Setup Layer Controls
+            const satellite = L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
                 maxZoom: 20,
                 subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
-            }).addTo(map);
+            });
+
+            const hybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+            });
+
+            const roadmap = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+            });
+
+            const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19
+            });
+
+            // Set Satellite Only as default
+            satellite.addTo(map);
+
+            const baseMaps = {
+                "Satellite Only": satellite,
+                "Hybrid (Satellite + Labels)": hybrid,
+                "Google Roadmap": roadmap,
+                "OpenStreetMap": osm
+            };
+
+            L.control.layers(baseMaps, null, { position: 'topright' }).addTo(map);
 
             mapInstanceRef.current = map;
         }
 
         const map = mapInstanceRef.current;
 
-        // Clear existing markers/polylines/circles
+        // Clear existing markers/polylines/circles but keep base tile layers
         map.eachLayer((layer) => {
-            if (layer instanceof L.Marker || layer instanceof L.Polyline || layer instanceof L.Circle) {
+            if (!(layer instanceof L.TileLayer)) {
                 map.removeLayer(layer);
             }
         });
@@ -389,6 +416,39 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
                         lineCap: 'round',
                         lineJoin: 'round'
                     }).addTo(map);
+
+                    // Draw Start Stage Tooltip and Circle Marker
+                    const startStage = validStages[0];
+                    if (startStage) {
+                        L.circleMarker([startStage.lat, startStage.lng], {
+                            radius: 4.5,
+                            color: routeColor,
+                            fillColor: '#ffffff',
+                            fillOpacity: 1,
+                            weight: 2.2,
+                            zIndexOffset: 650
+                        }).addTo(map).bindTooltip(`${route.startPoint || route.stages[0].stageName}`, {
+                            permanent: true,
+                            direction: 'top',
+                            className: 'bg-white text-slate-800 border border-slate-200 shadow-sm px-1.5 py-0.5 rounded text-[9px] font-bold font-sans'
+                        });
+                    }
+
+                    // Draw End Stage/Campus Tooltip and Circle Marker
+                    if (campusDest) {
+                        L.circleMarker([campusDest.latitude, campusDest.longitude], {
+                            radius: 4.5,
+                            color: routeColor,
+                            fillColor: '#ffffff',
+                            fillOpacity: 1,
+                            weight: 2.2,
+                            zIndexOffset: 650
+                        }).addTo(map).bindTooltip(`<b>End:</b> ${route.endPoint || campusDest.name}`, {
+                            permanent: true,
+                            direction: 'bottom',
+                            className: 'bg-white text-slate-800 border border-slate-200 shadow-sm px-1.5 py-0.5 rounded text-[9px] font-bold font-sans'
+                        });
+                    }
 
                     // Active inner route line
                     const activePolyline = L.polyline([], {
