@@ -42,6 +42,7 @@ app.use('/api/students', protect, require('./routes/studentRoutes'));
 app.use('/api/inventory', protect, require('./routes/inventoryRoutes'));
 app.use('/api/print', require('./routes/print.routes'));
 app.use('/api/gps', require('./routes/gpsTrackingRoutes'));
+app.use('/api/communications', require('./routes/communicationRoutes'));
 
 // Legacy redirect for physically printed QR codes pointing to the backend domain
 app.get('/verify-transport/:id', (req, res) => {
