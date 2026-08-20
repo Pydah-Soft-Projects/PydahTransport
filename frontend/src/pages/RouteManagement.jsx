@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
@@ -18,6 +19,7 @@ import {
     IndianRupee,
     ChevronDown,
     ChevronUp,
+    ChevronRight,
     Search,
     AlertTriangle,
     Bus,
@@ -71,7 +73,34 @@ const focusMapOnStagePoints = (map, points, L) => {
     });
 };
 
-const RouteSummaryMap = ({ stages, finalDestinations = [] }) => {
+/**
+ * Snap a list of [lat, lng] waypoints to the road network using OSRM.
+ * Returns road-following coordinates. Falls back to straight-line coords on failure.
+ */
+const snapToRoad = async (coords) => {
+    if (!coords || coords.length < 2) return coords || [];
+    const coordStr = coords.map(([lat, lng]) => `${lng},${lat}`).join(';');
+    try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson&continue_straight=false`;
+        const res = await fetch(url);
+        if (res.ok) {
+            const json = await res.json();
+            if (json.routes?.[0]?.geometry?.coordinates) {
+                return json.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+            }
+        }
+    } catch (_) { /* fallback to straight lines */ }
+    return coords;
+};
+
+/** Draw a styled route polyline (glow + inner line) onto a Leaflet map */
+const drawRouteLine = (map, L, coords, options = {}) => {
+    const { color = '#2563eb', weight = 3, opacity = 0.85, dashArray } = options;
+    L.polyline(coords, { color, weight: weight + 4, opacity: 0.22, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+    L.polyline(coords, { color, weight, opacity, lineCap: 'round', lineJoin: 'round', ...(dashArray ? { dashArray } : {}) }).addTo(map);
+};
+
+const RouteSummaryMap = ({ stages, finalDestinations = [], campusId }) => {
     const mapContainerRef = useRef(null);
     const mapInstanceRef = useRef(null);
 
@@ -81,6 +110,11 @@ const RouteSummaryMap = ({ stages, finalDestinations = [] }) => {
         const L = window.L;
         const validStages = (stages || []).map((stage) => getStageCoords(stage)).filter(Boolean);
         if (validStages.length === 0) return;
+
+        const campusIdStr = campusId ? String(campusId) : '';
+        const relevantDests = (finalDestinations || []).filter(d => 
+            campusIdStr && String(d.campus) === campusIdStr
+        );
 
         const bounds = L.latLngBounds();
         validStages.forEach(({ lat, lng }) => {
@@ -104,7 +138,7 @@ const RouteSummaryMap = ({ stages, finalDestinations = [] }) => {
         const map = mapInstanceRef.current;
         
         map.eachLayer((layer) => {
-            if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+            if (layer instanceof L.Marker || layer instanceof L.Polyline || layer instanceof L.Circle) {
                 map.removeLayer(layer);
             }
         });
@@ -126,41 +160,54 @@ const RouteSummaryMap = ({ stages, finalDestinations = [] }) => {
             }).addTo(map).bindPopup(`<b>${idx + 1}. ${stage.stageName}</b>`);
         });
 
-        if (lineCoords.length > 1) {
-            L.polyline(lineCoords, {
-                color: '#2563eb',
-                weight: 2.5,
-                opacity: 0.8
-            }).addTo(map);
-        }
-
         const lastStageCoord = lineCoords.length > 0 ? lineCoords[lineCoords.length - 1] : null;
 
-        finalDestinations.forEach((d) => {
+        // Draw final destination markers and build extended waypoints for snapping
+        const finalDestCoords = [];
+        relevantDests.forEach((d) => {
             if (!Number.isFinite(d.latitude) || !Number.isFinite(d.longitude)) return;
-            const destPoint = [d.latitude, d.longitude];
+            finalDestCoords.push([d.latitude, d.longitude]);
 
-            if (lastStageCoord) {
-                L.polyline([lastStageCoord, destPoint], {
-                    color: '#2563eb',
-                    weight: 2,
-                    opacity: 0.6,
-                    dashArray: '6 4',
-                }).addTo(map);
-            }
+            const radius = Number(d.radius) || 200;
+            // Draw campus geofence circle
+            L.circle([d.latitude, d.longitude], {
+                radius: radius,
+                color: '#059669',
+                fillColor: '#10b981',
+                fillOpacity: 0.1,
+                weight: 1.2,
+                dashArray: '3, 3'
+            }).addTo(map);
 
-            L.marker(destPoint, {
+            L.marker([d.latitude, d.longitude], {
                 icon: L.divIcon({
                     className: 'custom-stage-summary-marker',
                     html: `<div class="w-4 h-4 rounded-full bg-green-600 border-2 border-white text-white flex items-center justify-center font-bold text-[8px] shadow-sm">F</div>`,
                     iconSize: [16, 16],
                     iconAnchor: [8, 8],
                 }),
-            }).addTo(map).bindPopup(`<b>Final: ${d.name}</b>`);
-            bounds.extend(destPoint);
+            }).addTo(map).bindPopup(`<b>Final Destination: ${d.name}</b><br/>Geofence Radius: ${radius}m`);
+            bounds.extend([d.latitude, d.longitude]);
         });
 
         map.fitBounds(bounds, { padding: [15, 15] });
+
+        // Snap stage route to roads and draw
+        if (lineCoords.length > 1) {
+            snapToRoad(lineCoords).then(snapped => {
+                if (!mapInstanceRef.current) return; // component unmounted
+                drawRouteLine(map, L, snapped, { color: '#2563eb', weight: 2.5, opacity: 0.85 });
+
+                // Also snap and draw final-destination connection
+                finalDestCoords.forEach(destPoint => {
+                    if (!lastStageCoord) return;
+                    snapToRoad([lastStageCoord, destPoint]).then(snappedDest => {
+                        if (!mapInstanceRef.current) return;
+                        drawRouteLine(map, L, snappedDest, { color: '#2563eb', weight: 2, opacity: 0.6, dashArray: '6 4' });
+                    });
+                });
+            });
+        }
 
         return () => {
             if (mapInstanceRef.current) {
@@ -170,7 +217,7 @@ const RouteSummaryMap = ({ stages, finalDestinations = [] }) => {
                 mapInstanceRef.current = null;
             }
         };
-    }, [stages, finalDestinations]);
+    }, [stages, finalDestinations, campusId]);
 
     const hasPoints = (stages || []).some((stage) => Boolean(getStageCoords(stage)));
     if (!hasPoints) {
@@ -188,6 +235,359 @@ const RouteSummaryMap = ({ stages, finalDestinations = [] }) => {
     );
 };
 
+const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
+    const mapContainerRef = useRef(null);
+    const mapInstanceRef = useRef(null);
+    const [selectedRouteId, setSelectedRouteId] = useState(null);
+
+    useEffect(() => {
+        if (!mapContainerRef.current || !window.L) return;
+
+        const L = window.L;
+        const bounds = L.latLngBounds();
+
+        if (!mapInstanceRef.current) {
+            const map = L.map(mapContainerRef.current, {
+                zoomControl: true,
+                attributionControl: false
+            });
+
+            L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+            }).addTo(map);
+
+            mapInstanceRef.current = map;
+        }
+
+        const map = mapInstanceRef.current;
+
+        // Clear existing markers/polylines/circles
+        map.eachLayer((layer) => {
+            if (layer instanceof L.Marker || layer instanceof L.Polyline || layer instanceof L.Circle) {
+                map.removeLayer(layer);
+            }
+        });
+
+        // Vibrant colors for distinct routes
+        const colors = [
+            '#2563eb', // Blue
+            '#8b5cf6', // Violet
+            '#10b981', // Emerald
+            '#ec4899', // Pink
+            '#f59e0b', // Amber
+            '#06b6d4', // Cyan
+            '#f43f5e', // Rose
+            '#14b8a6', // Teal
+        ];
+
+        let pointsAdded = false;
+        const animVehicles = [];
+
+        // Filter the routes to render on the map
+        const activeRoutes = selectedRouteId
+            ? routes.filter(r => r._id === selectedRouteId)
+            : routes;
+
+        // Draw final destinations and their geofences
+        finalDestinations.forEach((d) => {
+            if (!Number.isFinite(d.latitude) || !Number.isFinite(d.longitude)) return;
+            
+            // If a specific route is selected, only show geofence if it belongs to that route's campus
+            if (selectedRouteId) {
+                const selRoute = routes.find(r => r._id === selectedRouteId);
+                const rCampusId = getCampusId(selRoute?.campus);
+                if (!rCampusId || String(d.campus) !== String(rCampusId)) return;
+            }
+
+            const destPoint = [d.latitude, d.longitude];
+            const radius = Number(d.radius) || 200;
+
+            // Draw Geofence circle
+            L.circle(destPoint, {
+                radius: radius,
+                color: '#059669',
+                fillColor: '#10b981',
+                fillOpacity: 0.12,
+                weight: 1.5,
+                dashArray: '4, 4'
+            }).addTo(map);
+
+            L.marker(destPoint, {
+                icon: L.divIcon({
+                    className: 'custom-stage-summary-marker',
+                    html: `<div class="w-5 h-5 rounded-full bg-green-600 border-2 border-white text-white flex items-center justify-center font-bold text-[9px] shadow-sm">F</div>`,
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10],
+                }),
+            }).addTo(map).bindPopup(`<b>Final Destination: ${d.name}</b><br/>Geofence Radius: ${radius}m`);
+            bounds.extend(destPoint);
+            pointsAdded = true;
+        });
+
+        // Draw each route and prepare animation
+        activeRoutes.forEach((route) => {
+            const validStages = (route.stages || [])
+                .map(s => getStageCoords(s))
+                .filter(Boolean);
+
+            if (validStages.length === 0) return;
+
+            // Maintain consistent route color based on its original index
+            const originalIndex = routes.findIndex(r => r._id === route._id);
+            const routeColor = colors[originalIndex !== -1 ? originalIndex % colors.length : 0];
+
+            // 1. Draw stage markers (only when individually selecting a vehicle/route)
+            if (selectedRouteId) {
+                validStages.forEach((coords, idx) => {
+                    const { lat, lng } = coords;
+                    bounds.extend([lat, lng]);
+                    pointsAdded = true;
+
+                    L.marker([lat, lng], {
+                        icon: L.divIcon({
+                            className: 'custom-stage-summary-marker',
+                            html: `<div class="w-4.5 h-4.5 rounded-full border-2 border-white text-white flex items-center justify-center font-bold text-[8px] shadow-sm" style="background: ${routeColor};">${idx + 1}</div>`,
+                            iconSize: [18, 18],
+                            iconAnchor: [9, 9]
+                        })
+                    }).addTo(map).bindPopup(`
+                        <div class="p-1 font-sans text-xs">
+                            <strong style="color: ${routeColor};">${route.routeName} (${route.routeId})</strong><br/>
+                            <span class="text-slate-700 font-semibold">Stage ${idx + 1}: ${route.stages[idx].stageName}</span>
+                        </div>
+                    `);
+                });
+            } else {
+                // Otherwise, just calculate bounds
+                validStages.forEach((coords) => {
+                    bounds.extend([coords.lat, coords.lng]);
+                    pointsAdded = true;
+                });
+            }
+
+            // 2. Build the snap route coordinates list (includes final destination at the end)
+            const lineCoords = validStages.map(s => [s.lat, s.lng]);
+            const rCampusId = getCampusId(route.campus);
+            const campusDest = finalDestinations.find(d => 
+                rCampusId && String(d.campus) === String(rCampusId)
+            );
+            if (campusDest && Number.isFinite(campusDest.latitude) && Number.isFinite(campusDest.longitude)) {
+                lineCoords.push([campusDest.latitude, campusDest.longitude]);
+            }
+
+            if (lineCoords.length > 1) {
+                snapToRoad(lineCoords).then(snapped => {
+                    if (!mapInstanceRef.current) return;
+                    
+                    // Background placeholder path
+                    L.polyline(snapped, {
+                        color: '#94a3b8',
+                        weight: 2,
+                        opacity: 0.35,
+                        dashArray: '5, 5',
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }).addTo(map);
+
+                    // Active inner route line
+                    const activePolyline = L.polyline([], {
+                        color: routeColor,
+                        weight: 2.8,
+                        opacity: 0.9,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }).addTo(map).bindPopup(`
+                        <div class="p-1 font-sans text-xs">
+                            <strong style="color: ${routeColor};">${route.routeName} (${route.routeId})</strong><br/>
+                            <span class="text-slate-600">Campus: ${route.campus?.name || '—'}</span><br/>
+                            <span class="text-slate-600">Start: ${route.startPoint || '—'}</span><br/>
+                            <span class="text-slate-600">End: ${route.endPoint || '—'}</span>
+                        </div>
+                    `);
+
+                    // Active outer glow polyline
+                    const activeGlow = L.polyline([], {
+                        color: routeColor,
+                        weight: 6,
+                        opacity: 0.22,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }).addTo(map);
+
+                    // 3. Interpolate the reverse path (from final destination -> first stage)
+                    const reversePath = snapped.slice().reverse();
+                    
+                    const interpolate = (coords, steps = 10) => {
+                        if (coords.length < 2) return coords;
+                        const res = [];
+                        for (let i = 0; i < coords.length - 1; i++) {
+                            const [lat1, lng1] = coords[i];
+                            const [lat2, lng2] = coords[i + 1];
+                            for (let j = 0; j < steps; j++) {
+                                const r = j / steps;
+                                res.push([lat1 + (lat2 - lat1) * r, lng1 + (lng2 - lng1) * r]);
+                            }
+                        }
+                        res.push(coords[coords.length - 1]);
+                        return res;
+                    };
+
+                    const animPath = interpolate(reversePath, 12);
+                    if (animPath.length > 1) {
+                        const vehicleIcon = L.divIcon({
+                            html: `
+                                <div class="relative flex items-center justify-center">
+                                    <span class="absolute inline-flex h-8 w-12 rounded-full opacity-40 animate-ping" style="background: ${routeColor}"></span>
+                                    <div class="relative px-2 py-0.5 rounded-full border-2 border-white shadow-md text-white flex items-center justify-center text-[9px] font-black tracking-wide leading-none" style="background: ${routeColor}">
+                                        ${route.routeId}
+                                    </div>
+                                </div>
+                            `,
+                            className: 'custom-anim-vehicle',
+                            iconSize: [36, 20],
+                            iconAnchor: [18, 10]
+                        });
+
+                        const marker = L.marker(animPath[0], { icon: vehicleIcon, zIndexOffset: 800 }).addTo(map);
+                        animVehicles.push({
+                            marker,
+                            path: animPath,
+                            index: 0,
+                            polyline: activePolyline,
+                            glow: activeGlow
+                        });
+                    }
+                });
+            }
+        });
+
+        if (pointsAdded) {
+            map.fitBounds(bounds, { padding: [30, 30] });
+        } else {
+            map.setView([DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng], 12);
+        }
+
+        setTimeout(() => map.invalidateSize(), 300);
+
+        const animInterval = setInterval(() => {
+            animVehicles.forEach(veh => {
+                if (veh.index >= veh.path.length - 1) {
+                    return;
+                }
+
+                veh.index += 12;
+                if (veh.index >= veh.path.length - 1) {
+                    veh.index = veh.path.length - 1;
+                }
+
+                const currentPos = veh.path[veh.index];
+                veh.marker.setLatLng(currentPos);
+
+                const traveledCoords = veh.path.slice(0, veh.index + 1);
+                veh.polyline.setLatLngs(traveledCoords);
+                veh.glow.setLatLngs(traveledCoords);
+            });
+        }, 16);
+
+        return () => {
+            clearInterval(animInterval);
+            if (mapInstanceRef.current) {
+                try {
+                    mapInstanceRef.current.remove();
+                } catch (e) {}
+                mapInstanceRef.current = null;
+            }
+        };
+    }, [routes, finalDestinations, selectedRouteId]);
+
+    return (
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 w-full min-h-[550px] lg:h-[calc(100vh-135px)]">
+            {/* Left Card: Vehicles/Routes List */}
+            <div className="lg:col-span-1 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col h-[400px] lg:h-full overflow-hidden">
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 pb-2 border-b border-slate-100 flex items-center justify-between">
+                    <span>Vehicles / Routes</span>
+                    {selectedRouteId && (
+                        <button 
+                            onClick={() => setSelectedRouteId(null)}
+                            className="text-[10px] text-blue-600 font-extrabold hover:underline capitalize"
+                        >
+                            Show All
+                        </button>
+                    )}
+                </h3>
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    <button
+                        onClick={() => setSelectedRouteId(null)}
+                        className={`w-full text-left p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center ${
+                            selectedRouteId === null
+                                ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
+                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                        }`}
+                    >
+                        <span className="truncate">All Routes & Vehicles ({routes.length})</span>
+                    </button>
+
+                    {routes.map((route) => {
+                        const bus = buses.find(b => b.assignedRouteId === route.routeId);
+                        const isSelected = selectedRouteId === route._id;
+                        
+                        return (
+                            <div key={route._id} className="space-y-1.5">
+                                <button
+                                    onClick={() => setSelectedRouteId(isSelected ? null : route._id)}
+                                    className={`w-full text-left p-2.5 rounded-xl border text-xs transition-all flex items-center justify-between gap-2 ${
+                                        isSelected
+                                            ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold shadow-sm'
+                                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <div className="min-w-0">
+                                            <p className={`truncate text-[11px] ${isSelected ? 'text-blue-800 font-extrabold' : 'text-slate-800 font-semibold'}`}>
+                                                {route.routeId} - {bus ? `Bus ${bus.busNumber || bus.registrationNumber}` : 'Unassigned'}
+                                            </p>
+                                            <p className="text-[9px] text-slate-400 truncate font-medium">
+                                                {route.routeName}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    {isSelected ? (
+                                        <ChevronDown size={14} className="text-slate-400 shrink-0" />
+                                    ) : (
+                                        <ChevronRight size={14} className="text-slate-400 shrink-0" />
+                                    )}
+                                </button>
+
+                                {isSelected && (
+                                    <div className="ml-5 pl-3 border-l-2 border-blue-100 py-1 space-y-1.5 animate-in slide-in-from-top-1 duration-200">
+                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Stages list</p>
+                                        {route.stages.map((stage, idx) => (
+                                            <div key={idx} className="flex items-center gap-1.5 text-[10px] text-slate-600 font-medium">
+                                                <span className="w-3.5 h-3.5 rounded-full bg-blue-100 text-blue-700 text-[8px] font-bold flex items-center justify-center shrink-0">
+                                                    {idx + 1}
+                                                </span>
+                                                <span className="truncate" title={stage.stageName}>
+                                                    {stage.stageName}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Right: Map view */}
+            <div className="lg:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden h-[500px] lg:h-full relative">
+                <div ref={mapContainerRef} className="w-full h-full z-0" />
+            </div>
+        </div>
+    );
+};
+
 const RouteManagement = () => {
     const [routes, setRoutes] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -198,6 +598,7 @@ const RouteManagement = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [expandedRouteId, setExpandedRouteId] = useState(null);
+    const [networkViewTab, setNetworkViewTab] = useState('list'); // 'list' or 'map'
 
     const [formData, setFormData] = useState({
         routeId: '',
@@ -531,11 +932,11 @@ const RouteManagement = () => {
             });
 
             if (lineCoords.length > 1) {
-                L.polyline(lineCoords, {
-                    color: '#2563eb',
-                    weight: 3,
-                    opacity: 0.75
-                }).addTo(map);
+                // Snap the full route to roads, then draw with glow
+                snapToRoad(lineCoords).then(snapped => {
+                    if (!modalMapInstanceRef.current) return;
+                    drawRouteLine(map, L, snapped, { color: '#2563eb', weight: 3, opacity: 0.85 });
+                });
             }
         } else {
             formData.stages.forEach((stage, idx) => {
@@ -545,12 +946,11 @@ const RouteManagement = () => {
             });
 
             if (lineCoords.length > 1) {
-                L.polyline(lineCoords, {
-                    color: '#64748b',
-                    weight: 3,
-                    dashArray: '5, 8',
-                    opacity: 0.6
-                }).addTo(map);
+                // Snap context (non-active) stages path to roads
+                snapToRoad(lineCoords).then(snapped => {
+                    if (!modalMapInstanceRef.current) return;
+                    drawRouteLine(map, L, snapped, { color: '#64748b', weight: 2.5, opacity: 0.6, dashArray: '5, 8' });
+                });
             }
 
             if (activeStageCoords && selectedStageIndex !== null) {
@@ -558,7 +958,7 @@ const RouteManagement = () => {
             }
         }
 
-        // Connect final destinations to the last stage with a dashed line
+        // Connect final destinations to the last stage with a snapped dashed line
         const modalLastCoord = lineCoords.length > 0 ? lineCoords[lineCoords.length - 1] : null;
 
         finalDestinations.forEach((d) => {
@@ -566,12 +966,10 @@ const RouteManagement = () => {
             const destPoint = [d.latitude, d.longitude];
 
             if (modalLastCoord) {
-                L.polyline([modalLastCoord, destPoint], {
-                    color: '#2563eb',
-                    weight: 2,
-                    opacity: 0.6,
-                    dashArray: '6 4',
-                }).addTo(map);
+                snapToRoad([modalLastCoord, destPoint]).then(snappedDest => {
+                    if (!modalMapInstanceRef.current) return;
+                    drawRouteLine(map, L, snappedDest, { color: '#2563eb', weight: 2, opacity: 0.6, dashArray: '6 4' });
+                });
             }
 
             L.marker(destPoint, {
@@ -848,7 +1246,26 @@ const RouteManagement = () => {
 
     const [campuses, setCampuses] = useState([]);
 
-    const [activeTab, setActiveTab] = useState('network'); // 'network' or 'transfer'
+    const [searchParams, setSearchParams] = useSearchParams();
+    const tabParam = searchParams.get('tab');
+    const [activeTab, setActiveTab] = useState(
+        tabParam && ['network', 'bus-mapping', 'transfer', 'student-transfer', 'history'].includes(tabParam)
+            ? tabParam
+            : 'network'
+    );
+
+    const selectTab = (tabName) => {
+        setActiveTab(tabName);
+        setSearchParams({ tab: tabName });
+    };
+
+    useEffect(() => {
+        const tab = searchParams.get('tab');
+        if (tab && ['network', 'bus-mapping', 'transfer', 'student-transfer', 'history'].includes(tab) && tab !== activeTab) {
+            setActiveTab(tab);
+        }
+    }, [searchParams, activeTab]);
+
     const [transferData, setTransferData] = useState({
         sourceRouteId: '',
         stageName: '',
@@ -1471,7 +1888,7 @@ const RouteManagement = () => {
 
     return (
         <Layout>
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-3">
                 <div>
                     <h2 className="text-xl font-bold text-slate-800 tracking-tight">
                         {activeTab === 'network' ? `Route Network (${filteredRoutes.length})` : activeTab === 'bus-mapping' ? `Bus–Route Mapping` : activeTab === 'transfer' ? 'Stage Migration' : activeTab === 'student-transfer' ? 'Student & Passenger Transfer' : 'Transfer History'}
@@ -1489,6 +1906,32 @@ const RouteManagement = () => {
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                    {activeTab === 'network' && (
+                        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-sm mr-1 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setNetworkViewTab('list')}
+                                className={`px-3 py-1 rounded-md text-[10px] font-extrabold uppercase tracking-wider transition-all ${
+                                    networkViewTab === 'list'
+                                        ? 'bg-white text-blue-900 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
+                                List
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setNetworkViewTab('map')}
+                                className={`px-3 py-1 rounded-md text-[10px] font-extrabold uppercase tracking-wider transition-all ${
+                                    networkViewTab === 'map'
+                                        ? 'bg-white text-blue-900 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
+                                Map
+                            </button>
+                        </div>
+                    )}
                     {(activeTab === 'network' || activeTab === 'bus-mapping') && (
                         <div className="relative flex-shrink-0 w-64">
                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -1540,39 +1983,7 @@ const RouteManagement = () => {
                 </div>
             </div>
 
-            {/* Tab pill navigation */}
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 shadow-sm self-start mb-6 w-fit">
-                <button
-                    onClick={() => { setActiveTab('network'); setTransferMessage({ text: '', type: '' }); setStudentTransferMessage({ text: '', type: '' }); }}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'network' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    Route Network
-                </button>
-                <button
-                    onClick={() => { setActiveTab('bus-mapping'); setTransferMessage({ text: '', type: '' }); setStudentTransferMessage({ text: '', type: '' }); }}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'bus-mapping' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    Bus–Route Mapping
-                </button>
-                <button
-                    onClick={() => { setActiveTab('transfer'); setSaveMessage({ text: '', type: '' }); setStudentTransferMessage({ text: '', type: '' }); }}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'transfer' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    Transfer Stage
-                </button>
-                <button
-                    onClick={() => { setActiveTab('student-transfer'); setSaveMessage({ text: '', type: '' }); setTransferMessage({ text: '', type: '' }); }}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'student-transfer' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    Transfer Students
-                </button>
-                <button
-                    onClick={() => { setActiveTab('history'); setSaveMessage({ text: '', type: '' }); setTransferMessage({ text: '', type: '' }); setStudentTransferMessage({ text: '', type: '' }); }}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'history' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    History Logs
-                </button>
-            </div>
+
 
             {activeTab === 'network' ? (
                 <>
@@ -1582,7 +1993,10 @@ const RouteManagement = () => {
                         </div>
                     )}
 
-                    {loading ? (
+
+                    {networkViewTab === 'map' ? (
+                        <RouteNetworkAllMap routes={filteredRoutes} finalDestinations={finalDestinations} buses={buses} />
+                    ) : loading ? (
                         <div className="flex items-center justify-center py-20">
                             <Loader size={40} text="Loading route data..." />
                         </div>
@@ -1743,7 +2157,7 @@ const RouteManagement = () => {
                                                                         </h4>
                                                                         
                                                                         {/* Map Displays First */}
-                                                                        <RouteSummaryMap stages={route.stages} finalDestinations={finalDestinations} />
+                                                                        <RouteSummaryMap stages={route.stages} finalDestinations={finalDestinations} campusId={getCampusId(route.campus)} />
 
                                                                         {/* Details below map */}
                                                                         <div className="space-y-3 pt-2">
