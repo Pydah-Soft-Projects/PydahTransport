@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
     Download,
@@ -92,9 +92,12 @@ const DonutChart = ({ percent }) => {
     );
 };
 
-const StatCard = ({ title, children, className = '' }) => (
+const StatCard = ({ title, children, className = '', action = null }) => (
     <div className={`bg-white rounded-2xl border border-slate-200 p-5 shadow-sm h-full flex flex-col ${className}`}>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 shrink-0">{title}</p>
+        <div className="flex items-center justify-between mb-3 shrink-0">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0">{title}</p>
+            {action}
+        </div>
         {children}
     </div>
 );
@@ -123,6 +126,24 @@ const FareDisplay = ({ passenger, compact = false }) => {
             )}
         </div>
     );
+};
+
+// Interpolate intermediate coordinates for a fluid, high-frame-rate time-lapse glide animation
+const interpolatePath = (path, stepsPerSegment = 8) => {
+    if (path.length < 2) return path;
+    const result = [];
+    for (let i = 0; i < path.length - 1; i++) {
+        const start = path[i];
+        const end = path[i + 1];
+        for (let step = 0; step < stepsPerSegment; step++) {
+            const ratio = step / stepsPerSegment;
+            const lat = start[0] + (end[0] - start[0]) * ratio;
+            const lng = start[1] + (end[1] - start[1]) * ratio;
+            result.push([lat, lng]);
+        }
+    }
+    result.push(path[path.length - 1]);
+    return result;
 };
 
 const BusDetails = () => {
@@ -170,22 +191,107 @@ const BusDetails = () => {
     const [kmDateTo, setKmDateTo] = useState(() => {
         return new Date().toISOString().split('T')[0];
     });
+    const [selectedDate, setSelectedDate] = useState(() => {
+        return new Date().toISOString().split('T')[0];
+    });
     const [kmIsMock, setKmIsMock] = useState(false);
 
     // GPS States and Refs
     const [isLeafletReady, setIsLeafletReady] = useState(false);
     const [gpsVehicle, setGpsVehicle] = useState(null);
     const [gpsTraceLogs, setGpsTraceLogs] = useState([]);
+    const [morningTrace, setMorningTrace] = useState([]);
+    const [eveningTrace, setEveningTrace] = useState([]);
+    const [finalDestination, setFinalDestination] = useState(null);
     const [gpsLoading, setGpsLoading] = useState(false);
     const [gpsError, setGpsError] = useState(null);
+    const [mapTab, setMapTab] = useState('live');
+    const [highlightsTab, setHighlightsTab] = useState('in');
+    const [animatingIndex, setAnimatingIndex] = useState(null);
+    const [snappedRoutePath, setSnappedRoutePath] = useState([]);
     const [hasCenteredFirstTime, setHasCenteredFirstTime] = useState(false);
     const gpsLiveBreadcrumbsRef = useRef([]);
     const isFirstLoadRef = useRef(true);
+    const hasCenteredRouteRef = useRef(false);
 
     const mapContainerRef = useRef(null);
     const mapInstanceRef = useRef(null);
     const layerGroupRef = useRef(null);
     const centeredVehicleNameRef = useRef(null);
+
+    // Destructure data object at the top so it is available to all hooks
+    const { bus, route, passengers, seatsFilled, seatsAvailable, capacity, occupancyPercent } = data || {
+        bus: null,
+        route: null,
+        passengers: [],
+        seatsFilled: 0,
+        seatsAvailable: 0,
+        capacity: 0,
+        occupancyPercent: 0
+    };
+
+    const routeStops = (() => {
+        if (!route) return [];
+        if (Array.isArray(route.stages) && route.stages.length > 0) {
+            return route.stages
+                .map((stage) => stage.stageName || stage.name || stage.stage_name)
+                .filter(Boolean);
+        }
+        const stops = [];
+        if (route.startPoint) stops.push(route.startPoint);
+        if (route.endPoint && route.endPoint !== route.startPoint) stops.push(route.endPoint);
+        return stops;
+    })();
+
+    const stagesWithCoords = useMemo(() => {
+        if (!route) return [];
+        let items = [];
+        if (Array.isArray(route.stages) && route.stages.length > 0) {
+            items = [...route.stages];
+        } else {
+            items = [
+                { stageName: route.startPoint, latitude: 16.989, longitude: 82.247, radius: 200 },
+                { stageName: route.endPoint, latitude: 16.989, longitude: 82.247, radius: 200 }
+            ];
+        }
+
+        // Always show the final destination at the end of Route Highlights
+        if (finalDestination) {
+            items.push({
+                stageName: finalDestination.name,
+                latitude: finalDestination.latitude,
+                longitude: finalDestination.longitude,
+                radius: finalDestination.radius,
+                isFinalDest: true
+            });
+        } else if (route.endPoint) {
+            // Fallback if finalDestination configuration is still loading or not configured
+            // Use correct Patavala campus coordinates as default fallback instead of previous stage coordinates
+            items.push({
+                stageName: route.endPoint,
+                latitude: 16.839153,
+                longitude: 82.224924,
+                radius: 200,
+                isFinalDest: true
+            });
+        }
+
+        return items;
+    }, [route, finalDestination]);
+
+    // Calculate the path to use for animation, falling back to stage coordinates if road snapping is loading or failed
+    const animationPath = useMemo(() => {
+        let baseCoords = [];
+        if (snappedRoutePath && snappedRoutePath.length > 0) {
+            baseCoords = snappedRoutePath;
+        } else {
+            baseCoords = stagesWithCoords
+                .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude !== 0 && s.longitude !== 0)
+                .map(s => [s.latitude, s.longitude]);
+        }
+        // Interpolate intermediate coordinates for a fluid, high-frame-rate time-lapse glide animation
+        return interpolatePath(baseCoords, 8);
+    }, [stagesWithCoords, snappedRoutePath]);
 
     // Dynamically load Leaflet library for fast interactive map & polyline tracing
     useEffect(() => {
@@ -273,6 +379,7 @@ const BusDetails = () => {
         setGpsError(null);
         centeredVehicleNameRef.current = null;
         setHasCenteredFirstTime(false);
+        hasCenteredRouteRef.current = false;
         isFirstLoadRef.current = true;
         
         return () => {
@@ -283,6 +390,15 @@ const BusDetails = () => {
             }
         };
     }, [id]);
+
+    // Recenter route bounds or live bus when switching tabs
+    useEffect(() => {
+        if (mapTab === 'route') {
+            hasCenteredRouteRef.current = false;
+        } else {
+            centeredVehicleNameRef.current = null; // trigger live re-centering
+        }
+    }, [mapTab]);
 
     const fetchGpsData = useCallback(async () => {
         if (!data?.bus?.busNumber) return;
@@ -302,13 +418,17 @@ const BusDetails = () => {
                     setGpsVehicle(matched);
                     setGpsError(null);
 
-                    // Accumulate breadcrumbs
+                    // Accumulate breadcrumbs with signal timestamps for precise chronological sorting
                     if (typeof matched.latitude === 'number' && typeof matched.longitude === 'number' && matched.latitude !== 0 && matched.longitude !== 0) {
                         const currentPath = gpsLiveBreadcrumbsRef.current;
                         const lastCoord = currentPath[currentPath.length - 1];
 
-                        if (!lastCoord || lastCoord[0] !== matched.latitude || lastCoord[1] !== matched.longitude) {
-                            currentPath.push([matched.latitude, matched.longitude]);
+                        if (!lastCoord || lastCoord.latitude !== matched.latitude || lastCoord.longitude !== matched.longitude) {
+                            currentPath.push({
+                                latitude: matched.latitude,
+                                longitude: matched.longitude,
+                                timestamp: matched.timestamp || new Date().toISOString()
+                            });
                         }
                     }
                 } else {
@@ -321,29 +441,81 @@ const BusDetails = () => {
         }
     }, [data?.bus?.busNumber]);
 
+    // Fetch final destination geofence configuration for the campus
+    useEffect(() => {
+        if (!data?.route?.campus) return;
+        const campusId = typeof data.route.campus === 'object'
+            ? (data.route.campus.id || data.route.campus._id || data.route.campus)
+            : data.route.campus;
+
+        if (!campusId) return;
+
+        (async () => {
+            try {
+                const res = await apiFetch(`${API}/gps/final-destination?campus=${campusId}`);
+                const json = await res.json();
+                if (json.success && json.data) {
+                    setFinalDestination(json.data);
+                }
+            } catch (err) {
+                console.warn('Failed to load final destination:', err);
+            }
+        })();
+    }, [data?.route?.campus]);
+
     const fetchGpsHistory = useCallback(async () => {
         if (!data?.bus?.busNumber) return;
         const normalizedBusNumber = normalizeVehicleNumber(data.bus.busNumber);
 
-        setGpsLoading(true);
+        // Only show loading indicator on initial fetch
+        if (morningTrace.length === 0 && eveningTrace.length === 0) {
+            setGpsLoading(true);
+        }
         try {
-            const res = await apiFetch(`${API}/gps/history`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ vehicle_name: normalizedBusNumber })
-            });
-            if (!res.ok) throw new Error('Failed to fetch GPS history');
-            const resData = await res.json();
+            const targetDate = selectedDate || new Date().toISOString().split('T')[0];
 
-            if (resData.success && Array.isArray(resData.data)) {
-                setGpsTraceLogs(resData.data);
+            // 1. Fetch consolidated Daily History (which contains all raw coordinates logged throughout the day)
+            const resDaily = await apiFetch(`${API}/gps/daily-history?vehicle_name=${normalizedBusNumber}&date=${targetDate}`);
+
+            if (resDaily.ok) {
+                const json = await resDaily.json();
+                if (json.success && Array.isArray(json.data)) {
+                    // Only update traces if we received coordinate data points, preserving existing times during temporary API rate-limits/failures
+                    if (json.data.length > 0) {
+                        const morningPts = [];
+                        const eveningPts = [];
+
+                        json.data.forEach(pt => {
+                            if (!pt.timestamp) return;
+                            const timePart = pt.timestamp.split(' ')[1];
+                            if (timePart) {
+                                if (timePart < '12:00:00') {
+                                    morningPts.push(pt);
+                                } else {
+                                    eveningPts.push(pt);
+                                }
+                            }
+                        });
+
+                        setMorningTrace(morningPts);
+                        setEveningTrace(eveningPts);
+                        setGpsTraceLogs(json.data); // Set full daily path to be traced on map
+                    }
+                }
             }
         } catch (err) {
             console.warn('GPS History Fetch Error:', err);
         } finally {
             setGpsLoading(false);
         }
-    }, [data?.bus?.busNumber]);
+    }, [data?.bus?.busNumber, finalDestination, selectedDate]);
+
+    // Clear GPS traces and map path immediately when date changes to trigger fresh loading spinner
+    useEffect(() => {
+        setMorningTrace([]);
+        setEveningTrace([]);
+        setGpsTraceLogs([]);
+    }, [selectedDate]);
 
     const fetchDailyKm = useCallback(async () => {
         if (!data?.bus?.busNumber) return;
@@ -413,21 +585,89 @@ const BusDetails = () => {
         };
     }, [data?.bus?.busNumber, fetchGpsData, fetchGpsHistory]);
 
+    // Fetch road-snapped path from Open Source Routing Machine (OSRM) to snap points to roads
+    useEffect(() => {
+        const coords = stagesWithCoords
+            .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude !== 0 && s.longitude !== 0)
+            .map(s => [s.latitude, s.longitude]);
+
+        if (coords.length < 2) {
+            setSnappedRoutePath([]);
+            return;
+        }
+
+        const fetchRoadSnappedPath = async (pts) => {
+            const coordString = pts.map(c => `${c[1]},${c[0]}`).join(';');
+            try {
+                // Query OSRM routing service
+                const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson&continue_straight=false`;
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.routes && data.routes[0]) {
+                        const geom = data.routes[0].geometry;
+                        if (geom && geom.coordinates) {
+                            // Convert back to [lat, lng]
+                            return geom.coordinates.map(c => [c[1], c[0]]);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[OSRM Snapping] Failed to snap stages to road:', err);
+            }
+            return pts; // fallback to straight lines if API fails
+        };
+
+        (async () => {
+            const snapped = await fetchRoadSnappedPath(coords);
+            setSnappedRoutePath(snapped);
+        })();
+    }, [stagesWithCoords]);
+
+    // Time-lapse bus traveling animation along the snapped route path (loops direction-based)
+    useEffect(() => {
+        if (mapTab !== 'route' || animationPath.length === 0) {
+            setAnimatingIndex(null);
+            return;
+        }
+
+        let currentIndex = highlightsTab === 'in' ? 0 : animationPath.length - 1;
+        const stepVal = highlightsTab === 'in' ? 4 : -4;
+        const targetIndex = highlightsTab === 'in' ? animationPath.length - 1 : 0;
+
+        setAnimatingIndex(currentIndex);
+
+        const interval = setInterval(() => {
+            const isFinished = highlightsTab === 'in'
+                ? currentIndex >= targetIndex
+                : currentIndex <= targetIndex;
+
+            if (isFinished) {
+                // Loop: reset to start point
+                currentIndex = highlightsTab === 'in' ? 0 : animationPath.length - 1;
+            } else {
+                currentIndex += stepVal;
+                // Clamp index to boundaries
+                if (currentIndex < 0) currentIndex = 0;
+                if (currentIndex >= animationPath.length) currentIndex = animationPath.length - 1;
+            }
+            setAnimatingIndex(currentIndex);
+        }, 20); // 20ms = ~50 FPS buttery-smooth glide!
+
+        return () => {
+            clearInterval(interval);
+        };
+    }, [mapTab, highlightsTab, animationPath]);
+
     // Render/Update Leaflet Map
     useEffect(() => {
         if (!isLeafletReady || !mapContainerRef.current || !window.L) return;
         const L = window.L;
 
-        const hasGpsCoords = gpsVehicle && 
-                            typeof gpsVehicle.latitude === 'number' && 
-                            typeof gpsVehicle.longitude === 'number' && 
-                            gpsVehicle.latitude !== 0 && 
-                            gpsVehicle.longitude !== 0;
-
         // Initialize Map if not yet initialized
         if (!mapInstanceRef.current) {
-            const initialCenter = hasGpsCoords ? [gpsVehicle.latitude, gpsVehicle.longitude] : [17.544, 80.616];
-            const initialZoom = hasGpsCoords ? 15 : 13;
+            const initialCenter = [17.544, 80.616];
+            const initialZoom = 13;
 
             const map = L.map(mapContainerRef.current, {
                 center: initialCenter,
@@ -454,94 +694,188 @@ const BusDetails = () => {
 
         let timer = null;
 
-        if (hasGpsCoords) {
-            const lat = gpsVehicle.latitude;
-            const lng = gpsVehicle.longitude;
-            const isMoving = (gpsVehicle.speed || 0) > 0;
-            const icon = createVehicleIcon(isMoving);
+        // 1. Draw stage markers (ONLY for Route Map tab)
+        const stageCoords = stagesWithCoords
+            .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude !== 0 && s.longitude !== 0)
+            .map(s => [s.latitude, s.longitude]);
 
-            const marker = L.marker([lat, lng], { icon });
-            const popupHtml = `
-                <div style="font-family: sans-serif; font-size: 11px; padding: 2px;">
-                    <strong style="font-size: 12px; color: #0f172a;">${gpsVehicle.name}</strong><br/>
-                    <span style="color: #64748b;">Unit ID: ${gpsVehicle.units}</span><br/>
-                    <span style="color: ${isMoving ? '#059669' : '#dc2626'}; font-weight: bold;">
-                        ${isMoving ? `🚌 Speed: ${gpsVehicle.speed} km/h` : '⏹ Stopped'}
-                    </span><br/>
-                    <span style="color: #94a3b8; font-size: 10px;">${gpsVehicle.timestamp || ''}</span>
-                </div>
-            `;
-            marker.bindPopup(popupHtml);
-            marker.addTo(layerGroup);
+        if (mapTab === 'route') {
+            stagesWithCoords.forEach((stage, idx) => {
+                if (typeof stage.latitude === 'number' && typeof stage.longitude === 'number' && stage.latitude !== 0 && stage.longitude !== 0) {
+                    const isFinal = stage.isFinalDest;
+                    const icon = L.divIcon({
+                        html: isFinal ? `
+                            <div class="relative flex items-center justify-center">
+                                <span class="absolute inline-flex h-5 w-5 rounded-full bg-blue-400 opacity-75 animate-ping"></span>
+                                <div class="relative flex items-center justify-center rounded-full h-4.5 w-4.5 bg-blue-600 border border-white shadow-md">
+                                    <span class="text-[7px]">🏁</span>
+                                </div>
+                            </div>
+                        ` : `
+                            <div class="flex items-center justify-center rounded-full h-4.5 w-4.5 bg-blue-600 border border-white shadow-md text-white font-extrabold text-[8px] hover:scale-125 transition-transform duration-200">
+                                ${idx + 1}
+                            </div>
+                        `,
+                        className: 'custom-stage-marker-icon',
+                        iconSize: [18, 18],
+                        iconAnchor: [9, 9]
+                    });
 
-            // Center map on the bus coordinates inside a short timeout to handle DOM reflow correctly
-            timer = setTimeout(() => {
-                if (mapInstanceRef.current) {
-                    mapInstanceRef.current.invalidateSize();
-                    if (centeredVehicleNameRef.current !== gpsVehicle.name) {
-                        mapInstanceRef.current.flyTo([lat, lng], 15, { animate: true, duration: 1.5 });
-                        centeredVehicleNameRef.current = gpsVehicle.name;
-                        setHasCenteredFirstTime(true);
-                    } else {
-                        mapInstanceRef.current.panTo([lat, lng], { animate: true });
-                    }
+                    const marker = L.marker([stage.latitude, stage.longitude], { icon });
+                    const popupHtml = `
+                        <div style="font-family: sans-serif; font-size: 11px; padding: 2px;">
+                            <strong style="font-size: 12px; color: #1d4ed8;">${stage.stageName}</strong><br/>
+                            <span style="color: #64748b;">${isFinal ? '🏁 Final Campus Destination' : `📍 Stage #${idx + 1}`}</span>
+                        </div>
+                    `;
+                    marker.bindPopup(popupHtml);
+                    marker.addTo(layerGroup);
                 }
-            }, 150);
+            });
+        }
 
-            // Draw polyline trace
+        // 2. Draw connecting route lines (dynamic growth for Route Map, live coordinates trail for Live View)
+        let linePoints = [];
+        if (mapTab === 'route') {
+            if (animatingIndex !== null && animationPath.length > 0) {
+                if (highlightsTab === 'in') {
+                    linePoints = animationPath.slice(0, animatingIndex + 1);
+                } else {
+                    linePoints = animationPath.slice(animatingIndex, animationPath.length);
+                }
+            }
+        } else {
+            // Live View tab: show the actual vehicle's live points trail sorted chronologically by GPS signal timestamps
             const historyPoints = (gpsTraceLogs || [])
-                .filter(t => typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0)
-                .map(t => [t.latitude, t.longitude]);
+                .filter(t => typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0);
 
-            const livePoints = gpsLiveBreadcrumbsRef.current || [];
+            const livePoints = (gpsLiveBreadcrumbsRef.current || [])
+                .filter(t => typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0);
+            
+            // Add current active bus position to line if available
+            const hasGpsCoords = gpsVehicle && 
+                                typeof gpsVehicle.latitude === 'number' && 
+                                typeof gpsVehicle.longitude === 'number' && 
+                                gpsVehicle.latitude !== 0 && 
+                                gpsVehicle.longitude !== 0;
+            const currentPos = hasGpsCoords ? [{
+                latitude: gpsVehicle.latitude,
+                longitude: gpsVehicle.longitude,
+                timestamp: gpsVehicle.timestamp || new Date().toISOString()
+            }] : [];
 
             const allPointsMap = new Map();
-            [...historyPoints, ...livePoints, [lat, lng]].forEach(pt => {
-                if (Array.isArray(pt) && pt.length === 2 && !isNaN(pt[0]) && !isNaN(pt[1])) {
-                    const key = `${pt[0].toFixed(5)},${pt[1].toFixed(5)}`;
+            [...historyPoints, ...livePoints, ...currentPos].forEach(pt => {
+                if (pt && typeof pt.latitude === 'number' && typeof pt.longitude === 'number') {
+                    const key = `${pt.latitude.toFixed(5)},${pt.longitude.toFixed(5)}`;
                     if (!allPointsMap.has(key)) {
                         allPointsMap.set(key, pt);
                     }
                 }
             });
 
-            const latLngs = Array.from(allPointsMap.values());
-            if (latLngs.length >= 2) {
-                // outer glow polyline
-                L.polyline(latLngs, {
-                    color: '#1d4ed8',
-                    weight: 8,
-                    opacity: 0.4,
-                    lineCap: 'round',
-                    lineJoin: 'round'
-                }).addTo(layerGroup);
+            // Sort chronologically by timestamp and convert to latlng array format for polyline drawing
+            linePoints = Array.from(allPointsMap.values())
+                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+                .map(pt => [pt.latitude, pt.longitude]);
+        }
 
-                // inner route polyline
-                L.polyline(latLngs, {
-                    color: '#2563eb',
-                    weight: 4,
-                    opacity: 0.95,
-                    lineCap: 'round',
-                    lineJoin: 'round'
-                }).addTo(layerGroup);
+        if (linePoints.length >= 2) {
+            // outer glow
+            L.polyline(linePoints, {
+                color: '#1d4ed8',
+                weight: 7,
+                opacity: 0.35,
+                lineCap: 'round',
+                lineJoin: 'round'
+            }).addTo(layerGroup);
 
-                // draw trace points
-                latLngs.forEach((point) => {
-                    L.circleMarker(point, {
-                        radius: 3,
-                        fillColor: '#60a5fa',
-                        color: '#ffffff',
-                        weight: 1,
-                        fillOpacity: 1
-                    }).addTo(layerGroup);
-                });
+            // inner route
+            L.polyline(linePoints, {
+                color: '#2563eb',
+                weight: 3.5,
+                opacity: 0.95,
+                lineCap: 'round',
+                lineJoin: 'round'
+            }).addTo(layerGroup);
+        }
+
+        // 3. Render tab-specific controls
+        if (mapTab === 'route') {
+            // Draw animating bus marker overlay representing the simulated bus ride
+            const activeAnimPos = (animatingIndex !== null && animationPath[animatingIndex]) || null;
+            if (activeAnimPos && activeAnimPos.length === 2) {
+                const icon = createVehicleIcon(true); // green active bus icon
+                const movingMarker = L.marker(activeAnimPos, { icon, zIndexOffset: 1000 });
+                movingMarker.bindPopup(`
+                    <div style="font-family: sans-serif; font-size: 11px; padding: 2px;">
+                        <strong style="color: #2563eb;">Time-Lapse Simulation</strong><br/>
+                        <span style="color: #64748b; font-weight: bold;">
+                            🚌 Direction: ${highlightsTab === 'in' ? 'Morning Campus Inward' : 'Evening Home Outward'}
+                        </span>
+                    </div>
+                `);
+                movingMarker.addTo(layerGroup);
+            }
+
+            // ROUTE MAP TAB: Fit bounds once
+            if (stageCoords.length > 0 && !hasCenteredRouteRef.current) {
+                timer = setTimeout(() => {
+                    if (mapInstanceRef.current && mapTab === 'route') {
+                        mapInstanceRef.current.invalidateSize();
+                        mapInstanceRef.current.fitBounds(L.latLngBounds(stageCoords), { padding: [45, 45] });
+                        hasCenteredRouteRef.current = true; // Mark as centered once
+                    }
+                }, 150);
+            }
+        } else {
+            // LIVE VIEW TAB: Draw live vehicle marker overlay on top of route, and center/pan on it
+            const hasGpsCoords = gpsVehicle && 
+                                typeof gpsVehicle.latitude === 'number' && 
+                                typeof gpsVehicle.longitude === 'number' && 
+                                gpsVehicle.latitude !== 0 && 
+                                gpsVehicle.longitude !== 0;
+
+            if (hasGpsCoords) {
+                const lat = gpsVehicle.latitude;
+                const lng = gpsVehicle.longitude;
+                const isMoving = (gpsVehicle.speed || 0) > 0;
+                const icon = createVehicleIcon(isMoving);
+
+                const marker = L.marker([lat, lng], { icon });
+                const popupHtml = `
+                    <div style="font-family: sans-serif; font-size: 11px; padding: 2px;">
+                        <strong style="font-size: 12px; color: #0f172a;">${gpsVehicle.name}</strong><br/>
+                        <span style="color: #64748b;">Unit ID: ${gpsVehicle.units}</span><br/>
+                        <span style="color: ${isMoving ? '#059669' : '#dc2626'}; font-weight: bold;">
+                            ${isMoving ? `🚌 Speed: ${gpsVehicle.speed} km/h` : '⏹ Stopped'}
+                        </span><br/>
+                        <span style="color: #94a3b8; font-size: 10px;">${gpsVehicle.timestamp || ''}</span>
+                    </div>
+                `;
+                marker.bindPopup(popupHtml);
+                marker.addTo(layerGroup);
+
+                // Center map on the bus coordinates
+                timer = setTimeout(() => {
+                    if (mapInstanceRef.current && mapTab === 'live') {
+                        mapInstanceRef.current.invalidateSize();
+                        if (centeredVehicleNameRef.current !== gpsVehicle.name) {
+                            mapInstanceRef.current.flyTo([lat, lng], 15, { animate: true, duration: 1.5 });
+                            centeredVehicleNameRef.current = gpsVehicle.name;
+                            setHasCenteredFirstTime(true);
+                        } else {
+                            mapInstanceRef.current.panTo([lat, lng], { animate: true });
+                        }
+                    }
+                }, 150);
             }
         }
 
         return () => {
             if (timer) clearTimeout(timer);
         };
-    }, [isLeafletReady, gpsVehicle, gpsTraceLogs, createVehicleIcon]);
+    }, [isLeafletReady, gpsVehicle, gpsTraceLogs, createVehicleIcon, mapTab, stagesWithCoords, snappedRoutePath, animatingIndex, animationPath, highlightsTab]);
 
     const handlePrint = async (options = reportOptions) => {
         if (!data?.bus?.busNumber) return;
@@ -851,23 +1185,66 @@ const BusDetails = () => {
         );
     }
 
-    const { bus, route, passengers, seatsFilled, seatsAvailable, capacity, occupancyPercent } = data;
     const occupancyLabel = occupancyMode === 'live' ? 'Live' : academicYear;
     const studentCount = (passengers || []).filter((p) => !p.user_type || p.user_type === 'student').length;
     const employeeCount = (passengers || []).filter((p) => p.user_type === 'employee').length;
 
-    const routeStops = (() => {
-        if (!route) return [];
-        if (Array.isArray(route.stages) && route.stages.length > 0) {
-            return route.stages
-                .map((stage) => stage.stageName || stage.name || stage.stage_name)
-                .filter(Boolean);
+    const getStageGpsStatus = (stage, isFirstStage, isFinalDest) => {
+        const calculateDistance = (lat1, lon1, lat2, lon2) => {
+            const R = 6371e3; // meters
+            const phi1 = lat1 * Math.PI / 180;
+            const phi2 = lat2 * Math.PI / 180;
+            const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+            const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+            const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                      Math.cos(phi1) * Math.cos(phi2) *
+                      Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+            return R * c; // in meters
+        };
+
+        let morningTime = '—';
+        let eveningTime = '—';
+        const searchRadius = Math.max(stage.radius || 200, 500);
+
+        // 1. Morning check ("In")
+        const morningInside = morningTrace
+            .filter(pt => calculateDistance(stage.latitude, stage.longitude, pt.latitude, pt.longitude) <= searchRadius)
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        if (morningInside.length > 0) {
+            if (isFinalDest) {
+                // Morning final campus stop: enters the campus (first point inside radius)
+                const firstPt = morningInside[0];
+                morningTime = firstPt.timestamp ? firstPt.timestamp.split(' ')[1].substring(0, 5) : '—';
+            } else {
+                // Morning boarding stages: leaving the stage radius (last point inside radius)
+                const lastPt = morningInside[morningInside.length - 1];
+                morningTime = lastPt.timestamp ? lastPt.timestamp.split(' ')[1].substring(0, 5) : '—';
+            }
         }
-        const stops = [];
-        if (route.startPoint) stops.push(route.startPoint);
-        if (route.endPoint && route.endPoint !== route.startPoint) stops.push(route.endPoint);
-        return stops;
-    })();
+
+        // 2. Evening check ("Out")
+        const eveningInside = eveningTrace
+            .filter(pt => calculateDistance(stage.latitude, stage.longitude, pt.latitude, pt.longitude) <= searchRadius)
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        if (eveningInside.length > 0) {
+            if (isFinalDest) {
+                // Evening campus start: leaving the campus (last point inside radius)
+                const lastPt = eveningInside[eveningInside.length - 1];
+                eveningTime = lastPt.timestamp ? lastPt.timestamp.split(' ')[1].substring(0, 5) : '—';
+            } else {
+                // Evening drop-off stages: enters the stage radius (first point inside radius)
+                const firstPt = eveningInside[0];
+                eveningTime = firstPt.timestamp ? firstPt.timestamp.split(' ')[1].substring(0, 5) : '—';
+            }
+        }
+
+        return { morningTime, eveningTime };
+    };
 
     const routePathLabel = routeStops.length > 0
         ? routeStops.join(' → ')
@@ -930,7 +1307,20 @@ const BusDetails = () => {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
+                    {/* Date filter dropdown */}
+                    <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-lg px-2.5 py-1.5 shadow-sm transition-all">
+                        <Calendar size={13} className="text-blue-500 shrink-0" />
+                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wide">Date:</span>
+                        <input
+                            type="date"
+                            value={selectedDate}
+                            onChange={(e) => setSelectedDate(e.target.value)}
+                            max={new Date().toISOString().split('T')[0]}
+                            className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer outline-none w-[110px]"
+                        />
+                    </div>
+
                     <button
                         type="button"
                         onClick={openReportModal}
@@ -1023,7 +1413,7 @@ const BusDetails = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6 items-stretch">
                 {/* Left Column: Combined Cards & Route Highlights */}
-                <div className="lg:col-span-5 xl:col-span-5 flex flex-col">
+                <div className="lg:col-span-7 xl:col-span-7 flex flex-col">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-full">
                         {/* Combined Card: Occupancy, Bus Staff & Live Status */}
                         <StatCard title="Occupancy & Crew Details">
@@ -1179,18 +1569,83 @@ const BusDetails = () => {
                         </StatCard>
 
                         {/* Card 2: Route Highlights */}
-                        <StatCard title="Route Highlights">
+                        <StatCard 
+                            title="Route Highlights"
+                            action={mapTab === 'route' && (
+                                <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-sm shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => setHighlightsTab('in')}
+                                        className={`px-2.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
+                                            highlightsTab === 'in'
+                                                ? 'bg-white text-blue-600 shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-700'
+                                        }`}
+                                    >
+                                        In
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setHighlightsTab('out')}
+                                        className={`px-2.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
+                                            highlightsTab === 'out'
+                                                ? 'bg-white text-blue-600 shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-700'
+                                        }`}
+                                    >
+                                        Out
+                                    </button>
+                                </div>
+                            )}
+                        >
                             {route ? (
                                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
-                                    <div className="relative pl-3 border-l border-blue-100 ml-1.5 h-full min-h-[450px] flex flex-col justify-between py-1">
-                                        {routeStops.map((stop, index) => (
-                                            <div key={index} className="relative flex items-center py-0.5">
-                                                <div className="absolute -left-4 w-2 h-2 rounded-full border-2 border-blue-500 bg-white" />
-                                                <span className="text-[11px] font-bold text-slate-700 leading-none truncate max-w-[180px] inline-block" title={stop}>
-                                                    {stop}
-                                                </span>
-                                            </div>
-                                        ))}
+                                    <div className="relative pl-4 border-l-2 border-blue-100 ml-2 h-full min-h-[450px] flex flex-col justify-between py-2 space-y-4">
+                                        {stagesWithCoords.map((stage, index) => {
+                                            const isFirst = index === 0;
+                                            const isLast = index === stagesWithCoords.length - 1;
+                                            const isFinal = stage.isFinalDest;
+                                            const status = getStageGpsStatus(stage, isFirst, isFinal);
+
+                                            return (
+                                                <div key={index} className="relative flex flex-col justify-center min-h-[40px] pl-1">
+                                                    {/* Bullet point indicator */}
+                                                    <div className={`absolute -left-[21px] w-3.5 h-3.5 rounded-full border-2 bg-white flex items-center justify-center ${
+                                                        isFinal ? 'border-indigo-600 ring-2 ring-indigo-100' : 'border-blue-500'
+                                                    }`}>
+                                                        <div className={`w-1.5 h-1.5 rounded-full ${isFinal ? 'bg-indigo-600' : 'bg-blue-500'}`} />
+                                                    </div>
+                                                    
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className={`text-[11px] font-extrabold truncate max-w-[140px] ${
+                                                            isFinal ? 'text-indigo-800' : 'text-slate-700'
+                                                        }`} title={stage.stageName}>
+                                                            {stage.stageName}
+                                                        </span>
+                                                        <div className="flex gap-2 shrink-0">
+                                                            {/* Morning "In" status */}
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-[7px] text-slate-400 font-bold uppercase leading-none mb-0.5">In</span>
+                                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                                                    status.morningTime !== '—' && status.morningTime !== '...' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-400'
+                                                                }`}>
+                                                                    {status.morningTime}
+                                                                </span>
+                                                            </div>
+                                                            {/* Evening "Out" status */}
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-[7px] text-slate-400 font-bold uppercase leading-none mb-0.5">Out</span>
+                                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                                                    status.eveningTime !== '—' && status.eveningTime !== '...' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-400'
+                                                                }`}>
+                                                                    {status.eveningTime}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             ) : (
@@ -1201,7 +1656,7 @@ const BusDetails = () => {
                 </div>
 
                 {/* Right Column: GPS Map Card */}
-                <div className="lg:col-span-7 xl:col-span-7">
+                <div className="lg:col-span-5 xl:col-span-5">
                     <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm h-full flex flex-col min-h-[580px] space-y-3">
                         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                             <div className="flex items-center gap-2">
@@ -1238,6 +1693,32 @@ const BusDetails = () => {
                                 </div>
                             )}
 
+                            {/* View toggle tabs */}
+                            <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-sm shrink-0 mr-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setMapTab('live')}
+                                    className={`px-2.5 py-1 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
+                                        mapTab === 'live'
+                                            ? 'bg-white text-blue-600 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                    }`}
+                                >
+                                    Live
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setMapTab('route')}
+                                    className={`px-2.5 py-1 rounded-md text-[9px] font-extrabold uppercase tracking-wider transition-all ${
+                                        mapTab === 'route'
+                                            ? 'bg-white text-blue-600 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                    }`}
+                                >
+                                    Route Map
+                                </button>
+                            </div>
+
                             <div className="flex items-center gap-1">
                                 {gpsVehicle && gpsVehicle.uiiframe && (
                                     <a
@@ -1273,7 +1754,7 @@ const BusDetails = () => {
                             />
                             
                             {/* Error Overlay */}
-                            {gpsError && (
+                            {mapTab === 'live' && gpsError && (
                                 <div className="absolute inset-0 flex flex-col justify-center items-center bg-slate-50 p-6 text-center z-10">
                                     <AlertTriangle size={24} className="text-amber-500 mb-2" />
                                     <p className="text-xs font-bold text-slate-800 mb-1">GPS Not Connected</p>
@@ -1282,7 +1763,7 @@ const BusDetails = () => {
                             )}
 
                             {/* Loading Overlay */}
-                            {!gpsError && (!isLeafletReady || !gpsVehicle || !hasCenteredFirstTime) && (
+                            {(mapTab === 'route' ? !isLeafletReady : (!gpsError && (!isLeafletReady || !gpsVehicle || !hasCenteredFirstTime))) && (
                                 <div className="absolute inset-0 flex flex-col justify-center items-center bg-slate-50 z-10">
                                     <Loader2 size={24} className="animate-spin text-blue-600 mb-2" />
                                     <p className="text-[10px] text-slate-400 font-medium">

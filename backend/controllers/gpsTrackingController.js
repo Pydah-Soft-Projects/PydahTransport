@@ -410,7 +410,7 @@ const fetchGeofenceReport = async (req, res) => {
  */
 const saveFinalDestination = async (req, res) => {
   try {
-    const { name, campus, latitude, longitude, radius } = req.body;
+    const { name, campus, latitude, longitude, radius, morningStart, morningEnd, eveningStart, eveningEnd } = req.body;
 
     if (!name || campus === undefined || campus === null) {
       return res.status(400).json({ success: false, message: 'name and campus are required' });
@@ -427,6 +427,10 @@ const saveFinalDestination = async (req, res) => {
         latitude: Number(latitude),
         longitude: Number(longitude),
         radius: Number(radius) || 200,
+        morningStart: morningStart || '07:00',
+        morningEnd: morningEnd || '09:30',
+        eveningStart: eveningStart || '16:00',
+        eveningEnd: eveningEnd || '19:00',
         isActive: true,
       },
       { upsert: true, new: true, runValidators: true }
@@ -435,6 +439,293 @@ const saveFinalDestination = async (req, res) => {
     return res.status(200).json({ success: true, message: 'Final destination saved successfully', data: dest });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message || 'Failed to save final destination' });
+  }
+};
+
+/**
+ * GET /api/gps/final-destination/report?campus=1&date=2026-08-20
+ * Calculates active bus geofence in/out times locally from Messages API for the defined time frames.
+ */
+const fetchFinalDestinationReport = async (req, res) => {
+  try {
+    const campus = Number(req.query.campus);
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+
+    if (!Number.isFinite(campus)) {
+      return res.status(400).json({ success: false, message: 'campus query parameter is required' });
+    }
+
+    const dest = await GpsFinalDestination.findOne({ campus });
+    if (!dest) {
+      return res.status(200).json({ success: true, data: [], message: 'No final destination geofence configured for this campus.' });
+    }
+
+    const { latitude, longitude, radius, morningStart, morningEnd, eveningStart, eveningEnd } = dest;
+
+    const routes = await Route.find({ campus }).lean();
+    const routeIds = routes.map(r => r.routeId);
+    const routeMap = {};
+    routes.forEach(r => {
+      routeMap[r.routeId] = r.routeName;
+    });
+
+    const buses = await Bus.find({ assignedRouteId: { $in: routeIds }, status: 'Active' }).lean();
+    if (buses.length === 0) {
+      return res.status(200).json({ success: true, data: [], message: 'No active buses assigned to routes for this campus.' });
+    }
+
+    const calculateDistance = (lat1, lon1, lat2, lon2) => {
+      const R = 6371e3;
+      const phi1 = lat1 * Math.PI / 180;
+      const phi2 = lat2 * Math.PI / 180;
+      const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+      const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+      const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                Math.cos(phi1) * Math.cos(phi2) *
+                Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+      return R * c;
+    };
+
+    const parseTggMessagesLocal = (rawText) => {
+      if (!rawText) return [];
+      try {
+        const parsed = JSON.parse(rawText.trim());
+        const points = [];
+        for (const vehKey of Object.keys(parsed)) {
+          const vehData = parsed[vehKey];
+          if (vehData && typeof vehData === 'object') {
+            for (const logKey of Object.keys(vehData)) {
+              const log = vehData[logKey];
+              if (log && log.y && log.x) {
+                points.push({
+                  timestamp: log.time || log.timestamp || '',
+                  latitude: parseFloat(log.y),
+                  longitude: parseFloat(log.x)
+                });
+              }
+            }
+          }
+        }
+        return points;
+      } catch (e) {
+        return [];
+      }
+    };
+
+    const reportRows = await Promise.all(buses.map(async (bus) => {
+      const cleanBusName = bus.busNumber.replace(/[^a-zA-Z0-9]/g, '');
+      const routeName = routeMap[bus.assignedRouteId] || bus.assignedRouteId;
+
+      let mrngIn = '—';
+      let mrngOut = '—';
+      let evngIn = '—';
+      let evngOut = '—';
+
+      // 1. Morning Geofence Check
+      try {
+        const { baseUrl, token, username, password } = getTggConfig();
+        const url = `${baseUrl}/messages_api.php?token=${encodeURIComponent(token)}`;
+        const params = new URLSearchParams();
+        params.append('username', username);
+        params.append('password', password);
+        params.append('date_from', `${date} ${morningStart}:00`);
+        params.append('date_to', `${date} ${morningEnd}:00`);
+        params.append('vehicle_name', cleanBusName);
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params
+        });
+
+        if (response.ok) {
+          const rawText = await response.text();
+          const points = parseTggMessagesLocal(rawText, cleanBusName);
+          const insidePoints = points.filter(pt => calculateDistance(latitude, longitude, pt.latitude, pt.longitude) <= radius);
+          
+          if (insidePoints.length > 0) {
+            insidePoints.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            mrngIn = insidePoints[0].timestamp.split(' ')[1] || insidePoints[0].timestamp;
+            mrngOut = insidePoints[insidePoints.length - 1].timestamp.split(' ')[1] || insidePoints[insidePoints.length - 1].timestamp;
+          }
+        }
+      } catch (err) {
+        console.error(`Error calculating morning geofence for bus ${bus.busNumber}:`, err.message);
+      }
+
+      // 2. Evening Geofence Check
+      try {
+        const { baseUrl, token, username, password } = getTggConfig();
+        const url = `${baseUrl}/messages_api.php?token=${encodeURIComponent(token)}`;
+        const params = new URLSearchParams();
+        params.append('username', username);
+        params.append('password', password);
+        params.append('date_from', `${date} ${eveningStart}:00`);
+        params.append('date_to', `${date} ${eveningEnd}:00`);
+        params.append('vehicle_name', cleanBusName);
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params
+        });
+
+        if (response.ok) {
+          const rawText = await response.text();
+          const points = parseTggMessagesLocal(rawText, cleanBusName);
+          const insidePoints = points.filter(pt => calculateDistance(latitude, longitude, pt.latitude, pt.longitude) <= radius);
+          
+          if (insidePoints.length > 0) {
+            insidePoints.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            evngIn = insidePoints[0].timestamp.split(' ')[1] || insidePoints[0].timestamp;
+            evngOut = insidePoints[insidePoints.length - 1].timestamp.split(' ')[1] || insidePoints[insidePoints.length - 1].timestamp;
+          }
+        }
+      } catch (err) {
+        console.error(`Error calculating evening geofence for bus ${bus.busNumber}:`, err.message);
+      }
+
+      return {
+        busNumber: bus.busNumber,
+        routeId: bus.assignedRouteId,
+        routeName,
+        mrngIn,
+        mrngOut,
+        evngIn,
+        evngOut
+      };
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: reportRows
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Failed to fetch final destination geofence report' });
+  }
+};
+
+const dailyHistoryCache = {};
+
+/**
+ * GET /api/gps/daily-history?vehicle_name=AP39VA1853&date=2026-08-20
+ * Queries the TGG Messages API in parallel 2-hour segments to fetch raw 10-second coordinates for the entire day.
+ */
+const fetchDailyHistory = async (req, res) => {
+  try {
+    const { vehicle_name, date } = req.query;
+    if (!vehicle_name) {
+      return res.status(400).json({ success: false, message: 'vehicle_name is required' });
+    }
+    const targetDate = date || new Date().toISOString().split('T')[0];
+
+    // Define 2-hour segments from 05:00 to 21:00 (covers all possible bus runs)
+    const segments = [];
+    for (let hour = 5; hour <= 19; hour += 2) {
+      const startHour = String(hour).padStart(2, '0');
+      const endHour = String(hour + 2).padStart(2, '0');
+      segments.push({
+        start: `${targetDate} ${startHour}:00:00`,
+        end: `${targetDate} ${endHour}:00:00`
+      });
+    }
+
+    const cleanBusNo = vehicle_name.replace(/[^a-zA-Z0-9]/g, '');
+
+    const cacheKey = `${cleanBusNo}_${targetDate}`;
+    const cached = dailyHistoryCache[cacheKey];
+    const now = Date.now();
+    const isToday = targetDate === new Date().toISOString().split('T')[0];
+    const cacheTTL = isToday ? 2 * 60 * 1000 : 24 * 60 * 60 * 1000; // 2 mins for today, 24 hrs for past dates
+
+    if (cached && (now - cached.timestamp < cacheTTL)) {
+      return res.status(200).json({
+        success: true,
+        data: cached.data
+      });
+    }
+
+    const parseTggMessagesLocal = (rawText) => {
+      if (!rawText) return [];
+      try {
+        const parsed = JSON.parse(rawText.trim());
+        const points = [];
+        for (const vehKey of Object.keys(parsed)) {
+          const vehData = parsed[vehKey];
+          if (vehData && typeof vehData === 'object') {
+            for (const logKey of Object.keys(vehData)) {
+              const log = vehData[logKey];
+              if (log && log.y && log.x) {
+                points.push({
+                  timestamp: log.time || log.timestamp || '',
+                  latitude: parseFloat(log.y),
+                  longitude: parseFloat(log.x)
+                });
+              }
+            }
+          }
+        }
+        return points;
+      } catch (e) {
+        return [];
+      }
+    };
+
+    // Query TGG Messages API in parallel for all segments
+    const promises = segments.map(async (seg) => {
+      try {
+        const { baseUrl, token, username, password } = getTggConfig();
+        const url = `${baseUrl}/messages_api.php?token=${encodeURIComponent(token)}`;
+        const params = new URLSearchParams();
+        params.append('username', username);
+        params.append('password', password);
+        params.append('date_from', seg.start);
+        params.append('date_to', seg.end);
+        params.append('vehicle_name', cleanBusNo);
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params
+        });
+
+        if (response.ok) {
+          const rawText = await response.text();
+          return parseTggMessagesLocal(rawText, cleanBusNo);
+        }
+        return [];
+      } catch (e) {
+        return [];
+      }
+    });
+
+    const results = await Promise.all(promises);
+    let allPoints = [];
+    results.forEach(pts => {
+      allPoints = allPoints.concat(pts);
+    });
+
+    // Sort chronologically
+    allPoints.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    // Save to cache
+    dailyHistoryCache[cacheKey] = {
+      timestamp: Date.now(),
+      data: allPoints
+    };
+
+    return res.status(200).json({
+      success: true,
+      data: allPoints
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch daily history'
+    });
   }
 };
 
@@ -450,5 +741,7 @@ module.exports = {
   getFinalDestination,
   getAllFinalDestinations,
   saveFinalDestination,
-  fetchGeofenceReport
+  fetchGeofenceReport,
+  fetchFinalDestinationReport,
+  fetchDailyHistory
 };

@@ -24,6 +24,22 @@ const gpsFinalDestinationSchema = new mongoose.Schema({
     required: true,
     default: 200,
   },
+  morningStart: {
+    type: String,
+    default: '07:00',
+  },
+  morningEnd: {
+    type: String,
+    default: '09:30',
+  },
+  eveningStart: {
+    type: String,
+    default: '16:00',
+  },
+  eveningEnd: {
+    type: String,
+    default: '19:00',
+  },
   isActive: {
     type: Boolean,
     default: true,
