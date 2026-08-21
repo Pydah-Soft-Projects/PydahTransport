@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw, Search, CheckCircle2, User, MapPin, GraduationCap, Clock, Bus, Check, AlertTriangle, XCircle, X, Users } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
 import { apiFetch, API_BASE } from '../utils/api';
-import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
+import { getDefaultAcademicYear, getAcademicYearOptions, getPreviousAcademicYear } from '../utils/academicYear';
 
 const statusDisplay = (s) => (s || 'pending').charAt(0).toUpperCase() + (s || 'pending').slice(1);
 const formatFare = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 
 const Renewals = () => {
+    const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+
     // Current user context
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
     const admin = {
@@ -17,30 +21,52 @@ const Renewals = () => {
         id: adminInfo.id || 1,
     };
 
-    // Helper to get previous academic year
-    const getPreviousYear = (currentYear) => {
-        const parts = currentYear.split('-').map(Number);
-        if (parts.length === 2) {
-            return `${parts[0] - 1}-${parts[1] - 1}`;
-        }
-        return '2024-2025'; // Fallback
-    };
-
     // Filter states
     const academicYearOptions = getAcademicYearOptions();
     const currentYear = getDefaultAcademicYear();
-    const defaultExpiredYear = getPreviousYear(currentYear);
+    const defaultExpiredYear = getPreviousAcademicYear(currentYear);
 
-    const [expiredYear, setExpiredYear] = useState(defaultExpiredYear);
-    const [targetYear, setTargetYear] = useState(currentYear);
-    const [routeFilter, setRouteFilter] = useState('');
-    const [courseFilter, setCourseFilter] = useState('');
-    const [searchQuery, setSearchQuery] = useState('');
-    const [renewalStatusFilter, setRenewalStatusFilter] = useState('');
+    const [expiredYear, setExpiredYear] = useState(() => searchParams.get('expiredYear') || defaultExpiredYear);
+    const [targetYear, setTargetYear] = useState(() => searchParams.get('targetYear') || currentYear);
+    const [routeFilter, setRouteFilter] = useState(() => searchParams.get('route') || '');
+    const [courseFilter, setCourseFilter] = useState(() => searchParams.get('course') || '');
+    const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
+    const [renewalStatusFilter, setRenewalStatusFilter] = useState(() => searchParams.get('status') || '');
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
     const [rowsPerPage, setRowsPerPage] = useState(10);
+
+    // Apply filters coming from dashboard / shared links
+    useEffect(() => {
+        setExpiredYear(searchParams.get('expiredYear') || defaultExpiredYear);
+        setTargetYear(searchParams.get('targetYear') || currentYear);
+        setRouteFilter(searchParams.get('route') || '');
+        setCourseFilter(searchParams.get('course') || '');
+        setSearchQuery(searchParams.get('search') || '');
+        setRenewalStatusFilter(searchParams.get('status') || '');
+        setCurrentPage(1);
+    }, [searchParams]);
+
+    const syncFiltersToUrl = (next = {}) => {
+        const params = new URLSearchParams();
+        const nextExpired = next.expiredYear ?? expiredYear;
+        const nextTarget = next.targetYear ?? targetYear;
+        const nextRoute = next.routeFilter ?? routeFilter;
+        const nextCourse = next.courseFilter ?? courseFilter;
+        const nextSearch = next.searchQuery ?? searchQuery;
+        const nextStatus = next.renewalStatusFilter ?? renewalStatusFilter;
+
+        if (nextExpired) params.set('expiredYear', nextExpired);
+        if (nextTarget) params.set('targetYear', nextTarget);
+        if (nextRoute) params.set('route', nextRoute);
+        if (nextCourse) params.set('course', nextCourse);
+        if (nextSearch) params.set('search', nextSearch);
+        if (nextStatus) params.set('status', nextStatus);
+
+        const qs = params.toString();
+        navigate(qs ? `/renewals?${qs}` : '/renewals', { replace: true });
+    };
 
     // Data lists
     const [requests, setRequests] = useState([]);
@@ -436,7 +462,11 @@ const Renewals = () => {
                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Expired Academic Year</label>
                         <select
                             value={expiredYear}
-                            onChange={(e) => setExpiredYear(e.target.value)}
+                            onChange={(e) => {
+                                const value = e.target.value;
+                                setExpiredYear(value);
+                                syncFiltersToUrl({ expiredYear: value });
+                            }}
                             className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         >
                             {academicYearOptions.map((year) => (
@@ -450,7 +480,11 @@ const Renewals = () => {
                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Target Academic Year</label>
                         <select
                             value={targetYear}
-                            onChange={(e) => setTargetYear(e.target.value)}
+                            onChange={(e) => {
+                                const value = e.target.value;
+                                setTargetYear(value);
+                                syncFiltersToUrl({ targetYear: value });
+                            }}
                             className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         >
                             {academicYearOptions.map((year) => (
@@ -464,7 +498,11 @@ const Renewals = () => {
                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Previous Route</label>
                         <select
                             value={routeFilter}
-                            onChange={(e) => setRouteFilter(e.target.value)}
+                            onChange={(e) => {
+                                const value = e.target.value;
+                                setRouteFilter(value);
+                                syncFiltersToUrl({ routeFilter: value });
+                            }}
                             className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         >
                             <option value="">All Routes</option>
@@ -479,10 +517,17 @@ const Renewals = () => {
                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Course</label>
                         <select
                             value={courseFilter}
-                            onChange={(e) => setCourseFilter(e.target.value)}
+                            onChange={(e) => {
+                                const value = e.target.value;
+                                setCourseFilter(value);
+                                syncFiltersToUrl({ courseFilter: value });
+                            }}
                             className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         >
                             <option value="">All Courses</option>
+                            {courseFilter && !courses.some((c) => c.name === courseFilter) && (
+                                <option value={courseFilter}>{courseFilter}</option>
+                            )}
                             {courses.map((c) => (
                                 <option key={c.id} value={c.name}>{c.name}</option>
                             ))}
@@ -494,7 +539,11 @@ const Renewals = () => {
                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Renewal Status</label>
                         <select
                             value={renewalStatusFilter}
-                            onChange={(e) => setRenewalStatusFilter(e.target.value)}
+                            onChange={(e) => {
+                                const value = e.target.value;
+                                setRenewalStatusFilter(value);
+                                syncFiltersToUrl({ renewalStatusFilter: value });
+                            }}
                             className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         >
                             <option value="">All Passengers</option>
@@ -511,7 +560,11 @@ const Renewals = () => {
                                 type="text"
                                 placeholder="Name or adm no..."
                                 value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    setSearchQuery(value);
+                                    syncFiltersToUrl({ searchQuery: value });
+                                }}
                                 className="w-full bg-slate-50 hover:bg-slate-100 focus:bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs font-semibold text-slate-600 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                             />
                             <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />

@@ -93,12 +93,12 @@ const DonutChart = ({ percent }) => {
 };
 
 const StatCard = ({ title, children, className = '', action = null }) => (
-    <div className={`bg-white rounded-2xl border border-slate-200 p-5 shadow-sm h-full flex flex-col ${className}`}>
-        <div className="flex items-center justify-between mb-3 shrink-0">
+    <div className={`bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col min-h-0 ${className}`}>
+        <div className="flex items-center justify-between mb-3 shrink-0 gap-2">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0">{title}</p>
             {action}
         </div>
-        {children}
+        <div className="flex-1 min-h-0 flex flex-col">{children}</div>
     </div>
 );
 
@@ -1657,12 +1657,10 @@ const BusDetails = () => {
 
             {/* Title space refactored into top bar */}
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6 items-stretch">
-                {/* Left Column: Combined Cards & Route Highlights */}
-                <div className="lg:col-span-7 xl:col-span-7 flex flex-col">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-full">
-                        {/* Combined Card: Occupancy, Bus Staff & Live Status */}
-                        <StatCard title="Occupancy & Crew Details">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6 items-start">
+                {/* Column 1: Occupancy & Crew */}
+                <div className="min-w-0 xl:max-h-[calc(100vh-9.5rem)] xl:overflow-y-auto custom-scrollbar">
+                    <StatCard title="Occupancy & Crew Details" className="h-auto">
                             <div className="flex flex-col gap-4">
                                 <div className="flex items-center gap-4">
                                     <DonutChart percent={occupancyPercent} />
@@ -1812,10 +1810,13 @@ const BusDetails = () => {
                                     )}
                                 </div>
                             </div>
-                        </StatCard>
+                    </StatCard>
+                </div>
 
-                        {/* Card 2: Route Highlights */}
+                {/* Column 2: Route Highlights */}
+                <div className="min-w-0 xl:max-h-[calc(100vh-9.5rem)] xl:overflow-hidden flex flex-col">
                         <StatCard 
+                            className="h-full max-h-[calc(100vh-9.5rem)]"
                             title="Route Highlights"
                             action={
                                 <div className="flex items-center gap-2 shrink-0">
@@ -1855,8 +1856,8 @@ const BusDetails = () => {
                             }
                         >
                             {route ? (
-                                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
-                                    <div className="relative pl-4 border-l-2 border-blue-100 ml-2 h-full min-h-[450px] flex flex-col justify-between py-2 space-y-4">
+                                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
+                                    <div className="relative pl-4 border-l-2 border-blue-100 ml-2 py-1 space-y-3">
                                         {stagesWithCoords.map((stage, index) => {
                                             const isFirst = index === 0;
                                             const isLast = index === stagesWithCoords.length - 1;
@@ -1866,7 +1867,7 @@ const BusDetails = () => {
                                             const isMissed = !isFinal && status.morningTime === '—' && status.eveningTime === '—' && (morningTrace.length > 0 || eveningTrace.length > 0);
 
                                             return (
-                                                <div key={index} className="relative flex flex-col justify-center min-h-[40px] pl-1">
+                                                <div key={index} className="relative flex flex-col justify-center pl-1">
                                                     {/* Bullet point indicator — amber when missed */}
                                                     <div className={`absolute -left-[21px] w-3.5 h-3.5 rounded-full border-2 bg-white flex items-center justify-center ${
                                                         isFinal ? 'border-indigo-600 ring-2 ring-indigo-100' : isMissed ? 'border-amber-400 ring-2 ring-amber-100' : 'border-blue-500'
@@ -1879,7 +1880,7 @@ const BusDetails = () => {
                                                             {isMissed && (
                                                                 <span className="shrink-0 text-[8px] font-extrabold text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 py-0.5 uppercase tracking-wide">Missed</span>
                                                             )}
-                                                            <span className={`text-[11px] font-extrabold truncate max-w-[120px] ${
+                                                            <span className={`text-[11px] font-extrabold truncate max-w-[140px] ${
                                                                 isFinal ? 'text-indigo-800' : isMissed ? 'text-amber-700' : 'text-slate-700'
                                                             }`} title={stage.stageName}>
                                                                 {stage.stageName}
@@ -1915,12 +1916,11 @@ const BusDetails = () => {
                                 <p className="text-xs text-slate-400 italic">No route assigned</p>
                             )}
                         </StatCard>
-                    </div>
                 </div>
 
-                {/* Right Column: GPS Map Card */}
-                <div className="lg:col-span-5 xl:col-span-5">
-                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm h-full flex flex-col min-h-[580px] space-y-3">
+                {/* Column 3: GPS Map Card */}
+                <div className="min-w-0 md:col-span-2 xl:col-span-1">
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col h-[min(580px,calc(100vh-9.5rem))] min-h-[420px] space-y-3">
                         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                             <div className="flex items-center gap-2">
                                 <div className="w-7 h-7 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs shrink-0">
@@ -2009,11 +2009,11 @@ const BusDetails = () => {
                         </div>
 
                         {/* Map or Error Display */}
-                        <div className="flex-1 rounded-xl border border-slate-200 overflow-hidden relative bg-slate-50 min-h-[450px] flex flex-col w-full h-full">
+                        <div className="flex-1 rounded-xl border border-slate-200 overflow-hidden relative bg-slate-50 min-h-0 flex flex-col w-full">
                             {/* Map element is kept in DOM at all times to prevent Leaflet container initialization errors */}
                             <div 
                                 ref={mapContainerRef} 
-                                className="absolute inset-0 w-full h-full min-h-[450px] z-0"
+                                className="absolute inset-0 w-full h-full z-0"
                             />
                             
                             {/* Error Overlay */}
@@ -2460,7 +2460,7 @@ const BusDetails = () => {
                         ) : (
                             <div className="space-y-6">
                                 {/* Summary KPIs */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
                                     <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between">
                                         <div>
                                             <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Total Distance</span>
@@ -2483,7 +2483,7 @@ const BusDetails = () => {
                                             ⚡
                                         </div>
                                     </div>
-                                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between">
+                                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between sm:col-span-2 lg:col-span-1">
                                         <div>
                                             <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Max Run / Day</span>
                                             <span className="text-xl font-black text-slate-900 mt-1 block">
