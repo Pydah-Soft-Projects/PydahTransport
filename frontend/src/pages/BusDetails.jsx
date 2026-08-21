@@ -66,12 +66,12 @@ const getPayableFare = (passenger) => {
 };
 
 const DonutChart = ({ percent }) => {
-    const radius = 38;
+    const radius = 32;
     const circumference = 2 * Math.PI * radius;
     const offset = circumference - (Math.min(100, percent) / 100) * circumference;
 
     return (
-        <svg width="96" height="96" viewBox="0 0 100 100" className="shrink-0">
+        <svg width="80" height="80" viewBox="0 0 100 100" className="shrink-0">
             <circle cx="50" cy="50" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="10" />
             <circle
                 cx="50"
@@ -93,7 +93,7 @@ const DonutChart = ({ percent }) => {
 };
 
 const StatCard = ({ title, children, className = '', action = null }) => (
-    <div className={`bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col min-h-0 ${className}`}>
+    <div className={`bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-0 p-4 ${className}`}>
         <div className="flex items-center justify-between mb-3 shrink-0 gap-2">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0">{title}</p>
             {action}
@@ -414,14 +414,92 @@ const BusDetails = () => {
         };
     }, [id]);
 
-    // Recenter route bounds or live bus when switching tabs
+    // Auto-zoom when switching Live ↔ Route (separate from render loop so animation ticks don't cancel fitBounds)
     useEffect(() => {
+        if (!isLeafletReady || !mapInstanceRef.current || !window.L) return;
+        const L = window.L;
+        const map = mapInstanceRef.current;
+        const timers = [];
+
+        const schedule = (fn, ms) => {
+            timers.push(setTimeout(fn, ms));
+        };
+
         if (mapTab === 'route') {
             hasCenteredRouteRef.current = false;
+            centeredVehicleNameRef.current = null;
+
+            const points = [];
+            (stagesWithCoords || []).forEach((s) => {
+                if (typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude !== 0 && s.longitude !== 0) {
+                    points.push([s.latitude, s.longitude]);
+                }
+            });
+            (animationPath || []).forEach((p) => {
+                if (Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])) {
+                    points.push([p[0], p[1]]);
+                }
+            });
+
+            if (points.length === 0) return undefined;
+
+            const fitAllPoints = () => {
+                if (!mapInstanceRef.current || mapTab !== 'route') return;
+                mapInstanceRef.current.invalidateSize();
+                mapInstanceRef.current.fitBounds(L.latLngBounds(points), {
+                    padding: [48, 48],
+                    maxZoom: 15,
+                    animate: true,
+                });
+                hasCenteredRouteRef.current = true;
+            };
+
+            // First fit after tab paint, then again after layout/tiles settle
+            schedule(() => {
+                map.invalidateSize();
+                fitAllPoints();
+            }, 80);
+            schedule(fitAllPoints, 280);
         } else {
-            centeredVehicleNameRef.current = null; // trigger live re-centering
+            // Switching to Live — re-center on bus once
+            hasCenteredRouteRef.current = false;
+            centeredVehicleNameRef.current = null;
+
+            schedule(() => {
+                if (!mapInstanceRef.current || mapTab !== 'live') return;
+                mapInstanceRef.current.invalidateSize();
+
+                const hasGpsCoords = gpsVehicle
+                    && typeof gpsVehicle.latitude === 'number'
+                    && typeof gpsVehicle.longitude === 'number'
+                    && gpsVehicle.latitude !== 0
+                    && gpsVehicle.longitude !== 0;
+
+                if (hasGpsCoords) {
+                    mapInstanceRef.current.flyTo(
+                        [gpsVehicle.latitude, gpsVehicle.longitude],
+                        15,
+                        { animate: true, duration: 1.2 }
+                    );
+                    centeredVehicleNameRef.current = gpsVehicle.name;
+                    setHasCenteredFirstTime(true);
+                } else {
+                    const stagePoints = (stagesWithCoords || [])
+                        .filter((s) => typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude !== 0)
+                        .map((s) => [s.latitude, s.longitude]);
+                    if (stagePoints.length > 0) {
+                        mapInstanceRef.current.fitBounds(L.latLngBounds(stagePoints), { padding: [48, 48], maxZoom: 15 });
+                    }
+                }
+            }, 100);
         }
-    }, [mapTab]);
+
+        return () => {
+            timers.forEach(clearTimeout);
+        };
+    // Intentionally omit gpsVehicle continuous updates — only re-fit on tab/route geometry changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mapTab, isLeafletReady, stagesWithCoords, animationPath]);
 
     const fetchGpsData = useCallback(async () => {
         if (!data?.bus?.busNumber) return;
@@ -490,10 +568,6 @@ const BusDetails = () => {
         if (!data?.bus?.busNumber) return;
         const normalizedBusNumber = normalizeVehicleNumber(data.bus.busNumber);
 
-        // Only show loading indicator on initial fetch
-        if (morningTrace.length === 0 && eveningTrace.length === 0) {
-            setGpsLoading(true);
-        }
         try {
             const targetDate = selectedDate || new Date().toISOString().split('T')[0];
 
@@ -533,11 +607,12 @@ const BusDetails = () => {
         }
     }, [data?.bus?.busNumber, finalDestination, selectedDate]);
 
-    // Clear GPS traces and map path immediately when date changes to trigger fresh loading spinner
+    // Clear GPS traces immediately when date changes and show In/Out loaders
     useEffect(() => {
         setMorningTrace([]);
         setEveningTrace([]);
         setGpsTraceLogs([]);
+        setGpsLoading(true);
     }, [selectedDate]);
 
     const fetchDailyKm = useCallback(async () => {
@@ -1063,17 +1138,6 @@ const BusDetails = () => {
                 `);
                 movingMarker.addTo(layerGroup);
             }
-
-            // ROUTE MAP TAB: Fit bounds once
-            if (stageCoords.length > 0 && !hasCenteredRouteRef.current) {
-                timer = setTimeout(() => {
-                    if (mapInstanceRef.current && mapTab === 'route') {
-                        mapInstanceRef.current.invalidateSize();
-                        mapInstanceRef.current.fitBounds(L.latLngBounds(stageCoords), { padding: [45, 45] });
-                        hasCenteredRouteRef.current = true; // Mark as centered once
-                    }
-                }, 150);
-            }
         } else {
             // LIVE VIEW TAB: Draw live vehicle marker overlay on top of route, and center/pan on it
             const hasGpsCoords = gpsVehicle && 
@@ -1102,19 +1166,23 @@ const BusDetails = () => {
                 marker.bindPopup(popupHtml);
                 marker.addTo(layerGroup);
 
-                // Center map on the bus coordinates
-                timer = setTimeout(() => {
-                    if (mapInstanceRef.current && mapTab === 'live') {
-                        mapInstanceRef.current.invalidateSize();
-                        if (centeredVehicleNameRef.current !== gpsVehicle.name) {
+                // Follow live bus only after initial center (tab-switch zoom is handled separately)
+                if (centeredVehicleNameRef.current === gpsVehicle.name) {
+                    timer = setTimeout(() => {
+                        if (mapInstanceRef.current && mapTab === 'live') {
+                            mapInstanceRef.current.panTo([lat, lng], { animate: true });
+                        }
+                    }, 50);
+                } else if (!centeredVehicleNameRef.current) {
+                    timer = setTimeout(() => {
+                        if (mapInstanceRef.current && mapTab === 'live') {
+                            mapInstanceRef.current.invalidateSize();
                             mapInstanceRef.current.flyTo([lat, lng], 15, { animate: true, duration: 1.5 });
                             centeredVehicleNameRef.current = gpsVehicle.name;
                             setHasCenteredFirstTime(true);
-                        } else {
-                            mapInstanceRef.current.panTo([lat, lng], { animate: true });
                         }
-                    }
-                }, 150);
+                    }, 150);
+                }
             }
         }
 
@@ -1657,12 +1725,12 @@ const BusDetails = () => {
 
             {/* Title space refactored into top bar */}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6 items-start">
-                {/* Column 1: Occupancy & Crew */}
-                <div className="min-w-0 xl:max-h-[calc(100vh-9.5rem)] xl:overflow-y-auto custom-scrollbar">
-                    <StatCard title="Occupancy & Crew Details" className="h-auto">
-                            <div className="flex flex-col gap-4">
-                                <div className="flex items-center gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4 mb-6 xl:items-stretch xl:h-[min(560px,calc(100vh-10rem))]">
+                {/* Column 1: Occupancy & Crew — narrower */}
+                <div className="min-w-0 md:col-span-1 xl:col-span-3 h-full min-h-0">
+                    <StatCard title="Occupancy & Crew Details" className="h-full overflow-y-auto custom-scrollbar p-4">
+                            <div className="flex flex-col gap-3">
+                                <div className="flex items-center gap-3">
                                     <DonutChart percent={occupancyPercent} />
                                     <div className="space-y-1 text-xs font-semibold text-slate-500">
                                         <div className="flex items-baseline gap-1 text-slate-900 mb-1">
@@ -1680,9 +1748,9 @@ const BusDetails = () => {
                                     </div>
                                 </div>
 
-                                <div className="border-t border-slate-100 my-1"></div>
+                                <div className="border-t border-slate-100"></div>
 
-                                <div className="flex flex-col gap-2.5">
+                                <div className="flex flex-col gap-2">
                                     <div>
                                         <div className="flex items-center justify-between text-[10px] font-bold text-slate-700 mb-1">
                                             <span>{studentCount} STUDENTS</span>
@@ -1704,12 +1772,12 @@ const BusDetails = () => {
                                 </div>
                             </div>
 
-                            <div className="border-t border-slate-100 my-4"></div>
+                            <div className="border-t border-slate-100 my-3"></div>
 
                             {/* Bus Staff Section */}
                             <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">Bus Staff</p>
-                                <div className="space-y-2.5">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Bus Staff</p>
+                                <div className="space-y-2">
                                     <div className="flex items-center justify-between border border-slate-100 rounded-xl p-2 bg-slate-50/30">
                                         <div className="flex items-center gap-2 min-w-0">
                                             <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
@@ -1753,14 +1821,13 @@ const BusDetails = () => {
                                 </div>
                             </div>
 
-                            <div className="border-t border-slate-100 my-4"></div>
+                            <div className="border-t border-slate-100 my-3"></div>
 
                             {/* Live Status & Academic Year Section */}
                             <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">Live Status & Academic Year</p>
-                                <div className="flex flex-col gap-3">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Live Status & Academic Year</p>
+                                <div className="flex flex-col gap-2.5">
                                     <div>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1.5"></p>
                                         <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 w-full">
                                             <button
                                                 type="button"
@@ -1798,7 +1865,7 @@ const BusDetails = () => {
                                     </div>
 
                                     {occupancyMode !== 'live' && (
-                                        <div className="mt-1 border-t border-slate-100 pt-2 flex items-center gap-2">
+                                        <div className="border-t border-slate-100 pt-2 flex items-center gap-2">
                                             <span className="relative flex h-2 w-2 shrink-0">
                                                 <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
                                             </span>
@@ -1814,9 +1881,9 @@ const BusDetails = () => {
                 </div>
 
                 {/* Column 2: Route Highlights */}
-                <div className="min-w-0 xl:max-h-[calc(100vh-9.5rem)] xl:overflow-hidden flex flex-col">
+                <div className="min-w-0 md:col-span-1 xl:col-span-4 h-full min-h-0">
                         <StatCard 
-                            className="h-full max-h-[calc(100vh-9.5rem)]"
+                            className="h-full overflow-hidden p-4"
                             title="Route Highlights"
                             action={
                                 <div className="flex items-center gap-2 shrink-0">
@@ -1864,7 +1931,7 @@ const BusDetails = () => {
                                             const isFinal = stage.isFinalDest;
                                             const status = getStageGpsStatus(stage, isFirst, isFinal);
                                             // A stage is 'missed' if both In and Out times are blank
-                                            const isMissed = !isFinal && status.morningTime === '—' && status.eveningTime === '—' && (morningTrace.length > 0 || eveningTrace.length > 0);
+                                            const isMissed = !gpsLoading && !isFinal && status.morningTime === '—' && status.eveningTime === '—' && (morningTrace.length > 0 || eveningTrace.length > 0);
 
                                             return (
                                                 <div key={index} className="relative flex flex-col justify-center pl-1">
@@ -1890,20 +1957,32 @@ const BusDetails = () => {
                                                             {/* Morning "In" status */}
                                                             <div className="flex flex-col items-center">
                                                                 <span className="text-[7px] text-slate-400 font-bold uppercase leading-none mb-0.5">In</span>
-                                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                                                    status.morningTime !== '—' && status.morningTime !== '...' ? 'bg-green-100 text-green-800' : isMissed ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'
-                                                                }`}>
-                                                                    {status.morningTime}
-                                                                </span>
+                                                                {gpsLoading ? (
+                                                                    <span className="px-1.5 py-0.5 rounded bg-slate-100 text-blue-600 flex items-center justify-center min-w-[36px]">
+                                                                        <Loader2 size={10} className="animate-spin" />
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                                                        status.morningTime !== '—' && status.morningTime !== '...' ? 'bg-green-100 text-green-800' : isMissed ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'
+                                                                    }`}>
+                                                                        {status.morningTime}
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                             {/* Evening "Out" status */}
                                                             <div className="flex flex-col items-center">
                                                                 <span className="text-[7px] text-slate-400 font-bold uppercase leading-none mb-0.5">Out</span>
-                                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                                                    status.eveningTime !== '—' && status.eveningTime !== '...' ? 'bg-rose-100 text-rose-800' : isMissed ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'
-                                                                }`}>
-                                                                    {status.eveningTime}
-                                                                </span>
+                                                                {gpsLoading ? (
+                                                                    <span className="px-1.5 py-0.5 rounded bg-slate-100 text-blue-600 flex items-center justify-center min-w-[36px]">
+                                                                        <Loader2 size={10} className="animate-spin" />
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                                                        status.eveningTime !== '—' && status.eveningTime !== '...' ? 'bg-rose-100 text-rose-800' : isMissed ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'
+                                                                    }`}>
+                                                                        {status.eveningTime}
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1918,9 +1997,9 @@ const BusDetails = () => {
                         </StatCard>
                 </div>
 
-                {/* Column 3: GPS Map Card */}
-                <div className="min-w-0 md:col-span-2 xl:col-span-1">
-                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col h-[min(580px,calc(100vh-9.5rem))] min-h-[420px] space-y-3">
+                {/* Column 3: GPS Map Card — wider */}
+                <div className="min-w-0 md:col-span-2 xl:col-span-5 h-full min-h-[360px]">
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col h-full min-h-0 space-y-3">
                         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                             <div className="flex items-center gap-2">
                                 <div className="w-7 h-7 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs shrink-0">
