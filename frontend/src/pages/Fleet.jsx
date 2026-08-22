@@ -27,6 +27,25 @@ import { filterCampusesForUser, getCampusId } from '../utils/campus';
 
 const API = API_BASE;
 
+const sortStagesByRouteOrder = (stageNames = [], routeStages = []) => {
+    const orderMap = new Map();
+    (routeStages || []).forEach((stage, index) => {
+        const name = stage?.stageName || stage?.stage_name;
+        if (name && !orderMap.has(name)) {
+            orderMap.set(name, index);
+        }
+    });
+
+    return [...stageNames].sort((a, b) => {
+        const orderA = orderMap.has(a) ? orderMap.get(a) : Number.MAX_SAFE_INTEGER;
+        const orderB = orderMap.has(b) ? orderMap.get(b) : Number.MAX_SAFE_INTEGER;
+        if (orderA !== orderB) return orderA - orderB;
+        if (a === 'Unassigned') return 1;
+        if (b === 'Unassigned') return -1;
+        return a.localeCompare(b);
+    });
+};
+
 const Fleet = () => {
     const [list, setList] = useState([]);
     const [unassignedPassengerCount, setUnassignedPassengerCount] = useState(0);
@@ -287,6 +306,9 @@ const Fleet = () => {
 
     useEffect(() => {
         fetchOverview();
+        setPassengerCache({});
+        setExpandedRow(null);
+        setStageSelection({});
     }, [academicYear, occupancyMode, selectedCampus]);
 
     const handleRowExpand = async (busId) => {
@@ -298,7 +320,7 @@ const Fleet = () => {
         // Already cached — no need to fetch again
         if (passengerCache[busId]) return;
 
-        setPassengerCache((prev) => ({ ...prev, [busId]: { loading: true, passengers: [] } }));
+        setPassengerCache((prev) => ({ ...prev, [busId]: { loading: true, passengers: [], routeStages: [] } }));
         try {
             const params = new URLSearchParams({ occupancyMode });
             if (occupancyMode !== 'live') params.append('academicYear', academicYear);
@@ -307,13 +329,17 @@ const Fleet = () => {
                 const data = await response.json();
                 setPassengerCache((prev) => ({
                     ...prev,
-                    [busId]: { loading: false, passengers: data.passengers || [] },
+                    [busId]: {
+                        loading: false,
+                        passengers: data.passengers || [],
+                        routeStages: data.route?.stages || [],
+                    },
                 }));
             } else {
-                setPassengerCache((prev) => ({ ...prev, [busId]: { loading: false, passengers: [] } }));
+                setPassengerCache((prev) => ({ ...prev, [busId]: { loading: false, passengers: [], routeStages: [] } }));
             }
         } catch {
-            setPassengerCache((prev) => ({ ...prev, [busId]: { loading: false, passengers: [] } }));
+            setPassengerCache((prev) => ({ ...prev, [busId]: { loading: false, passengers: [], routeStages: [] } }));
         }
     };
 
@@ -643,6 +669,7 @@ const Fleet = () => {
                                     const cached = passengerCache[item.bus._id];
                                     const passengersLoading = cached?.loading ?? false;
                                     const passengers = cached?.passengers ?? [];
+                                    const routeStages = cached?.routeStages ?? [];
                                     return (
                                         <React.Fragment key={item.bus._id}>
                                             <tr className="hover:bg-blue-50/30 transition-colors">
@@ -752,7 +779,7 @@ const Fleet = () => {
                                                                 acc[key].push(p);
                                                                 return acc;
                                                             }, {});
-                                                            const stageNames = Object.keys(stageMap).sort((a, b) => a.localeCompare(b));
+                                                            const stageNames = sortStagesByRouteOrder(Object.keys(stageMap), routeStages);
 
                                                             const openStage = stageSelection[item.bus._id] || null;
 
