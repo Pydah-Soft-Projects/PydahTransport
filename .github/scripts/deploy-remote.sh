@@ -101,17 +101,18 @@ else
 fi
 
 log "Building frontend..."
+cd "${FRONTEND_DIR}"
 printf 'VITE_API_URL=%s\nVITE_CRM_URL=%s\n' "${VITE_API_URL}" "${VITE_CRM_URL}" > .env.production
 npm run build
 
-if [ ! -d "dist" ]; then
+if [ ! -d "${FRONTEND_DIR}/dist" ]; then
   fail "frontend/dist was not created."
 fi
 
 log "Publishing frontend to ${WEB_ROOT}..."
 sudo rm -rf "${WEB_STAGING}"
 sudo mkdir -p "${WEB_STAGING}"
-sudo rsync -a --delete dist/ "${WEB_STAGING}/"
+sudo rsync -a --delete "${FRONTEND_DIR}/dist/" "${WEB_STAGING}/"
 
 if [ -d "${WEB_ROOT}" ]; then
   sudo rm -rf "${WEB_BACKUP}"
