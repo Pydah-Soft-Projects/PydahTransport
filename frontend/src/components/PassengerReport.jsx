@@ -78,6 +78,7 @@ const PassengerReport = forwardRef(({
     academicYear = '',
     campusName = '',
     isRequestsReport = false,
+    assignedBusByRoute = {},
 }, ref) => {
     const groupedData = useMemo(() => (passengers || []).reduce((acc, passenger) => {
         const routeName = passenger.route_name || 'Unassigned Route';
@@ -109,11 +110,13 @@ const PassengerReport = forwardRef(({
                 }
             });
 
-            return { routeName, routeId, stageCount: stageNames.length, total, students, employees };
+            const assignedBus = assignedBusByRoute[String(routeId || '').trim()] || '—';
+
+            return { routeName, routeId, assignedBus, stageCount: stageNames.length, total, students, employees };
         });
 
         return summaries.sort(compareRouteIds);
-    }, [groupedData]);
+    }, [groupedData, assignedBusByRoute]);
 
     const sortedRoutes = useMemo(
         () => routeSummaries.map((route) => route.routeName),
@@ -328,13 +331,14 @@ const PassengerReport = forwardRef(({
                         color: #000;
                         background: #fff;
                     }
-                    .abstract-col-sno { width: 5%; text-align: center; }
-                    .abstract-col-route { width: 37%; text-align: left; font-weight: 600; }
-                    .abstract-col-id { width: 5%; text-align: center; font-family: ui-monospace, monospace; font-size: 7px; }
-                    .abstract-col-stages { width: 10%; text-align: center; }
-                    .abstract-col-total { width: 11%; text-align: center; font-weight: 700; }
-                    .abstract-col-stu { width: 11%; text-align: center; }
-                    .abstract-col-emp { width: 11%; text-align: center; }
+                    .abstract-col-sno { width: 4%; text-align: center; }
+                    .abstract-col-route { width: 42%; text-align: left; font-weight: 600; }
+                    .abstract-col-id { width: 6%; text-align: center; font-family: ui-monospace, monospace; font-size: 7px; }
+                    .abstract-col-bus { width: 11%; text-align: center; font-family: ui-monospace, monospace; font-size: 7px; }
+                    .abstract-col-stages { width: 7%; text-align: center; }
+                    .abstract-col-total { width: 10%; text-align: center; font-weight: 700; }
+                    .abstract-col-stu { width: 10%; text-align: center; }
+                    .abstract-col-emp { width: 10%; text-align: center; }
                     .course-pair-name { width: 38%; text-align: left; font-weight: 600; font-size: 7px; }
                     .course-pair-count { width: 12%; text-align: center; font-weight: 700; font-size: 7px; }
                     .abstract-total-row td {
@@ -469,6 +473,7 @@ const PassengerReport = forwardRef(({
                                             <th className="abstract-col-sno">#</th>
                                             <th className="abstract-col-route">Route Name</th>
                                             <th className="abstract-col-id">Route ID</th>
+                                            <th className="abstract-col-bus">Assigned Bus</th>
                                             <th className="abstract-col-stages">Stages</th>
                                             <th className="abstract-col-total">Total</th>
                                             <th className="abstract-col-stu">Students</th>
@@ -481,6 +486,7 @@ const PassengerReport = forwardRef(({
                                                 <td className="abstract-col-sno">{index + 1}</td>
                                                 <td className="abstract-col-route">{route.routeName}</td>
                                                 <td className="abstract-col-id">{route.routeId || '—'}</td>
+                                                <td className="abstract-col-bus">{route.assignedBus || '—'}</td>
                                                 <td className="abstract-col-stages">{route.stageCount}</td>
                                                 <td className="abstract-col-total">{route.total}</td>
                                                 <td className="abstract-col-stu">{route.students}</td>
@@ -488,7 +494,7 @@ const PassengerReport = forwardRef(({
                                             </tr>
                                         ))}
                                         <tr className="abstract-total-row">
-                                            <td className="abstract-col-sno" colSpan={3}>Grand Total</td>
+                                            <td className="abstract-col-sno" colSpan={4}>Grand Total</td>
                                             <td className="abstract-col-stages">{grandTotals.stages}</td>
                                             <td className="abstract-col-total">{grandTotals.total}</td>
                                             <td className="abstract-col-stu">{grandTotals.students}</td>

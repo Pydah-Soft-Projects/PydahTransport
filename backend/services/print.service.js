@@ -651,6 +651,29 @@ const fetchPassengerReportData = async (data) => {
         return stageA.localeCompare(stageB) || nameA.localeCompare(nameB);
     });
     
+    // Currently assigned bus per route (source of truth: Bus.assignedRouteId)
+    const assignedBuses = await Bus.find({
+        assignedRouteId: { $nin: [null, ''] },
+    }).select('busNumber assignedRouteId status').lean();
+
+    const routeAssignedBuses = {};
+    assignedBuses.forEach((bus) => {
+        const routeId = String(bus.assignedRouteId).trim();
+        if (!routeId) return;
+        const isActive = String(bus.status || '').toLowerCase() === 'active';
+        if (!routeAssignedBuses[routeId]) {
+            routeAssignedBuses[routeId] = { active: [], other: [] };
+        }
+        if (isActive) routeAssignedBuses[routeId].active.push(bus.busNumber);
+        else routeAssignedBuses[routeId].other.push(bus.busNumber);
+    });
+
+    const assignedBusByRoute = {};
+    Object.entries(routeAssignedBuses).forEach(([routeId, groups]) => {
+        const numbers = (groups.active.length > 0 ? groups.active : groups.other);
+        assignedBusByRoute[routeId] = numbers.join(', ');
+    });
+
     return {
         passengers,
         includeAbstract: Boolean(data.includeAbstract),
@@ -659,6 +682,7 @@ const fetchPassengerReportData = async (data) => {
         academicYear: academicYear,
         campusName: data.campusName || '',
         isRequestsReport: Boolean(data.isRequestsReport),
+        assignedBusByRoute,
     };
 };
 
