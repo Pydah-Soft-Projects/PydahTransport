@@ -16,6 +16,35 @@ VITE_CRM_URL="${VITE_CRM_URL:-https://crm.pydah.edu.in}"
 log() { echo "[deploy] $*"; }
 fail() { echo "[deploy] ERROR: $*" >&2; exit 1; }
 
+# Returns 0 if npm install is needed for a package dir (relative to PROJECT_DIR).
+needs_npm_install() {
+  local pkg_dir="$1"
+  local prev_commit="$2"
+  local next_commit="$3"
+
+  if [ ! -d "${PROJECT_DIR}/${pkg_dir}/node_modules" ]; then
+    log "${pkg_dir}: node_modules missing — install required."
+    return 0
+  fi
+
+  if [ -z "${prev_commit}" ] || [ "${prev_commit}" = "${next_commit}" ]; then
+    log "${pkg_dir}: no commit change — skipping install."
+    return 1
+  fi
+
+  if git -C "${PROJECT_DIR}" diff --name-only "${prev_commit}" "${next_commit}" -- \
+      "${pkg_dir}/package.json" \
+      "${pkg_dir}/package-lock.json" \
+      "${pkg_dir}/npm-shrinkwrap.json" \
+      | grep -q .; then
+    log "${pkg_dir}: package files changed — install required."
+    return 0
+  fi
+
+  log "${pkg_dir}: package files unchanged — skipping install."
+  return 1
+}
+
 rollback() {
   log "Deployment failed — attempting rollback..."
   if [ -n "${PREV_COMMIT:-}" ]; then
@@ -47,21 +76,29 @@ git reset --hard origin/main
 NEW_COMMIT="$(git rev-parse HEAD)"
 log "Deployed commit: ${NEW_COMMIT}"
 
-log "Installing backend dependencies..."
-cd "${BACKEND_DIR}"
-npm ci --omit=dev || npm install --omit=dev
+if needs_npm_install "backend" "${PREV_COMMIT}" "${NEW_COMMIT}"; then
+  log "Installing backend dependencies..."
+  cd "${BACKEND_DIR}"
+  npm ci --omit=dev || npm install --omit=dev
+else
+  log "Skipping backend npm install."
+fi
 
-if [ ! -f ".env" ]; then
+if [ ! -f "${BACKEND_DIR}/.env" ]; then
   fail "backend/.env is missing on the server. Create it before first deploy."
 fi
 
-if [ ! -f "ecosystem.config.js" ]; then
+if [ ! -f "${BACKEND_DIR}/ecosystem.config.js" ]; then
   fail "backend/ecosystem.config.js not found on server."
 fi
 
-log "Installing frontend dependencies..."
-cd "${FRONTEND_DIR}"
-npm ci || npm install
+if needs_npm_install "frontend" "${PREV_COMMIT}" "${NEW_COMMIT}"; then
+  log "Installing frontend dependencies..."
+  cd "${FRONTEND_DIR}"
+  npm ci || npm install
+else
+  log "Skipping frontend npm install."
+fi
 
 log "Building frontend..."
 printf 'VITE_API_URL=%s\nVITE_CRM_URL=%s\n' "${VITE_API_URL}" "${VITE_CRM_URL}" > .env.production
