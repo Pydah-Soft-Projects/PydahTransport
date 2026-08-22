@@ -50,6 +50,17 @@ const getStageCoords = (stage) => {
     return { lat, lng };
 };
 
+const compareRouteIds = (a, b) => {
+    const idA = (a?.routeId || '').toString().trim();
+    const idB = (b?.routeId || '').toString().trim();
+    if (!idA && !idB) return (a?.routeName || '').localeCompare(b?.routeName || '');
+    if (!idA) return 1;
+    if (!idB) return -1;
+    return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+};
+
+const sortRoutesByRouteId = (routeList = []) => [...routeList].sort(compareRouteIds);
+
 const createLocalStageId = () => `stage-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 const DEFAULT_MAP_CENTER = { lat: 16.9891, lng: 82.2475 }; // Kakinada — map view default only
@@ -1738,9 +1749,7 @@ const RouteManagement = () => {
             (route.routeId || '').toLowerCase().includes(searchLower) ||
             (route.routeName || '').toLowerCase().includes(searchLower)
         );
-    }).slice().sort((a, b) =>
-        (a.routeId || '').localeCompare(b.routeId || '', undefined, { numeric: true, sensitivity: 'base' })
-    );
+    }).slice().sort(compareRouteIds);
 
     // Student Transfer Fetch & Handlers
     useEffect(() => {
@@ -2384,7 +2393,7 @@ const RouteManagement = () => {
                                         required
                                     >
                                         <option value="">Select source route</option>
-                                        {routes.map(r => (
+                                        {sortRoutesByRouteId(routes).map(r => (
                                             <option key={r.routeId} value={r.routeId}>{r.routeName} ({r.routeId})</option>
                                         ))}
                                     </select>
@@ -2437,7 +2446,7 @@ const RouteManagement = () => {
                                     required
                                 >
                                     <option value="">Select destination route</option>
-                                    {routes.filter(r => r.routeId !== transferData.sourceRouteId).map(r => (
+                                    {sortRoutesByRouteId(routes.filter(r => r.routeId !== transferData.sourceRouteId)).map(r => (
                                         <option key={r.routeId} value={r.routeId}>{r.routeName} ({r.routeId})</option>
                                     ))}
                                 </select>
