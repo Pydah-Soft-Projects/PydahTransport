@@ -515,7 +515,7 @@ const TransportRequests = () => {
 
     const closeDetailModal = () => {
         setDetailModal({ open: false, request: null, loading: false });
-        setCancelFormOpen(false);
+        setCancelModalOpen(false);
         setCancelReason('');
     };
 
@@ -978,8 +978,9 @@ const TransportRequests = () => {
         }
     };
 
-    const handleDelete = async (id) => {
-        if (!window.confirm('Are you sure you want to delete this request? If approved, this will also remove associated fees and concessions.')) {
+    const handleDelete = async (id, requestAcademicYear) => {
+        const yearLabel = requestAcademicYear || academicYear || 'this academic year';
+        if (!window.confirm(`Are you sure you want to delete this request for ${yearLabel}? If approved, only the transport fee for that academic year will be removed.`)) {
             return;
         }
 
@@ -991,7 +992,8 @@ const TransportRequests = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     admin_name: 'Admin', // In a real app, this would come from auth state
-                    admin_id: 1
+                    admin_id: 1,
+                    academicYear: requestAcademicYear || academicYear || undefined,
                 })
             });
             const data = await response.json().catch(() => ({}));
@@ -1683,7 +1685,7 @@ const TransportRequests = () => {
                                         )}
                                         <button
                                             type="button"
-                                            onClick={() => handleDelete(req.id)}
+                                            onClick={() => handleDelete(req.id, req.academic_year || academicYear)}
                                             disabled={actionLoading !== null}
                                             className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-red-600 text-xs font-bold hover:bg-red-50 disabled:opacity-50 transition-colors"
                                         >

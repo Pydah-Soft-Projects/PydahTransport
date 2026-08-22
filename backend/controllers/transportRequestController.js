@@ -126,6 +126,76 @@ async function deactivateTransportFeeForCancellation({
     return { updated: true, feeId: fee._id };
 }
 
+function resolveRequestAcademicYear(requestRow, fallbackAcademicYear) {
+    return requestRow?.academic_year
+        || fallbackAcademicYear
+        || process.env.CURRENT_ACADEMIC_YEAR
+        || getDefaultAcademicYear();
+}
+
+function getAcademicYearMismatchMessage(requestAcademicYear, requestedAcademicYear) {
+    if (!requestedAcademicYear || !requestAcademicYear) return null;
+    if (String(requestedAcademicYear) !== String(requestAcademicYear)) {
+        return `This request belongs to academic year ${requestAcademicYear}, not ${requestedAcademicYear}.`;
+    }
+    return null;
+}
+
+async function deleteTransportFeesForRequest({
+    admissionNumber,
+    academicYear,
+    yearOfStudy,
+    semester,
+}) {
+    const feeModels = getFeePortalModels();
+    if (!feeModels || !admissionNumber || !academicYear) {
+        return { feesDeleted: 0 };
+    }
+
+    const { StudentFee, FeeHead, TransportConcession } = feeModels;
+    const transportFeeHead = await getTransportFeeHead(FeeHead);
+    if (!transportFeeHead) {
+        return { feesDeleted: 0 };
+    }
+
+    const studentId = String(admissionNumber);
+    const resolvedYear = String(academicYear);
+    const feeQuery = {
+        studentId,
+        feeHead: transportFeeHead._id,
+        academicYear: resolvedYear,
+        remarks: { $regex: /^Transport/i },
+    };
+
+    if (yearOfStudy != null && yearOfStudy !== '') {
+        feeQuery.studentYear = Number(yearOfStudy);
+    }
+    if (semester != null && semester !== '') {
+        feeQuery.semester = Number(semester);
+    }
+
+    const feeDeleteResult = await StudentFee.deleteMany(feeQuery);
+
+    if (TransportConcession && yearOfStudy != null && yearOfStudy !== '') {
+        const concession = await TransportConcession.findOne({
+            studentId,
+            feeHead: transportFeeHead._id,
+        });
+        const yearKey = String(Number(yearOfStudy));
+        if (concession?.yearConcessions?.get?.(yearKey) != null) {
+            concession.yearConcessions.delete(yearKey);
+            concession.markModified('yearConcessions');
+            if (concession.yearConcessions.size === 0) {
+                await concession.deleteOne();
+            } else {
+                await concession.save();
+            }
+        }
+    }
+
+    return { feesDeleted: feeDeleteResult.deletedCount || 0 };
+}
+
 function getDefaultAcademicYear() {
     const now = new Date();
     const year = now.getFullYear();
@@ -2253,7 +2323,7 @@ const updateConcession = async (req, res) => {
 // @access  Private/Admin
 const deleteConcession = async (req, res) => {
     const { id } = req.params; // transport_request id
-    const { admin_name, admin_id } = req.body;
+    const { admin_name, admin_id, academicYear: requestedAcademicYear } = req.body;
 
     try {
         if (isMongoId(id)) {
@@ -2261,8 +2331,63 @@ const deleteConcession = async (req, res) => {
             if (!reqRow) {
                 return res.status(404).json({ message: 'Transport request not found' });
             }
+            const mismatch = getAcademicYearMismatchMessage(reqRow.academic_year, requestedAcademicYear);
+            if (mismatch) {
+                return res.status(400).json({ message: mismatch });
+            }
             await EmployeeTransportRequest.findByIdAndDelete(id);
             return res.json({ message: 'Transport request deleted successfully' });
+        }
+
+        const studentReqQuery = { $or: [] };
+        if (!Number.isNaN(Number(id))) studentReqQuery.$or.push({ id: Number(id) });
+        if (isMongoId(id)) studentReqQuery.$or.push({ _id: id });
+
+        if (studentReqQuery.$or.length > 0) {
+            const studentReq = await TransportRequest.findOne(
+                studentReqQuery.$or.length === 1 ? studentReqQuery.$or[0] : studentReqQuery
+            );
+            if (studentReq) {
+                const requestAcademicYear = resolveRequestAcademicYear(studentReq, requestedAcademicYear);
+                const mismatch = getAcademicYearMismatchMessage(studentReq.academic_year, requestedAcademicYear);
+                if (mismatch) {
+                    return res.status(400).json({ message: mismatch });
+                }
+
+                const admissionNumber = String(studentReq.admission_number || studentReq.admission_no || '');
+
+                if (studentReq.status === 'approved' && admissionNumber) {
+                    await deleteTransportFeesForRequest({
+                        admissionNumber,
+                        academicYear: requestAcademicYear,
+                        yearOfStudy: studentReq.year_of_study,
+                        semester: studentReq.semester_number,
+                    });
+                }
+
+                const requestIdForAudit = studentReq.id != null ? String(studentReq.id) : String(studentReq._id);
+                await TransportRequest.deleteOne({ _id: studentReq._id });
+
+                if (mysqlPool) {
+                    const auditDetails = JSON.stringify({
+                        action: 'delete_transport_request',
+                        student_id: admissionNumber,
+                        admin_name,
+                        status: studentReq.status,
+                        academic_year: requestAcademicYear,
+                    });
+                    const adminIdForAudit = admin_id && !isNaN(parseInt(admin_id, 10)) ? parseInt(admin_id, 10) : null;
+                    await mysqlPool.query(
+                        'INSERT INTO audit_logs (action_type, entity_type, entity_id, admin_id, details) VALUES (?, ?, ?, ?, ?)',
+                        ['FEE_DELETION', 'TRANSPORT_REQUEST', requestIdForAudit, adminIdForAudit, auditDetails]
+                    );
+                }
+
+                const message = studentReq.status === 'approved'
+                    ? 'Transport request and fees for this academic year deleted successfully'
+                    : 'Transport request deleted successfully';
+                return res.json({ message });
+            }
         }
 
         if (!mysqlPool) {
@@ -2276,41 +2401,32 @@ const deleteConcession = async (req, res) => {
             return res.status(404).json({ message: 'Transport request not found' });
         }
 
-        const feeModels = getFeePortalModels();
-        const { StudentFee, FeeHead, TransportConcession } = feeModels;
-        const transportFeeHead = await FeeHead.findOne({
-            $or: [
-                { code: TRANSPORT_FEE_HEAD_CODE },
-                { code: String(TRANSPORT_FEE_HEAD_CODE).toLowerCase() },
-                { name: { $regex: /transport/i } }
-            ]
-        });
+        const requestAcademicYear = resolveRequestAcademicYear(request, requestedAcademicYear);
+        const mismatch = getAcademicYearMismatchMessage(request.academic_year, requestedAcademicYear);
+        if (mismatch) {
+            return res.status(400).json({ message: mismatch });
+        }
 
         const studentId = String(request.admission_number || request.admission_no);
 
-        // 1. Delete persistent concession
-        if (TransportConcession) {
-            await TransportConcession.deleteOne({ studentId, feeHead: transportFeeHead._id });
+        if (request.status === 'approved' && studentId) {
+            await deleteTransportFeesForRequest({
+                admissionNumber: studentId,
+                academicYear: requestAcademicYear,
+                yearOfStudy: request.year_of_study,
+                semester: request.semester_number,
+            });
         }
 
-        // 2. Delete active StudentFee
-        const fee = await StudentFee.findOne({
-            studentId,
-            feeHead: transportFeeHead._id
-        });
-
-        if (fee) {
-            await fee.deleteOne();
-        }
-
-        // 3. Delete MySQL Transport Request
+        // Delete MySQL Transport Request
         await mysqlPool.query('DELETE FROM transport_requests WHERE id = ?', [id]);
 
         // Log to audit logs in MySQL
         const auditDetails = JSON.stringify({
-            action: 'delete_concession',
+            action: 'delete_transport_request',
             student_id: studentId,
-            admin_name
+            admin_name,
+            academic_year: requestAcademicYear,
         });
 
         // Only insert admin_id if it's a valid number (MySQL foreign key constraint)
@@ -2321,7 +2437,10 @@ const deleteConcession = async (req, res) => {
             ['FEE_DELETION', 'TRANSPORT_REQUEST', String(id), adminIdForAudit, auditDetails]
         );
 
-        res.json({ message: 'Concession, fee, and transport request deleted successfully' });
+        const message = request.status === 'approved'
+            ? 'Transport request and fees for this academic year deleted successfully'
+            : 'Transport request deleted successfully';
+        res.json({ message });
 
     } catch (error) {
         console.error('Error deleting concession:', error);
