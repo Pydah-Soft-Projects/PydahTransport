@@ -63,36 +63,56 @@ const QrVerification = () => {
     const busyRef = useRef(false);
     const lastScanRef = useRef({ text: '', at: 0 });
 
-    const SCAN_COOLDOWN_MS = 2500;
+    const SCAN_COOLDOWN_MS = 1800;
 
-    const pickRearCamera = useCallback(async () => {
+    /** Prefer rear camera id; fall back to facingMode constraints. */
+    const getCameraCandidates = useCallback(async () => {
+        const candidates = [];
+        try {
+            // Warm permission so labels are available
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: 'environment' } },
+                audio: false,
+            });
+            stream.getTracks().forEach((track) => track.stop());
+        } catch {
+            // permission may already be granted / denied — continue
+        }
+
         try {
             const cameras = await Html5Qrcode.getCameras();
-            if (!cameras?.length) return { facingMode: 'environment' };
-            const rear = cameras.find((camera) => /back|rear|environment|trás|arrière/i.test(camera.label));
-            if (rear?.id) return rear.id;
-            return cameras.length > 1 ? cameras[cameras.length - 1].id : cameras[0].id;
+            if (cameras?.length) {
+                const rear = cameras.find((camera) =>
+                    /back|rear|environment|trás|arrière|world/i.test(camera.label || '')
+                );
+                if (rear?.id) candidates.push(rear.id);
+                cameras.forEach((camera) => {
+                    if (camera?.id && !candidates.includes(camera.id)) {
+                        candidates.push(camera.id);
+                    }
+                });
+            }
         } catch {
-            return { facingMode: 'environment' };
+            // ignore enumeration errors
         }
+
+        // Facing-mode fallbacks work well on phones and many laptops
+        candidates.push({ facingMode: 'environment' });
+        candidates.push({ facingMode: 'user' });
+        return candidates;
     }, []);
 
     const getScannerConfig = useCallback(() => ({
-        fps: 12,
+        fps: 15,
+        // Large scan region — small qrbox is a common reason scans never fire
         qrbox: (viewfinderWidth, viewfinderHeight) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const size = Math.floor(Math.min(minEdge * 0.78, 320));
+            const size = Math.max(180, Math.floor(minEdge * 0.85));
             return { width: size, height: size };
         },
-        aspectRatio: 1.0,
         disableFlip: false,
-        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-        videoConstraints: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            focusMode: { ideal: 'continuous' },
-        },
+        // Do NOT set aspectRatio / videoConstraints here — they often break
+        // camera start or misalign the crop region with what the user sees.
     }), []);
 
     const refreshMeta = useCallback(async () => {
@@ -462,14 +482,40 @@ const QrVerification = () => {
         }
         clearReaderDom();
 
+        // Let React finish painting #qr-reader before Html5Qrcode mounts into it
+        await new Promise((resolve) => setTimeout(resolve, 120));
         if (session !== scanSessionRef.current) return;
+        if (!document.getElementById('qr-reader')) {
+            setCameraError('Scanner area not ready. Tap Start to try again.');
+            return;
+        }
+
+        const onDecoded = (decoded) => {
+            const trimmed = String(decoded || '').trim();
+            if (!trimmed || busyRef.current) return;
+
+            const now = Date.now();
+            if (
+                trimmed === lastScanRef.current.text
+                && now - lastScanRef.current.at < SCAN_COOLDOWN_MS
+            ) {
+                return;
+            }
+            lastScanRef.current = { text: trimmed, at: now };
+
+            // Fire-and-forget so the scanner loop is not blocked
+            if (handleScanRef.current) {
+                Promise.resolve(handleScanRef.current(trimmed)).catch(() => {});
+            }
+        };
 
         try {
-            const cameraId = await pickRearCamera();
+            const candidates = await getCameraCandidates();
             if (session !== scanSessionRef.current) return;
 
             const scanner = new Html5Qrcode('qr-reader', {
                 formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+                useBarCodeDetectorIfSupported: true,
                 verbose: false,
             });
             if (session !== scanSessionRef.current) {
@@ -478,28 +524,28 @@ const QrVerification = () => {
             }
             scannerRef.current = scanner;
 
-            await scanner.start(
-                cameraId,
-                getScannerConfig(),
-                async (decoded) => {
-                    const trimmed = String(decoded || '').trim();
-                    if (!trimmed || busyRef.current) return;
+            let started = false;
+            let lastError = null;
+            const config = getScannerConfig();
 
-                    const now = Date.now();
-                    if (
-                        trimmed === lastScanRef.current.text
-                        && now - lastScanRef.current.at < SCAN_COOLDOWN_MS
-                    ) {
-                        return;
-                    }
-                    lastScanRef.current = { text: trimmed, at: now };
+            for (const camera of candidates) {
+                if (session !== scanSessionRef.current) return;
+                try {
+                    await scanner.start(camera, config, onDecoded, () => {});
+                    started = true;
+                    break;
+                } catch (err) {
+                    lastError = err;
+                    try {
+                        const state = scanner.getState?.();
+                        if (state === 2 || state === 3) await scanner.stop();
+                    } catch { /* ignore */ }
+                }
+            }
 
-                    if (handleScanRef.current) {
-                        await handleScanRef.current(trimmed);
-                    }
-                },
-                () => { }
-            );
+            if (!started) {
+                throw lastError || new Error('No usable camera found.');
+            }
 
             if (session !== scanSessionRef.current) {
                 try { await scanner.stop(); } catch { /* ignore */ }
@@ -510,15 +556,21 @@ const QrVerification = () => {
 
             scannerRunning.current = true;
             setScanning(true);
+            setCameraError('');
         } catch (err) {
             if (session !== scanSessionRef.current) return;
             scannerRunning.current = false;
             scannerRef.current = null;
             clearReaderDom();
-            setCameraError(err?.message || 'Camera permission denied or unavailable.');
+            const message = err?.message || 'Camera permission denied or unavailable.';
+            setCameraError(
+                /permission|notallowed|denied/i.test(message)
+                    ? 'Camera permission denied. Allow camera access and tap Start.'
+                    : message
+            );
             setScanning(false);
         }
-    }, [clearReaderDom, getScannerConfig, pickRearCamera]);
+    }, [clearReaderDom, getCameraCandidates, getScannerConfig]);
 
     useEffect(() => {
         if (activeTab !== 'scan' || modalOpen) {
@@ -527,9 +579,10 @@ const QrVerification = () => {
         }
 
         let cancelled = false;
+        // Slightly longer delay avoids React StrictMode double-mount killing the camera
         const timer = setTimeout(() => {
             if (!cancelled) startScanner();
-        }, 200);
+        }, 350);
 
         return () => {
             cancelled = true;
@@ -645,22 +698,26 @@ const QrVerification = () => {
                             </div>
 
                             <div className="relative bg-slate-900 aspect-[3/4] sm:aspect-video max-h-[70vh] sm:max-h-[520px] overflow-hidden">
+                                {/*
+                                  Keep video as object-contain (not cover).
+                                  object-cover stretches frames and misaligns Html5Qrcode's crop box,
+                                  which makes the camera look fine but never decode the QR.
+                                */}
                                 <div
                                     id="qr-reader"
                                     ref={readerHostRef}
-                                    className="absolute inset-0 w-full h-full overflow-hidden [&_video]:!w-full [&_video]:!h-full [&_video]:object-cover [&_#qr-reader__scan_region]:!w-full [&_#qr-reader__scan_region]:!h-full [&_#qr-reader__dashboard]:hidden [&_img]:hidden"
+                                    className="absolute inset-0 w-full h-full overflow-hidden [&_video]:!w-full [&_video]:!h-full [&_video]:object-contain [&_video]:bg-black [&_#qr-reader__dashboard]:hidden [&_img]:hidden"
                                 />
 
-                                {/* Viewfinder + scan line */}
+                                {/* Decorative viewfinder — pointer-events none so it never blocks the camera */}
                                 {scanning && !verifying && (
                                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-10">
-                                        <div className="relative w-[68%] max-w-[260px] aspect-square">
-                                            <div className="absolute inset-0 rounded-2xl border-2 border-white/70 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
-                                            <div className="absolute -top-0.5 -left-0.5 w-7 h-7 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
-                                            <div className="absolute -top-0.5 -right-0.5 w-7 h-7 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
-                                            <div className="absolute -bottom-0.5 -left-0.5 w-7 h-7 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
-                                            <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
-                                            <div className="qr-scan-line absolute left-2 right-2 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
+                                        <div className="relative w-[72%] max-w-[300px] aspect-square">
+                                            <div className="absolute -top-0.5 -left-0.5 w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
+                                            <div className="absolute -top-0.5 -right-0.5 w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
+                                            <div className="absolute -bottom-0.5 -left-0.5 w-8 h-8 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
+                                            <div className="absolute -bottom-0.5 -right-0.5 w-8 h-8 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
+                                            <div className="qr-scan-line absolute left-3 right-3 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
                                         </div>
                                     </div>
                                 )}
