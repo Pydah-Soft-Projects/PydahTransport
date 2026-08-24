@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye, EyeOff } from 'lucide-react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { Eye, EyeOff, WifiOff, ShieldCheck } from 'lucide-react';
 import ForgotPasswordModal from '../components/ForgotPasswordModal';
 import PwaInstallBanner from '../components/PwaInstallBanner';
+import { isAuthenticated } from '../utils/api';
+import { canUseOfflineVerify } from '../utils/qrVerification';
 
 const Login = () => {
     const [username, setUsername] = useState('');
@@ -11,17 +13,33 @@ const Login = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [offlineVerifyReady, setOfflineVerifyReady] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
 
+    const nextPath = location.state?.next || '/dashboard';
+
     useEffect(() => {
+        // Already logged in → skip login form (works after app reopen)
+        if (isAuthenticated()) {
+            navigate(nextPath === '/login' ? '/dashboard' : nextPath, { replace: true });
+            return;
+        }
+
+        let cancelled = false;
+        canUseOfflineVerify().then((ready) => {
+            if (!cancelled) setOfflineVerifyReady(ready);
+        });
+
         const params = new URLSearchParams(location.search);
         const token = params.get('token');
-
         if (token) {
             handleSSOLogin(token);
         }
-    }, [location]);
+
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.search]);
 
     const handleSSOLogin = async (ssoToken) => {
         setIsLoading(true);
@@ -56,6 +74,11 @@ const Login = () => {
         e.preventDefault();
         setError('');
 
+        if (!navigator.onLine) {
+            setError('You are offline. Use Offline QR Verification below, or connect to the internet to log in.');
+            return;
+        }
+
         setIsLoading(true);
 
         try {
@@ -70,14 +93,17 @@ const Login = () => {
             const data = await response.json();
 
             if (response.ok) {
-                // Save token (optional for now, but good practice)
                 localStorage.setItem('adminInfo', JSON.stringify(data));
-                navigate('/dashboard'); // Redirect to Dashboard
+                navigate(nextPath === '/login' ? '/dashboard' : nextPath);
             } else {
                 setError(data.message || 'Login failed');
             }
         } catch (err) {
-            setError('Something went wrong. Please try again.');
+            setError(
+                navigator.onLine
+                    ? 'Something went wrong. Please try again.'
+                    : 'You are offline. Use Offline QR Verification if this device was synced earlier.'
+            );
         } finally {
             setIsLoading(false);
         }
@@ -86,7 +112,6 @@ const Login = () => {
     return (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4 relative overflow-hidden font-inter">
             <PwaInstallBanner variant="overlay" />
-            {/* Background Layer - Brand Consistency */}
             <div className="absolute inset-0 z-0 bg-slate-950">
                 <img
                     src="/Transport_background.jpg"
@@ -97,11 +122,11 @@ const Login = () => {
             </div>
 
             <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md relative z-10 border border-slate-200">
-                {/* Home Button */}
                 <button
                     onClick={() => navigate('/')}
                     className="absolute top-4 left-4 text-slate-400 hover:text-slate-800 transition-colors p-2 rounded-full hover:bg-slate-100"
                     title="Back to Home"
+                    type="button"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -112,6 +137,28 @@ const Login = () => {
                     <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome Back</h1>
                     <p className="text-slate-500 text-sm font-medium">Sign in to access the transport dashboard</p>
                 </div>
+
+                {offlineVerifyReady && (
+                    <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                        <div className="flex items-start gap-3">
+                            <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                                {!navigator.onLine ? <WifiOff size={16} /> : <ShieldCheck size={16} />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <p className="text-sm font-bold text-emerald-900">Offline QR ready on this device</p>
+                                <p className="text-xs text-emerald-800 mt-1 leading-relaxed">
+                                    Passenger data is already saved here. You can verify QR codes without logging in.
+                                </p>
+                                <Link
+                                    to="/verify"
+                                    className="inline-flex mt-3 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold"
+                                >
+                                    Open QR Verification
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {error && (
                     <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded-md mb-6 text-sm flex items-center">
@@ -199,7 +246,6 @@ const Login = () => {
                 </div>
             </div>
 
-            {/* Forgot Password Modal */}
             <ForgotPasswordModal
                 isOpen={isForgotPasswordOpen}
                 onClose={() => setIsForgotPasswordOpen(false)}

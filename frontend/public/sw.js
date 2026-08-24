@@ -1,8 +1,10 @@
 /* Pydah Transport app-shell service worker */
-const CACHE = 'pydah-transport-shell-v3';
+const CACHE = 'pydah-transport-shell-v4';
 const PRECACHE = [
   '/',
   '/index.html',
+  '/verify',
+  '/login',
   '/manifest.webmanifest',
   '/icon-192.png',
   '/icon-512.png',

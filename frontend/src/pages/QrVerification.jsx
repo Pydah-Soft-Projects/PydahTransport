@@ -31,6 +31,7 @@ import {
     idbPutAllPassengers,
     idbSavePublicKey,
     idbSetMeta,
+    markOfflineVerifyReady,
     parseQrText,
     verifyOfflinePassenger,
     verifySignedPayload,
@@ -249,6 +250,10 @@ const QrVerification = () => {
             await idbSetMeta('lastSyncAt', syncedAt);
             await idbSetMeta('academicYear', academicYear);
             setStoredAcademicYear(academicYear);
+            await markOfflineVerifyReady({
+                academicYear,
+                count: syncData.count || 0,
+            });
 
             const pending = await idbGetUnsyncedScans();
             if (pending.length > 0) {
@@ -601,10 +606,21 @@ const QrVerification = () => {
 
     const detail = result?.data;
     const photoSrc = normalizeStudentPhoto(detail?.student_photo);
+    const loggedIn = isAuthenticated();
+    const Shell = loggedIn ? Layout : OfflineVerifyShell;
 
     return (
-        <Layout>
+        <Shell>
             <div className="space-y-3 sm:space-y-4 font-sans text-slate-800 pb-4">
+                {!loggedIn && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900">
+                        <p className="font-bold">Offline verification mode</p>
+                        <p className="mt-1 leading-relaxed">
+                            Using passenger data saved on this device. Login is not required until you need to sync again.
+                        </p>
+                    </div>
+                )}
+
                 <div className="bg-white rounded-xl p-3 sm:p-4 shadow-sm border border-slate-200 flex flex-col gap-3 sm:gap-4">
                     <div className="flex items-start sm:items-center gap-3">
                         <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
@@ -760,6 +776,21 @@ const QrVerification = () => {
                             </p>
                         </div>
 
+                        {!loggedIn && (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+                                <p className="font-bold">Login required to sync</p>
+                                <p className="mt-1 leading-relaxed">
+                                    You can still scan offline with saved data. Connect to the internet and log in when you need a fresh sync.
+                                </p>
+                                <a
+                                    href="/login"
+                                    className="inline-flex mt-2 px-3 py-1.5 rounded-lg bg-amber-700 text-white text-[11px] font-bold"
+                                >
+                                    Go to Login
+                                </a>
+                            </div>
+                        )}
+
                         <div className="grid grid-cols-2 gap-2 sm:gap-3">
                             <MetaCard label="Device ID" value={deviceId} />
                             <MetaCard label="Last Sync" value={formatSyncTime(lastSyncAt)} />
@@ -787,7 +818,7 @@ const QrVerification = () => {
                         <button
                             type="button"
                             onClick={syncNow}
-                            disabled={syncing || !online}
+                            disabled={syncing || !online || !loggedIn}
                             className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                         >
                             {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
@@ -898,9 +929,26 @@ const QrVerification = () => {
                     animation: qr-scan-sweep 2s ease-in-out infinite;
                 }
             `}</style>
-        </Layout>
+        </Shell>
     );
 };
+
+const OfflineVerifyShell = ({ children }) => (
+    <div className="min-h-screen bg-[#EAF3FF] flex flex-col">
+        <header className="bg-[#071B45] text-white px-4 py-3 flex items-center gap-3 shadow-md">
+            <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center">
+                <ShieldCheck size={18} />
+            </div>
+            <div className="min-w-0">
+                <p className="text-sm font-bold leading-tight">Pydah Transport</p>
+                <p className="text-[10px] text-blue-200 uppercase tracking-wider">Offline QR Verification</p>
+            </div>
+        </header>
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+            <div className="w-full mx-auto max-w-3xl">{children}</div>
+        </main>
+    </div>
+);
 
 const DetailRow = ({ label, value }) => (
     <div className="flex justify-between gap-3 border-b border-slate-50 pb-1.5 last:border-0">

@@ -452,3 +452,48 @@ export function formatSyncTime(iso) {
         return String(iso);
     }
 }
+
+const OFFLINE_READY_KEY = 'pydah_qr_offline_ready';
+
+/** Mark device as ready for offline QR after a successful sync. */
+export async function markOfflineVerifyReady({ academicYear, count } = {}) {
+    await idbSetMeta('offlineReady', {
+        ready: true,
+        academicYear: academicYear || null,
+        count: count || 0,
+        at: new Date().toISOString(),
+    });
+    try {
+        localStorage.setItem(OFFLINE_READY_KEY, '1');
+    } catch {
+        // ignore
+    }
+}
+
+/** True when this device has synced passenger data and can verify offline without a fresh login. */
+export async function canUseOfflineVerify() {
+    try {
+        if (localStorage.getItem(OFFLINE_READY_KEY) === '1') {
+            const count = await idbCountPassengers();
+            if (count > 0) return true;
+        }
+    } catch {
+        // fall through
+    }
+
+    try {
+        const count = await idbCountPassengers();
+        if (count > 0) {
+            try {
+                localStorage.setItem(OFFLINE_READY_KEY, '1');
+            } catch {
+                // ignore
+            }
+            return true;
+        }
+    } catch {
+        // ignore
+    }
+
+    return false;
+}

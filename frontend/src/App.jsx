@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
+import VerifyAccessRoute from './components/VerifyAccessRoute';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -31,7 +32,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/verify-transport/:id" element={<TransportVerify />} />
-          <Route path="/verify" element={<ProtectedRoute><QrVerification /></ProtectedRoute>} />
+          <Route path="/verify" element={<VerifyAccessRoute><QrVerification /></VerifyAccessRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/buses" element={<ProtectedRoute><BusManagement /></ProtectedRoute>} />
           <Route path="/buses/:id" element={<ProtectedRoute><BusDetails /></ProtectedRoute>} />

@@ -3,7 +3,7 @@
   "name": "Pydah Transport",
   "short_name": "Pydah Transport",
   "description": "Pydah Transport Management Application",
-  "start_url": "/",
+  "start_url": "/verify",
   "scope": "/",
   "display": "standalone",
   "background_color": "#e2e8f0",
