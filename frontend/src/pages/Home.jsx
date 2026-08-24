@@ -11,6 +11,9 @@ import { canUseOfflineVerify } from '../utils/qrVerification';
 const Home = () => {
     const navigate = useNavigate();
     const [offlineReady, setOfflineReady] = useState(false);
+    const [isOnline, setIsOnline] = useState(
+        typeof navigator !== 'undefined' ? navigator.onLine : true
+    );
     const loggedIn = isAuthenticated();
 
     useEffect(() => {
@@ -18,8 +21,21 @@ const Home = () => {
         canUseOfflineVerify().then((ready) => {
             if (!cancelled) setOfflineReady(ready);
         });
-        return () => { cancelled = true; };
+
+        const onOnline = () => setIsOnline(true);
+        const onOffline = () => setIsOnline(false);
+        window.addEventListener('online', onOnline);
+        window.addEventListener('offline', onOffline);
+
+        return () => {
+            cancelled = true;
+            window.removeEventListener('online', onOnline);
+            window.removeEventListener('offline', onOffline);
+        };
     }, []);
+
+    // Show QR Verify on Home only when device is offline and local sync data exists
+    const showQrVerify = !isOnline && offlineReady;
 
     return (
         <div className="min-h-screen bg-[#060b1a] flex flex-col relative overflow-hidden font-outfit">
@@ -82,7 +98,7 @@ const Home = () => {
                             </div>
                         </Link>
 
-                        {(loggedIn || offlineReady) && (
+                        {showQrVerify && (
                             <button
                                 type="button"
                                 onClick={() => navigate('/verify')}

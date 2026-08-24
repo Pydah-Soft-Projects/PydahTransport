@@ -133,59 +133,48 @@ const PwaInstallBanner = ({ appName = 'Pydah Transport', variant = 'overlay' }) 
 
     if (!visible || isStandalone()) return null;
 
+    // Mobile: bottom sheet-style card. Laptop+: compact top-right toast (not full width).
     const shellClass = variant === 'overlay'
-        ? 'fixed z-50 left-0 right-0 px-3 sm:px-4 md:px-6 bottom-3 sm:bottom-4 md:top-0 md:bottom-auto md:px-0 pb-[max(0px,env(safe-area-inset-bottom))]'
-        : 'w-full shrink-0';
+        ? 'fixed z-50 left-3 right-3 bottom-3 sm:bottom-4 md:left-auto md:right-4 md:top-4 md:bottom-auto md:w-auto pb-[max(0px,env(safe-area-inset-bottom))] md:pb-0'
+        : 'w-full shrink-0 flex justify-center md:justify-end px-3 md:px-4 pt-2';
 
     const cardClass = variant === 'overlay'
-        ? 'max-w-lg md:max-w-none mx-auto md:mx-0 rounded-2xl md:rounded-none shadow-xl md:shadow-md border border-white/10 md:border-blue-800/30 overflow-hidden'
-        : 'border-b border-blue-800/30';
+        ? 'w-full max-w-md md:w-[380px] md:max-w-[380px] mx-auto md:mx-0 rounded-2xl shadow-xl border border-white/10 overflow-hidden'
+        : 'w-full max-w-md md:w-[380px] rounded-2xl shadow-lg border border-blue-800/20 overflow-hidden';
 
     return (
         <div className={shellClass} role="region" aria-label="Install app">
             <div className={`${cardClass} bg-gradient-to-r from-blue-700 to-blue-600 text-white`}>
-                <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3 px-3 py-3 sm:px-4 sm:py-3">
-                    <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
-                        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
-                            {showIosHint ? <Smartphone size={18} /> : showDesktopHint && !canInstall ? <Monitor size={18} /> : <Download size={18} />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="text-sm sm:text-base font-bold leading-tight">
-                                Install {appName}
-                            </p>
-                            <p className="text-[11px] sm:text-xs text-blue-100 mt-0.5 leading-snug">
-                                {subtitle()}
-                            </p>
-                        </div>
+                <div className="flex items-center gap-2.5 px-3 py-2.5 sm:px-3.5 sm:py-3">
+                    <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center shrink-0">
+                        {showIosHint ? <Smartphone size={16} /> : showDesktopHint && !canInstall ? <Monitor size={16} /> : <Download size={16} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-xs sm:text-sm font-bold leading-tight truncate">
+                            Install {appName}
+                        </p>
+                        <p className="text-[10px] sm:text-[11px] text-blue-100 mt-0.5 leading-snug line-clamp-2">
+                            {subtitle()}
+                        </p>
+                    </div>
+                    {canInstall && (
                         <button
                             type="button"
-                            onClick={dismiss}
-                            aria-label="Dismiss install banner"
-                            className="sm:hidden shrink-0 p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 cursor-pointer"
+                            onClick={handleInstall}
+                            disabled={installing}
+                            className="shrink-0 px-3 py-1.5 rounded-lg bg-white text-blue-700 text-[11px] font-bold hover:bg-blue-50 disabled:opacity-70 cursor-pointer shadow-sm"
                         >
-                            <X size={16} />
+                            {installing ? '…' : 'Install'}
                         </button>
-                    </div>
-                    <div className="flex items-center gap-2 sm:gap-3 shrink-0 w-full sm:w-auto">
-                        {canInstall && (
-                            <button
-                                type="button"
-                                onClick={handleInstall}
-                                disabled={installing}
-                                className="flex-1 sm:flex-none px-4 py-2.5 sm:py-2 rounded-xl sm:rounded-lg bg-white text-blue-700 text-xs sm:text-sm font-bold hover:bg-blue-50 disabled:opacity-70 cursor-pointer shadow-sm"
-                            >
-                                {installing ? 'Installing…' : 'Install app'}
-                            </button>
-                        )}
-                        <button
-                            type="button"
-                            onClick={dismiss}
-                            aria-label="Dismiss install banner"
-                            className="hidden sm:flex shrink-0 p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 cursor-pointer"
-                        >
-                            <X size={16} />
-                        </button>
-                    </div>
+                    )}
+                    <button
+                        type="button"
+                        onClick={dismiss}
+                        aria-label="Dismiss install banner"
+                        className="shrink-0 p-1 rounded-lg text-white/80 hover:text-white hover:bg-white/10 cursor-pointer"
+                    >
+                        <X size={15} />
+                    </button>
                 </div>
             </div>
         </div>
