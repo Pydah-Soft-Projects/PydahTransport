@@ -15,6 +15,7 @@ import {
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import { apiFetch, API_BASE, isAuthenticated } from '../utils/api';
+import { hasPermission } from '../utils/permissions';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 import { normalizeStudentPhoto } from '../utils/studentPhoto';
 import {
@@ -216,6 +217,10 @@ const QrVerification = () => {
         }
         if (!isAuthenticated()) {
             setSyncMessage('Please log in again to sync verification data.');
+            return;
+        }
+        if (!hasPermission('qr_verification')) {
+            setSyncMessage('Your account does not have QR Verification permission.');
             return;
         }
 
