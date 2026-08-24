@@ -19,6 +19,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install & build frontend
+        working-directory: frontend
+        env:
+          VITE_API_URL: /api
+          VITE_CRM_URL: https://crm.pydah.edu.in
+        run: |
+          npm ci || npm install
+          printf 'VITE_API_URL=%s\nVITE_CRM_URL=%s\n' "${VITE_API_URL}" "${VITE_CRM_URL}" > .env.production
+          npm run build
+          test -d dist
+
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -29,17 +47,25 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Deploy to Lightsail via SSH
+      - name: Upload frontend dist to server
         env:
           SSH_HOST: ${{ secrets.HOST }}
           SSH_USER: ${{ secrets.USERNAME }}
-          VITE_API_URL: /api
-          VITE_CRM_URL: https://crm.pydah.edu.in
+        run: |
+          tar -C frontend/dist -czf /tmp/frontend-dist.tgz .
+          scp -o StrictHostKeyChecking=yes \
+              /tmp/frontend-dist.tgz \
+              "${SSH_USER}@${SSH_HOST}:/tmp/frontend-dist.tgz"
+
+      - name: Deploy on Lightsail via SSH
+        env:
+          SSH_HOST: ${{ secrets.HOST }}
+          SSH_USER: ${{ secrets.USERNAME }}
         run: |
           ssh -o StrictHostKeyChecking=yes \
               -o ServerAliveInterval=30 \
               -o ServerAliveCountMax=10 \
               -o ConnectTimeout=30 \
               "${SSH_USER}@${SSH_HOST}" \
-              "export VITE_API_URL='${VITE_API_URL}'; export VITE_CRM_URL='${VITE_CRM_URL}'; bash -s" \
+              "export FRONTEND_DIST_TGZ='/tmp/frontend-dist.tgz'; bash -s" \
               < .github/scripts/deploy-remote.sh
