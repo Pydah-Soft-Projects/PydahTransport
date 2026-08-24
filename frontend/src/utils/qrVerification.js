@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'pydah_qr_verify';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_PASSENGERS = 'passengers';
 const STORE_META = 'syncMetadata';
 const STORE_SCANS = 'offlineScans';
@@ -13,13 +13,21 @@ const STORE_KEYS = 'publicKeys';
 function openDb() {
     return new Promise((resolve, reject) => {
         const req = indexedDB.open(DB_NAME, DB_VERSION);
-        req.onupgradeneeded = () => {
+        req.onupgradeneeded = (event) => {
             const db = req.result;
+            const tx = event.target.transaction;
+            let passengerStore;
             if (!db.objectStoreNames.contains(STORE_PASSENGERS)) {
-                const store = db.createObjectStore(STORE_PASSENGERS, { keyPath: 'requestId' });
-                store.createIndex('studentId', 'studentId', { unique: false });
-                store.createIndex('busId', 'busId', { unique: false });
-                store.createIndex('routeId', 'routeId', { unique: false });
+                passengerStore = db.createObjectStore(STORE_PASSENGERS, { keyPath: 'requestId' });
+                passengerStore.createIndex('studentId', 'studentId', { unique: false });
+                passengerStore.createIndex('busId', 'busId', { unique: false });
+                passengerStore.createIndex('routeId', 'routeId', { unique: false });
+                passengerStore.createIndex('mongoId', 'mongoId', { unique: false });
+            } else if (event.oldVersion < 2) {
+                passengerStore = tx.objectStore(STORE_PASSENGERS);
+                if (!passengerStore.indexNames.contains('mongoId')) {
+                    passengerStore.createIndex('mongoId', 'mongoId', { unique: false });
+                }
             }
             if (!db.objectStoreNames.contains(STORE_META)) {
                 db.createObjectStore(STORE_META, { keyPath: 'key' });
@@ -51,9 +59,114 @@ export async function idbPutAllPassengers(records) {
     const store = tx.objectStore(STORE_PASSENGERS);
     for (const record of records) {
         if (!record?.requestId) continue;
-        store.put(record);
+        store.put({
+            ...record,
+            requestId: String(record.requestId),
+            mongoId: record.mongoId ? String(record.mongoId) : null,
+            studentId: record.studentId ? String(record.studentId) : null,
+        });
     }
     await txDone(tx);
+}
+
+export async function idbClearPassengers() {
+    const db = await openDb();
+    const tx = db.transaction(STORE_PASSENGERS, 'readwrite');
+    tx.objectStore(STORE_PASSENGERS).clear();
+    await txDone(tx);
+}
+
+function idbGetByIndex(storeName, indexName, value) {
+    return openDb().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readonly');
+        const index = tx.objectStore(storeName).index(indexName);
+        const req = index.get(String(value));
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+    }));
+}
+
+/** Lookup passenger by request id, mongo id, or admission/emp number. */
+export async function idbFindPassenger({ requestId, mongoId, studentId } = {}) {
+    if (requestId) {
+        const byRequest = await idbGetPassenger(requestId);
+        if (byRequest) return byRequest;
+    }
+    if (mongoId) {
+        const byMongo = await idbGetByIndex(STORE_PASSENGERS, 'mongoId', mongoId);
+        if (byMongo) return byMongo;
+    }
+    if (studentId) {
+        const byStudent = await idbGetByIndex(STORE_PASSENGERS, 'studentId', studentId);
+        if (byStudent) return byStudent;
+    }
+    return null;
+}
+
+export function buildOfflineLookupKeys(parsed) {
+    const keys = {
+        requestId: parsed?.requestId ? String(parsed.requestId) : null,
+        mongoId: null,
+        studentId: null,
+    };
+
+    if (parsed?.payload?.rid) keys.requestId = String(parsed.payload.rid);
+    if (parsed?.payload?.sid) keys.studentId = String(parsed.payload.sid);
+
+    const raw = String(parsed?.raw || '');
+    const mongoMatch = raw.match(/verify-transport\/([a-f0-9]{24})/i);
+    if (mongoMatch) keys.mongoId = mongoMatch[1];
+
+    if (/^[a-f0-9]{24}$/i.test(keys.requestId || '')) {
+        keys.mongoId = keys.requestId;
+    }
+
+    return keys;
+}
+
+export function mapPassengerToVerifyData(local) {
+    if (!local) return null;
+    const active = String(local.transportStatus || '').toLowerCase() === 'approved';
+    return {
+        registered: active,
+        student_name: local.studentName,
+        admission_number: local.studentId,
+        route_id: local.routeId,
+        route_name: local.routeName,
+        stage_name: local.stageName,
+        bus_id: local.busId,
+        academic_year: local.academicYear,
+        status: local.transportStatus,
+        user_type: local.userType,
+        application_number: local.applicationNumber || null,
+        student_photo: local.studentPhoto || null,
+    };
+}
+
+export async function verifyOfflinePassenger(parsed, lastSyncAt) {
+    const keys = buildOfflineLookupKeys(parsed);
+    const local = await idbFindPassenger(keys);
+    if (!local) {
+        return {
+            ok: false,
+            title: 'Data unavailable offline',
+            message: 'Student not found in local data. Open Sync and download passenger records while online.',
+            warning: true,
+            local: null,
+        };
+    }
+
+    const active = String(local.transportStatus || '').toLowerCase() === 'approved';
+    return {
+        ok: active,
+        title: active ? 'Offline Verified' : 'Not Active (Offline)',
+        message: active
+            ? `Verified using data synchronized at ${formatSyncTime(lastSyncAt)}.`
+            : `Local status: ${local.transportStatus || 'unknown'}`,
+        warning: true,
+        local,
+        data: mapPassengerToVerifyData(local),
+    };
 }
 
 export async function idbGetPassenger(requestId) {
@@ -91,10 +204,15 @@ export async function idbGetMeta(key) {
 }
 
 export async function idbSavePublicKey(info) {
-    if (!info?.kid) return;
+    if (!info?.publicKeyPem) return;
     const db = await openDb();
     const tx = db.transaction(STORE_KEYS, 'readwrite');
-    tx.objectStore(STORE_KEYS).put(info);
+    tx.objectStore(STORE_KEYS).put({
+        kid: info.kid || 'default',
+        algorithm: info.algorithm || 'Ed25519',
+        publicKeyPem: info.publicKeyPem,
+        version: info.version || 1,
+    });
     await txDone(tx);
 }
 
@@ -202,8 +320,15 @@ function pemToSpki(pem) {
 
 export function extractRequestIdFromText(text) {
     if (!text) return null;
-    const urlMatch = String(text).match(/verify-transport\/([^/?#]+)/i);
-    if (urlMatch) return decodeURIComponent(urlMatch[1]);
+    const normalized = String(text).trim();
+    const urlMatch = normalized.match(/verify-transport\/([^/?#]+)/i);
+    if (urlMatch) {
+        try {
+            return decodeURIComponent(urlMatch[1]);
+        } catch {
+            return urlMatch[1];
+        }
+    }
     return null;
 }
 
@@ -247,6 +372,26 @@ export function parseQrText(raw) {
     // Plain request id pasted manually
     if (/^[a-f0-9]{24}$/i.test(text) || /^\d+$/.test(text)) {
         return { type: 'legacy_id', requestId: text, raw: text };
+    }
+
+    // Signed token without URL wrapper
+    if (text.startsWith('TR1.')) {
+        const parts = text.split('.');
+        if (parts.length === 3) {
+            try {
+                const payload = JSON.parse(new TextDecoder().decode(fromBase64Url(parts[1])));
+                return {
+                    type: 'signed',
+                    token: text,
+                    payload,
+                    sig: parts[2],
+                    requestId: payload.rid || null,
+                    raw: text,
+                };
+            } catch {
+                return { type: 'invalid', raw: text };
+            }
+        }
     }
 
     return { type: 'unknown', raw: text };

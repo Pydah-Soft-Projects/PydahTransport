@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import {
     ShieldCheck,
     Wifi,
@@ -22,9 +22,9 @@ import {
     formatSyncTime,
     getOrCreateDeviceId,
     idbAddOfflineScan,
+    idbClearPassengers,
     idbCountPassengers,
     idbGetMeta,
-    idbGetPassenger,
     idbGetPublicKey,
     idbGetUnsyncedScans,
     idbMarkScansSynced,
@@ -32,6 +32,7 @@ import {
     idbSavePublicKey,
     idbSetMeta,
     parseQrText,
+    verifyOfflinePassenger,
     verifySignedPayload,
 } from '../utils/qrVerification';
 
@@ -51,6 +52,8 @@ const QrVerification = () => {
     const [modalOpen, setModalOpen] = useState(false);
     const [verifying, setVerifying] = useState(false);
     const [scanFlash, setScanFlash] = useState(false);
+    const [hasPublicKey, setHasPublicKey] = useState(false);
+    const [storedAcademicYear, setStoredAcademicYear] = useState(null);
 
     const scannerRef = useRef(null);
     const scannerRunning = useRef(false);
@@ -58,14 +61,52 @@ const QrVerification = () => {
     const readerHostRef = useRef(null);
     const scanSessionRef = useRef(0);
     const busyRef = useRef(false);
+    const lastScanRef = useRef({ text: '', at: 0 });
+
+    const SCAN_COOLDOWN_MS = 2500;
+
+    const pickRearCamera = useCallback(async () => {
+        try {
+            const cameras = await Html5Qrcode.getCameras();
+            if (!cameras?.length) return { facingMode: 'environment' };
+            const rear = cameras.find((camera) => /back|rear|environment|trás|arrière/i.test(camera.label));
+            if (rear?.id) return rear.id;
+            return cameras.length > 1 ? cameras[cameras.length - 1].id : cameras[0].id;
+        } catch {
+            return { facingMode: 'environment' };
+        }
+    }, []);
+
+    const getScannerConfig = useCallback(() => ({
+        fps: 12,
+        qrbox: (viewfinderWidth, viewfinderHeight) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            const size = Math.floor(Math.min(minEdge * 0.78, 320));
+            return { width: size, height: size };
+        },
+        aspectRatio: 1.0,
+        disableFlip: false,
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        videoConstraints: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            focusMode: { ideal: 'continuous' },
+        },
+    }), []);
 
     const refreshMeta = useCallback(async () => {
-        const [syncAt, count] = await Promise.all([
+        const [syncAt, count, storedYear, keyInfo] = await Promise.all([
             idbGetMeta('lastSyncAt'),
             idbCountPassengers(),
+            idbGetMeta('academicYear'),
+            idbGetPublicKey(),
         ]);
         setLastSyncAt(syncAt);
         setRecordCount(count);
+        setStoredAcademicYear(storedYear);
+        setHasPublicKey(Boolean(keyInfo?.publicKeyPem));
+        if (storedYear) setAcademicYear(storedYear);
     }, []);
 
     useEffect(() => {
@@ -81,6 +122,30 @@ const QrVerification = () => {
             window.removeEventListener('offline', onOffline);
         };
     }, [refreshMeta]);
+
+    // Public key is required for signed QR offline — fetch without auth when online
+    useEffect(() => {
+        let cancelled = false;
+        const loadPublicKey = async () => {
+            if (online) {
+                try {
+                    const res = await fetch(`${API_BASE}/verification/public-key`);
+                    const data = await res.json().catch(() => ({}));
+                    if (!cancelled && res.ok && data.publicKeyPem) {
+                        await idbSavePublicKey(data);
+                        setHasPublicKey(true);
+                        return;
+                    }
+                } catch {
+                    // fall through to local cache
+                }
+            }
+            const cached = await idbGetPublicKey();
+            if (!cancelled) setHasPublicKey(Boolean(cached?.publicKeyPem));
+        };
+        loadPublicKey();
+        return () => { cancelled = true; };
+    }, [online]);
 
     const clearReaderDom = useCallback(() => {
         const host = readerHostRef.current || document.getElementById('qr-reader');
@@ -140,11 +205,14 @@ const QrVerification = () => {
             const keyData = await keyRes.json().catch(() => ({}));
             if (keyRes.ok && keyData.publicKeyPem) {
                 await idbSavePublicKey(keyData);
+                setHasPublicKey(true);
             }
 
             const params = new URLSearchParams({ academicYear });
             const since = await idbGetMeta('lastSyncAt');
-            if (since && recordCount > 0) params.append('since', since);
+            const prevYear = await idbGetMeta('academicYear');
+            const fullSync = !since || recordCount === 0 || prevYear !== academicYear;
+            if (!fullSync && since) params.append('since', since);
 
             const syncRes = await apiFetch(`${API_BASE}/verification/sync?${params.toString()}`);
             const syncData = await syncRes.json().catch(() => ({}));
@@ -152,10 +220,15 @@ const QrVerification = () => {
                 throw new Error(syncData.message || 'Sync failed');
             }
 
+            if (fullSync) {
+                await idbClearPassengers();
+            }
+
             await idbPutAllPassengers(syncData.records || []);
             const syncedAt = syncData.syncedAt || new Date().toISOString();
             await idbSetMeta('lastSyncAt', syncedAt);
             await idbSetMeta('academicYear', academicYear);
+            setStoredAcademicYear(academicYear);
 
             const pending = await idbGetUnsyncedScans();
             if (pending.length > 0) {
@@ -169,7 +242,7 @@ const QrVerification = () => {
             }
 
             await refreshMeta();
-            setSyncMessage(`Synced ${syncData.count || 0} records for ${academicYear}.`);
+            setSyncMessage(`Synced ${syncData.count || 0} record${syncData.count === 1 ? '' : 's'} for ${academicYear}${fullSync ? ' (full sync)' : ''}.`);
         } catch (err) {
             setSyncMessage(err.message || 'Sync failed');
         } finally {
@@ -224,6 +297,44 @@ const QrVerification = () => {
         setModalOpen(true);
     };
 
+    const fetchOnlineVerify = async (requestId) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        try {
+            const res = await fetch(
+                `${API_BASE}/transport-verify/${encodeURIComponent(requestId)}`,
+                { signal: controller.signal }
+            );
+            const data = await res.json().catch(() => ({}));
+            return { ok: res.ok, data };
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    };
+
+    const showOfflineResult = async (parsed, signatureStatus) => {
+        const offline = await verifyOfflinePassenger(parsed, lastSyncAt);
+        showResult({
+            ok: offline.ok,
+            title: offline.title,
+            message: offline.message,
+            mode: 'OFFLINE',
+            signatureStatus,
+            data: offline.data,
+            lastSyncAt,
+            warning: offline.warning,
+        });
+        await logScan({
+            verificationResult: offline.local
+                ? (offline.ok ? 'VALID_OFFLINE' : 'INACTIVE_OFFLINE')
+                : 'MISSING_LOCAL',
+            mode: 'OFFLINE',
+            requestId: offline.local?.requestId || parsed.requestId || parsed.payload?.rid || null,
+            studentId: offline.local?.studentId || parsed.payload?.sid || null,
+            rawPayload: parsed.payload || { requestId: parsed.requestId },
+        });
+    };
+
     const processQrText = useCallback(async (rawText) => {
         if (!rawText || busyRef.current) return;
         busyRef.current = true;
@@ -238,12 +349,17 @@ const QrVerification = () => {
 
             if (parsed.type === 'signed') {
                 let keyInfo = await idbGetPublicKey(parsed.payload?.kid);
-                if (!keyInfo && online) {
-                    const keyRes = await fetch(`${API_BASE}/verification/public-key`);
-                    const keyData = await keyRes.json().catch(() => ({}));
-                    if (keyRes.ok) {
-                        await idbSavePublicKey(keyData);
-                        keyInfo = keyData;
+                if (!keyInfo?.publicKeyPem && online) {
+                    try {
+                        const keyRes = await fetch(`${API_BASE}/verification/public-key`);
+                        const keyData = await keyRes.json().catch(() => ({}));
+                        if (keyRes.ok && keyData.publicKeyPem) {
+                            await idbSavePublicKey(keyData);
+                            keyInfo = keyData;
+                            setHasPublicKey(true);
+                        }
+                    } catch {
+                        // use cached key only
                     }
                 }
                 const sig = await verifySignedPayload(parsed, keyInfo?.publicKeyPem);
@@ -253,7 +369,7 @@ const QrVerification = () => {
                         sig.reason === 'expired' ? 'QR code has expired.'
                             : sig.reason === 'invalid_signature' ? 'QR signature is invalid (tampered or wrong key).'
                                 : sig.reason === 'unsupported_version' ? 'Unsupported QR version. Update the verification app.'
-                                    : sig.reason === 'no_public_key' ? 'Public key missing. Sync once from the Sync tab.'
+                                    : sig.reason === 'no_public_key' ? 'Public key missing. Sync once while online from the Sync tab.'
                                         : 'Could not verify QR signature.';
                     showResult({
                         ok: false,
@@ -272,6 +388,7 @@ const QrVerification = () => {
                     return;
                 }
                 requestId = String(parsed.payload.rid);
+                parsed.requestId = requestId;
             } else if (parsed.type === 'unknown' || parsed.type === 'empty' || parsed.type === 'invalid') {
                 showResult({
                     ok: false,
@@ -288,85 +405,36 @@ const QrVerification = () => {
                 return;
             }
 
-            if (online) {
+            if (online && requestId) {
                 try {
-                    const res = await fetch(`${API_BASE}/transport-verify/${encodeURIComponent(requestId)}`);
-                    const data = await res.json();
-                    const ok = Boolean(data?.registered);
-                    showResult({
-                        ok,
-                        title: ok ? 'Verified' : 'Not Active',
-                        message: data?.message || (ok ? 'Registered in transport system' : 'Not active'),
-                        mode: 'ONLINE',
-                        signatureStatus: signatureStatus || (parsed.type === 'legacy_url' || parsed.type === 'legacy_id' ? 'legacy_url' : null),
-                        data,
-                        lastSyncAt,
-                    });
-                    await logScan({
-                        verificationResult: ok ? 'VALID' : 'INACTIVE',
-                        mode: 'ONLINE',
-                        requestId,
-                        studentId: data?.admission_number,
-                        rawPayload: parsed.payload || { requestId },
-                    });
-                    await stopScanner();
-                    return;
+                    const { ok: httpOk, data } = await fetchOnlineVerify(requestId);
+                    if (httpOk) {
+                        const registered = Boolean(data?.registered);
+                        showResult({
+                            ok: registered,
+                            title: registered ? 'Verified' : 'Not Active',
+                            message: data?.message || (registered ? 'Registered in transport system' : 'Not active'),
+                            mode: 'ONLINE',
+                            signatureStatus: signatureStatus || (parsed.type === 'legacy_url' || parsed.type === 'legacy_id' ? 'legacy_url' : null),
+                            data,
+                            lastSyncAt,
+                        });
+                        await logScan({
+                            verificationResult: registered ? 'VALID' : 'INACTIVE',
+                            mode: 'ONLINE',
+                            requestId,
+                            studentId: data?.admission_number,
+                            rawPayload: parsed.payload || { requestId },
+                        });
+                        await stopScanner();
+                        return;
+                    }
                 } catch {
-                    // fall through to offline
+                    // fall through to offline lookup
                 }
             }
 
-            const local = requestId ? await idbGetPassenger(String(requestId)) : null;
-            if (!local) {
-                showResult({
-                    ok: false,
-                    title: 'Data unavailable offline',
-                    message: 'Student data not found locally. Open Sync and synchronize.',
-                    mode: 'OFFLINE',
-                    signatureStatus,
-                    lastSyncAt,
-                    warning: true,
-                });
-                await logScan({
-                    verificationResult: 'MISSING_LOCAL',
-                    mode: 'OFFLINE',
-                    requestId,
-                    rawPayload: parsed.payload || { requestId },
-                });
-            } else {
-                const active = String(local.transportStatus || '').toLowerCase() === 'approved';
-                showResult({
-                    ok: active,
-                    title: active ? 'Offline Verified' : 'Not Active (Offline)',
-                    message: active
-                        ? `Verified using data synchronized at ${formatSyncTime(lastSyncAt)}.`
-                        : `Local status: ${local.transportStatus}`,
-                    mode: 'OFFLINE',
-                    signatureStatus,
-                    data: {
-                        registered: active,
-                        student_name: local.studentName,
-                        admission_number: local.studentId,
-                        route_id: local.routeId,
-                        route_name: local.routeName,
-                        stage_name: local.stageName,
-                        bus_id: local.busId,
-                        academic_year: local.academicYear,
-                        status: local.transportStatus,
-                        user_type: local.userType,
-                        student_photo: local.studentPhoto || null,
-                    },
-                    lastSyncAt,
-                    warning: true,
-                });
-                await logScan({
-                    verificationResult: active ? 'VALID_OFFLINE' : 'INACTIVE_OFFLINE',
-                    mode: 'OFFLINE',
-                    requestId,
-                    studentId: local.studentId,
-                    rawPayload: parsed.payload || local,
-                });
-            }
+            await showOfflineResult(parsed, signatureStatus);
             await stopScanner();
         } finally {
             setVerifying(false);
@@ -397,20 +465,37 @@ const QrVerification = () => {
         if (session !== scanSessionRef.current) return;
 
         try {
-            const scanner = new Html5Qrcode('qr-reader');
+            const cameraId = await pickRearCamera();
+            if (session !== scanSessionRef.current) return;
+
+            const scanner = new Html5Qrcode('qr-reader', {
+                formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+                verbose: false,
+            });
             if (session !== scanSessionRef.current) {
                 try { scanner.clear(); } catch { /* ignore */ }
                 return;
             }
             scannerRef.current = scanner;
 
-            const boxSize = Math.min(260, Math.floor(window.innerWidth * 0.7));
             await scanner.start(
-                { facingMode: 'environment' },
-                { fps: 8, qrbox: { width: boxSize, height: boxSize } },
+                cameraId,
+                getScannerConfig(),
                 async (decoded) => {
+                    const trimmed = String(decoded || '').trim();
+                    if (!trimmed || busyRef.current) return;
+
+                    const now = Date.now();
+                    if (
+                        trimmed === lastScanRef.current.text
+                        && now - lastScanRef.current.at < SCAN_COOLDOWN_MS
+                    ) {
+                        return;
+                    }
+                    lastScanRef.current = { text: trimmed, at: now };
+
                     if (handleScanRef.current) {
-                        await handleScanRef.current(decoded);
+                        await handleScanRef.current(trimmed);
                     }
                 },
                 () => { }
@@ -433,7 +518,7 @@ const QrVerification = () => {
             setCameraError(err?.message || 'Camera permission denied or unavailable.');
             setScanning(false);
         }
-    }, [clearReaderDom]);
+    }, [clearReaderDom, getScannerConfig, pickRearCamera]);
 
     useEffect(() => {
         if (activeTab !== 'scan' || modalOpen) {
@@ -457,6 +542,7 @@ const QrVerification = () => {
         setModalOpen(false);
         setResult(null);
         busyRef.current = false;
+        lastScanRef.current = { text: '', at: 0 };
         setVerifying(false);
     };
 
@@ -514,12 +600,31 @@ const QrVerification = () => {
                 {activeTab === 'scan' && (
                     <div className="space-y-3">
                         {!online && (
-                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 space-y-1.5">
                                 <p className="font-bold flex items-center gap-1.5">
                                     <AlertTriangle size={14} /> Offline verification
                                 </p>
+                                <p className="leading-relaxed">
+                                    Using local data synced at {formatSyncTime(lastSyncAt)} · {recordCount} passenger{recordCount === 1 ? '' : 's'} stored.
+                                </p>
+                                {recordCount === 0 && (
+                                    <p className="font-semibold text-amber-900">
+                                        No local records. Connect to internet and run Sync before scanning offline.
+                                    </p>
+                                )}
+                                {!hasPublicKey && (
+                                    <p className="font-semibold text-amber-900">
+                                        QR signature key not cached. Sync once while online to verify signed QR codes.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        {online && recordCount === 0 && (
+                            <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800">
+                                <p className="font-bold">Prepare for offline scanning</p>
                                 <p className="mt-1 leading-relaxed">
-                                    Uses last synced data ({formatSyncTime(lastSyncAt)}).
+                                    Open the Sync tab and download passenger data before going offline.
                                 </p>
                             </div>
                         )}
@@ -603,6 +708,8 @@ const QrVerification = () => {
                             <MetaCard label="Last Sync" value={formatSyncTime(lastSyncAt)} />
                             <MetaCard label="Local Records" value={String(recordCount)} />
                             <MetaCard label="Connectivity" value={online ? 'Online' : 'Offline'} />
+                            <MetaCard label="Signature Key" value={hasPublicKey ? 'Cached' : 'Missing — sync required'} />
+                            <MetaCard label="Synced Year" value={storedAcademicYear || '—'} />
                         </div>
 
                         <div>

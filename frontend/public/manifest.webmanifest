@@ -1,25 +1,31 @@
 {
+  "id": "/",
   "name": "Pydah Transport",
   "short_name": "Pydah Transport",
-  "description": "Offline-capable transport QR verification",
-  "start_url": "/verify",
+  "description": "Pydah Transport Management Application",
+  "start_url": "/",
   "scope": "/",
-  "display": "browser",
+  "display": "standalone",
   "background_color": "#e2e8f0",
   "theme_color": "#1e3a8a",
-  "orientation": "portrait",
   "icons": [
     {
-      "src": "/Gemini_Generated_Image_uu0hhduu0hhduu0h.png",
+      "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/Gemini_Generated_Image_uu0hhduu0hhduu0h.png",
+      "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

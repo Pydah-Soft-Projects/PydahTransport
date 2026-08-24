@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import PwaInstallBanner from '../components/PwaInstallBanner';
 import { 
     Bus, 
     Map, 
@@ -15,6 +16,7 @@ import {
 const Home = () => {
     return (
         <div className="min-h-screen bg-[#060b1a] flex flex-col relative overflow-hidden font-outfit">
+            <PwaInstallBanner variant="overlay" />
             {/* Background Layer - High Visibility */}
             <div className="absolute inset-0 z-0 bg-slate-950">
                 <img

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import ForgotPasswordModal from '../components/ForgotPasswordModal';
+import PwaInstallBanner from '../components/PwaInstallBanner';
 
 const Login = () => {
     const [username, setUsername] = useState('');
@@ -84,6 +85,7 @@ const Login = () => {
 
     return (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4 relative overflow-hidden font-inter">
+            <PwaInstallBanner variant="overlay" />
             {/* Background Layer - Brand Consistency */}
             <div className="absolute inset-0 z-0 bg-slate-950">
                 <img

@@ -1,6 +1,13 @@
-/* Minimal app-shell service worker for /verify PWA offline boot */
-const CACHE = 'pydah-verify-shell-v1';
-const PRECACHE = ['/', '/verify', '/manifest.webmanifest'];
+/* Pydah Transport app-shell service worker */
+const CACHE = 'pydah-transport-shell-v3';
+const PRECACHE = [
+  '/',
+  '/index.html',
+  '/manifest.webmanifest',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/Gemini_Generated_Image_uu0hhduu0hhduu0h.png',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -16,13 +23,35 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  // Never cache API responses — IndexedDB owns transport data
+  if (url.origin !== self.location.origin) return;
+
+  // Never cache API responses
   if (url.pathname.startsWith('/api') || url.pathname.includes('/api/')) {
+    return;
+  }
+
+  // SPA navigation: serve cached shell for document requests
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response && response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE).then((cache) => cache.put('/index.html', clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match('/index.html').then((r) => r || caches.match('/')))
+    );
     return;
   }
 
@@ -30,7 +59,7 @@ self.addEventListener('fetch', (event) => {
     caches.match(request).then((cached) => {
       const network = fetch(request)
         .then((response) => {
-          if (response && response.ok && (url.origin === self.location.origin)) {
+          if (response && response.ok) {
             const clone = response.clone();
             caches.open(CACHE).then((cache) => cache.put(request, clone));
           }
