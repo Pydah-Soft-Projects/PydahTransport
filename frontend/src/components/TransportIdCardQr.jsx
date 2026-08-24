@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { getTransportVerifyUrl } from '../utils/siteUrl';
+import { apiFetch, API_BASE, isAuthenticated } from '../utils/api';
 
 const TransportIdCardQr = ({ passenger, qrDataUrl: presetQr, className = '' }) => {
     const [dataUrl, setDataUrl] = useState(presetQr || '');
@@ -13,30 +14,44 @@ const TransportIdCardQr = ({ passenger, qrDataUrl: presetQr, className = '' }) =
 
         let cancelled = false;
         const requestId = passenger?.id ?? passenger?._id;
-        const url = getTransportVerifyUrl(requestId);
 
-        if (!url) {
-            setDataUrl('');
-            return undefined;
-        }
+        const build = async () => {
+            let content = getTransportVerifyUrl(requestId);
+            if (isAuthenticated() && requestId != null) {
+                try {
+                    const res = await apiFetch(`${API_BASE}/verification/qr-content/${encodeURIComponent(requestId)}`);
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok && data.qrContent) {
+                        content = data.qrContent;
+                    }
+                } catch {
+                    // fall back to plain URL
+                }
+            }
 
-        QRCode.toDataURL(url, {
-            errorCorrectionLevel: 'M',
-            margin: 1,
-            width: 256,
-            color: { dark: '#000000', light: '#ffffff' },
-        })
-            .then((src) => {
-                if (!cancelled) setDataUrl(src);
-            })
-            .catch(() => {
+            if (!content) {
                 if (!cancelled) setDataUrl('');
-            });
+                return;
+            }
 
+            try {
+                const src = await QRCode.toDataURL(content, {
+                    errorCorrectionLevel: 'M',
+                    margin: 1,
+                    width: 256,
+                    color: { dark: '#000000', light: '#ffffff' },
+                });
+                if (!cancelled) setDataUrl(src);
+            } catch {
+                if (!cancelled) setDataUrl('');
+            }
+        };
+
+        build();
         return () => {
             cancelled = true;
         };
-    }, [passenger?.id, passenger?._id, presetQr]);
+    }, [passenger?.id, passenger?._id, passenger?.admission_number, presetQr]);
 
     if (!dataUrl) {
         return (

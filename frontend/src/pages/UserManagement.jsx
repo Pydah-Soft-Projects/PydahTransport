@@ -82,7 +82,8 @@ const UserManagement = () => {
             'renewals',
             'transport_dues',
             'concessions',
-            'attendance'
+            'attendance',
+            'qr_verification'
         ],
         cashier: [
             'dashboard',
@@ -95,7 +96,8 @@ const UserManagement = () => {
             'communications',
             'transport_requests',
             'transport_dues',
-            'attendance'
+            'attendance',
+            'qr_verification'
         ],
         manager: [
             'dashboard',
@@ -110,7 +112,8 @@ const UserManagement = () => {
             'transport_dues',
             'concessions',
             'attendance',
-            'inventory'
+            'inventory',
+            'qr_verification'
         ],
         admin: [
             'dashboard',
@@ -126,7 +129,8 @@ const UserManagement = () => {
             'concessions',
             'attendance',
             'inventory',
-            'user_management'
+            'user_management',
+            'qr_verification'
         ],
         support_staff: [
             'dashboard',
@@ -159,6 +163,7 @@ const UserManagement = () => {
         { id: 'transport_dues', label: 'Transport Dues', path: '/transport-dues' },
         { id: 'concessions', label: 'Concessions', path: '/concessions' },
         { id: 'attendance', label: 'Attendance', path: '/attendance' },
+        { id: 'qr_verification', label: 'QR Verification', path: '/verify' },
         { id: 'inventory', label: 'Inventory', path: '/inventory' },
         { id: 'user_management', label: 'User Management', path: '/users' },
     ];

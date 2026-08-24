@@ -433,13 +433,34 @@ const fetchIdCardSheetData = async (data) => {
         throw error;
     }
 
-    // Attach QR codes
+    // Attach QR codes (signed URL#token when keys available; falls back to plain URL)
     const verifyBase = process.env.PUBLIC_SITE_URL || process.env.CRM_BACKEND_URL || '';
+    let buildSignedVerifyUrl = null;
+    try {
+        ({ buildSignedVerifyUrl } = require('../utils/qrSigning'));
+    } catch (e) {
+        console.warn('QR signing unavailable:', e.message);
+    }
+
     for (const passenger of passengers) {
         const pid = passenger.id || passenger._id;
-        const verifyUrl = `${verifyBase}/verify-transport/${encodeURIComponent(pid)}`;
+        let verifyContent = `${verifyBase}/verify-transport/${encodeURIComponent(pid)}`;
+        if (buildSignedVerifyUrl) {
+            try {
+                verifyContent = buildSignedVerifyUrl(pid, {
+                    rid: String(pid),
+                    sid: passenger.admission_number || passenger.emp_no || '',
+                    ay: passenger.academic_year || academicYear || null,
+                    rid2: passenger.route_id || null,
+                    bid: passenger.bus_id || null,
+                    exp: passenger.effective_expiry_date || passenger.expiry_date || null,
+                }, verifyBase);
+            } catch (signErr) {
+                console.error('QR signing failed, using plain URL:', signErr.message);
+            }
+        }
         try {
-            passenger.qrDataUrl = await QRCode.toDataURL(verifyUrl, {
+            passenger.qrDataUrl = await QRCode.toDataURL(verifyContent, {
                 errorCorrectionLevel: 'M',
                 margin: 1,
                 width: 256,

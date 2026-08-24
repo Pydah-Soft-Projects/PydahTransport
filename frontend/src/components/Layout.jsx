@@ -22,7 +22,8 @@ import {
     RefreshCw,
     Navigation,
     UserCheck,
-    MessageSquare
+    MessageSquare,
+    ShieldCheck
 } from 'lucide-react';
 
 const Layout = ({ children }) => {
@@ -91,6 +92,7 @@ const Layout = ({ children }) => {
             items: [
                 { path: '/raise-request', label: 'Raise New Request', permission: 'raise_request', icon: <PlusCircle size={20} /> },
                 { path: '/transport-requests', label: 'Passenger Requests', permission: 'transport_requests', icon: <ClipboardList size={20} /> },
+                { path: '/verify', label: 'QR Verification', permission: 'qr_verification', icon: <ShieldCheck size={20} /> },
                 { path: '/renewals', label: 'Renewals', permission: 'renewals', icon: <RefreshCw size={20} /> },
             ]
         },

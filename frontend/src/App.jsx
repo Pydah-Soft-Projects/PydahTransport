@@ -17,6 +17,7 @@ import Concessions from './pages/Concessions';
 import Inventory from './pages/Inventory';
 import RaiseBill from './pages/RaiseBill';
 import TransportVerify from './pages/TransportVerify';
+import QrVerification from './pages/QrVerification';
 import GpsTracking from './pages/GpsTracking';
 import Communications from './pages/Communications';
 import Attendance from './pages/Attendance';
@@ -30,6 +31,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/verify-transport/:id" element={<TransportVerify />} />
+          <Route path="/verify" element={<ProtectedRoute><QrVerification /></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/buses" element={<ProtectedRoute><BusManagement /></ProtectedRoute>} />
           <Route path="/buses/:id" element={<ProtectedRoute><BusDetails /></ProtectedRoute>} />
