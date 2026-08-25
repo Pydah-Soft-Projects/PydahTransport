@@ -8,10 +8,38 @@ const {
   fetchDailyKilometersFromTgg,
   extractPlateKey,
   extractRouteIdFromVehicleName,
+  cleanVehicleName,
 } = require('../services/tggGpsService');
 const Bus = require('../models/Bus');
 const Route = require('../models/Route');
 const GpsFinalDestination = require('../models/GpsFinalDestination');
+
+/**
+ * Resolve the exact TGG vehicle_name for API calls.
+ * Accepts either a full TGG name (R23_AP39UW4611) or a local bus plate (AP39UW4611).
+ */
+const resolveTggVehicleName = async (inputName) => {
+  const raw = cleanVehicleName(inputName);
+  if (!raw) return '';
+
+  try {
+    const vehiclesRes = await fetchVehiclesListFromTgg();
+    if (vehiclesRes.success && Array.isArray(vehiclesRes.data) && vehiclesRes.data.length > 0) {
+      const inputKey = extractPlateKey(raw);
+      const exact = vehiclesRes.data.find((v) => String(v.name || '').trim() === raw);
+      if (exact?.name) return exact.name;
+
+      if (inputKey) {
+        const byPlate = vehiclesRes.data.find((v) => extractPlateKey(v.name) === inputKey);
+        if (byPlate?.name) return byPlate.name;
+      }
+    }
+  } catch (err) {
+    console.warn('[GPS] resolveTggVehicleName fallback:', err.message);
+  }
+
+  return raw;
+};
 
 const resolveVehicleRoute = (vehName, buses, routeMap) => {
   const plateKey = extractPlateKey(vehName);
@@ -211,6 +239,8 @@ const fetchDailyKilometers = async (req, res) => {
         message: 'vehicle_name is required'
       });
     }
+
+    query.vehicle_name = await resolveTggVehicleName(query.vehicle_name);
 
     // Default to last 7 days if date range is not specified
     if (!query.date_from || !query.date_to) {
@@ -504,8 +534,14 @@ const fetchFinalDestinationReport = async (req, res) => {
       }
     };
 
+    // Resolve TGG names once for all buses (plate → R##_PLATE)
+    const vehiclesRes = await fetchVehiclesListFromTgg();
+    const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
+
     const reportRows = await Promise.all(buses.map(async (bus) => {
-      const cleanBusName = bus.busNumber.replace(/[^a-zA-Z0-9]/g, '');
+      const plateKey = extractPlateKey(bus.busNumber);
+      const matchedTgg = tggVehicles.find((v) => extractPlateKey(v.name) === plateKey);
+      const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
       const routeName = routeMap[bus.assignedRouteId] || bus.assignedRouteId;
 
       let mrngIn = '—';
@@ -522,7 +558,7 @@ const fetchFinalDestinationReport = async (req, res) => {
         params.append('password', password);
         params.append('date_from', `${date} ${morningStart}:00`);
         params.append('date_to', `${date} ${morningEnd}:00`);
-        params.append('vehicle_name', cleanBusName);
+        params.append('vehicle_name', tggVehicleName);
 
         const response = await fetch(url, {
           method: 'POST',
@@ -532,7 +568,7 @@ const fetchFinalDestinationReport = async (req, res) => {
 
         if (response.ok) {
           const rawText = await response.text();
-          const points = parseTggMessagesLocal(rawText, cleanBusName);
+          const points = parseTggMessagesLocal(rawText);
           const insidePoints = points.filter(pt => calculateDistance(latitude, longitude, pt.latitude, pt.longitude) <= radius);
           
           if (insidePoints.length > 0) {
@@ -554,7 +590,7 @@ const fetchFinalDestinationReport = async (req, res) => {
         params.append('password', password);
         params.append('date_from', `${date} ${eveningStart}:00`);
         params.append('date_to', `${date} ${eveningEnd}:00`);
-        params.append('vehicle_name', cleanBusName);
+        params.append('vehicle_name', tggVehicleName);
 
         const response = await fetch(url, {
           method: 'POST',
@@ -564,7 +600,7 @@ const fetchFinalDestinationReport = async (req, res) => {
 
         if (response.ok) {
           const rawText = await response.text();
-          const points = parseTggMessagesLocal(rawText, cleanBusName);
+          const points = parseTggMessagesLocal(rawText);
           const insidePoints = points.filter(pt => calculateDistance(latitude, longitude, pt.latitude, pt.longitude) <= radius);
           
           if (insidePoints.length > 0) {
@@ -622,9 +658,10 @@ const fetchDailyHistory = async (req, res) => {
       });
     }
 
-    const cleanBusNo = vehicle_name.replace(/[^a-zA-Z0-9]/g, '');
+    const tggVehicleName = await resolveTggVehicleName(vehicle_name);
+    const cacheKeyBase = extractPlateKey(tggVehicleName) || tggVehicleName.replace(/[^a-zA-Z0-9]/g, '');
 
-    const cacheKey = `${cleanBusNo}_${targetDate}`;
+    const cacheKey = `${cacheKeyBase}_${targetDate}`;
     const cached = dailyHistoryCache[cacheKey];
     const now = Date.now();
     const isToday = targetDate === new Date().toISOString().split('T')[0];
@@ -673,7 +710,7 @@ const fetchDailyHistory = async (req, res) => {
         params.append('password', password);
         params.append('date_from', seg.start);
         params.append('date_to', seg.end);
-        params.append('vehicle_name', cleanBusNo);
+        params.append('vehicle_name', tggVehicleName);
 
         const response = await fetch(url, {
           method: 'POST',
@@ -683,7 +720,7 @@ const fetchDailyHistory = async (req, res) => {
 
         if (response.ok) {
           const rawText = await response.text();
-          return parseTggMessagesLocal(rawText, cleanBusNo);
+          return parseTggMessagesLocal(rawText);
         }
         return [];
       } catch (e) {
