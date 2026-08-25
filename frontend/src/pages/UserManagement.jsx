@@ -113,6 +113,8 @@ const UserManagement = () => {
             'concessions',
             'attendance',
             'inventory',
+            'inventory_edit',
+            'inventory_delete',
             'qr_verification',
             'settings'
         ],
@@ -130,6 +132,8 @@ const UserManagement = () => {
             'concessions',
             'attendance',
             'inventory',
+            'inventory_edit',
+            'inventory_delete',
             'user_management',
             'qr_verification',
             'settings'
@@ -167,6 +171,8 @@ const UserManagement = () => {
         { id: 'attendance', label: 'Attendance', path: '/attendance' },
         { id: 'qr_verification', label: 'QR Verification', path: '/verify' },
         { id: 'inventory', label: 'Inventory', path: '/inventory' },
+        { id: 'inventory_edit', label: 'Inventory — Edit Bills/Items', path: '/inventory' },
+        { id: 'inventory_delete', label: 'Inventory — Delete Bills/Items', path: '/inventory' },
         { id: 'settings', label: 'Settings', path: '/settings' },
         { id: 'user_management', label: 'User Management', path: '/users' },
     ];

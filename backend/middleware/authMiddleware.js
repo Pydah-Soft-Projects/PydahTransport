@@ -72,7 +72,17 @@ const isLegacySuperAdmin = (user) => Boolean(user?.username && !user?.emp_no);
 const userHasPermission = (user, permission) => {
     if (!user) return false;
     if (isLegacySuperAdmin(user)) return true;
-    return Array.isArray(user.permissions) && user.permissions.includes(permission);
+    if (Array.isArray(user.roles) && user.roles.includes('admin')) return true;
+    const permissions = Array.isArray(user.permissions) ? user.permissions : [];
+    if (permissions.includes(permission)) return true;
+    // Legacy: module access used to mean full inventory rights
+    if (
+        (permission === 'inventory_edit' || permission === 'inventory_delete')
+        && permissions.includes('inventory')
+    ) {
+        return true;
+    }
+    return false;
 };
 
 const requirePermission = (permission) => (req, res, next) => {
