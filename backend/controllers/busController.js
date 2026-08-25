@@ -544,7 +544,17 @@ const getBusesOverview = async (req, res) => {
 
         const studentCountsByBus = {};
         const employeeCountsByBus = {};
+        const expectedRenewalsByBus = {};
         const unassignedRouteBreakdown = {};
+
+        const targetYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
+        const renewedDocs = await TransportRequest.find({
+            academic_year: targetYear,
+            status: { $in: ['pending', 'approved'] },
+        }).select('admission_number').lean();
+        const renewedSet = new Set(
+            renewedDocs.map((r) => String(r.admission_number || '').trim()).filter(Boolean)
+        );
 
         if (buses.length > 0) {
             const busNumbers = buses.map((b) => b.busNumber);
@@ -560,6 +570,16 @@ const getBusesOverview = async (req, res) => {
                     }
                     unassignedRouteBreakdown[rid].students++;
                     unassignedRouteBreakdown[rid].total++;
+                }
+            });
+
+            // Expected renewals: expired approved passengers still on a bus who have not renewed for target year
+            mongoStudents.forEach((r) => {
+                if (!r.is_expired) return;
+                const adm = String(r.admission_number || '').trim();
+                if (!adm || renewedSet.has(adm)) return;
+                if (r.bus_id && busNumbers.includes(r.bus_id)) {
+                    expectedRenewalsByBus[r.bus_id] = (expectedRenewalsByBus[r.bus_id] || 0) + 1;
                 }
             });
 
@@ -621,6 +641,7 @@ const getBusesOverview = async (req, res) => {
                 seatsAvailable,
                 capacity,
                 occupancyPercent,
+                expectedRenewals: expectedRenewalsByBus[bus.busNumber] || 0,
             };
         });
         res.json({ 

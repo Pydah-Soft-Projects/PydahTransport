@@ -647,6 +647,7 @@ const Fleet = () => {
                                     <th className="px-3 py-2">Capacity</th>
                                     <th className="px-3 py-2">Seats Filled</th>
                                     <th className="px-3 py-2">Rem. Seats</th>
+                                    <th className="px-3 py-2">Expected Renewals</th>
                                     <th
                                         onClick={() => handleSort('occupancy')}
                                         className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors select-none group"
@@ -725,6 +726,11 @@ const Fleet = () => {
                                                     </span>
                                                 </td>
                                                 <td className="px-3 py-2">
+                                                    <span className={`text-xs font-bold ${(item.expectedRenewals || 0) > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                                                        {item.expectedRenewals || 0}
+                                                    </span>
+                                                </td>
+                                                <td className="px-3 py-2">
                                                     <div className="flex flex-col gap-0.5 w-24">
                                                         <span className={`text-[9px] font-bold ${item.occupancyPercent >= 100 ? 'text-red-600' : item.occupancyPercent >= 80 ? 'text-amber-600' : 'text-emerald-600'}`}>
                                                             {item.occupancyPercent}%
@@ -761,7 +767,7 @@ const Fleet = () => {
                                             {/* Expandable passenger details */}
                                             {isExpanded && (
                                                 <tr className="bg-slate-50/70">
-                                                    <td colSpan={8} className="px-5 py-4">
+                                                    <td colSpan={9} className="px-5 py-4">
                                                         {passengersLoading ? (
                                                             <p className="text-xs text-slate-400 italic flex items-center gap-1.5">
                                                                 <Loader2 size={12} className="animate-spin" /> Loading passengers...

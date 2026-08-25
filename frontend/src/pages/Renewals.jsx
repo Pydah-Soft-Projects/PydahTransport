@@ -1,14 +1,322 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { RefreshCw, Search, CheckCircle2, User, MapPin, GraduationCap, Clock, Bus, Check, AlertTriangle, XCircle, X, Users } from 'lucide-react';
+import {
+    RefreshCw,
+    Search,
+    CheckCircle2,
+    User,
+    MapPin,
+    GraduationCap,
+    Clock,
+    Bus,
+    Check,
+    AlertTriangle,
+    XCircle,
+    X,
+    Users,
+    ChevronDown,
+    ChevronRight,
+    Building2,
+    List,
+    LayoutGrid,
+    Printer,
+} from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
 import { apiFetch, API_BASE } from '../utils/api';
+import { printHtmlDocument } from '../utils/printHtml';
 import { getDefaultAcademicYear, getAcademicYearOptions, getPreviousAcademicYear } from '../utils/academicYear';
 
 const statusDisplay = (s) => (s || 'pending').charAt(0).toUpperCase() + (s || 'pending').slice(1);
 const formatFare = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+
+const escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+const buildToBeRenewedPrintHtml = ({
+    expiredYear,
+    targetYear,
+    routeFilter,
+    routeLabel,
+    courseFilter,
+    searchQuery,
+    pendingList,
+    abstractTree,
+}) => {
+    const filterBits = [
+        `Expired AY: ${expiredYear}`,
+        `Target AY: ${targetYear}`,
+        routeFilter ? `Route: ${routeLabel || routeFilter}` : null,
+        courseFilter ? `Course: ${courseFilter}` : null,
+        searchQuery ? `Search: ${searchQuery}` : null,
+    ].filter(Boolean).join(' · ');
+
+    const abstractRows = abstractTree.flatMap((college) => {
+        const collegeRow = `
+            <tr class="college-row">
+                <td colspan="2"><strong>${escapeHtml(college.name)}</strong></td>
+                <td class="ctr">${college.total}</td>
+                <td class="ctr">${college.renewed}</td>
+                <td class="ctr">${college.pending}</td>
+                <td class="ctr">${college.total ? Math.round((college.renewed / college.total) * 100) : 0}%</td>
+            </tr>`;
+
+        const courseRows = college.courses.flatMap((course) => {
+            const courseRow = `
+                <tr class="course-row">
+                    <td></td>
+                    <td><strong>${escapeHtml(course.name)}</strong></td>
+                    <td class="ctr">${course.total}</td>
+                    <td class="ctr">${course.renewed}</td>
+                    <td class="ctr">${course.pending}</td>
+                    <td class="ctr">${course.total ? Math.round((course.renewed / course.total) * 100) : 0}%</td>
+                </tr>`;
+            const yearRows = course.years.map((yearNode) => `
+                <tr class="year-row">
+                    <td></td>
+                    <td style="padding-left:28px;">Year ${yearNode.year}</td>
+                    <td class="ctr">${yearNode.total}</td>
+                    <td class="ctr">${yearNode.renewed}</td>
+                    <td class="ctr">${yearNode.pending}</td>
+                    <td class="ctr">${yearNode.total ? Math.round((yearNode.renewed / yearNode.total) * 100) : 0}%</td>
+                </tr>`).join('');
+            return courseRow + yearRows;
+        }).join('');
+
+        return collegeRow + courseRows;
+    }).join('');
+
+    const sortLabel = (a, b) => {
+        if (a === 'Unknown') return 1;
+        if (b === 'Unknown') return -1;
+        return a.localeCompare(b, undefined, { sensitivity: 'base' });
+    };
+
+    const yearOf = (req) => {
+        const n = req.year_of_study != null ? Number(req.year_of_study) : 1;
+        return Number.isFinite(n) && n > 0 ? n : 1;
+    };
+
+    const collegeGroups = (() => {
+        const map = new Map();
+        pendingList.forEach((req) => {
+            const college = String(req.college || '').trim() || 'Unknown';
+            if (!map.has(college)) map.set(college, []);
+            map.get(college).push(req);
+        });
+        return Array.from(map.entries())
+            .sort((a, b) => sortLabel(a[0], b[0]))
+            .map(([college, rows]) => ({
+                college,
+                rows: [...rows].sort((a, b) => {
+                    const courseCmp = sortLabel(
+                        String(a.course || '').trim() || 'Unknown',
+                        String(b.course || '').trim() || 'Unknown'
+                    );
+                    if (courseCmp !== 0) return courseCmp;
+                    const yearCmp = yearOf(a) - yearOf(b);
+                    if (yearCmp !== 0) return yearCmp;
+                    return String(a.route_id || a.route_name || '').localeCompare(
+                        String(b.route_id || b.route_name || ''),
+                        undefined,
+                        { numeric: true, sensitivity: 'base' }
+                    );
+                }),
+            }));
+    })();
+
+    let serial = 0;
+    const detailSections = collegeGroups.map(({ college, rows }) => {
+        const body = rows.map((req) => {
+            serial += 1;
+            return `
+        <tr>
+            <td class="num">${serial}</td>
+            <td>${escapeHtml(req.student_name || '—')}</td>
+            <td>${escapeHtml(req.admission_number || '—')}</td>
+            <td>${escapeHtml(req.pin_no || '—')}</td>
+            <td>${escapeHtml(String(req.course || '').trim() || '—')}</td>
+            <td class="num">${yearOf(req)}</td>
+            <td>${escapeHtml(req.route_name || '—')}</td>
+        </tr>`;
+        }).join('');
+
+        return `
+  <h3 class="college-title">${escapeHtml(college)} <span>(${rows.length})</span></h3>
+  <table>
+    <thead>
+      <tr>
+        <th class="num">#</th>
+        <th>Name</th>
+        <th>ADM NO</th>
+        <th>Pin No</th>
+        <th>Course</th>
+        <th class="num">Year</th>
+        <th>Previous Route</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${body}
+    </tbody>
+  </table>`;
+    }).join('');
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>To Be Renewed - ${escapeHtml(expiredYear)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #111; font-size: 9.5px; margin: 0; }
+    .print-header { text-align: center; margin-bottom: 14px; }
+    h1 { font-size: 18px; margin: 0 0 6px; font-weight: 800; letter-spacing: 0.01em; }
+    .print-subheader { font-size: 12px; font-weight: 700; color: #222; margin: 0; }
+    h2 { font-size: 11px; margin: 14px 0 6px; border-bottom: 1px solid #222; padding-bottom: 3px; }
+    h3.college-title { font-size: 10.5px; margin: 14px 0 4px; background: #e8e8e8; padding: 5px 8px; border: 1px solid #222; font-weight: 800; }
+    h3.college-title span { font-weight: normal; color: #444; font-size: 9.5px; }
+    table { width: 100%; border-collapse: collapse; margin: 0 0 8px 0; page-break-inside: auto; }
+    tr { page-break-inside: avoid; page-break-after: auto; }
+    th, td { border: 1px solid #222; padding: 3px 5px; vertical-align: middle; }
+    th { background: #e8e8e8; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.02em; }
+    .num { text-align: right; white-space: nowrap; }
+    .ctr { text-align: center; white-space: nowrap; }
+    .college-row td { background: #f3f4f6; font-weight: 700; }
+    .course-row td { background: #fafafa; }
+    .total-row td { font-weight: 700; background: #ececec; border-top: 2px solid #111; }
+    .footer { margin-top: 12px; color: #555; font-size: 8.5px; display: flex; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <div class="print-header">
+    <h1>Pydah Transport — To Be Renewed List</h1>
+    <p class="print-subheader">${escapeHtml(filterBits)}</p>
+  </div>
+
+  <h2>Abstract</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>College</th>
+        <th>Course / Year</th>
+        <th class="ctr">Total Expired</th>
+        <th class="ctr">Renewed</th>
+        <th class="ctr">To Be Renewed</th>
+        <th class="ctr">Renewal %</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${abstractRows || '<tr><td colspan="6" style="text-align:center;">No data</td></tr>'}
+      <tr class="total-row">
+        <td colspan="2">Grand Total</td>
+        <td class="ctr">${abstractTree.reduce((s, c) => s + c.total, 0)}</td>
+        <td class="ctr">${abstractTree.reduce((s, c) => s + c.renewed, 0)}</td>
+        <td class="ctr">${abstractTree.reduce((s, c) => s + c.pending, 0)}</td>
+        <td class="ctr">${(() => {
+            const total = abstractTree.reduce((s, c) => s + c.total, 0);
+            const renewed = abstractTree.reduce((s, c) => s + c.renewed, 0);
+            return total ? `${Math.round((renewed / total) * 100)}%` : '0%';
+        })()}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Detailed — To Be Renewed (${pendingList.length})</h2>
+  ${detailSections || '<p style="text-align:center;">No passengers pending renewal</p>'}
+
+  <div class="footer">
+    <span>Pydah Transport Management System</span>
+    <span>End of report</span>
+  </div>
+</body>
+</html>`;
+};
+
+const EMPTY_LABEL = 'Unknown';
+
+const buildRenewalAbstract = (list, renewedSet) => {
+    const collegeMap = new Map();
+
+    list.forEach((req) => {
+        const college = String(req.college || '').trim() || EMPTY_LABEL;
+        const course = String(req.course || '').trim() || EMPTY_LABEL;
+        const yearRaw = req.year_of_study != null ? Number(req.year_of_study) : 1;
+        const year = Number.isFinite(yearRaw) && yearRaw > 0 ? yearRaw : 1;
+        const isRenewed = renewedSet.has(String(req.admission_number || '').trim());
+
+        if (!collegeMap.has(college)) {
+            collegeMap.set(college, {
+                name: college,
+                total: 0,
+                renewed: 0,
+                pending: 0,
+                courses: new Map(),
+            });
+        }
+        const collegeNode = collegeMap.get(college);
+        collegeNode.total += 1;
+        if (isRenewed) collegeNode.renewed += 1;
+        else collegeNode.pending += 1;
+
+        if (!collegeNode.courses.has(course)) {
+            collegeNode.courses.set(course, {
+                name: course,
+                total: 0,
+                renewed: 0,
+                pending: 0,
+                years: new Map(),
+            });
+        }
+        const courseNode = collegeNode.courses.get(course);
+        courseNode.total += 1;
+        if (isRenewed) courseNode.renewed += 1;
+        else courseNode.pending += 1;
+
+        if (!courseNode.years.has(year)) {
+            courseNode.years.set(year, { year, total: 0, renewed: 0, pending: 0 });
+        }
+        const yearNode = courseNode.years.get(year);
+        yearNode.total += 1;
+        if (isRenewed) yearNode.renewed += 1;
+        else yearNode.pending += 1;
+    });
+
+    const sortLabel = (a, b) => {
+        if (a === EMPTY_LABEL) return 1;
+        if (b === EMPTY_LABEL) return -1;
+        return a.localeCompare(b, undefined, { sensitivity: 'base' });
+    };
+
+    return Array.from(collegeMap.values())
+        .sort((a, b) => sortLabel(a.name, b.name))
+        .map((college) => ({
+            ...college,
+            courses: Array.from(college.courses.values())
+                .sort((a, b) => sortLabel(a.name, b.name))
+                .map((course) => ({
+                    ...course,
+                    years: Array.from(course.years.values()).sort((a, b) => a.year - b.year),
+                })),
+        }));
+};
+
+const AbstractCountCell = ({ value, tone = 'slate' }) => {
+    const tones = {
+        slate: 'text-slate-800',
+        emerald: 'text-emerald-700',
+        amber: 'text-amber-700',
+    };
+    return (
+        <td className={`px-3 py-2.5 text-right text-xs font-bold tabular-nums whitespace-nowrap ${tones[tone] || tones.slate}`}>
+            {Number(value || 0).toLocaleString('en-IN')}
+        </td>
+    );
+};
 
 const Renewals = () => {
     const navigate = useNavigate();
@@ -32,6 +340,10 @@ const Renewals = () => {
     const [courseFilter, setCourseFilter] = useState(() => searchParams.get('course') || '');
     const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
     const [renewalStatusFilter, setRenewalStatusFilter] = useState(() => searchParams.get('status') || '');
+    const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') === 'abstract' ? 'abstract' : 'detailed');
+    const [expandedColleges, setExpandedColleges] = useState(() => new Set());
+    const [expandedCourses, setExpandedCourses] = useState(() => new Set());
+    const [isPrinting, setIsPrinting] = useState(false);
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
@@ -45,6 +357,7 @@ const Renewals = () => {
         setCourseFilter(searchParams.get('course') || '');
         setSearchQuery(searchParams.get('search') || '');
         setRenewalStatusFilter(searchParams.get('status') || '');
+        setActiveTab(searchParams.get('tab') === 'abstract' ? 'abstract' : 'detailed');
         setCurrentPage(1);
     }, [searchParams]);
 
@@ -56,6 +369,7 @@ const Renewals = () => {
         const nextCourse = next.courseFilter ?? courseFilter;
         const nextSearch = next.searchQuery ?? searchQuery;
         const nextStatus = next.renewalStatusFilter ?? renewalStatusFilter;
+        const nextTab = next.activeTab ?? activeTab;
 
         if (nextExpired) params.set('expiredYear', nextExpired);
         if (nextTarget) params.set('targetYear', nextTarget);
@@ -63,6 +377,7 @@ const Renewals = () => {
         if (nextCourse) params.set('course', nextCourse);
         if (nextSearch) params.set('search', nextSearch);
         if (nextStatus) params.set('status', nextStatus);
+        if (nextTab && nextTab !== 'detailed') params.set('tab', nextTab);
 
         const qs = params.toString();
         navigate(qs ? `/renewals?${qs}` : '/renewals', { replace: true });
@@ -70,7 +385,6 @@ const Renewals = () => {
 
     // Data lists
     const [requests, setRequests] = useState([]);
-    const [overallRequests, setOverallRequests] = useState([]);
     const [routes, setRoutes] = useState([]);
     const [targetRoutes, setTargetRoutes] = useState([]);
     const [courses, setCourses] = useState([]);
@@ -187,20 +501,6 @@ const Renewals = () => {
         }
     };
 
-    // Load all expired requests for the selected year to compute overall stats
-    const fetchOverallStats = async () => {
-        try {
-            const url = `${API_BASE}/transport-requests?status=expired&academicYear=${encodeURIComponent(expiredYear)}`;
-            const response = await apiFetch(url);
-            if (response.ok) {
-                const data = await response.json();
-                setOverallRequests(data);
-            }
-        } catch (error) {
-            console.error('Error fetching overall stats:', error);
-        }
-    };
-
     useEffect(() => {
         fetchRoutes();
         fetchCourses();
@@ -214,10 +514,6 @@ const Renewals = () => {
         fetchExpiredRequests();
         setCurrentPage(1);
     }, [expiredYear, routeFilter, courseFilter, searchQuery]);
-
-    useEffect(() => {
-        fetchOverallStats();
-    }, [expiredYear]);
 
     // Preload target routes when renew modal target year changes
     useEffect(() => {
@@ -381,10 +677,97 @@ const Renewals = () => {
         return true;
     });
 
-    // Stats calculations
-    const totalExpired = overallRequests.length;
-    const totalRenewed = overallRequests.filter(r => renewedSet.has(String(r.admission_number).trim())).length;
+    const abstractTree = useMemo(
+        () => buildRenewalAbstract(filteredRequests, renewedSet),
+        [filteredRequests, renewedSet]
+    );
+
+    // Stats follow page filters (route / course / search / expired year)
+    const totalExpired = requests.length;
+    const totalRenewed = useMemo(
+        () => requests.filter((r) => renewedSet.has(String(r.admission_number || '').trim())).length,
+        [requests, renewedSet]
+    );
     const totalPending = totalExpired - totalRenewed;
+
+    const sortedRoutes = useMemo(
+        () => [...routes].sort((a, b) =>
+            String(a.routeId || '').localeCompare(String(b.routeId || ''), undefined, { numeric: true, sensitivity: 'base' })
+        ),
+        [routes]
+    );
+
+    const selectedRouteLabel = useMemo(() => {
+        if (!routeFilter) return '';
+        const matched = routes.find((r) => String(r.routeId) === String(routeFilter));
+        return matched ? `${matched.routeId} - ${matched.routeName}` : routeFilter;
+    }, [routes, routeFilter]);
+
+    // Print uses pending passengers under current API filters (year / route / course / search)
+    const printPendingList = useMemo(
+        () => requests.filter((r) => !renewedSet.has(String(r.admission_number || '').trim())),
+        [requests, renewedSet]
+    );
+
+    const printAbstractTree = useMemo(
+        () => buildRenewalAbstract(requests, renewedSet),
+        [requests, renewedSet]
+    );
+
+    const toggleCollege = (collegeName) => {
+        setExpandedColleges((prev) => {
+            const next = new Set(prev);
+            if (next.has(collegeName)) next.delete(collegeName);
+            else next.add(collegeName);
+            return next;
+        });
+    };
+
+    const toggleCourse = (collegeName, courseName) => {
+        const key = `${collegeName}::${courseName}`;
+        setExpandedCourses((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    const handleTabChange = (tab) => {
+        setActiveTab(tab);
+        syncFiltersToUrl({ activeTab: tab });
+    };
+
+    const handlePrintToBeRenewed = () => {
+        if (isPrinting) return;
+        if (printPendingList.length === 0) {
+            setMessage({ text: 'No passengers pending renewal to print for the current filters.', type: 'error' });
+            return;
+        }
+
+        setIsPrinting(true);
+        try {
+            const html = buildToBeRenewedPrintHtml({
+                expiredYear,
+                targetYear,
+                routeFilter,
+                routeLabel: selectedRouteLabel,
+                courseFilter,
+                searchQuery,
+                pendingList: printPendingList,
+                abstractTree: printAbstractTree,
+            });
+            printHtmlDocument(
+                html,
+                `To-Be-Renewed-${expiredYear}`,
+                () => setIsPrinting(false)
+            );
+        } catch (error) {
+            console.error('Error printing to-be-renewed list:', error);
+            setMessage({ text: 'Failed to prepare print document.', type: 'error' });
+            setIsPrinting(false);
+        }
+    };
 
     // Pagination calculations
     const indexOfLastRow = currentPage * rowsPerPage;
@@ -395,13 +778,47 @@ const Renewals = () => {
     return (
         <Layout>
             {/* Header */}
-            <div className="mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
-                <div>
+            <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="min-w-0">
                     <h2 className="text-2xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
                         <RefreshCw className="text-blue-600 animate-spin-slow" size={24} />
                         Renewals Management
                     </h2>
                     <p className="text-xs text-slate-400 mt-0.5">Review expired transport passes from previous semesters/years and renew them for upcoming academic sessions.</p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+                    <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold gap-1">
+                        <button
+                            type="button"
+                            onClick={() => handleTabChange('abstract')}
+                            className={`px-3.5 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                                activeTab === 'abstract' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                            }`}
+                        >
+                            <LayoutGrid size={13} /> Abstract
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleTabChange('detailed')}
+                            className={`px-3.5 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                                activeTab === 'detailed' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                            }`}
+                        >
+                            <List size={13} /> Detailed
+                        </button>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={handlePrintToBeRenewed}
+                        disabled={isPrinting || loading || printPendingList.length === 0}
+                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                        title="Print passengers still pending renewal"
+                    >
+                        <Printer size={14} className={isPrinting ? 'animate-pulse' : ''} />
+                        {isPrinting ? 'Preparing…' : 'Print'}
+                    </button>
                 </div>
             </div>
 
@@ -506,7 +923,7 @@ const Renewals = () => {
                             className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         >
                             <option value="">All Routes</option>
-                            {routes.map((r) => (
+                            {sortedRoutes.map((r) => (
                                 <option key={r.routeId} value={r.routeId}>{r.routeId} - {r.routeName}</option>
                             ))}
                         </select>
@@ -573,7 +990,185 @@ const Renewals = () => {
                 </div>
             </div>
 
-            {/* List Table */}
+            {/* Abstract: College → Course → Year (structured table) */}
+            {activeTab === 'abstract' && (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                            <h3 className="text-sm font-bold text-slate-800">Renewal Abstract</h3>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                                College → Course → Year of study for expired passengers in {expiredYear}.
+                            </p>
+                        </div>
+                        <p className="text-[11px] font-semibold text-slate-500">
+                            {filteredRequests.length} passenger{filteredRequests.length === 1 ? '' : 's'} matched
+                        </p>
+                    </div>
+
+                    {loading ? (
+                        <div className="py-20 flex flex-col items-center justify-center gap-3">
+                            <Loader />
+                            <p className="text-sm font-bold text-slate-500 animate-pulse">Loading abstract…</p>
+                        </div>
+                    ) : abstractTree.length === 0 ? (
+                        <div className="py-20 text-center text-slate-500">
+                            <p className="text-lg font-bold">No expired requests found</p>
+                            <p className="text-xs text-slate-400 mt-1">Try expanding filters or selecting a different academic year.</p>
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[720px] text-left border-collapse">
+                                <thead>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                        <th className="px-4 py-3 w-[42%]">College / Course / Year</th>
+                                        <th className="px-3 py-3 text-right w-[12%]">Total</th>
+                                        <th className="px-3 py-3 text-right w-[12%]">Renewed</th>
+                                        <th className="px-3 py-3 text-right w-[12%]">Pending</th>
+                                        <th className="px-3 py-3 text-right w-[12%]">Renewal %</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {abstractTree.map((college) => {
+                                        const collegeOpen = expandedColleges.has(college.name);
+                                        const collegeRate = college.total > 0
+                                            ? Math.round((college.renewed / college.total) * 100)
+                                            : 0;
+
+                                        return (
+                                            <React.Fragment key={college.name}>
+                                                <tr
+                                                    className="bg-white hover:bg-blue-50/40 cursor-pointer transition-colors"
+                                                    onClick={() => toggleCollege(college.name)}
+                                                >
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                            <span className="text-slate-400 shrink-0">
+                                                                {collegeOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                                                            </span>
+                                                            <div className="w-7 h-7 rounded-md bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
+                                                                <Building2 size={14} />
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <p className="text-xs font-bold text-slate-900 truncate">{college.name}</p>
+                                                                <p className="text-[10px] font-semibold text-slate-400">
+                                                                    {college.courses.length} course{college.courses.length === 1 ? '' : 's'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <AbstractCountCell value={college.total} />
+                                                    <AbstractCountCell value={college.renewed} tone="emerald" />
+                                                    <AbstractCountCell value={college.pending} tone="amber" />
+                                                    <td className="px-3 py-3 text-right text-xs font-bold tabular-nums text-slate-600">
+                                                        {collegeRate}%
+                                                    </td>
+                                                </tr>
+
+                                                {collegeOpen && college.courses.map((course) => {
+                                                    const courseKey = `${college.name}::${course.name}`;
+                                                    const courseOpen = expandedCourses.has(courseKey);
+                                                    const courseRate = course.total > 0
+                                                        ? Math.round((course.renewed / course.total) * 100)
+                                                        : 0;
+
+                                                    return (
+                                                        <React.Fragment key={courseKey}>
+                                                            <tr
+                                                                className="bg-slate-50/80 hover:bg-slate-100 cursor-pointer transition-colors"
+                                                                onClick={() => toggleCourse(college.name, course.name)}
+                                                            >
+                                                                <td className="px-4 py-2.5 pl-10">
+                                                                    <div className="flex items-center gap-2.5 min-w-0">
+                                                                        <span className="text-slate-400 shrink-0">
+                                                                            {courseOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                                        </span>
+                                                                        <div className="w-6 h-6 rounded bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                                                                            <GraduationCap size={12} />
+                                                                        </div>
+                                                                        <div className="min-w-0">
+                                                                            <p className="text-xs font-bold text-slate-800 truncate">{course.name}</p>
+                                                                            <p className="text-[10px] font-semibold text-slate-400">
+                                                                                {course.years.length} year group{course.years.length === 1 ? '' : 's'}
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                                <AbstractCountCell value={course.total} />
+                                                                <AbstractCountCell value={course.renewed} tone="emerald" />
+                                                                <AbstractCountCell value={course.pending} tone="amber" />
+                                                                <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-slate-600">
+                                                                    {courseRate}%
+                                                                </td>
+                                                            </tr>
+
+                                                            {courseOpen && course.years.map((yearNode) => {
+                                                                const yearRate = yearNode.total > 0
+                                                                    ? Math.round((yearNode.renewed / yearNode.total) * 100)
+                                                                    : 0;
+                                                                return (
+                                                                    <tr
+                                                                        key={`${courseKey}::${yearNode.year}`}
+                                                                        className="bg-white hover:bg-amber-50/30 transition-colors"
+                                                                    >
+                                                                        <td className="px-4 py-2 pl-20">
+                                                                            <div className="flex items-center gap-2.5">
+                                                                                <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-amber-50 text-amber-700 text-[10px] font-black shrink-0">
+                                                                                    Y{yearNode.year}
+                                                                                </span>
+                                                                                <p className="text-xs font-semibold text-slate-700">
+                                                                                    Year {yearNode.year}
+                                                                                </p>
+                                                                            </div>
+                                                                        </td>
+                                                                        <AbstractCountCell value={yearNode.total} />
+                                                                        <AbstractCountCell value={yearNode.renewed} tone="emerald" />
+                                                                        <AbstractCountCell value={yearNode.pending} tone="amber" />
+                                                                        <td className="px-3 py-2 text-right text-xs font-bold tabular-nums text-slate-600">
+                                                                            {yearRate}%
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </React.Fragment>
+                                                    );
+                                                })}
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </tbody>
+                                <tfoot>
+                                    <tr className="bg-slate-100 border-t-2 border-slate-200">
+                                        <td className="px-4 py-3 text-xs font-black text-slate-800 uppercase tracking-wide">
+                                            Grand Total
+                                        </td>
+                                        <AbstractCountCell
+                                            value={abstractTree.reduce((sum, c) => sum + c.total, 0)}
+                                        />
+                                        <AbstractCountCell
+                                            value={abstractTree.reduce((sum, c) => sum + c.renewed, 0)}
+                                            tone="emerald"
+                                        />
+                                        <AbstractCountCell
+                                            value={abstractTree.reduce((sum, c) => sum + c.pending, 0)}
+                                            tone="amber"
+                                        />
+                                        <td className="px-3 py-3 text-right text-xs font-black tabular-nums text-slate-700">
+                                            {(() => {
+                                                const total = abstractTree.reduce((sum, c) => sum + c.total, 0);
+                                                const renewed = abstractTree.reduce((sum, c) => sum + c.renewed, 0);
+                                                return total > 0 ? `${Math.round((renewed / total) * 100)}%` : '0%';
+                                            })()}
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Detailed list table */}
+            {activeTab === 'detailed' && (
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                 {loading ? (
                     <div className="py-20 flex flex-col items-center justify-center gap-3">
@@ -592,6 +1187,7 @@ const Renewals = () => {
                                 <thead>
                                     <tr className="bg-slate-50/50 border-b border-slate-100 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
                                         <th className="px-4 py-3">Passenger Details</th>
+                                        <th className="px-4 py-3">College</th>
                                         <th className="px-4 py-3">Course & Batch</th>
                                         <th className="px-4 py-3">Previous Route & Stage</th>
                                         <th className="px-4 py-3">Expiry Date</th>
@@ -613,8 +1209,15 @@ const Renewals = () => {
                                                         <div>
                                                             <h4 className="font-bold text-slate-800 text-xs leading-snug">{req.student_name}</h4>
                                                             <p className="text-[10px] font-semibold text-slate-400 mt-0.5">{req.admission_number}</p>
+                                                            {req.pin_no && req.pin_no !== 'N/A' && (
+                                                                <p className="text-[10px] font-semibold text-slate-400">Pin: {req.pin_no}</p>
+                                                            )}
                                                         </div>
                                                     </div>
+                                                </td>
+
+                                                <td className="px-4 py-2.5">
+                                                    <p className="font-semibold text-slate-700 text-[11px]">{req.college || '—'}</p>
                                                 </td>
 
                                                 {/* Course & Year */}
@@ -715,6 +1318,7 @@ const Renewals = () => {
                     </>
                 )}
             </div>
+            )}
 
             {/* Renew Modal Proposal */}
             <Modal

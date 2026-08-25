@@ -5,15 +5,37 @@ const {
   fetchVehicleMessagesFromTgg,
   registerIncomingAlert,
   getRecentAlerts,
-  fetchDailyKilometersFromTgg
+  fetchDailyKilometersFromTgg,
+  extractPlateKey,
+  extractRouteIdFromVehicleName,
 } = require('../services/tggGpsService');
 const Bus = require('../models/Bus');
 const Route = require('../models/Route');
 const GpsFinalDestination = require('../models/GpsFinalDestination');
 
-const cleanRegNo = (str) => {
-  if (!str) return '';
-  return str.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+const resolveVehicleRoute = (vehName, buses, routeMap) => {
+  const plateKey = extractPlateKey(vehName);
+  const matchedBus = buses.find((b) => extractPlateKey(b.busNumber) === plateKey);
+
+  let routeIdVal = 'Unassigned';
+  let routeNameVal = 'Unassigned';
+
+  if (matchedBus && matchedBus.assignedRouteId) {
+    routeIdVal = matchedBus.assignedRouteId;
+    const routeObj = routeMap[matchedBus.assignedRouteId];
+    if (routeObj) routeNameVal = routeObj.routeName;
+  } else {
+    const routeFromName = extractRouteIdFromVehicleName(vehName);
+    if (routeFromName && routeMap[routeFromName]) {
+      routeIdVal = routeFromName;
+      routeNameVal = routeMap[routeFromName].routeName || routeFromName;
+    } else if (routeFromName) {
+      routeIdVal = routeFromName;
+      routeNameVal = routeFromName;
+    }
+  }
+
+  return { matchedBus, routeId: routeIdVal, routeName: routeNameVal };
 };
 
 /**
@@ -34,23 +56,12 @@ const fetchLiveVehicles = async (req, res) => {
     });
 
     const mappedData = result.data.map(veh => {
-      const cleanVehName = cleanRegNo(veh.name);
-      const matchedBus = buses.find(b => cleanRegNo(b.busNumber) === cleanVehName);
-      let routeIdVal = 'Unassigned';
-      let routeNameVal = 'Unassigned';
-
-      if (matchedBus && matchedBus.assignedRouteId) {
-        routeIdVal = matchedBus.assignedRouteId;
-        const routeObj = routeMap[matchedBus.assignedRouteId];
-        if (routeObj) {
-          routeNameVal = routeObj.routeName;
-        }
-      }
+      const { routeId, routeName } = resolveVehicleRoute(veh.name, buses, routeMap);
 
       return {
         ...veh,
-        routeId: routeIdVal,
-        routeName: routeNameVal
+        routeId,
+        routeName
       };
     });
 
@@ -260,18 +271,7 @@ const fetchFleetTravelled = async (req, res) => {
           isMock = kmRes.isMock;
         }
 
-        const cleanVehName = cleanRegNo(veh.name);
-        const matchedBus = buses.find(b => cleanRegNo(b.busNumber) === cleanVehName);
-        let routeIdVal = 'Unassigned';
-        let routeNameVal = 'Unassigned';
-
-        if (matchedBus && matchedBus.assignedRouteId) {
-          routeIdVal = matchedBus.assignedRouteId;
-          const routeObj = routeMap[matchedBus.assignedRouteId];
-          if (routeObj) {
-            routeNameVal = routeObj.routeName;
-          }
-        }
+        const { routeId: routeIdVal, routeName: routeNameVal } = resolveVehicleRoute(veh.name, buses, routeMap);
         
         return {
           name: veh.name,
@@ -285,18 +285,7 @@ const fetchFleetTravelled = async (req, res) => {
           isMock
         };
       } catch (err) {
-        const cleanVehName = cleanRegNo(veh.name);
-        const matchedBus = buses.find(b => cleanRegNo(b.busNumber) === cleanVehName);
-        let routeIdVal = 'Unassigned';
-        let routeNameVal = 'Unassigned';
-
-        if (matchedBus && matchedBus.assignedRouteId) {
-          routeIdVal = matchedBus.assignedRouteId;
-          const routeObj = routeMap[matchedBus.assignedRouteId];
-          if (routeObj) {
-            routeNameVal = routeObj.routeName;
-          }
-        }
+        const { routeId: routeIdVal, routeName: routeNameVal } = resolveVehicleRoute(veh.name, buses, routeMap);
 
         return {
           name: veh.name,

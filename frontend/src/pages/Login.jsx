@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Eye, EyeOff, WifiOff, ShieldCheck } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 import ForgotPasswordModal from '../components/ForgotPasswordModal';
 import PwaInstallBanner from '../components/PwaInstallBanner';
 import { isAuthenticated } from '../utils/api';
-import { canUseOfflineVerify } from '../utils/qrVerification';
 
 const Login = () => {
     const [username, setUsername] = useState('');
@@ -13,7 +12,6 @@ const Login = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
-    const [offlineVerifyReady, setOfflineVerifyReady] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -26,18 +24,11 @@ const Login = () => {
             return;
         }
 
-        let cancelled = false;
-        canUseOfflineVerify().then((ready) => {
-            if (!cancelled) setOfflineVerifyReady(ready);
-        });
-
         const params = new URLSearchParams(location.search);
         const token = params.get('token');
         if (token) {
             handleSSOLogin(token);
         }
-
-        return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location.search]);
 
@@ -75,7 +66,7 @@ const Login = () => {
         setError('');
 
         if (!navigator.onLine) {
-            setError('You are offline. Use Offline QR Verification below, or connect to the internet to log in.');
+            setError('You are offline. Connect to the internet to log in.');
             return;
         }
 
@@ -102,7 +93,7 @@ const Login = () => {
             setError(
                 navigator.onLine
                     ? 'Something went wrong. Please try again.'
-                    : 'You are offline. Use Offline QR Verification if this device was synced earlier.'
+                    : 'You are offline. Connect to the internet to log in.'
             );
         } finally {
             setIsLoading(false);
@@ -137,28 +128,6 @@ const Login = () => {
                     <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome Back</h1>
                     <p className="text-slate-500 text-sm font-medium">Sign in to access the transport dashboard</p>
                 </div>
-
-                {offlineVerifyReady && (
-                    <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                        <div className="flex items-start gap-3">
-                            <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                                {!navigator.onLine ? <WifiOff size={16} /> : <ShieldCheck size={16} />}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <p className="text-sm font-bold text-emerald-900">Offline QR ready on this device</p>
-                                <p className="text-xs text-emerald-800 mt-1 leading-relaxed">
-                                    Passenger data is already saved here. You can verify QR codes without logging in.
-                                </p>
-                                <Link
-                                    to="/verify"
-                                    className="inline-flex mt-3 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold"
-                                >
-                                    Open QR Verification
-                                </Link>
-                            </div>
-                        </div>
-                    </div>
-                )}
 
                 {error && (
                     <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded-md mb-6 text-sm flex items-center">

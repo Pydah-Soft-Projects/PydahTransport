@@ -1,5 +1,5 @@
 /* Pydah Transport app-shell service worker */
-const CACHE = 'pydah-transport-shell-v4';
+const CACHE = 'pydah-transport-shell-v5';
 const PRECACHE = [
   '/',
   '/index.html',
@@ -10,6 +10,12 @@ const PRECACHE = [
   '/icon-512.png',
   '/Gemini_Generated_Image_uu0hhduu0hhduu0h.png',
 ];
+
+const offlineFallback = () =>
+  new Response('<!doctype html><title>Offline</title><h1>Offline</h1>', {
+    status: 503,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -52,7 +58,10 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => caches.match('/index.html').then((r) => r || caches.match('/')))
+        .catch(async () => {
+          const cached = (await caches.match('/index.html')) || (await caches.match('/'));
+          return cached || offlineFallback();
+        })
     );
     return;
   }
@@ -67,8 +76,9 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => cached);
+        .catch(() => cached || offlineFallback());
+
       return cached || network;
-    })
+    }).catch(() => offlineFallback())
   );
 });

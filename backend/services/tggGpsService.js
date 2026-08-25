@@ -13,8 +13,36 @@ const getTggConfig = (customConfig = {}) => {
 };
 
 const cleanVehicleName = (name) => {
+  // TGG vehicle names often look like "R23_AP39UW4611" — keep underscore and exact name for API calls
   if (!name) return '';
-  return name.replace(/[^a-zA-Z0-9]/g, '');
+  return String(name).trim();
+};
+
+/**
+ * Extract a comparable plate key from TGG vehicle names or local bus numbers.
+ * Examples:
+ *   R23_AP39UW4611 → ap39uw4611
+ *   AP40KX3936     → ap40kx3936
+ *   AP 39 UW 4611  → ap39uw4611
+ *   R07AP39WH8273  → ap39wh8273
+ */
+const extractPlateKey = (name) => {
+  if (!name) return '';
+  const raw = String(name).trim();
+  const prefixed = raw.match(/^R\d+[_\-\s]+(.+)$/i);
+  let plate = prefixed ? prefixed[1] : raw;
+  let key = plate.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  // Handle already-stripped forms like R23AP39UW4611
+  const embedded = key.match(/^r\d+([a-z]{2}\d{1,2}[a-z]{1,3}\d{3,4})$/i);
+  if (embedded) key = embedded[1].toLowerCase();
+  return key;
+};
+
+/** Pull route id from names like R23_AP39UW4611 → R23 */
+const extractRouteIdFromVehicleName = (name) => {
+  if (!name) return null;
+  const m = String(name).trim().match(/^(R\d+)(?:[_\-\s]|$|[A-Za-z])/i);
+  return m ? m[1].toUpperCase() : null;
 };
 
 // In-memory store for received Geofence alerts
@@ -491,6 +519,9 @@ const fetchDailyKilometersFromTgg = async (reportQuery = {}) => {
 
 module.exports = {
   getTggConfig,
+  cleanVehicleName,
+  extractPlateKey,
+  extractRouteIdFromVehicleName,
   fetchVehiclesListFromTgg,
   fetchReportsFromTgg,
   fetchVehicleMessagesFromTgg,

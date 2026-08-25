@@ -839,6 +839,7 @@ const getTransportRequests = async (req, res) => {
                 year_of_study: itemYear,
                 course: itemCourse,
                 branch: itemBranch,
+                college: itemCollege,
                 pin_no: itemPinNo,
                 effective_expiry_date: r.effective_expiry_date,
                 is_expired: isExpired,
