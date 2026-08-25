@@ -405,6 +405,8 @@ const Renewals = () => {
         error: '',
         saving: false
     });
+    const [feeEligibility, setFeeEligibility] = useState(null);
+    const [feeEligibilityLoading, setFeeEligibilityLoading] = useState(false);
 
     // Approve Modal state
     const [approveModal, setApproveModal] = useState({
@@ -521,6 +523,29 @@ const Renewals = () => {
     }, [targetYear]);
 
     // Handle Renew trigger
+    const fetchRenewalFeeEligibility = async (admissionNumber, year) => {
+        if (!admissionNumber || !year) {
+            setFeeEligibility(null);
+            return;
+        }
+        setFeeEligibilityLoading(true);
+        try {
+            const response = await apiFetch(
+                `${API_BASE}/settings/request-eligibility/check?admission_number=${encodeURIComponent(admissionNumber)}&academic_year=${encodeURIComponent(year)}`
+            );
+            const data = await response.json().catch(() => ({}));
+            if (response.ok) {
+                setFeeEligibility(data);
+            } else {
+                setFeeEligibility(null);
+            }
+        } catch {
+            setFeeEligibility(null);
+        } finally {
+            setFeeEligibilityLoading(false);
+        }
+    };
+
     const handleOpenRenewModal = (passenger) => {
         // Prepopulate previous route and stage
         setRenewModal({
@@ -532,7 +557,14 @@ const Renewals = () => {
             error: '',
             saving: false
         });
+        setFeeEligibility(null);
+        fetchRenewalFeeEligibility(passenger.admission_number, targetYear);
     };
+
+    useEffect(() => {
+        if (!renewModal.open || !renewModal.passenger?.admission_number) return;
+        fetchRenewalFeeEligibility(renewModal.passenger.admission_number, targetYear);
+    }, [targetYear, renewModal.open, renewModal.passenger?.admission_number]);
 
     // Prepopulate fare based on selected route and stage in target year
     const handleRouteStageChange = (routeId, stageName) => {
@@ -557,6 +589,14 @@ const Renewals = () => {
         const { passenger, selectedRouteId, selectedStageName, selectedStageFare } = renewModal;
         if (!selectedRouteId || !selectedStageName) {
             setRenewModal(prev => ({ ...prev, error: 'Please select a route and stage for renewal.' }));
+            return;
+        }
+
+        if (feeEligibility && feeEligibility.enabled && !feeEligibility.ok) {
+            setRenewModal(prev => ({
+                ...prev,
+                error: feeEligibility.message || 'Fee payment eligibility not satisfied for the target academic year.',
+            }));
             return;
         }
 
@@ -586,6 +626,7 @@ const Renewals = () => {
             if (response.ok) {
                 const createdRequestId = data.id || data._id;
                 setRenewModal({ open: false, passenger: null, selectedRouteId: '', selectedStageName: '', selectedStageFare: 0, error: '', saving: false });
+                setFeeEligibility(null);
                 setMessage({ text: 'Renewal request created successfully in target academic year.', type: 'success' });
                 
                 // Refresh list data
@@ -1396,6 +1437,25 @@ const Renewals = () => {
                                 <span>Expected Transport Fare:</span>
                                 <span className="text-sm font-bold text-blue-900">{formatFare(renewModal.selectedStageFare)}</span>
                             </div>
+
+                            {feeEligibilityLoading && (
+                                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 text-xs font-semibold">
+                                    Checking fee payment eligibility…
+                                </div>
+                            )}
+
+                            {!feeEligibilityLoading && feeEligibility && feeEligibility.enabled && !feeEligibility.ok && (
+                                <div className="p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs font-semibold flex items-start gap-2">
+                                    <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                                    <span>{feeEligibility.message}</span>
+                                </div>
+                            )}
+
+                            {!feeEligibilityLoading && feeEligibility && feeEligibility.enabled && feeEligibility.ok && !feeEligibility.skipped && (
+                                <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs font-semibold">
+                                    {feeEligibility.message}
+                                </div>
+                            )}
                         </div>
 
                         {/* Error details */}
@@ -1411,14 +1471,21 @@ const Renewals = () => {
                             <button
                                 type="button"
                                 disabled={renewModal.saving}
-                                onClick={() => setRenewModal(prev => ({ ...prev, open: false }))}
+                                onClick={() => {
+                                    setRenewModal(prev => ({ ...prev, open: false }));
+                                    setFeeEligibility(null);
+                                }}
                                 className="px-5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
                             >
                                 Cancel
                             </button>
                             <button
                                 type="button"
-                                disabled={renewModal.saving}
+                                disabled={
+                                    renewModal.saving
+                                    || feeEligibilityLoading
+                                    || (feeEligibility && feeEligibility.enabled && !feeEligibility.ok)
+                                }
                                 onClick={handleConfirmRenewal}
                                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all disabled:opacity-50 flex items-center gap-2"
                             >

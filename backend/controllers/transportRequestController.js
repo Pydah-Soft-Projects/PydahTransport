@@ -13,6 +13,7 @@ const { resolveRouteStageFare } = require('../utils/stageFare');
 const { getCollegesForCampuses } = require('./campusController');
 const campusService = require('../services/campusService');
 const { resolveStudentExpiries } = require('../utils/expiryResolver');
+const { checkStudentRequestEligibility } = require('../services/requestEligibilityService');
 
 const getRestrictedCollegesForUser = async (user, selectedCampusId = null) => {
     const isSuperAdmin = user && user.roles && user.roles.includes('superadmin');
@@ -1833,6 +1834,14 @@ const createTransportRequest = async (req, res) => {
             return res.status(400).json({
                 message: validation.message,
                 validation,
+            });
+        }
+
+        const eligibility = await checkStudentRequestEligibility(admission_number, resolvedAcademicYear);
+        if (!eligibility.ok) {
+            return res.status(403).json({
+                message: eligibility.message,
+                eligibility,
             });
         }
 

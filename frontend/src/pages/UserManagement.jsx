@@ -113,7 +113,8 @@ const UserManagement = () => {
             'concessions',
             'attendance',
             'inventory',
-            'qr_verification'
+            'qr_verification',
+            'settings'
         ],
         admin: [
             'dashboard',
@@ -130,7 +131,8 @@ const UserManagement = () => {
             'attendance',
             'inventory',
             'user_management',
-            'qr_verification'
+            'qr_verification',
+            'settings'
         ],
         support_staff: [
             'dashboard',
@@ -165,6 +167,7 @@ const UserManagement = () => {
         { id: 'attendance', label: 'Attendance', path: '/attendance' },
         { id: 'qr_verification', label: 'QR Verification', path: '/verify' },
         { id: 'inventory', label: 'Inventory', path: '/inventory' },
+        { id: 'settings', label: 'Settings', path: '/settings' },
         { id: 'user_management', label: 'User Management', path: '/users' },
     ];
 

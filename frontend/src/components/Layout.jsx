@@ -122,6 +122,7 @@ const Layout = ({ children }) => {
         {
             title: 'ADMINISTRATION',
             items: [
+                { path: '/settings', label: 'Settings', permission: 'settings', icon: <Settings size={20} /> },
                 { path: '/users', label: 'User Management', permission: 'user_management', icon: <UserCog size={20} /> },
             ]
         }

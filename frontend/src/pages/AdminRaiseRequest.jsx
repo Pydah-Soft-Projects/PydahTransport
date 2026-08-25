@@ -69,6 +69,8 @@ const AdminRaiseRequest = () => {
     const [academicYearOptions, setAcademicYearOptions] = useState(buildFallbackAcademicYearOptions);
     const [academicValidation, setAcademicValidation] = useState(null);
     const [validationLoading, setValidationLoading] = useState(false);
+    const [feeEligibility, setFeeEligibility] = useState(null);
+    const [feeEligibilityLoading, setFeeEligibilityLoading] = useState(false);
     const [busesOnRoute, setBusesOnRoute] = useState([]);
     const [busesLoading, setBusesLoading] = useState(false);
     const [approveModal, setApproveModal] = useState({ open: false, requestId: null, data: null, selectedBusId: '', loading: true, error: null });
@@ -204,6 +206,7 @@ const AdminRaiseRequest = () => {
         const studentId = student?.student_id ?? student?.id;
         if (!admissionNumber && !studentId) {
             setAcademicValidation(null);
+            setFeeEligibility(null);
             return;
         }
 
@@ -233,6 +236,27 @@ const AdminRaiseRequest = () => {
         } finally {
             setValidationLoading(false);
         }
+
+        if (admissionNumber) {
+            setFeeEligibilityLoading(true);
+            try {
+                const eligRes = await apiFetch(
+                    `${API_BASE}/settings/request-eligibility/check?admission_number=${encodeURIComponent(admissionNumber)}&academic_year=${encodeURIComponent(year)}`
+                );
+                const eligData = await eligRes.json().catch(() => ({}));
+                if (eligRes.ok) {
+                    setFeeEligibility(eligData);
+                } else {
+                    setFeeEligibility(null);
+                }
+            } catch {
+                setFeeEligibility(null);
+            } finally {
+                setFeeEligibilityLoading(false);
+            }
+        } else {
+            setFeeEligibility(null);
+        }
     };
 
     const fetchStudentProfile = async (student) => {
@@ -260,6 +284,7 @@ const AdminRaiseRequest = () => {
     const handleSelectStudent = async (student) => {
         setFormError('');
         setAcademicValidation(null);
+        setFeeEligibility(null);
         setSelectedStudent(student);
         setSelectedRoute(null);
         setSelectedStage(null);
@@ -292,6 +317,7 @@ const AdminRaiseRequest = () => {
     useEffect(() => {
         if (activeTab !== 'new' || userType !== 'student' || !selectedStudent) {
             setAcademicValidation(null);
+            setFeeEligibility(null);
             return;
         }
         fetchAcademicValidation(selectedStudent, academicYear);
@@ -450,6 +476,11 @@ const AdminRaiseRequest = () => {
 
         if (activeTab === 'new' && userType === 'student' && academicValidation && !academicValidation.valid) {
             setFormError(academicValidation.message || 'Student batch, year, and academic year do not match.');
+            return;
+        }
+
+        if (activeTab === 'new' && userType === 'student' && feeEligibility && feeEligibility.enabled && !feeEligibility.ok) {
+            setFormError(feeEligibility.message || 'Fee payment eligibility not satisfied.');
             return;
         }
 
@@ -1015,9 +1046,26 @@ const AdminRaiseRequest = () => {
                                 {formError && (
                                     <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-800 text-sm leading-relaxed animate-in fade-in slide-in-from-top-1 duration-200">
                                         <p className="font-bold text-red-900 text-xs uppercase tracking-wide mb-1">
-                                            {academicValidation?.reason === 'course_completed' ? 'Course completed' : 'Cannot raise request'}
+                                            {academicValidation?.reason === 'course_completed'
+                                                ? 'Course completed'
+                                                : feeEligibility && !feeEligibility.ok
+                                                    ? 'Fee eligibility'
+                                                    : 'Cannot raise request'}
                                         </p>
                                         <p>{formError}</p>
+                                    </div>
+                                )}
+
+                                {!formError && activeTab === 'new' && userType === 'student' && feeEligibility && feeEligibility.enabled && !feeEligibility.ok && (
+                                    <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm leading-relaxed">
+                                        <p className="font-bold text-amber-950 text-xs uppercase tracking-wide mb-1">Fee eligibility</p>
+                                        <p>{feeEligibility.message}</p>
+                                    </div>
+                                )}
+
+                                {!formError && activeTab === 'new' && userType === 'student' && feeEligibility && feeEligibility.enabled && feeEligibility.ok && !feeEligibility.skipped && (
+                                    <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs font-medium">
+                                        {feeEligibility.message}
                                     </div>
                                 )}
                             </div>
@@ -1028,7 +1076,8 @@ const AdminRaiseRequest = () => {
                                     submitting
                                     || !selectedStage
                                     || (activeTab === 'new' && userType === 'student' && academicValidation && !academicValidation.valid)
-                                    || (activeTab === 'new' && userType === 'student' && validationLoading)
+                                    || (activeTab === 'new' && userType === 'student' && feeEligibility && feeEligibility.enabled && !feeEligibility.ok)
+                                    || (activeTab === 'new' && userType === 'student' && (validationLoading || feeEligibilityLoading))
                                 }
                                 className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-black disabled:opacity-50 transition-all shadow-xl active:scale-95 flex items-center justify-center gap-2"
                             >
