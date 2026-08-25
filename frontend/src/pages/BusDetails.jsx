@@ -34,9 +34,29 @@ import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academi
 
 const API = API_BASE;
 
+/** Comparable plate key — handles TGG names like R23_AP39UW4611 and plain AP39UW4611 */
+const extractPlateKey = (name) => {
+    if (!name) return '';
+    const raw = String(name).trim();
+    const prefixed = raw.match(/^R\d+[_\-\s]+(.+)$/i);
+    let plate = prefixed ? prefixed[1] : raw;
+    let key = plate.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const embedded = key.match(/^r\d+([a-z]{2}\d{1,2}[a-z]{1,3}\d{3,4})$/i);
+    if (embedded) key = embedded[1].toLowerCase();
+    return key;
+};
+
 const normalizeVehicleNumber = (num) => {
     if (!num) return '';
-    return num.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    // Prefer plate portion for display (strip R##_ prefix when present)
+    const key = extractPlateKey(num);
+    return key ? key.toUpperCase() : String(num).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+};
+
+const findGpsVehicleByBusNumber = (vehicles, busNumber) => {
+    const busKey = extractPlateKey(busNumber);
+    if (!busKey || !Array.isArray(vehicles)) return null;
+    return vehicles.find((v) => extractPlateKey(v?.name) === busKey) || null;
 };
 
 const getInventoryItemName = (item) => {
@@ -503,7 +523,8 @@ const BusDetails = () => {
 
     const fetchGpsData = useCallback(async () => {
         if (!data?.bus?.busNumber) return;
-        const normalizedBusNumber = normalizeVehicleNumber(data.bus.busNumber);
+        const busNumber = data.bus.busNumber;
+        const displayReg = normalizeVehicleNumber(busNumber);
 
         try {
             const response = await apiFetch(`${API}/gps/vehicles`);
@@ -511,9 +532,7 @@ const BusDetails = () => {
             const resData = await response.json();
 
             if (resData.success && Array.isArray(resData.data)) {
-                const matched = resData.data.find(
-                    v => normalizeVehicleNumber(v.name) === normalizedBusNumber
-                );
+                const matched = findGpsVehicleByBusNumber(resData.data, busNumber);
 
                 if (matched) {
                     setGpsVehicle(matched);
@@ -534,7 +553,7 @@ const BusDetails = () => {
                     }
                 } else {
                     setGpsVehicle(null);
-                    setGpsError(`Vehicle '${normalizedBusNumber}' not found in active GPS tracking list.`);
+                    setGpsError(`Vehicle '${displayReg}' not found in active GPS tracking list.`);
                 }
             }
         } catch (err) {
@@ -564,15 +583,38 @@ const BusDetails = () => {
         })();
     }, [data?.route?.campus]);
 
+    const resolveTggVehicleName = useCallback(async () => {
+        if (gpsVehicle?.name) return gpsVehicle.name;
+        if (!data?.bus?.busNumber) return '';
+        try {
+            const response = await apiFetch(`${API}/gps/vehicles`);
+            if (!response.ok) return data.bus.busNumber;
+            const resData = await response.json();
+            if (resData.success && Array.isArray(resData.data)) {
+                const matched = findGpsVehicleByBusNumber(resData.data, data.bus.busNumber);
+                if (matched?.name) {
+                    setGpsVehicle(matched);
+                    return matched.name;
+                }
+            }
+        } catch {
+            // fall through
+        }
+        return data.bus.busNumber;
+    }, [gpsVehicle?.name, data?.bus?.busNumber]);
+
     const fetchGpsHistory = useCallback(async () => {
         if (!data?.bus?.busNumber) return;
-        const normalizedBusNumber = normalizeVehicleNumber(data.bus.busNumber);
 
         try {
             const targetDate = selectedDate || new Date().toISOString().split('T')[0];
+            const vehicleName = await resolveTggVehicleName();
+            if (!vehicleName) return;
 
             // 1. Fetch consolidated Daily History (which contains all raw coordinates logged throughout the day)
-            const resDaily = await apiFetch(`${API}/gps/daily-history?vehicle_name=${normalizedBusNumber}&date=${targetDate}`);
+            const resDaily = await apiFetch(
+                `${API}/gps/daily-history?vehicle_name=${encodeURIComponent(vehicleName)}&date=${targetDate}`
+            );
 
             if (resDaily.ok) {
                 const json = await resDaily.json();
@@ -605,7 +647,7 @@ const BusDetails = () => {
         } finally {
             setGpsLoading(false);
         }
-    }, [data?.bus?.busNumber, finalDestination, selectedDate]);
+    }, [data?.bus?.busNumber, selectedDate, resolveTggVehicleName]);
 
     // Clear GPS traces immediately when date changes and show In/Out loaders
     useEffect(() => {
@@ -620,8 +662,9 @@ const BusDetails = () => {
         setKmLoading(true);
         setKmError(null);
         try {
+            const vehicleName = await resolveTggVehicleName();
             const res = await apiFetch(
-                `${API}/gps/daily-km?vehicle_name=${encodeURIComponent(data.bus.busNumber)}&date_from=${kmDateFrom}&date_to=${kmDateTo}`
+                `${API}/gps/daily-km?vehicle_name=${encodeURIComponent(vehicleName)}&date_from=${kmDateFrom}&date_to=${kmDateTo}`
             );
             const resData = await res.json();
             if (resData.success && Array.isArray(resData.data)) {
@@ -636,7 +679,7 @@ const BusDetails = () => {
         } finally {
             setKmLoading(false);
         }
-    }, [data?.bus?.busNumber, kmDateFrom, kmDateTo]);
+    }, [data?.bus?.busNumber, kmDateFrom, kmDateTo, resolveTggVehicleName]);
 
     useEffect(() => {
         if (activeTab === 'kilometers') {
