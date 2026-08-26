@@ -85,8 +85,13 @@ const maintenanceBillSchema = new mongoose.Schema({
     }],
     vehicleType: {
         type: String,
-        enum: ['Bus', 'OtherVehicle'],
+        enum: ['Bus', 'OtherVehicle', 'CentralStore'],
         default: 'Bus'
+    },
+    vehicleLabel: {
+        type: String,
+        trim: true,
+        default: ''
     },
     vendorId: {
         type: mongoose.Schema.Types.ObjectId,

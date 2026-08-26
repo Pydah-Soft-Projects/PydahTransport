@@ -14,6 +14,7 @@ import { computeBillTotals, getLineTotal } from '../utils/billCalculations';
 
 const API = API_BASE;
 const API_ORIGIN = String(API_BASE || '').replace(/\/api\/?$/, '');
+const CENTRAL_STORE = 'Central Store';
 
 const PAGE_TABS = { raise: 'raise', view: 'view' };
 
@@ -196,7 +197,9 @@ const preventNumberInputScroll = (event) => {
 
 const mapBillToFormData = (bill) => {
     let selectedVehicles = [];
-    if (Array.isArray(bill.busIds) && bill.busIds.length > 0) {
+    if (bill.vehicleType === 'CentralStore' || bill.vehicleLabel === CENTRAL_STORE) {
+        selectedVehicles = [CENTRAL_STORE];
+    } else if (Array.isArray(bill.busIds) && bill.busIds.length > 0) {
         selectedVehicles = bill.busIds.map(b => b.busNumber || b.vehicleNumber || (typeof b === 'string' ? b : '')).filter(Boolean);
     } else if (bill.busId) {
         const vehicleNumber = bill.busId.busNumber || bill.busId.vehicleNumber || (typeof bill.busId === 'string' ? bill.busId : '');
@@ -978,10 +981,14 @@ const RaiseBill = () => {
 
     const getFormattedVehicleLabel = (busIdsInput) => {
         if (!busIdsInput || (Array.isArray(busIdsInput) && busIdsInput.length === 0)) {
-            return '-- Choose Vehicle --';
+            return '-- Choose Vehicle / Store --';
         }
 
         const rawArray = Array.isArray(busIdsInput) ? busIdsInput : [busIdsInput];
+        if (rawArray.some((b) => String(b) === CENTRAL_STORE || b?.busNumber === CENTRAL_STORE || b?.vehicleNumber === CENTRAL_STORE)) {
+            return CENTRAL_STORE;
+        }
+
         const ids = rawArray.map(b => {
             if (!b) return '';
             if (typeof b === 'string') {
@@ -999,7 +1006,7 @@ const RaiseBill = () => {
         }).filter(Boolean);
 
         if (ids.length === 0) {
-            return '-- Choose Vehicle --';
+            return '-- Choose Vehicle / Store --';
         }
 
         if (!Array.isArray(busIdsInput)) {
@@ -1058,7 +1065,7 @@ const RaiseBill = () => {
         }
 
         if (!billFormData.busId || billFormData.busId.length === 0) {
-            alert('Please select at least one vehicle.');
+            alert('Please select a vehicle or Central Store.');
             return;
         }
 
@@ -1080,7 +1087,7 @@ const RaiseBill = () => {
 
         const vehiclesList = Array.isArray(billFormData.busId) ? billFormData.busId : [billFormData.busId].filter(Boolean);
         if (vehiclesList.length === 0) {
-            alert('Please select at least one vehicle.');
+            alert('Please select a vehicle or Central Store.');
             return;
         }
 
@@ -1212,6 +1219,7 @@ const RaiseBill = () => {
                                 onChange={(e) => setSelectedBusFilter(e.target.value)}
                             >
                                 <option value="all">All Fleet Activity</option>
+                                <option value={CENTRAL_STORE}>Central Store</option>
                                 <optgroup label="Buses">
                                     {buses.map((b) => (
                                         <option key={b._id} value={b.busNumber}>{b.busNumber} ({b.type})</option>
@@ -1446,7 +1454,7 @@ const RaiseBill = () => {
                                         
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                             <div>
-                                                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Select Vehicle *</label>
+                                                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 tracking-wider">Select Vehicle / Store *</label>
                                                 <div className="relative form-vehicle-dropdown-container">
                                                     <Bus size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10 pointer-events-none" />
                                                     <button
@@ -1461,6 +1469,29 @@ const RaiseBill = () => {
                                                     </button>
                                                     {isFormVehicleDropdownOpen && (
                                                         <div className="absolute left-0 right-0 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 max-h-72 overflow-y-auto space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                                                            {/* Central Store */}
+                                                            <div className="space-y-1">
+                                                                <div className="px-2 py-1 border-b border-slate-100 mb-1">
+                                                                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Store</span>
+                                                                </div>
+                                                                <label className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-indigo-50 rounded-lg cursor-pointer text-xs font-bold text-indigo-700">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={billFormData.busId.includes(CENTRAL_STORE)}
+                                                                        onChange={() => {
+                                                                            const isChecked = billFormData.busId.includes(CENTRAL_STORE);
+                                                                            // Central Store is exclusive — selecting it clears vehicles
+                                                                            setBillFormData({
+                                                                                ...billFormData,
+                                                                                busId: isChecked ? [] : [CENTRAL_STORE],
+                                                                            });
+                                                                        }}
+                                                                        className="rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
+                                                                    />
+                                                                    <span>Central Store</span>
+                                                                </label>
+                                                            </div>
+
                                                             {/* Buses Section */}
                                                             {buses.length > 0 && (
                                                                 <div className="space-y-1">
@@ -1472,7 +1503,7 @@ const RaiseBill = () => {
                                                                                 checked={buses.length > 0 && buses.every((b) => billFormData.busId.includes(b.busNumber))}
                                                                                 onChange={(e) => {
                                                                                     const busNumbers = buses.map(b => b.busNumber).filter(Boolean);
-                                                                                    const otherSelected = billFormData.busId.filter(id => !busNumbers.includes(id));
+                                                                                    const otherSelected = billFormData.busId.filter(id => !busNumbers.includes(id) && id !== CENTRAL_STORE);
                                                                                     if (e.target.checked) {
                                                                                         setBillFormData({
                                                                                             ...billFormData,
@@ -1498,9 +1529,10 @@ const RaiseBill = () => {
                                                                                     type="checkbox"
                                                                                     checked={isChecked}
                                                                                     onChange={() => {
+                                                                                        const withoutStore = billFormData.busId.filter(id => id !== CENTRAL_STORE);
                                                                                         const updated = isChecked
-                                                                                            ? billFormData.busId.filter(id => id !== b.busNumber)
-                                                                                            : [...billFormData.busId, b.busNumber];
+                                                                                            ? withoutStore.filter(id => id !== b.busNumber)
+                                                                                            : [...withoutStore, b.busNumber];
                                                                                         setBillFormData({ ...billFormData, busId: updated });
                                                                                     }}
                                                                                     className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
@@ -1523,7 +1555,7 @@ const RaiseBill = () => {
                                                                                 checked={otherVehicles.length > 0 && otherVehicles.every((o) => billFormData.busId.includes(o.vehicleNumber))}
                                                                                 onChange={(e) => {
                                                                                     const otherNumbers = otherVehicles.map(o => o.vehicleNumber).filter(Boolean);
-                                                                                    const busesSelected = billFormData.busId.filter(id => !otherNumbers.includes(id));
+                                                                                    const busesSelected = billFormData.busId.filter(id => !otherNumbers.includes(id) && id !== CENTRAL_STORE);
                                                                                     if (e.target.checked) {
                                                                                         setBillFormData({
                                                                                             ...billFormData,
@@ -1549,9 +1581,10 @@ const RaiseBill = () => {
                                                                                     type="checkbox"
                                                                                     checked={isChecked}
                                                                                     onChange={() => {
+                                                                                        const withoutStore = billFormData.busId.filter(id => id !== CENTRAL_STORE);
                                                                                         const updated = isChecked
-                                                                                            ? billFormData.busId.filter(id => id !== o.vehicleNumber)
-                                                                                            : [...billFormData.busId, o.vehicleNumber];
+                                                                                            ? withoutStore.filter(id => id !== o.vehicleNumber)
+                                                                                            : [...withoutStore, o.vehicleNumber];
                                                                                         setBillFormData({ ...billFormData, busId: updated });
                                                                                     }}
                                                                                     className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"

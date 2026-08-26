@@ -9,6 +9,13 @@ const TyreRegistry = require('../models/TyreRegistry');
 const { computeBillTotals, normalizeTaxEntries, toNumber } = require('../utils/billCalculations');
 const { uploadDir } = require('../middleware/billUpload');
 
+const CENTRAL_STORE_KEY = 'Central Store';
+
+const isCentralStoreId = (value) => {
+    const raw = String(value || '').trim().toLowerCase();
+    return raw === 'central store' || raw === 'central_store' || raw === '__central_store__';
+};
+
 const parseBillQuantity = (value) => {
     const num = parseFloat(value);
     if (!Number.isFinite(num) || num < 0.1) {
@@ -18,6 +25,15 @@ const parseBillQuantity = (value) => {
 };
 
 const resolveVehicle = async (busId) => {
+    if (isCentralStoreId(busId)) {
+        return {
+            vehicle: null,
+            vehicleType: 'CentralStore',
+            isCentralStore: true,
+            label: CENTRAL_STORE_KEY,
+        };
+    }
+
     let vehicle = await Bus.findOne({ busNumber: busId }).catch(() => null) ||
         await Bus.findById(busId).catch(() => null);
     let vehicleType = 'Bus';
@@ -28,7 +44,7 @@ const resolveVehicle = async (busId) => {
         vehicleType = 'OtherVehicle';
     }
 
-    return vehicle ? { vehicle, vehicleType } : null;
+    return vehicle ? { vehicle, vehicleType, isCentralStore: false, label: vehicle.busNumber || vehicle.vehicleNumber || '' } : null;
 };
 
 const applyTyreRegistryUpdate = async ({ vehicle, vehicleType, item, variantName, tyrePosition, kmReading, tyreType }) => {
@@ -191,17 +207,24 @@ const buildBillDocument = async ({ body, vehicle, vehicleType, existingAttachmen
 
     const busIds = [];
     const vehiclesList = Array.isArray(body.busId) ? body.busId : [body.busId].filter(Boolean);
+    let isCentralStore = vehicleType === 'CentralStore';
     for (const id of vehiclesList) {
         const res = await resolveVehicle(id);
-        if (res) busIds.push(res.vehicle._id);
+        if (!res) continue;
+        if (res.isCentralStore) {
+            isCentralStore = true;
+            continue;
+        }
+        if (res.vehicle?._id) busIds.push(res.vehicle._id);
     }
 
     return {
         billNo: String(body.billNo || '').trim(),
         date: body.billDate ? new Date(body.billDate) : (body.date ? new Date(body.date) : new Date()),
-        busId: vehicle ? vehicle._id : null,
-        busIds,
-        vehicleType: vehicleType || 'Bus',
+        busId: isCentralStore ? null : (vehicle ? vehicle._id : null),
+        busIds: isCentralStore ? [] : busIds,
+        vehicleType: isCentralStore ? 'CentralStore' : (vehicleType || 'Bus'),
+        vehicleLabel: isCentralStore ? CENTRAL_STORE_KEY : '',
         vendorId: body.vendorId || null,
         adminName: body.adminName || '',
         taxMode,
@@ -226,6 +249,24 @@ const buildBillDocument = async ({ body, vehicle, vehicleType, existingAttachmen
 const syncAllocationsForBill = async (bill, { vehicle, vehicleType, previousAllocationIds = [] } = {}) => {
     const keptIds = new Set();
     const updatedLines = [];
+
+    // Central Store bills are not allocated to a fleet vehicle
+    if (bill.vehicleType === 'CentralStore' || vehicleType === 'CentralStore') {
+        for (const prevId of previousAllocationIds) {
+            const alloc = await InventoryAllocation.findById(prevId).populate('itemId');
+            if (alloc) {
+                await rollbackTyreOnDelete(alloc);
+                await InventoryAllocation.findByIdAndDelete(prevId);
+            }
+        }
+        bill.lines = (bill.lines || []).map((line) => ({
+            ...(line.toObject ? line.toObject() : line),
+            allocationId: null,
+            allocationIds: [],
+        }));
+        await bill.save();
+        return bill;
+    }
 
     const targetVehicleIds = bill.busIds && bill.busIds.length > 0 ? bill.busIds : [bill.busId].filter(Boolean);
 
@@ -338,8 +379,15 @@ const populateBill = (query) =>
 
 const toPublicBill = (bill) => {
     const obj = bill.toObject ? bill.toObject() : bill;
+    const isCentralStore = obj.vehicleType === 'CentralStore';
+    const centralStoreRef = isCentralStore
+        ? { busNumber: CENTRAL_STORE_KEY, vehicleNumber: CENTRAL_STORE_KEY, type: 'Central Store' }
+        : null;
     return {
         ...obj,
+        busId: isCentralStore ? centralStoreRef : obj.busId,
+        busIds: isCentralStore ? [centralStoreRef] : obj.busIds,
+        vehicleLabel: isCentralStore ? CENTRAL_STORE_KEY : (obj.vehicleLabel || ''),
         items: (obj.lines || []).map((line) => ({
             ...line,
             price: line.pricingMode === 'lumpSum'
@@ -357,7 +405,7 @@ const toPublicBill = (bill) => {
             billNo: obj.billNo,
             allocatedDate: obj.date,
             vendorId: obj.vendorId,
-            busId: obj.busId
+            busId: isCentralStore ? centralStoreRef : obj.busId
         })),
         date: obj.date,
         totalAmount: obj.grandTotal,
@@ -389,7 +437,8 @@ exports.createBill = async (req, res) => {
             return res.status(400).json({ message: 'Bill number is required' });
         }
 
-        const resolved = await resolveVehicle(Array.isArray(body.busId) ? body.busId[0] : body.busId);
+        const primaryId = Array.isArray(body.busId) ? body.busId[0] : body.busId;
+        const resolved = await resolveVehicle(primaryId);
         if (!resolved) return res.status(404).json({ message: 'Vehicle not found' });
         const { vehicle, vehicleType } = resolved;
 
@@ -420,7 +469,8 @@ exports.updateBillById = async (req, res) => {
             billNo: req.body.billNo || bill.billNo
         });
 
-        const resolved = await resolveVehicle(Array.isArray(body.busId) ? body.busId[0] : body.busId);
+        const primaryId = Array.isArray(body.busId) ? body.busId[0] : body.busId;
+        const resolved = await resolveVehicle(primaryId);
         if (!resolved) return res.status(404).json({ message: 'Vehicle not found' });
         const { vehicle, vehicleType } = resolved;
 
@@ -468,7 +518,8 @@ exports.updateBillByNumber = async (req, res) => {
             }
 
             const body = adaptLegacyRaiseBillBody(req.body);
-            const resolved = await resolveVehicle(body.busId || existingAllocations[0].busId);
+            const primaryId = Array.isArray(body.busId) ? body.busId[0] : body.busId;
+            const resolved = await resolveVehicle(primaryId || existingAllocations[0]?.busId || CENTRAL_STORE_KEY);
             if (!resolved) return res.status(404).json({ message: 'Vehicle not found' });
             const { vehicle, vehicleType } = resolved;
 
@@ -580,12 +631,16 @@ exports.getBills = async (req, res) => {
         const query = {};
 
         if (busId && busId !== 'all') {
-            const resolved = await resolveVehicle(busId);
-            if (!resolved) return res.status(200).json([]);
-            query.$or = [
-                { busId: resolved.vehicle._id, vehicleType: resolved.vehicleType },
-                { "lines.busId": resolved.vehicle._id, "lines.vehicleType": resolved.vehicleType }
-            ];
+            if (isCentralStoreId(busId)) {
+                query.vehicleType = 'CentralStore';
+            } else {
+                const resolved = await resolveVehicle(busId);
+                if (!resolved || resolved.isCentralStore) return res.status(200).json([]);
+                query.$or = [
+                    { busId: resolved.vehicle._id, vehicleType: resolved.vehicleType },
+                    { "lines.busId": resolved.vehicle._id, "lines.vehicleType": resolved.vehicleType }
+                ];
+            }
         }
 
         const bills = await populateBill(MaintenanceBill.find(query).sort({ date: -1 }));
