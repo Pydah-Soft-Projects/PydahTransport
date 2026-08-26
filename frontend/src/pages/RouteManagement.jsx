@@ -249,7 +249,25 @@ const RouteSummaryMap = ({ stages, finalDestinations = [], campusId }) => {
 const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
     const mapContainerRef = useRef(null);
     const mapInstanceRef = useRef(null);
-    const [selectedRouteId, setSelectedRouteId] = useState(null);
+    const [selectedRouteIds, setSelectedRouteIds] = useState([]);
+    const [expandedRouteId, setExpandedRouteId] = useState(null);
+
+    // Sync selected route IDs with routes array, keeping valid selections and checking new ones by default
+    useEffect(() => {
+        if (routes && routes.length > 0) {
+            setSelectedRouteIds(prev => {
+                const validPrev = prev.filter(id => routes.some(r => r._id === id));
+                if (prev.length === 0 && validPrev.length === 0) {
+                    return routes.map(r => r._id);
+                }
+                const newIds = routes.map(r => r._id);
+                const addedIds = newIds.filter(id => !prev.includes(id));
+                return [...validPrev, ...addedIds];
+            });
+        } else {
+            setSelectedRouteIds([]);
+        }
+    }, [routes]);
 
     useEffect(() => {
         if (!mapContainerRef.current || !window.L) return;
@@ -283,8 +301,8 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
                 maxZoom: 19
             });
 
-            // Set Satellite Only as default
-            satellite.addTo(map);
+            // Set Hybrid (Satellite + Labels) as default
+            hybrid.addTo(map);
 
             const baseMaps = {
                 "Satellite Only": satellite,
@@ -323,19 +341,20 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
         const animVehicles = [];
 
         // Filter the routes to render on the map
-        const activeRoutes = selectedRouteId
-            ? routes.filter(r => r._id === selectedRouteId)
-            : routes;
+        const activeRoutes = routes.filter(r => selectedRouteIds.includes(r._id));
 
         // Draw final destinations and their geofences
         finalDestinations.forEach((d) => {
             if (!Number.isFinite(d.latitude) || !Number.isFinite(d.longitude)) return;
             
-            // If a specific route is selected, only show geofence if it belongs to that route's campus
-            if (selectedRouteId) {
-                const selRoute = routes.find(r => r._id === selectedRouteId);
-                const rCampusId = getCampusId(selRoute?.campus);
-                if (!rCampusId || String(d.campus) !== String(rCampusId)) return;
+            // Show geofence if it belongs to campus of at least one of the active (selected) routes
+            if (selectedRouteIds.length > 0) {
+                const activeCampuses = new Set(
+                    activeRoutes.map(r => String(getCampusId(r.campus))).filter(Boolean)
+                );
+                if (!activeCampuses.has(String(d.campus))) return;
+            } else {
+                return; // Nothing selected, hide all final destinations
             }
 
             const destPoint = [d.latitude, d.longitude];
@@ -375,8 +394,12 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
             const originalIndex = routes.findIndex(r => r._id === route._id);
             const routeColor = colors[originalIndex !== -1 ? originalIndex % colors.length : 0];
 
-            // 1. Draw stage markers (only when individually selecting a vehicle/route)
-            if (selectedRouteId) {
+            // Draw stage markers if:
+            // 1. Only a single route is active
+            // 2. Or this route is expanded in the sidebar details list
+            const shouldDrawStages = (selectedRouteIds.length === 1) || (expandedRouteId === route._id);
+
+            if (shouldDrawStages) {
                 validStages.forEach((coords, idx) => {
                     const { lat, lng } = coords;
                     bounds.extend([lat, lng]);
@@ -404,7 +427,7 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
                 });
             }
 
-            // 2. Build the snap route coordinates list (includes final destination at the end)
+            // Build the snap route coordinates list (includes final destination at the end)
             const lineCoords = validStages.map(s => [s.lat, s.lng]);
             const rCampusId = getCampusId(route.campus);
             const campusDest = finalDestinations.find(d => 
@@ -486,7 +509,7 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
                         lineJoin: 'round'
                     }).addTo(map);
 
-                    // 3. Interpolate the reverse path (from final destination -> first stage)
+                    // Interpolate the reverse path (from final destination -> first stage)
                     const reversePath = snapped.slice().reverse();
                     
                     const interpolate = (coords, steps = 10) => {
@@ -570,7 +593,7 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
                 mapInstanceRef.current = null;
             }
         };
-    }, [routes, finalDestinations, selectedRouteId]);
+    }, [routes, finalDestinations, selectedRouteIds, expandedRouteId]);
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 w-full min-h-[550px] lg:h-[calc(100vh-135px)]">
@@ -578,43 +601,71 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
             <div className="lg:col-span-1 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col h-[400px] lg:h-full overflow-hidden">
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 pb-2 border-b border-slate-100 flex items-center justify-between">
                     <span>Vehicles / Routes</span>
-                    {selectedRouteId && (
-                        <button 
-                            onClick={() => setSelectedRouteId(null)}
-                            className="text-[10px] text-blue-600 font-extrabold hover:underline capitalize"
-                        >
-                            Show All
-                        </button>
-                    )}
+                    <button 
+                        onClick={() => {
+                            if (selectedRouteIds.length === routes.length) {
+                                setSelectedRouteIds([]);
+                            } else {
+                                setSelectedRouteIds(routes.map(r => r._id));
+                            }
+                        }}
+                        className="text-[10px] text-blue-600 font-extrabold hover:underline capitalize"
+                    >
+                        {selectedRouteIds.length === routes.length ? 'Deselect All' : 'Select All'}
+                    </button>
                 </h3>
                 <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                    <button
-                        onClick={() => setSelectedRouteId(null)}
-                        className={`w-full text-left p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center ${
-                            selectedRouteId === null
+                    <div
+                        onClick={() => {
+                            if (selectedRouteIds.length === routes.length) {
+                                setSelectedRouteIds([]);
+                            } else {
+                                setSelectedRouteIds(routes.map(r => r._id));
+                            }
+                        }}
+                        className={`w-full cursor-pointer p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-2.5 select-none ${
+                            selectedRouteIds.length === routes.length && routes.length > 0
                                 ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
                                 : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
                         }`}
                     >
+                        <input 
+                            type="checkbox"
+                            checked={selectedRouteIds.length === routes.length && routes.length > 0}
+                            readOnly
+                            className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 pointer-events-none shrink-0"
+                        />
                         <span className="truncate">All Routes & Vehicles ({routes.length})</span>
-                    </button>
+                    </div>
 
                     {routes.map((route) => {
                         const bus = buses.find(b => b.assignedRouteId === route.routeId);
-                        const isSelected = selectedRouteId === route._id;
+                        const isSelected = selectedRouteIds.includes(route._id);
                         
                         return (
                             <div key={route._id} className="space-y-1.5">
-                                <button
-                                    onClick={() => setSelectedRouteId(isSelected ? null : route._id)}
-                                    className={`w-full text-left p-2.5 rounded-xl border text-xs transition-all flex items-center justify-between gap-2 ${
+                                <div
+                                    onClick={() => {
+                                        setSelectedRouteIds(prev => 
+                                            prev.includes(route._id)
+                                                ? prev.filter(id => id !== route._id)
+                                                : [...prev, route._id]
+                                        );
+                                    }}
+                                    className={`w-full cursor-pointer p-2.5 rounded-xl border text-xs transition-all flex items-center justify-between gap-2 select-none ${
                                         isSelected
                                             ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold shadow-sm'
                                             : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                                     }`}
                                 >
-                                    <div className="flex items-center gap-2 min-w-0">
-                                        <div className="min-w-0">
+                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                        <input 
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            readOnly
+                                            className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 pointer-events-none shrink-0"
+                                        />
+                                        <div className="min-w-0 flex-1">
                                             <p className={`truncate text-[11px] ${isSelected ? 'text-blue-800 font-extrabold' : 'text-slate-800 font-semibold'}`}>
                                                 {route.routeId} - {bus ? `Bus ${bus.busNumber || bus.registrationNumber}` : 'Unassigned'}
                                             </p>
@@ -623,15 +674,23 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
                                             </p>
                                         </div>
                                     </div>
-                                    {isSelected ? (
-                                        <ChevronDown size={14} className="text-slate-400 shrink-0" />
-                                    ) : (
-                                        <ChevronRight size={14} className="text-slate-400 shrink-0" />
-                                    )}
-                                </button>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setExpandedRouteId(expandedRouteId === route._id ? null : route._id);
+                                        }}
+                                        className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 shrink-0"
+                                    >
+                                        {expandedRouteId === route._id ? (
+                                            <ChevronDown size={14} className="text-slate-500 shrink-0" />
+                                        ) : (
+                                            <ChevronRight size={14} className="text-slate-400 shrink-0" />
+                                        )}
+                                    </button>
+                                </div>
 
-                                {isSelected && (
-                                    <div className="ml-5 pl-3 border-l-2 border-blue-100 py-1 space-y-1.5 animate-in slide-in-from-top-1 duration-200">
+                                {expandedRouteId === route._id && (
+                                    <div className="ml-8 pl-3 border-l-2 border-blue-100 py-1 space-y-1.5 animate-in slide-in-from-top-1 duration-200">
                                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Stages list</p>
                                         {route.stages.map((stage, idx) => (
                                             <div key={idx} className="flex items-center gap-1.5 text-[10px] text-slate-600 font-medium">
