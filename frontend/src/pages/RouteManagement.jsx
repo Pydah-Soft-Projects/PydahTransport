@@ -84,6 +84,48 @@ const focusMapOnStagePoints = (map, points, L) => {
     });
 };
 
+/** Normalize via points stored on a stage → [[lat, lng], ...] */
+const getStageViaPoints = (stage) => {
+    const vias = Array.isArray(stage?.viaPoints) ? stage.viaPoints : [];
+    return vias
+        .map((v) => {
+            const lat = Number(v?.latitude ?? v?.lat);
+            const lng = Number(v?.longitude ?? v?.lng);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+            return [lat, lng];
+        })
+        .filter(Boolean);
+};
+
+/**
+ * Ordered OSRM waypoints for stages 0..throughIndex:
+ * for each stage → its viaPoints (road guides) then the stage marker.
+ */
+const buildRouteSnapWaypoints = (stages = [], throughIndex = null) => {
+    const end = throughIndex == null ? stages.length - 1 : Math.min(throughIndex, stages.length - 1);
+    const coords = [];
+    for (let i = 0; i <= end; i++) {
+        const stage = stages[i];
+        if (!stage) continue;
+        getStageViaPoints(stage).forEach((p) => coords.push(p));
+        const c = getStageCoords(stage);
+        if (c) coords.push([c.lat, c.lng]);
+    }
+    return coords;
+};
+
+/** Pick a few midpoints from a polyline to use as durable via guides */
+const sampleViaGuidesFromPath = (pathCoords, count = 2) => {
+    if (!Array.isArray(pathCoords) || pathCoords.length < 3) return [];
+    const guides = [];
+    for (let i = 1; i <= count; i++) {
+        const idx = Math.round((pathCoords.length - 1) * (i / (count + 1)));
+        const pt = pathCoords[idx];
+        if (pt) guides.push({ latitude: pt[0], longitude: pt[1] });
+    }
+    return guides;
+};
+
 /**
  * Snap a list of [lat, lng] waypoints to the road network using OSRM.
  * Returns road-following coordinates. Falls back to straight-line coords on failure.
@@ -102,6 +144,29 @@ const snapToRoad = async (coords) => {
         }
     } catch (_) { /* fallback to straight lines */ }
     return coords;
+};
+
+/**
+ * Request primary + alternate OSRM routes between waypoints.
+ * Returns [{ coords: [[lat,lng],...], distance, duration }, ...]
+ */
+const snapToRoadAlternatives = async (coords, maxAlts = 3) => {
+    if (!coords || coords.length < 2) return [];
+    const coordStr = coords.map(([lat, lng]) => `${lng},${lat}`).join(';');
+    try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson&continue_straight=false&alternatives=${maxAlts}`;
+        const res = await fetch(url);
+        if (!res.ok) return [];
+        const json = await res.json();
+        if (!Array.isArray(json.routes) || json.routes.length === 0) return [];
+        return json.routes.map((r) => ({
+            coords: (r.geometry?.coordinates || []).map(([lng, lat]) => [lat, lng]),
+            distance: r.distance,
+            duration: r.duration,
+        })).filter((r) => r.coords.length > 1);
+    } catch (_) {
+        return [];
+    }
 };
 
 /** Draw a styled route polyline (glow + inner line) onto a Leaflet map */
@@ -154,12 +219,11 @@ const RouteSummaryMap = ({ stages, finalDestinations = [], campusId }) => {
             }
         });
 
-        const lineCoords = [];
+        const lineCoords = buildRouteSnapWaypoints(stages);
         (stages || []).forEach((stage, idx) => {
             const coords = getStageCoords(stage);
             if (!coords) return;
             const { lat: latVal, lng: lngVal } = coords;
-            lineCoords.push([latVal, lngVal]);
 
             L.marker([latVal, lngVal], {
                 icon: L.divIcon({
@@ -171,7 +235,13 @@ const RouteSummaryMap = ({ stages, finalDestinations = [], campusId }) => {
             }).addTo(map).bindPopup(`<b>${idx + 1}. ${stage.stageName}</b>`);
         });
 
-        const lastStageCoord = lineCoords.length > 0 ? lineCoords[lineCoords.length - 1] : null;
+        const lastStageCoord = (() => {
+            for (let i = (stages || []).length - 1; i >= 0; i--) {
+                const c = getStageCoords(stages[i]);
+                if (c) return [c.lat, c.lng];
+            }
+            return null;
+        })();
 
         // Draw final destination markers and build extended waypoints for snapping
         const finalDestCoords = [];
@@ -427,8 +497,8 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
                 });
             }
 
-            // Build the snap route coordinates list (includes final destination at the end)
-            const lineCoords = validStages.map(s => [s.lat, s.lng]);
+            // Build the snap route coordinates list (includes vias + final destination at the end)
+            const lineCoords = buildRouteSnapWaypoints(route.stages || []);
             const rCampusId = getCampusId(route.campus);
             const campusDest = finalDestinations.find(d => 
                 rCampusId && String(d.campus) === String(rCampusId)
@@ -771,6 +841,8 @@ const RouteManagement = () => {
     const [searchResults, setSearchResults] = useState([]);
     const [isSearchingLocation, setIsSearchingLocation] = useState(false);
     const [showAllStagesOnMap, setShowAllStagesOnMap] = useState(false);
+    // 'stage' = click places/moves stage marker; 'steer' = click adds road-guide via points
+    const [mapEditMode, setMapEditMode] = useState('stage');
     const [draggedStageIndex, setDraggedStageIndex] = useState(null);
     const [dragOverStageIndex, setDragOverStageIndex] = useState(null);
 
@@ -805,6 +877,77 @@ const RouteManagement = () => {
             }
             return { ...prev, stages: nextStages };
         });
+    }, [selectedStageIndex]);
+
+    const addViaPointToActiveStage = useCallback((lat, lng) => {
+        if (selectedStageIndex === null || selectedStageIndex === undefined || selectedStageIndex < 1) return;
+        setFormData((prev) => {
+            const nextStages = [...prev.stages];
+            const stage = nextStages[selectedStageIndex];
+            if (!stage) return prev;
+            const vias = Array.isArray(stage.viaPoints) ? [...stage.viaPoints] : [];
+            vias.push({
+                latitude: parseFloat(lat.toFixed(6)),
+                longitude: parseFloat(lng.toFixed(6)),
+            });
+            nextStages[selectedStageIndex] = { ...stage, viaPoints: vias };
+            return { ...prev, stages: nextStages };
+        });
+    }, [selectedStageIndex]);
+
+    const updateViaPointOnActiveStage = useCallback((viaIndex, lat, lng) => {
+        if (selectedStageIndex === null || selectedStageIndex === undefined) return;
+        setFormData((prev) => {
+            const nextStages = [...prev.stages];
+            const stage = nextStages[selectedStageIndex];
+            if (!stage || !Array.isArray(stage.viaPoints) || !stage.viaPoints[viaIndex]) return prev;
+            const vias = [...stage.viaPoints];
+            vias[viaIndex] = {
+                latitude: parseFloat(lat.toFixed(6)),
+                longitude: parseFloat(lng.toFixed(6)),
+            };
+            nextStages[selectedStageIndex] = { ...stage, viaPoints: vias };
+            return { ...prev, stages: nextStages };
+        });
+    }, [selectedStageIndex]);
+
+    const removeViaPointFromActiveStage = useCallback((viaIndex) => {
+        if (selectedStageIndex === null || selectedStageIndex === undefined) return;
+        setFormData((prev) => {
+            const nextStages = [...prev.stages];
+            const stage = nextStages[selectedStageIndex];
+            if (!stage || !Array.isArray(stage.viaPoints)) return prev;
+            nextStages[selectedStageIndex] = {
+                ...stage,
+                viaPoints: stage.viaPoints.filter((_, i) => i !== viaIndex),
+            };
+            return { ...prev, stages: nextStages };
+        });
+    }, [selectedStageIndex]);
+
+    const clearViaPointsOnActiveStage = useCallback(() => {
+        if (selectedStageIndex === null || selectedStageIndex === undefined) return;
+        setFormData((prev) => {
+            const nextStages = [...prev.stages];
+            const stage = nextStages[selectedStageIndex];
+            if (!stage) return prev;
+            nextStages[selectedStageIndex] = { ...stage, viaPoints: [] };
+            return { ...prev, stages: nextStages };
+        });
+    }, [selectedStageIndex]);
+
+    const applyAlternateRouteAsVias = useCallback((pathCoords) => {
+        if (selectedStageIndex === null || selectedStageIndex === undefined || selectedStageIndex < 1) return;
+        const guides = sampleViaGuidesFromPath(pathCoords, 2);
+        if (guides.length === 0) return;
+        setFormData((prev) => {
+            const nextStages = [...prev.stages];
+            const stage = nextStages[selectedStageIndex];
+            if (!stage) return prev;
+            nextStages[selectedStageIndex] = { ...stage, viaPoints: guides };
+            return { ...prev, stages: nextStages };
+        });
+        setMapEditMode('steer');
     }, [selectedStageIndex]);
 
     const handleLocationSearch = async () => {
@@ -861,6 +1004,12 @@ const RouteManagement = () => {
             latitude: stage.latitude !== '' && stage.latitude !== null ? Number(stage.latitude) : null,
             longitude: stage.longitude !== '' && stage.longitude !== null ? Number(stage.longitude) : null,
             radius: stage.radius !== '' && stage.radius !== null ? Number(stage.radius) : 100,
+            viaPoints: (Array.isArray(stage.viaPoints) ? stage.viaPoints : [])
+                .map((v) => ({
+                    latitude: Number(v.latitude ?? v.lat),
+                    longitude: Number(v.longitude ?? v.lng),
+                }))
+                .filter((v) => Number.isFinite(v.latitude) && Number.isFinite(v.longitude)),
         })),
         editingAcademicYear: academicYear,
     });
@@ -1000,15 +1149,11 @@ const RouteManagement = () => {
             }
         });
 
-        const lineCoords = [];
-
         const bindStageMarker = (stage, idx, { draggable = false, isActive = false, showCircle = true } = {}) => {
             const coords = getStageCoords(stage);
             if (!coords) return null;
             const { lat: latVal, lng: lngVal } = coords;
             const radiusVal = Number(stage.radius) || 100;
-
-            lineCoords.push([latVal, lngVal]);
 
             const marker = L.marker([latVal, lngVal], {
                 draggable,
@@ -1051,45 +1196,141 @@ const RouteManagement = () => {
             return marker;
         };
 
-        if (showAllStagesOnMap) {
-            formData.stages.forEach((stage, idx) => {
-                const isActive = selectedStageIndex !== null && idx === selectedStageIndex;
-                bindStageMarker(stage, idx, {
-                    draggable: isActive,
-                    isActive,
-                    showCircle: true
-                });
+        // Which stages to plot:
+        // - Show All: every stage
+        // - Focus Selected: previous stages + current (so road snap previous→current is correct)
+        const focusThroughIndex =
+            !showAllStagesOnMap && selectedStageIndex !== null
+                ? selectedStageIndex
+                : formData.stages.length - 1;
+
+        formData.stages.forEach((stage, idx) => {
+            if (idx > focusThroughIndex) return;
+
+            const isActive = selectedStageIndex !== null && idx === selectedStageIndex;
+            const isPrevious = selectedStageIndex !== null && idx < selectedStageIndex;
+            bindStageMarker(stage, idx, {
+                draggable: isActive && mapEditMode === 'stage',
+                isActive,
+                // In focus mode, previous stages get a light circle for context; active gets full circle
+                showCircle: showAllStagesOnMap || isActive || isPrevious,
             });
 
-            if (lineCoords.length > 1) {
-                // Snap the full route to roads, then draw with glow
-                snapToRoad(lineCoords).then(snapped => {
-                    if (!modalMapInstanceRef.current) return;
-                    drawRouteLine(map, L, snapped, { color: '#2563eb', weight: 3, opacity: 0.85 });
-                });
-            }
-        } else {
-            formData.stages.forEach((stage, idx) => {
-                if (selectedStageIndex !== null && idx !== selectedStageIndex) {
-                    bindStageMarker(stage, idx, { draggable: false, isActive: false, showCircle: false });
+            // Draw via / road-guide markers for this stage (between prev and this stage)
+            getStageViaPoints(stage).forEach(([vLat, vLng], viaIdx) => {
+                const isActiveStageVias = selectedStageIndex !== null && idx === selectedStageIndex;
+                const viaMarker = L.marker([vLat, vLng], {
+                    draggable: isActiveStageVias,
+                    icon: L.divIcon({
+                        className: 'custom-via-marker',
+                        html: `<div class="w-4 h-4 rounded-full bg-amber-500 border-2 border-white shadow-md" title="Road guide"></div>`,
+                        iconSize: [16, 16],
+                        iconAnchor: [8, 8],
+                    }),
+                }).addTo(map).bindPopup(
+                    `<b>Road guide</b><br/>Stage ${idx + 1}${isActiveStageVias ? '<br/><span style="color:#b45309">Drag to steer · dbl-click to remove</span>' : ''}`
+                );
+
+                if (isActiveStageVias) {
+                    viaMarker.on('dragend', (e) => {
+                        const { lat, lng } = e.target.getLatLng();
+                        updateViaPointOnActiveStage(viaIdx, lat, lng);
+                    });
+                    viaMarker.on('dblclick', (e) => {
+                        L.DomEvent.stopPropagation(e);
+                        removeViaPointFromActiveStage(viaIdx);
+                    });
                 }
             });
+        });
 
-            if (lineCoords.length > 1) {
-                // Snap context (non-active) stages path to roads
-                snapToRoad(lineCoords).then(snapped => {
-                    if (!modalMapInstanceRef.current) return;
-                    drawRouteLine(map, L, snapped, { color: '#64748b', weight: 2.5, opacity: 0.6, dashArray: '5, 8' });
+        // Road-snap in stage order, including via points so the chosen road is forced
+        const lineCoords = buildRouteSnapWaypoints(formData.stages, focusThroughIndex);
+        if (lineCoords.length > 1) {
+            snapToRoad(lineCoords).then((snapped) => {
+                if (!modalMapInstanceRef.current) return;
+                drawRouteLine(map, L, snapped, {
+                    color: showAllStagesOnMap ? '#2563eb' : '#1d4ed8',
+                    weight: showAllStagesOnMap ? 3 : 3.5,
+                    opacity: 0.85,
                 });
-            }
+            });
+        }
 
-            if (activeStageCoords && selectedStageIndex !== null) {
-                bindStageMarker(activeStage, selectedStageIndex, { draggable: true, isActive: true, showCircle: true });
+        // When focusing a stage after the first: show alternate roads user can click to select
+        if (
+            !showAllStagesOnMap
+            && selectedStageIndex !== null
+            && selectedStageIndex > 0
+        ) {
+            const prevCoords = getStageCoords(formData.stages[selectedStageIndex - 1]);
+            const curCoords = activeStageCoords;
+            if (prevCoords && curCoords) {
+                const segmentWaypoints = [
+                    [prevCoords.lat, prevCoords.lng],
+                    ...getStageViaPoints(formData.stages[selectedStageIndex]),
+                    [curCoords.lat, curCoords.lng],
+                ];
+
+                snapToRoadAlternatives(segmentWaypoints, 3).then((alts) => {
+                    if (!modalMapInstanceRef.current || alts.length === 0) return;
+
+                    alts.forEach((alt, altIdx) => {
+                        if (altIdx === 0) {
+                            drawRouteLine(map, L, alt.coords, {
+                                color: '#ef4444',
+                                weight: 4,
+                                opacity: 0.9,
+                            });
+                            return;
+                        }
+
+                        const glow = L.polyline(alt.coords, {
+                            color: '#f59e0b',
+                            weight: 10,
+                            opacity: 0.01,
+                            lineCap: 'round',
+                            lineJoin: 'round',
+                            interactive: true,
+                        }).addTo(map);
+
+                        const line = L.polyline(alt.coords, {
+                            color: '#f59e0b',
+                            weight: 3.5,
+                            opacity: 0.75,
+                            dashArray: '10 8',
+                            lineCap: 'round',
+                            lineJoin: 'round',
+                            interactive: true,
+                        }).addTo(map);
+
+                        const pickAlt = (e) => {
+                            L.DomEvent.stopPropagation(e);
+                            applyAlternateRouteAsVias(alt.coords);
+                        };
+                        glow.on('click', pickAlt);
+                        line.on('click', pickAlt);
+                        line.bindTooltip('Click to use this road', {
+                            sticky: true,
+                            direction: 'top',
+                            className: 'text-[10px] font-bold',
+                        });
+                    });
+                });
             }
         }
 
-        // Connect final destinations to the last stage with a snapped dashed line
-        const modalLastCoord = lineCoords.length > 0 ? lineCoords[lineCoords.length - 1] : null;
+        // Connect final destinations to the last plotted stage (in route order)
+        const lastPlottedStage = [...formData.stages]
+            .slice(0, focusThroughIndex + 1)
+            .reverse()
+            .find((s) => getStageCoords(s));
+        const modalLastCoord = lastPlottedStage
+            ? (() => {
+                const c = getStageCoords(lastPlottedStage);
+                return c ? [c.lat, c.lng] : null;
+            })()
+            : null;
 
         finalDestinations.forEach((d) => {
             if (!Number.isFinite(d.latitude) || !Number.isFinite(d.longitude)) return;
@@ -1116,10 +1357,25 @@ const RouteManagement = () => {
         const viewTimer = setTimeout(() => {
             map.invalidateSize();
 
+            const focusPoints = formData.stages
+                .slice(0, focusThroughIndex + 1)
+                .flatMap((stage) => {
+                    const stagePt = getStageCoords(stage);
+                    return [
+                        ...getStageViaPoints(stage),
+                        ...(stagePt ? [[stagePt.lat, stagePt.lng]] : []),
+                    ];
+                });
+
             if (showAllStagesOnMap && allCoordsPoints.length > 0) {
                 focusMapOnStagePoints(map, allCoordsPoints, L);
+            } else if (focusPoints.length > 1) {
+                // Fit previous + current so the snapped road segment is visible
+                focusMapOnStagePoints(map, focusPoints, L);
             } else if (activeStageCoords) {
                 map.flyTo([activeStageCoords.lat, activeStageCoords.lng], 15, { duration: 0.8 });
+            } else if (focusPoints.length === 1) {
+                map.flyTo(focusPoints[0], 14, { duration: 0.8 });
             } else {
                 map.flyTo([DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng], 13, { duration: 0.8 });
             }
@@ -1128,7 +1384,11 @@ const RouteManagement = () => {
         const onMapClick = (e) => {
             if (selectedStageIndex === null || selectedStageIndex === undefined) return;
             const { lat, lng } = e.latlng;
-            updateActiveStageCoords(lat, lng);
+            if (mapEditMode === 'steer' && selectedStageIndex > 0) {
+                addViaPointToActiveStage(lat, lng);
+            } else {
+                updateActiveStageCoords(lat, lng);
+            }
         };
         map.on('click', onMapClick);
 
@@ -1136,7 +1396,21 @@ const RouteManagement = () => {
             clearTimeout(viewTimer);
             map.off('click', onMapClick);
         };
-    }, [modalActiveTab, isLeafletReady, selectedStageIndex, formData.stages, showAllStagesOnMap, updateActiveStageCoords, destroyModalMap, finalDestinations]);
+    }, [
+        modalActiveTab,
+        isLeafletReady,
+        selectedStageIndex,
+        formData.stages,
+        showAllStagesOnMap,
+        mapEditMode,
+        updateActiveStageCoords,
+        addViaPointToActiveStage,
+        updateViaPointOnActiveStage,
+        removeViaPointFromActiveStage,
+        applyAlternateRouteAsVias,
+        destroyModalMap,
+        finalDestinations,
+    ]);
 
     // Sync active marker and circle with state changes (e.g. input fields, drag events, or first click on map)
     useEffect(() => {
@@ -1521,9 +1795,13 @@ const RouteManagement = () => {
                 academicYearFares: [],
                 latitude: null,
                 longitude: null,
-                radius: 100
+                radius: 100,
+                viaPoints: [],
             }];
             setSelectedStageIndex(nextStages.length - 1);
+            // Focus mode: show previous stages + new stage for correct road snap context
+            setShowAllStagesOnMap(false);
+            setMapEditMode('stage');
             return {
                 ...prev,
                 stages: nextStages
@@ -1606,11 +1884,18 @@ const RouteManagement = () => {
                 latitude: stage.latitude !== undefined && stage.latitude !== null ? stage.latitude : '',
                 longitude: stage.longitude !== undefined && stage.longitude !== null ? stage.longitude : '',
                 radius: stage.radius !== undefined && stage.radius !== null ? stage.radius : 100,
+                viaPoints: Array.isArray(stage.viaPoints)
+                    ? stage.viaPoints.map((v) => ({
+                        latitude: Number(v.latitude),
+                        longitude: Number(v.longitude),
+                    })).filter((v) => Number.isFinite(v.latitude) && Number.isFinite(v.longitude))
+                    : [],
             })),
         });
         setEditingId(route._id);
         setModalActiveTab('details');
         setSelectedStageIndex(null);
+        setMapEditMode('stage');
         setHasPendingStageOrder(false);
         setIsModalOpen(true);
     };
@@ -1641,6 +1926,7 @@ const RouteManagement = () => {
         setModalActiveTab('details');
         setSelectedStageIndex(null);
         setShowAllStagesOnMap(false);
+        setMapEditMode('stage');
         setDraggedStageIndex(null);
         setDragOverStageIndex(null);
         setHasPendingStageOrder(false);
@@ -3169,7 +3455,11 @@ const RouteManagement = () => {
                                                                 ? 'opacity-50'
                                                                 : ''
                                                     }`}
-                                                    onClick={() => setSelectedStageIndex(idx)}
+                                                    onClick={() => {
+                                                        setSelectedStageIndex(idx);
+                                                        setShowAllStagesOnMap(false);
+                                                        setMapEditMode(idx > 0 ? 'steer' : 'stage');
+                                                    }}
                                                 >
                                                     <span
                                                         draggable
@@ -3325,22 +3615,68 @@ const RouteManagement = () => {
 
                                     {/* Column 3: Leaflet Interactive Map with ALL stages */}
                                     <div className="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200 overflow-hidden relative">
-                                        <div className="absolute top-2 left-2 z-[1000] flex items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => setShowAllStagesOnMap((prev) => !prev)}
-                                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold shadow-sm transition-all ${
-                                                    showAllStagesOnMap
-                                                        ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
-                                                        : 'bg-white/95 backdrop-blur-[2px] border-slate-200 text-slate-700 hover:bg-slate-50'
-                                                }`}
-                                                title={showAllStagesOnMap ? 'Zoom back to the selected stage' : 'Show every plotted stage on the map'}
-                                            >
-                                                <Layers size={12} />
-                                                {showAllStagesOnMap ? 'Focus Selected' : 'Show All Stages'}
-                                            </button>
+                                        <div className="absolute top-2 left-2 z-[1000] flex flex-col gap-1.5 items-start max-w-[70%]">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowAllStagesOnMap((prev) => !prev)}
+                                                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold shadow-sm transition-all ${
+                                                        showAllStagesOnMap
+                                                            ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                                                            : 'bg-white/95 backdrop-blur-[2px] border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                    }`}
+                                                    title={showAllStagesOnMap ? 'Zoom back to the selected stage' : 'Show every plotted stage on the map'}
+                                                >
+                                                    <Layers size={12} />
+                                                    {showAllStagesOnMap ? 'Focus Selected' : 'Show All Stages'}
+                                                </button>
+                                                {!showAllStagesOnMap && selectedStageIndex !== null && selectedStageIndex > 0 && (
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setMapEditMode('stage')}
+                                                            className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold shadow-sm transition-all ${
+                                                                mapEditMode === 'stage'
+                                                                    ? 'bg-red-600 border-red-600 text-white'
+                                                                    : 'bg-white/95 border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                            }`}
+                                                            title="Click map to place/move this stage"
+                                                        >
+                                                            Place Stage
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setMapEditMode('steer')}
+                                                            className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold shadow-sm transition-all ${
+                                                                mapEditMode === 'steer'
+                                                                    ? 'bg-amber-500 border-amber-500 text-white'
+                                                                    : 'bg-white/95 border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                            }`}
+                                                            title="Click the road you want — adds a guide so snap follows that road"
+                                                        >
+                                                            Steer Road
+                                                        </button>
+                                                        {(formData.stages[selectedStageIndex]?.viaPoints?.length > 0) && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={clearViaPointsOnActiveStage}
+                                                                className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white/95 text-[10px] font-bold text-slate-600 shadow-sm hover:bg-slate-50"
+                                                                title="Remove road guides for this stage"
+                                                            >
+                                                                Clear Guides
+                                                            </button>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
                                             <div className="bg-white/95 backdrop-blur-[2px] px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-700 shadow-sm pointer-events-none">
-                                                {showAllStagesOnMap ? 'All stages + radius circles shown' : selectedStageIndex === null ? 'Select a stage to edit on map' : '📍 Click map or drag marker'}
+                                                {showAllStagesOnMap
+                                                    ? 'All stages + road-snapped path'
+                                                    : selectedStageIndex === null
+                                                        ? 'Select a stage to edit on map'
+                                                        : mapEditMode === 'steer' && selectedStageIndex > 0
+                                                            ? 'Steer mode: click desired road · or click amber alternate path'
+                                                            : 'Click map / drag marker to set stage · switch to Steer Road for other path'}
                                             </div>
                                         </div>
                                         

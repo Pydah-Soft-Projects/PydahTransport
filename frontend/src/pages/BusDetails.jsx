@@ -728,9 +728,20 @@ const BusDetails = () => {
 
     // Fetch road-snapped path from Open Source Routing Machine (OSRM) to snap points to roads
     useEffect(() => {
-        const coords = stagesWithCoords
-            .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude !== 0 && s.longitude !== 0)
-            .map(s => [s.latitude, s.longitude]);
+        const coords = [];
+        stagesWithCoords.forEach((s) => {
+            const vias = Array.isArray(s.viaPoints) ? s.viaPoints : [];
+            vias.forEach((v) => {
+                const lat = Number(v?.latitude ?? v?.lat);
+                const lng = Number(v?.longitude ?? v?.lng);
+                if (Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0) {
+                    coords.push([lat, lng]);
+                }
+            });
+            if (typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude !== 0 && s.longitude !== 0) {
+                coords.push([s.latitude, s.longitude]);
+            }
+        });
 
         if (coords.length < 2) {
             setSnappedRoutePath([]);
@@ -759,10 +770,13 @@ const BusDetails = () => {
             return pts; // fallback to straight lines if API fails
         };
 
+        let cancelled = false;
         (async () => {
             const snapped = await fetchRoadSnappedPath(coords);
-            setSnappedRoutePath(snapped);
+            if (!cancelled) setSnappedRoutePath(snapped);
         })();
+
+        return () => { cancelled = true; };
     }, [stagesWithCoords]);
 
     // Compute OSRM-snapped paths for missed stage runs in Live View

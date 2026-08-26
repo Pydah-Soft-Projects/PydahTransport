@@ -56,6 +56,14 @@ function resolveStageForAcademicYear(stage, academicYear) {
         latitude: stage.latitude !== undefined ? stage.latitude : null,
         longitude: stage.longitude !== undefined ? stage.longitude : null,
         radius: stage.radius !== undefined ? stage.radius : 100,
+        viaPoints: Array.isArray(stage.viaPoints)
+            ? stage.viaPoints
+                .map((v) => ({
+                    latitude: Number(v?.latitude),
+                    longitude: Number(v?.longitude),
+                }))
+                .filter((v) => Number.isFinite(v.latitude) && Number.isFinite(v.longitude))
+            : [],
     };
 }
 
@@ -116,6 +124,14 @@ function normalizeStagesForSave(stages, editingAcademicYear = null) {
             latitude: stage.latitude !== undefined ? (stage.latitude === '' || stage.latitude === null ? null : Number(stage.latitude)) : null,
             longitude: stage.longitude !== undefined ? (stage.longitude === '' || stage.longitude === null ? null : Number(stage.longitude)) : null,
             radius: stage.radius !== undefined ? (stage.radius === '' || stage.radius === null ? 100 : Number(stage.radius)) : 100,
+            viaPoints: Array.isArray(stage.viaPoints)
+                ? stage.viaPoints
+                    .map((v) => ({
+                        latitude: Number(v?.latitude ?? v?.lat),
+                        longitude: Number(v?.longitude ?? v?.lng),
+                    }))
+                    .filter((v) => Number.isFinite(v.latitude) && Number.isFinite(v.longitude))
+                : [],
         };
     });
 }

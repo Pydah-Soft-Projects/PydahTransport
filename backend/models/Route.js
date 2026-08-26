@@ -5,6 +5,11 @@ const academicYearFareSchema = new mongoose.Schema({
     fare: { type: Number, required: true },
 }, { _id: false });
 
+const viaPointSchema = new mongoose.Schema({
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true },
+}, { _id: false });
+
 const stageSchema = new mongoose.Schema({
     stageName: { type: String, required: true },
     distanceFromStart: { type: Number, required: true }, // in km
@@ -16,6 +21,11 @@ const stageSchema = new mongoose.Schema({
     latitude: { type: Number, default: null },
     longitude: { type: Number, default: null },
     radius: { type: Number, default: 100 },
+    // Intermediate points between previous stage and this stage — force road snap onto a chosen road
+    viaPoints: {
+        type: [viaPointSchema],
+        default: [],
+    },
 });
 
 const routeSchema = new mongoose.Schema({
