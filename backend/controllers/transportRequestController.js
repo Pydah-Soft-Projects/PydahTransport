@@ -3096,9 +3096,18 @@ const verifyTransportPassenger = async (req, res) => {
     const requestId = req.params.id;
     try {
         if (isMongoId(requestId)) {
-            const reqRow = await EmployeeTransportRequest.findById(requestId).lean();
+            let reqRow = await EmployeeTransportRequest.findById(requestId).lean();
             if (!reqRow) {
                 return res.json({ registered: false, message: 'No transport registration found for this QR code.' });
+            }
+            if (reqRow.emp_no) {
+                const latestApproved = await EmployeeTransportRequest.findOne({
+                    emp_no: reqRow.emp_no,
+                    status: 'approved'
+                }).sort({ academic_year: -1, created_at: -1 }).lean();
+                if (latestApproved) {
+                    reqRow = latestApproved;
+                }
             }
             if (reqRow.status !== 'approved') {
                 return res.json({
@@ -3157,7 +3166,38 @@ const verifyTransportPassenger = async (req, res) => {
             return res.json({ registered: false, message: 'No transport registration found for this QR code.' });
         }
 
-        const row = rows[0];
+        let row = rows[0];
+
+        // Fetch the latest approved request for the same student if it exists
+        if (row.admission_number) {
+            try {
+                const [newApprovedRows] = await mysqlPool.query(
+                    `SELECT tr.*,
+                            COALESCE(s1.course, s2.course) as course,
+                            COALESCE(s1.branch, s2.branch) as branch,
+                            COALESCE(s1.student_photo, s2.student_photo) as student_photo,
+                            COALESCE(s1.student_data, s2.student_data) as student_data,
+                            COALESCE(s1.pin_no, s2.pin_no) as pin_no,
+                            COALESCE(s1.student_mobile, s2.student_mobile) as student_mobile,
+                            ${parts.effectiveExpiryExpr} as effective_expiry_date,
+                            ${parts.isExpiredExpr} as is_expired
+                     FROM transport_requests tr
+                     LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
+                     LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
+                     ${parts.expiryJoins}
+                     WHERE tr.admission_number = ? AND tr.status = 'approved'
+                     ORDER BY tr.academic_year DESC, tr.id DESC
+                     LIMIT 1`,
+                    [...parts.expiryParams, row.admission_number]
+                );
+                if (newApprovedRows[0]) {
+                    row = newApprovedRows[0];
+                }
+            } catch (mysqlErr) {
+                console.error('Failed to query latest student request in verify:', mysqlErr.message);
+            }
+        }
+
         if (row.status !== 'approved') {
             return res.json({
                 registered: false,

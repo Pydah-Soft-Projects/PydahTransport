@@ -86,21 +86,57 @@ function idbGetByIndex(storeName, indexName, value) {
     }));
 }
 
+export function idbGetAllByStudent(studentId) {
+    return openDb().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_PASSENGERS, 'readonly');
+        const index = tx.objectStore(STORE_PASSENGERS).index('studentId');
+        const req = index.getAll(String(studentId));
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    }));
+}
+
+function selectLatestPassenger(records) {
+    if (!records || records.length === 0) return null;
+    if (records.length === 1) return records[0];
+    
+    return records.sort((a, b) => {
+        const ayA = String(a.academicYear || '');
+        const ayB = String(b.academicYear || '');
+        if (ayA !== ayB) {
+            return ayB.localeCompare(ayA);
+        }
+        const idA = Number(a.requestId) || 0;
+        const idB = Number(b.requestId) || 0;
+        return idB - idA;
+    })[0];
+}
+
 /** Lookup passenger by request id, mongo id, or admission/emp number. */
 export async function idbFindPassenger({ requestId, mongoId, studentId } = {}) {
+    let baseRecord = null;
     if (requestId) {
-        const byRequest = await idbGetPassenger(requestId);
-        if (byRequest) return byRequest;
+        baseRecord = await idbGetPassenger(requestId);
     }
-    if (mongoId) {
-        const byMongo = await idbGetByIndex(STORE_PASSENGERS, 'mongoId', mongoId);
-        if (byMongo) return byMongo;
+    if (!baseRecord && mongoId) {
+        baseRecord = await idbGetByIndex(STORE_PASSENGERS, 'mongoId', mongoId);
     }
-    if (studentId) {
-        const byStudent = await idbGetByIndex(STORE_PASSENGERS, 'studentId', studentId);
-        if (byStudent) return byStudent;
+    if (!baseRecord && studentId) {
+        baseRecord = await idbGetByIndex(STORE_PASSENGERS, 'studentId', studentId);
     }
-    return null;
+
+    const resolvedStudentId = baseRecord?.studentId || studentId;
+    if (resolvedStudentId) {
+        try {
+            const allRecords = await idbGetAllByStudent(resolvedStudentId);
+            if (allRecords.length > 0) {
+                return selectLatestPassenger(allRecords);
+            }
+        } catch (e) {
+            console.warn('Error fetching all records by student:', e);
+        }
+    }
+    return baseRecord;
 }
 
 export function buildOfflineLookupKeys(parsed) {
