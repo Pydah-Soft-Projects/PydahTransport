@@ -46,6 +46,7 @@ const buildToBeRenewedPrintHtml = ({
     searchQuery,
     pendingList,
     abstractTree,
+    courses,
 }) => {
     const filterBits = [
         `Expired AY: ${expiredYear}`,
@@ -921,6 +922,7 @@ const Renewals = () => {
                 searchQuery,
                 pendingList: printPendingList,
                 abstractTree: printAbstractTree,
+                courses,
             });
             printHtmlDocument(
                 html,
