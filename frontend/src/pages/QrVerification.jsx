@@ -1062,9 +1062,9 @@ const QrVerification = () => {
                         )}
 
                         {detail && (
-                            <div className="flex gap-4 pb-3 border-b border-slate-100 text-left items-start">
+                            <div className="flex gap-4 pb-3 border-b border-slate-100 text-left items-stretch">
                                 {/* Left column: Student photo, not rounded, not cropped (using object-contain) */}
-                                <div className="w-24 h-28 border border-slate-200 overflow-hidden bg-slate-50 shadow-sm flex items-center justify-center rounded-lg shrink-0">
+                                <div className="w-28 border border-slate-200 overflow-hidden bg-slate-50 shadow-sm flex items-center justify-center rounded-lg shrink-0">
                                     {photoSrc ? (
                                         <img
                                             src={photoSrc}
@@ -1072,7 +1072,7 @@ const QrVerification = () => {
                                             className="w-full h-full object-contain bg-slate-50"
                                         />
                                     ) : (
-                                        <User className="text-slate-300" size={40} />
+                                        <User className="text-slate-300" size={44} />
                                     )}
                                 </div>
 
