@@ -380,18 +380,47 @@ const fetchDailyKilometersFromTgg = async (reportQuery = {}) => {
     throw new Error('vehicle_name, date_from, and date_to are required parameters.');
   }
 
-  // Calculate dates in between
-  const startDate = new Date(dateFromStr);
-  const endDate = new Date(dateToStr);
+  // Calculate dates in between (calendar YYYY-MM-DD — avoid UTC timezone shift)
+  const parseYmd = (ymd) => {
+    const parts = String(ymd).split('-').map(Number);
+    if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+    const [y, m, d] = parts;
+    return { y, m, d };
+  };
+  const ymdToTime = ({ y, m, d }) => Date.UTC(y, m - 1, d);
+  const timeToYmd = (t) => {
+    const dt = new Date(t);
+    const y = dt.getUTCFullYear();
+    const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(dt.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  let fromParts = parseYmd(dateFromStr);
+  let toParts = parseYmd(dateToStr);
+  if (!fromParts || !toParts) {
+    throw new Error('date_from and date_to must be YYYY-MM-DD.');
+  }
+
+  let fromT = ymdToTime(fromParts);
+  let toT = ymdToTime(toParts);
+  if (fromT > toT) {
+    const tmp = fromT;
+    fromT = toT;
+    toT = tmp;
+  }
+
   const dateList = [];
-  
-  // Limit to max 31 days
-  let current = new Date(startDate);
+  let current = fromT;
   let count = 0;
-  while (current <= endDate && count < 31) {
-    dateList.push(current.toISOString().split('T')[0]);
-    current.setDate(current.getDate() + 1);
+  while (current <= toT && count < 31) {
+    dateList.push(timeToYmd(current));
+    current += 24 * 60 * 60 * 1000;
     count++;
+  }
+
+  if (dateList.length === 0) {
+    return { success: true, isMock: false, data: [] };
   }
 
   // Generate deterministic mock KM numbers

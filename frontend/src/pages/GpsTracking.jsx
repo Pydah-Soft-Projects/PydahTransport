@@ -85,6 +85,9 @@ export default function GpsTracking() {
   const [expandedFleetVehicle, setExpandedFleetVehicle] = useState(null);
   const [geofenceData, setGeofenceData] = useState({});
   const [geofenceLoading, setGeofenceLoading] = useState({});
+  const fleetKmRequestIdRef = useRef(0);
+  const vehiclesRef = useRef(vehicles);
+  vehiclesRef.current = vehicles;
 
   // Final Destination modal
   const [campuses, setCampuses] = useState([]);
@@ -208,18 +211,23 @@ export default function GpsTracking() {
     document.body.removeChild(link);
   };
 
-  const fetchSingleVehicleKm = useCallback(async (vehName, forceRefresh = false) => {
-    const cacheKey = `gps_km_${vehName}_${fleetDateFrom}_${fleetDateTo}`;
+  const fetchSingleVehicleKm = useCallback(async (vehName, forceRefresh = false, requestId = 0) => {
+    const from = fleetDateFrom <= fleetDateTo ? fleetDateFrom : fleetDateTo;
+    const to = fleetDateFrom <= fleetDateTo ? fleetDateTo : fleetDateFrom;
+    const cacheKey = `gps_km_v2_${vehName}_${from}_${to}`;
+
     if (!forceRefresh) {
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          setFleetKmValues(prev => ({
-            ...prev,
-            [vehName]: { totalKm: parsed.totalKm, isMock: parsed.isMock, loading: false }
-          }));
-          return;
+          if (parsed && typeof parsed.totalKm === 'number' && !parsed.failed) {
+            setFleetKmValues(prev => ({
+              ...prev,
+              [vehName]: { totalKm: parsed.totalKm, isMock: parsed.isMock, loading: false, error: false }
+            }));
+            return;
+          }
         } catch (e) {
           // ignore parsing error
         }
@@ -228,67 +236,92 @@ export default function GpsTracking() {
 
     try {
       const res = await apiFetch(
-        `${API_BASE}/gps/daily-km?vehicle_name=${encodeURIComponent(vehName)}&date_from=${fleetDateFrom}&date_to=${fleetDateTo}`
+        `${API_BASE}/gps/daily-km?vehicle_name=${encodeURIComponent(vehName)}&date_from=${from}&date_to=${to}`
       );
+      // Ignore stale responses when dates changed mid-flight
+      if (fleetKmRequestIdRef.current !== requestId) return;
+
       const resData = await res.json();
-      if (resData.success && Array.isArray(resData.data)) {
-        const totalKm = resData.data.reduce((acc, d) => acc + d.kilometers, 0);
-        const resultVal = { totalKm, isMock: resData.isMock || false, loading: false };
+      if (res.ok && resData.success && Array.isArray(resData.data)) {
+        const totalKm = resData.data.reduce((acc, d) => acc + (Number(d.kilometers) || 0), 0);
+        const resultVal = { totalKm, isMock: resData.isMock || false, loading: false, error: false };
         sessionStorage.setItem(cacheKey, JSON.stringify(resultVal));
         setFleetKmValues(prev => ({
           ...prev,
           [vehName]: resultVal
         }));
       } else {
-        throw new Error();
+        throw new Error(resData.message || 'daily-km failed');
       }
     } catch (err) {
-      const resultVal = { totalKm: 0, isMock: true, loading: false };
-      sessionStorage.setItem(cacheKey, JSON.stringify(resultVal));
+      if (fleetKmRequestIdRef.current !== requestId) return;
+      // Do NOT cache failures as 0 — that made zeros stick after a bad auto-fetch
       setFleetKmValues(prev => ({
         ...prev,
-        [vehName]: resultVal
+        [vehName]: { totalKm: 0, isMock: false, loading: false, error: true }
       }));
     }
   }, [fleetDateFrom, fleetDateTo]);
 
   const startLoadingFleetKm = useCallback((forceRefresh = false) => {
-    if (!vehicles.length) return;
-    
-    // Initialize loading states for each vehicle
+    const list = vehiclesRef.current || [];
+    if (!list.length) return;
+
+    const from = fleetDateFrom <= fleetDateTo ? fleetDateFrom : fleetDateTo;
+    const to = fleetDateFrom <= fleetDateTo ? fleetDateTo : fleetDateFrom;
+    if (!from || !to) return;
+
+    // Normalize inverted range in UI so subsequent fetches stay consistent
+    if (fleetDateFrom > fleetDateTo) {
+      setFleetDateFrom(from);
+      setFleetDateTo(to);
+      sessionStorage.setItem('gps_fleet_date_from', from);
+      sessionStorage.setItem('gps_fleet_date_to', to);
+    }
+
+    const requestId = ++fleetKmRequestIdRef.current;
+
     const initial = {};
-    vehicles.forEach(v => {
-      const cacheKey = `gps_km_${v.name}_${fleetDateFrom}_${fleetDateTo}`;
+    const toFetch = [];
+    list.forEach(v => {
+      const cacheKey = `gps_km_v2_${v.name}_${from}_${to}`;
       if (!forceRefresh) {
         const cached = sessionStorage.getItem(cacheKey);
         if (cached) {
           try {
             const parsed = JSON.parse(cached);
-            initial[v.name] = { totalKm: parsed.totalKm, isMock: parsed.isMock, loading: false };
-            return;
+            if (parsed && typeof parsed.totalKm === 'number' && !parsed.failed) {
+              initial[v.name] = { totalKm: parsed.totalKm, isMock: parsed.isMock, loading: false, error: false };
+              return;
+            }
           } catch (e) {}
         }
       }
-      initial[v.name] = { totalKm: 0, isMock: false, loading: true };
+      initial[v.name] = { totalKm: 0, isMock: false, loading: true, error: false };
+      toFetch.push(v.name);
     });
     setFleetKmValues(initial);
-    
-    // Fetch in parallel
-    vehicles.forEach(v => {
-      const cacheKey = `gps_km_${v.name}_${fleetDateFrom}_${fleetDateTo}`;
-      if (!forceRefresh && sessionStorage.getItem(cacheKey)) {
-        // Already loaded via initial state setting
-        return;
-      }
-      fetchSingleVehicleKm(v.name, forceRefresh);
-    });
-  }, [vehicles, fleetDateFrom, fleetDateTo, fetchSingleVehicleKm]);
 
+    // Limit concurrency — blasting all vehicles at once rate-limits TGG and returns zeros
+    const CONCURRENCY = 4;
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(CONCURRENCY, toFetch.length) }, async () => {
+      while (cursor < toFetch.length) {
+        if (fleetKmRequestIdRef.current !== requestId) return;
+        const idx = cursor++;
+        await fetchSingleVehicleKm(toFetch[idx], forceRefresh, requestId);
+      }
+    });
+    Promise.all(workers).catch(() => {});
+  }, [fleetDateFrom, fleetDateTo, fetchSingleVehicleKm]);
+
+  // Load once when opening the travelled tab (or when vehicles first arrive).
+  // Date filter changes apply only after clicking Refresh Logs.
   useEffect(() => {
-    if (activePageTab === 'travelled' && vehicles.length > 0) {
-      startLoadingFleetKm(false);
-    }
-  }, [activePageTab, vehicles.length, startLoadingFleetKm]);
+    if (activePageTab !== 'travelled' || vehicles.length === 0) return;
+    startLoadingFleetKm(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePageTab, vehicles.length]);
 
   const handleFleetSort = (field) => {
     if (fleetSortField === field) {
@@ -327,23 +360,15 @@ export default function GpsTracking() {
       return 0;
     });
 
-    const headers = ['Route ID', 'Route Name', 'Vehicle Name', 'Unit ID', 'Live Status', 'Latitude', 'Longitude', 'Total Distance (km)', 'Data Source'];
+    const headers = ['Route ID', 'Route Name', 'Vehicle Name', 'Unit ID', 'Total Distance (km)'];
     const rows = sorted.map(v => {
-      const isMoving = (v.speed || 0) > 0;
-      const status = isMoving ? 'Moving' : 'Stopped';
-      
-      const kmInfo = fleetKmValues[v.name] || { totalKm: 0, isMock: false, loading: false };
-      const source = kmInfo.isMock ? 'Demo/Fallback Data' : 'Live GPS';
+      const kmInfo = fleetKmValues[v.name] || { totalKm: 0, isMock: false, loading: false, error: false };
       return [
         v.routeId || 'Unassigned',
         v.routeName || 'Unassigned',
         v.name,
         v.units,
-        status,
-        v.latitude,
-        v.longitude,
-        `${kmInfo.totalKm.toFixed(1)} km`,
-        source
+        `${(kmInfo.totalKm || 0).toFixed(1)} km`,
       ];
     });
 
@@ -1212,7 +1237,7 @@ export default function GpsTracking() {
                     className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-700 font-semibold outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   />
                 </div>
-                <div className="pt-4">
+                <div className="pt-4 flex items-center gap-2">
                   <button 
                     onClick={() => startLoadingFleetKm(true)}
                     className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
@@ -1220,6 +1245,9 @@ export default function GpsTracking() {
                     <RefreshCw size={12} />
                     Refresh Logs
                   </button>
+                  <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
+                    Apply date filters
+                  </span>
                 </div>
               </div>
 
@@ -1272,10 +1300,10 @@ export default function GpsTracking() {
                     ⚡
                   </div>
                 </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between">
-                  <div>
+                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between gap-3 min-w-0">
+                  <div className="min-w-0 flex-1">
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Most Active Vehicle</span>
-                    <span className="text-sm font-black text-slate-900 mt-1 block truncate max-w-[150px]">
+                    <span className="text-sm font-black text-slate-900 mt-1 block break-words whitespace-normal leading-snug">
                       {(() => {
                         let maxKm = -1;
                         let maxVeh = 'None';
@@ -1289,7 +1317,7 @@ export default function GpsTracking() {
                       })()}
                     </span>
                   </div>
-                  <div className="w-10 h-10 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-lg">
+                  <div className="w-10 h-10 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-lg shrink-0">
                     🏆
                   </div>
                 </div>
@@ -1314,8 +1342,6 @@ export default function GpsTracking() {
                         </div>
                       </th>
                       <th className="px-6 py-4">Bus / Vehicle</th>
-                      <th className="px-6 py-4">Live Status</th>
-                      <th className="px-6 py-4">Coordinates</th>
                       <th 
                         onClick={() => handleFleetSort('distance')}
                         className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
@@ -1327,7 +1353,6 @@ export default function GpsTracking() {
                           )}
                         </div>
                       </th>
-                      <th className="px-6 py-4 text-right">Data Source</th>
                       <th className="px-4 py-4 w-10"></th>
                     </tr>
                   </thead>
@@ -1360,7 +1385,7 @@ export default function GpsTracking() {
                       if (sorted.length === 0) {
                         return (
                           <tr>
-                            <td colSpan="7" className="px-6 py-12 text-center text-slate-400 italic">
+                            <td colSpan="4" className="px-6 py-12 text-center text-slate-400 italic">
                               No vehicles matched your search filter.
                             </td>
                           </tr>
@@ -1368,8 +1393,7 @@ export default function GpsTracking() {
                       }
 
                       return sorted.map((veh) => {
-                        const isMoving = (veh.speed || 0) > 0;
-                        const kmInfo = fleetKmValues[veh.name] || { totalKm: 0, isMock: false, loading: false };
+                        const kmInfo = fleetKmValues[veh.name] || { totalKm: 0, isMock: false, loading: false, error: false };
                         const isExpanded = expandedFleetVehicle === veh.name;
                         const cacheKey = `${veh.name}_${fleetDateFrom}_${fleetDateTo}`;
                         const gfRows = geofenceData[cacheKey] || [];
@@ -1386,30 +1410,15 @@ export default function GpsTracking() {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-slate-900 font-semibold">{veh.name}</td>
                             <td className="px-6 py-4">
-                              <span className={`px-2 py-0.5 rounded text-[9px] font-medium uppercase ${isMoving ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
-                                {isMoving ? 'Moving' : 'Stopped'}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 font-mono text-slate-450">
-                              {veh.latitude?.toFixed(4)}, {veh.longitude?.toFixed(4)}
-                            </td>
-                            <td className="px-6 py-4">
                               {kmInfo.loading ? (
                                 <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
                                   <Loader2 size={12} className="animate-spin text-blue-500" /> loading...
                                 </span>
+                              ) : kmInfo.error ? (
+                                <span className="text-sm font-semibold text-rose-600">Retry needed</span>
                               ) : (
                                 <span className="text-sm font-semibold text-blue-700">
-                                  {kmInfo.totalKm.toFixed(1)} km
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              {kmInfo.loading ? (
-                                <span className="text-[10px] text-slate-400 italic">pending</span>
-                              ) : (
-                                <span className={`text-[10px] font-medium ${kmInfo.isMock ? 'text-amber-600' : 'text-blue-600'}`}>
-                                  {kmInfo.isMock ? 'Demo Log' : 'Live GPS'}
+                                  {(kmInfo.totalKm || 0).toFixed(1)} km
                                 </span>
                               )}
                             </td>
@@ -1419,7 +1428,7 @@ export default function GpsTracking() {
                           </tr>
                           {isExpanded && (
                             <tr>
-                              <td colSpan="7" className="px-6 py-0 bg-slate-50/80">
+                              <td colSpan="4" className="px-6 py-0 bg-slate-50/80">
                                 <div className="py-3">
                                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Geofence In / Out Report</p>
                                   {gfLoading ? (
