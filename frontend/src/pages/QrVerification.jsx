@@ -1042,32 +1042,28 @@ const QrVerification = () => {
             >
                 {result && (
                     <div className="space-y-4">
-                        <div
-                            className={`rounded-xl px-3 py-2.5 flex items-start gap-2.5 ${
-                                result.ok
-                                    ? 'bg-emerald-50 border border-emerald-100'
-                                    : result.warning
+                        {(!result.ok || result.warning) && (
+                            <div
+                                className={`rounded-xl px-3 py-2.5 flex items-start gap-2.5 ${
+                                    result.warning
                                         ? 'bg-amber-50 border border-amber-100'
                                         : 'bg-red-50 border border-red-100'
-                            }`}
-                        >
-                            {result.ok ? (
-                                <CheckCircle2 className="text-emerald-600 shrink-0 mt-0.5" size={20} />
-                            ) : (
+                                }`}
+                            >
                                 <XCircle className={`${result.warning ? 'text-amber-600' : 'text-red-500'} shrink-0 mt-0.5`} size={20} />
-                            )}
-                            <div className="min-w-0">
-                                <p className="text-xs font-semibold text-slate-700 leading-relaxed">{result.message}</p>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">
-                                    {result.mode}
-                                    {result.signatureStatus ? ` · ${result.signatureStatus}` : ''}
-                                </p>
+                                <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-slate-700 leading-relaxed">{result.message}</p>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">
+                                        {result.mode}
+                                        {result.signatureStatus ? ` · ${result.signatureStatus}` : ''}
+                                    </p>
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         {detail && (
                             <div className="flex flex-col items-center text-center gap-3 pb-3 border-b border-slate-100">
-                                <div className="w-24 h-28 rounded-xl border-2 border-slate-200 overflow-hidden bg-slate-50 shadow-sm flex items-center justify-center">
+                                <div className="w-24 h-24 rounded-full border-2 border-slate-200 overflow-hidden bg-slate-50 shadow-sm flex items-center justify-center">
                                     {photoSrc ? (
                                         <img
                                             src={photoSrc}
@@ -1080,12 +1076,24 @@ const QrVerification = () => {
                                 </div>
                                 <div className="min-w-0 w-full px-1">
                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Passenger</p>
-                                    <h2 className="text-lg font-black text-slate-900 uppercase leading-tight break-words mt-0.5">
-                                        {detail.student_name || '—'}
+                                    <h2 className="text-base sm:text-lg font-black text-slate-900 uppercase leading-tight break-words mt-1 flex items-center justify-center gap-1.5 flex-wrap">
+                                        <span>{detail.student_name || '—'}</span>
+                                        {result.ok && (
+                                            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                <CheckCircle2 size={10} className="fill-emerald-800 text-white shrink-0" /> Verified
+                                            </span>
+                                        )}
                                     </h2>
-                                    <p className="text-sm font-semibold text-blue-700 mt-1 break-all">
-                                        {detail.admission_number || '—'}
-                                    </p>
+                                    <div className="mt-2.5 flex flex-wrap justify-center items-center gap-1.5">
+                                        <span className="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-100 text-[10px] font-extrabold uppercase tracking-wide">
+                                            ADM: {detail.admission_number || '—'}
+                                        </span>
+                                        {detail.pin_no && detail.pin_no !== 'N/A' && (
+                                            <span className="px-2 py-1 rounded bg-slate-50 text-slate-700 border border-slate-200 text-[10px] font-extrabold uppercase tracking-wide">
+                                                PIN: {detail.pin_no}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         )}

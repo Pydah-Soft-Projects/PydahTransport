@@ -1,6 +1,7 @@
 const TransportRequest = require('../models/TransportRequest');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 const OfflineScanLog = require('../models/OfflineScanLog');
+const { mysqlPool } = require('../config/db');
 const {
     getPublicKeyInfo,
     buildSignedVerifyUrl,
@@ -17,7 +18,7 @@ function getDefaultAcademicYear() {
     return `${year - 1}-${year}`;
 }
 
-function mapStudentRecord(r) {
+function mapStudentRecord(r, pinNo) {
     return {
         requestId: r.id != null ? String(r.id) : String(r._id),
         mongoId: String(r._id),
@@ -34,6 +35,7 @@ function mapStudentRecord(r) {
         fare: r.fare != null ? Number(r.fare) : null,
         validUntil: r.expiry_date || r.semester_end_date || null,
         updatedAt: r.updated_at || r.request_date || null,
+        pinNo: pinNo || null,
     };
 }
 
@@ -114,8 +116,28 @@ const syncVerificationData = async (req, res) => {
             EmployeeTransportRequest.find(employeeQuery).lean(),
         ]);
 
+        const pinMap = new Map();
+        if (mysqlPool && students.length > 0) {
+            const admissionNos = students.map((s) => s.admission_number).filter(Boolean);
+            if (admissionNos.length > 0) {
+                try {
+                    const [studentRows] = await mysqlPool.query(
+                        'SELECT admission_number, pin_no FROM students WHERE admission_number IN (?)',
+                        [admissionNos]
+                    );
+                    studentRows.forEach((row) => {
+                        if (row.admission_number && row.pin_no) {
+                            pinMap.set(String(row.admission_number), String(row.pin_no));
+                        }
+                    });
+                } catch (mysqlErr) {
+                    console.error('Failed to batch query pin_no during sync:', mysqlErr.message);
+                }
+            }
+        }
+
         const records = [
-            ...students.map(mapStudentRecord),
+            ...students.map((r) => mapStudentRecord(r, pinMap.get(String(r.admission_number)))),
             ...employees.map(mapEmployeeRecord),
         ];
 

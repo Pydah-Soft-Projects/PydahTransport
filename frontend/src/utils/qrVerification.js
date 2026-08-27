@@ -140,6 +140,7 @@ export function mapPassengerToVerifyData(local) {
         user_type: local.userType,
         application_number: local.applicationNumber || null,
         student_photo: local.studentPhoto || null,
+        pin_no: local.pinNo || null,
     };
 }
 
