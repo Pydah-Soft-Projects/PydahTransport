@@ -128,7 +128,8 @@ const buildToBeRenewedPrintHtml = ({
                     );
                 }),
             }));
-    })();    let serial = 0;
+    })();
+    let serial = 0;
     const detailSections = collegeGroups.map(({ college, rows }) => {
         const body = rows.map((req) => {
             serial += 1;
@@ -833,24 +834,51 @@ const Renewals = () => {
         [requests, renewedSet, courses]
     );
 
-    // Stats follow page filters (route / course / search / expired year)
-    const totalExpired = requests.length;
-    const totalRenewed = useMemo(
-        () => requests.filter((r) => renewedSet.has(String(r.admission_number || '').trim())).length,
-        [requests, renewedSet]
-    );
-    const totalPending = useMemo(
-        () => requests.filter((r) => {
+    // Mutually exclusive renewal buckets so KPIs always add up:
+    // Renewed + Pending + Not Interested + Course Completed = all expired
+    const renewalStats = useMemo(() => {
+        let renewed = 0;
+        let pending = 0;
+        let notInterested = 0;
+        let completed = 0;
+
+        requests.forEach((r) => {
             const isRenewed = renewedSet.has(String(r.admission_number || '').trim());
             const { isCompleted } = getTargetYearOfStudy(r, courses);
-            return !isRenewed && !r.not_interested && !isCompleted;
-        }).length,
-        [requests, renewedSet, courses]
-    );
-    const totalNotInterested = useMemo(
-        () => requests.filter((r) => r.not_interested).length,
-        [requests]
-    );
+
+            if (isRenewed) {
+                renewed += 1;
+                return;
+            }
+            if (r.not_interested) {
+                notInterested += 1;
+                return;
+            }
+            if (isCompleted) {
+                // Final-year / course finished — not expected to renew
+                completed += 1;
+                return;
+            }
+            pending += 1;
+        });
+
+        const eligible = renewed + pending + notInterested;
+        return {
+            allExpired: requests.length,
+            eligible,
+            renewed,
+            pending,
+            notInterested,
+            completed,
+        };
+    }, [requests, renewedSet, courses]);
+
+    const totalExpired = renewalStats.eligible;
+    const totalRenewed = renewalStats.renewed;
+    const totalPending = renewalStats.pending;
+    const totalNotInterested = renewalStats.notInterested;
+    const totalCompleted = renewalStats.completed;
+
 
     const sortedRoutes = useMemo(
         () => [...routes].sort((a, b) =>
@@ -1008,8 +1036,13 @@ const Renewals = () => {
                     </div>
                     <div>
                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Expired Passengers</p>
-                        <h3 className="text-lg font-bold text-slate-800 mt-0.5">{totalExpired}</h3>
-                        <p className="text-[9px] text-slate-400 mt-0.5">In academic year {expiredYear}</p>
+                        <h3 className="text-lg font-bold text-slate-800 mt-0.5">{renewalStats.allExpired}</h3>
+                        <p className="text-[9px] text-slate-500 mt-0.5 font-semibold">
+                            {totalExpired} eligible for {targetYear}
+                            {totalCompleted > 0 && (
+                                <span className="text-slate-400 font-medium"> · {totalCompleted} course completed</span>
+                            )}
+                        </p>
                     </div>
                 </div>
 
