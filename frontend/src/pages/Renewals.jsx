@@ -97,8 +97,8 @@ const buildToBeRenewedPrintHtml = ({
     };
 
     const yearOf = (req) => {
-        const n = req.year_of_study != null ? Number(req.year_of_study) : 1;
-        return Number.isFinite(n) && n > 0 ? n : 1;
+        const { year } = getTargetYearOfStudy(req, courses);
+        return year;
     };
 
     const collegeGroups = (() => {
@@ -243,14 +243,31 @@ const buildToBeRenewedPrintHtml = ({
 
 const EMPTY_LABEL = 'Unknown';
 
-const buildRenewalAbstract = (list, renewedSet) => {
+const getTargetYearOfStudy = (req, coursesList) => {
+    const courseObj = (coursesList || []).find(c => String(c.name).toLowerCase() === String(req.course || '').toLowerCase());
+    const maxYears = courseObj ? Number(courseObj.total_years) : null;
+    const expiredYearOfStudy = req.year_of_study != null ? Number(req.year_of_study) : 1;
+    const targetYearOfStudy = expiredYearOfStudy + 1;
+    
+    const isCompleted = maxYears !== null && targetYearOfStudy > maxYears;
+    return {
+        year: targetYearOfStudy,
+        isCompleted,
+        maxYears
+    };
+};
+
+const buildRenewalAbstract = (list, renewedSet, coursesList) => {
     const collegeMap = new Map();
 
     list.forEach((req) => {
         const college = String(req.college || '').trim() || EMPTY_LABEL;
         const course = String(req.course || '').trim() || EMPTY_LABEL;
-        const yearRaw = req.year_of_study != null ? Number(req.year_of_study) : 1;
-        const year = Number.isFinite(yearRaw) && yearRaw > 0 ? yearRaw : 1;
+        const { year, isCompleted } = getTargetYearOfStudy(req, coursesList);
+        
+        // Skip completed students in renewal stats!
+        if (isCompleted) return;
+
         const isRenewed = renewedSet.has(String(req.admission_number || '').trim());
 
         if (!collegeMap.has(college)) {
@@ -802,14 +819,17 @@ const Renewals = () => {
     const filteredRequests = requests.filter((r) => {
         const isRenewed = renewedSet.has(String(r.admission_number).trim());
         if (renewalStatusFilter === 'renewed') return isRenewed;
-        if (renewalStatusFilter === 'not_renewed') return !isRenewed && !r.not_interested;
+        if (renewalStatusFilter === 'not_renewed') {
+            const { isCompleted } = getTargetYearOfStudy(r, courses);
+            return !isRenewed && !r.not_interested && !isCompleted;
+        }
         if (renewalStatusFilter === 'not_interested') return r.not_interested;
         return true;
     });
 
     const abstractTree = useMemo(
-        () => buildRenewalAbstract(filteredRequests, renewedSet),
-        [filteredRequests, renewedSet]
+        () => buildRenewalAbstract(requests, renewedSet, courses),
+        [requests, renewedSet, courses]
     );
 
     // Stats follow page filters (route / course / search / expired year)
@@ -819,8 +839,12 @@ const Renewals = () => {
         [requests, renewedSet]
     );
     const totalPending = useMemo(
-        () => requests.filter((r) => !renewedSet.has(String(r.admission_number || '').trim()) && !r.not_interested).length,
-        [requests, renewedSet]
+        () => requests.filter((r) => {
+            const isRenewed = renewedSet.has(String(r.admission_number || '').trim());
+            const { isCompleted } = getTargetYearOfStudy(r, courses);
+            return !isRenewed && !r.not_interested && !isCompleted;
+        }).length,
+        [requests, renewedSet, courses]
     );
     const totalNotInterested = useMemo(
         () => requests.filter((r) => r.not_interested).length,
@@ -842,13 +866,17 @@ const Renewals = () => {
 
     // Print uses pending passengers under current API filters (year / route / course / search)
     const printPendingList = useMemo(
-        () => requests.filter((r) => !renewedSet.has(String(r.admission_number || '').trim()) && !r.not_interested),
-        [requests, renewedSet]
+        () => requests.filter((r) => {
+            const isRenewed = renewedSet.has(String(r.admission_number || '').trim());
+            const { isCompleted } = getTargetYearOfStudy(r, courses);
+            return !isRenewed && !r.not_interested && !isCompleted;
+        }),
+        [requests, renewedSet, courses]
     );
 
     const printAbstractTree = useMemo(
-        () => buildRenewalAbstract(requests.filter((r) => !r.not_interested), renewedSet),
-        [requests, renewedSet]
+        () => buildRenewalAbstract(requests.filter((r) => !r.not_interested), renewedSet, courses),
+        [requests, renewedSet, courses]
     );
 
     const toggleCollege = (collegeName) => {
@@ -1380,7 +1408,21 @@ const Renewals = () => {
                                                             <GraduationCap size={12} className="text-slate-400" />
                                                             {req.course || 'N/A'}
                                                         </p>
-                                                        <p className="text-[9px] font-bold text-slate-400">Year {req.year_of_study || 1}</p>
+                                                        {(() => {
+                                                            const { year, isCompleted } = getTargetYearOfStudy(req, courses);
+                                                            if (isCompleted) {
+                                                                return (
+                                                                    <span className="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-bold">
+                                                                        Course Completed
+                                                                    </span>
+                                                                );
+                                                            }
+                                                            return (
+                                                                <p className="text-[9px] font-bold text-slate-500">
+                                                                    Target Year: {year}
+                                                                </p>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </td>
 
@@ -1439,29 +1481,42 @@ const Renewals = () => {
                                                             >
                                                                 Renewed
                                                             </button>
-                                                        ) : (
-                                                            <>
-                                                                <button
-                                                                    onClick={() => handleToggleInterest(req)}
-                                                                    disabled={actionLoading === (req._id || req.id)}
-                                                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
-                                                                        req.not_interested
-                                                                            ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
-                                                                            : 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
-                                                                    }`}
-                                                                    title={req.not_interested ? "Mark as Interested" : "Mark as Not Interested"}
-                                                                >
-                                                                    {actionLoading === (req._id || req.id) ? 'Updating...' : req.not_interested ? 'Mark Interested' : 'Not Interested'}
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => handleOpenRenewModal(req)}
-                                                                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow-sm transition-all flex items-center gap-1 shrink-0 cursor-pointer"
-                                                                >
-                                                                    <RefreshCw size={10} className="animate-spin-slow" />
-                                                                    Renew
-                                                                </button>
-                                                            </>
-                                                        )}
+                                                        ) : (() => {
+                                                            const { isCompleted } = getTargetYearOfStudy(req, courses);
+                                                            if (isCompleted) {
+                                                                return (
+                                                                    <button
+                                                                        disabled
+                                                                        className="px-2.5 py-1 bg-slate-100 text-slate-400 rounded-lg text-[10px] font-bold border border-slate-200 cursor-not-allowed"
+                                                                    >
+                                                                        Completed
+                                                                    </button>
+                                                                );
+                                                            }
+                                                            return (
+                                                                <>
+                                                                    <button
+                                                                        onClick={() => handleToggleInterest(req)}
+                                                                        disabled={actionLoading === (req._id || req.id)}
+                                                                        className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
+                                                                            req.not_interested
+                                                                                ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+                                                                                : 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                                                                        }`}
+                                                                        title={req.not_interested ? "Mark as Interested" : "Mark as Not Interested"}
+                                                                    >
+                                                                        {actionLoading === (req._id || req.id) ? 'Updating...' : req.not_interested ? 'Mark Interested' : 'Not Interested'}
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleOpenRenewModal(req)}
+                                                                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow-sm transition-all flex items-center gap-1 shrink-0 cursor-pointer"
+                                                                    >
+                                                                        <RefreshCw size={10} className="animate-spin-slow" />
+                                                                        Renew
+                                                                    </button>
+                                                                </>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </td>
                                             </tr>
