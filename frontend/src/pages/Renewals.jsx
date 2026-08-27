@@ -876,7 +876,7 @@ const Renewals = () => {
     );
 
     const printAbstractTree = useMemo(
-        () => buildRenewalAbstract(requests.filter((r) => !r.not_interested), renewedSet, courses),
+        () => buildRenewalAbstract(requests, renewedSet, courses),
         [requests, renewedSet, courses]
     );
 
