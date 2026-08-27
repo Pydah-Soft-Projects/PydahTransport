@@ -1062,38 +1062,50 @@ const QrVerification = () => {
                         )}
 
                         {detail && (
-                            <div className="flex flex-col items-center text-center gap-3 pb-3 border-b border-slate-100">
-                                <div className="w-24 h-24 rounded-full border-2 border-slate-200 overflow-hidden bg-slate-50 shadow-sm flex items-center justify-center">
+                            <div className="flex gap-4 pb-3 border-b border-slate-100 text-left items-start">
+                                {/* Left column: Student photo, not rounded, not cropped (using object-contain) */}
+                                <div className="w-24 h-28 border border-slate-200 overflow-hidden bg-slate-50 shadow-sm flex items-center justify-center rounded-lg shrink-0">
                                     {photoSrc ? (
                                         <img
                                             src={photoSrc}
                                             alt={detail.student_name || 'Passenger'}
-                                            className="w-full h-full object-cover object-top"
+                                            className="w-full h-full object-contain bg-slate-50"
                                         />
                                     ) : (
                                         <User className="text-slate-300" size={40} />
                                     )}
                                 </div>
-                                <div className="min-w-0 w-full px-1">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Passenger</p>
-                                    <h2 className="text-base sm:text-lg font-black text-slate-900 uppercase leading-tight break-words mt-1 flex items-center justify-center gap-1.5 flex-wrap">
-                                        <span>{detail.student_name || '—'}</span>
-                                        {result.ok && (
-                                            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+
+                                {/* Right column: Details in vertical rows */}
+                                <div className="min-w-0 flex-1 space-y-2">
+                                    {/* Row 1: Student Name */}
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Passenger</p>
+                                        <h2 className="text-base sm:text-lg font-black text-slate-900 uppercase leading-tight break-words">
+                                            {detail.student_name || '—'}
+                                        </h2>
+                                    </div>
+
+                                    {/* Row 2: Verified Badge */}
+                                    {result.ok && (
+                                        <div className="w-fit">
+                                            <span className="inline-flex items-center gap-0.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
                                                 <CheckCircle2 size={10} className="fill-emerald-800 text-white shrink-0" /> Verified
                                             </span>
-                                        )}
-                                    </h2>
-                                    <div className="mt-2.5 flex flex-wrap justify-center items-center gap-1.5">
-                                        <span className="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-100 text-[10px] font-extrabold uppercase tracking-wide">
-                                            ADM: {detail.admission_number || '—'}
-                                        </span>
-                                        {detail.pin_no && detail.pin_no !== 'N/A' && (
-                                            <span className="px-2 py-1 rounded bg-slate-50 text-slate-700 border border-slate-200 text-[10px] font-extrabold uppercase tracking-wide">
-                                                PIN: {detail.pin_no}
-                                            </span>
-                                        )}
+                                        </div>
+                                    )}
+
+                                    {/* Row 3: ADM Number */}
+                                    <div className="text-[11px] font-extrabold text-blue-800 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-lg w-fit">
+                                        ADM: <span className="font-mono">{detail.admission_number || '—'}</span>
                                     </div>
+
+                                    {/* Row 4: PIN Number */}
+                                    {detail.pin_no && detail.pin_no !== 'N/A' && (
+                                        <div className="text-[11px] font-extrabold text-slate-700 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg w-fit">
+                                            PIN: <span className="font-mono">{detail.pin_no}</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
