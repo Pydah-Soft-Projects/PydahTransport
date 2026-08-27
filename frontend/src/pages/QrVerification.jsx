@@ -11,6 +11,8 @@ import {
     AlertTriangle,
     Loader2,
     User,
+    Zap,
+    ZapOff,
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
@@ -56,6 +58,13 @@ const QrVerification = () => {
     const [scanFlash, setScanFlash] = useState(false);
     const [hasPublicKey, setHasPublicKey] = useState(false);
     const [storedAcademicYear, setStoredAcademicYear] = useState(null);
+
+    // Camera hardware capabilities states
+    const [torchSupported, setTorchSupported] = useState(false);
+    const [torchOn, setTorchOn] = useState(false);
+    const [zoomSupported, setZoomSupported] = useState(false);
+    const [zoomCapabilities, setZoomCapabilities] = useState({ min: 1, max: 1, step: 0.1 });
+    const [zoomValue, setZoomValue] = useState(1);
 
     const scannerRef = useRef(null);
     const scannerRunning = useRef(false);
@@ -105,16 +114,19 @@ const QrVerification = () => {
     }, []);
 
     const getScannerConfig = useCallback(() => ({
-        fps: 15,
+        fps: 24,
         // Large scan region — small qrbox is a common reason scans never fire
         qrbox: (viewfinderWidth, viewfinderHeight) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const size = Math.max(180, Math.floor(minEdge * 0.85));
+            const size = Math.max(180, Math.floor(minEdge * 0.82));
             return { width: size, height: size };
         },
         disableFlip: false,
-        // Do NOT set aspectRatio / videoConstraints here — they often break
-        // camera start or misalign the crop region with what the user sees.
+        videoConstraints: {
+            width: { min: 640, ideal: 1280, max: 1920 },
+            height: { min: 480, ideal: 720, max: 1080 },
+            facingMode: 'environment'
+        }
     }), []);
 
     const refreshMeta = useCallback(async () => {
@@ -180,6 +192,9 @@ const QrVerification = () => {
         scannerRef.current = null;
         scannerRunning.current = false;
         setScanning(false);
+        setTorchSupported(false);
+        setTorchOn(false);
+        setZoomSupported(false);
 
         if (scanner) {
             try {
@@ -209,6 +224,54 @@ const QrVerification = () => {
         }
         clearReaderDom();
     }, [clearReaderDom]);
+
+    const toggleTorch = useCallback(async () => {
+        const scanner = scannerRef.current;
+        if (!scanner) return;
+        try {
+            const track = scanner.getActiveCameraTrack();
+            if (track) {
+                const nextTorch = !torchOn;
+                await track.applyConstraints({
+                    advanced: [{ torch: nextTorch }]
+                });
+                setTorchOn(nextTorch);
+            }
+        } catch (err) {
+            console.error('Failed to toggle torch:', err);
+        }
+    }, [torchOn]);
+
+    const handleZoomChange = useCallback(async (value) => {
+        const val = Number(value);
+        const scanner = scannerRef.current;
+        if (!scanner) return;
+        try {
+            const track = scanner.getActiveCameraTrack();
+            if (track) {
+                await track.applyConstraints({
+                    advanced: [{ zoom: val }]
+                });
+                setZoomValue(val);
+            }
+        } catch (err) {
+            console.error('Failed to apply zoom:', err);
+        }
+    }, []);
+
+    const cycleZoom = useCallback(() => {
+        const minZ = zoomCapabilities.min || 1;
+        const maxZ = zoomCapabilities.max || 1;
+        
+        let nextZoom = zoomValue + 0.5;
+        if (nextZoom > maxZ) {
+            nextZoom = minZ;
+        } else if (nextZoom > 3) {
+            nextZoom = minZ;
+        }
+        nextZoom = Math.round(nextZoom * 10) / 10;
+        handleZoomChange(nextZoom);
+    }, [zoomValue, zoomCapabilities, handleZoomChange]);
 
     const syncNow = useCallback(async () => {
         if (!online) {
@@ -323,6 +386,52 @@ const QrVerification = () => {
     const showResult = (nextResult) => {
         setResult(nextResult);
         setScanFlash(true);
+
+        // 1. Synthesize audio feedback (Offline-compatible)
+        try {
+            const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtxClass) {
+                const audioCtx = new AudioCtxClass();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                
+                oscillator.type = 'sine';
+                if (nextResult.ok) {
+                    // Crisp high pitch beep for valid scan (A5 note)
+                    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+                    gainNode.gain.setValueAtTime(0.12, audioCtx.currentTime);
+                    oscillator.start();
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.16);
+                    oscillator.stop(audioCtx.currentTime + 0.16);
+                } else {
+                    // Warning lower pitch beep for invalid/inactive scan (A4 note)
+                    oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+                    gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                    oscillator.start();
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+                    oscillator.stop(audioCtx.currentTime + 0.25);
+                }
+            }
+        } catch (audioErr) {
+            console.warn('[Audio] Beep feedback failed:', audioErr);
+        }
+
+        // 2. Trigger physical vibration haptics (Offline-compatible)
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            try {
+                if (nextResult.ok) {
+                    navigator.vibrate(100); // Short single pulse
+                } else {
+                    navigator.vibrate([150, 100, 150]); // Warning double pulse
+                }
+            } catch (vibErr) {
+                console.warn('[Haptics] Vibration feedback failed:', vibErr);
+            }
+        }
+
         setTimeout(() => setScanFlash(false), 700);
         setModalOpen(true);
     };
@@ -567,6 +676,53 @@ const QrVerification = () => {
             scannerRunning.current = true;
             setScanning(true);
             setCameraError('');
+
+            // Query and configure camera capabilities (Torch, Zoom, Continuous Focus)
+            try {
+                const track = scanner.getActiveCameraTrack();
+                if (track) {
+                    const capabilities = track.getCapabilities?.() || {};
+                    
+                    // 1. Setup continuous autofocus if supported
+                    const constraints = {};
+                    if (capabilities.focusMode?.includes('continuous')) {
+                        constraints.focusMode = 'continuous';
+                    }
+                    if (Object.keys(constraints).length > 0) {
+                        try {
+                            await track.applyConstraints({ advanced: [constraints] });
+                        } catch (e) {
+                            console.warn('[Camera] Failed to apply focusMode:', e);
+                        }
+                    }
+
+                    // 2. Detect Torch Support
+                    if ('torch' in capabilities) {
+                        setTorchSupported(true);
+                        setTorchOn(false); // default to off
+                    } else {
+                        setTorchSupported(false);
+                    }
+
+                    // 3. Detect Zoom Support
+                    if ('zoom' in capabilities) {
+                        setZoomSupported(true);
+                        const zMin = capabilities.zoom.min || 1;
+                        const zMax = capabilities.zoom.max || 1;
+                        const zStep = capabilities.zoom.step || 0.1;
+                        setZoomCapabilities({ min: zMin, max: zMax, step: zStep });
+                        
+                        // Set zoom to min zoom initially or current zoom track constraint
+                        const currentConstraints = track.getConstraints() || {};
+                        const currentZoomConstraint = currentConstraints.advanced?.[0]?.zoom || zMin;
+                        setZoomValue(currentZoomConstraint);
+                    } else {
+                        setZoomSupported(false);
+                    }
+                }
+            } catch (capErr) {
+                console.warn('[Camera] Error querying track capabilities:', capErr);
+            }
         } catch (err) {
             if (session !== scanSessionRef.current) return;
             scannerRunning.current = false;
@@ -729,6 +885,45 @@ const QrVerification = () => {
                                     ref={readerHostRef}
                                     className="absolute inset-0 w-full h-full overflow-hidden [&_video]:!w-full [&_video]:!h-full [&_video]:object-contain [&_video]:bg-black [&_#qr-reader__dashboard]:hidden [&_img]:hidden"
                                 />
+
+                                {/* Camera Quick Controls (Torch & Zoom cycling) */}
+                                {scanning && (torchSupported || zoomSupported) && (
+                                    <div className="absolute top-3 right-3 left-3 flex justify-between items-start pointer-events-none z-30">
+                                        <div className="bg-slate-950/85 border border-slate-800/80 text-slate-200 text-[9px] sm:text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 backdrop-blur-sm shadow-md">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                            Live View
+                                        </div>
+                                        <div className="flex flex-col gap-2 items-end pointer-events-auto">
+                                            {/* Flashlight Button */}
+                                            {torchSupported && (
+                                                <button
+                                                    type="button"
+                                                    onClick={toggleTorch}
+                                                    className={`p-2 rounded-lg border transition-all shadow-md flex items-center justify-center cursor-pointer ${
+                                                        torchOn
+                                                            ? 'bg-yellow-400 text-slate-900 border-yellow-300 shadow-[0_0_12px_rgba(250,204,21,0.5)]'
+                                                            : 'bg-slate-950/80 text-slate-300 border-slate-800 hover:text-white'
+                                                    }`}
+                                                    title={torchOn ? "Turn flashlight OFF" : "Turn flashlight ON"}
+                                                >
+                                                    {torchOn ? <Zap size={14} className="fill-current" /> : <ZapOff size={14} />}
+                                                </button>
+                                            )}
+
+                                            {/* Zoom Button */}
+                                            {zoomSupported && (
+                                                <button
+                                                    type="button"
+                                                    onClick={cycleZoom}
+                                                    className="px-2 py-1 rounded-lg bg-slate-950/80 text-slate-200 border border-slate-800 hover:text-white transition-all shadow-md text-[10px] font-black tracking-wider flex items-center justify-center cursor-pointer min-w-[42px]"
+                                                    title="Cycle zoom level"
+                                                >
+                                                    {zoomValue.toFixed(1)}x
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Decorative viewfinder — pointer-events none so it never blocks the camera */}
                                 {scanning && !verifying && (
