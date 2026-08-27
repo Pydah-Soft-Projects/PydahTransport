@@ -131,6 +131,14 @@ const transportRequestSchema = new mongoose.Schema({
     expiry_reason: {
         type: String,
         default: null
+    },
+    not_interested: {
+        type: Boolean,
+        default: false
+    },
+    not_interested_reason: {
+        type: String,
+        default: null
     }
 }, {
     timestamps: { createdAt: 'request_date', updatedAt: 'updated_at' },

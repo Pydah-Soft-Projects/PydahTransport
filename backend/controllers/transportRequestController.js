@@ -800,7 +800,7 @@ const getTransportRequests = async (req, res) => {
         let studentMap = {};
         if (mysqlPool && admissionNos.length > 0) {
             const [studentRows] = await mysqlPool.query(
-                `SELECT admission_number, admission_no, course, branch, pin_no, college, current_year
+                `SELECT admission_number, admission_no, course, branch, pin_no, college, current_year, student_mobile, parent_mobile1
                  FROM students
                  WHERE admission_number IN (?) OR admission_no IN (?)`,
                 [admissionNos, admissionNos]
@@ -842,6 +842,8 @@ const getTransportRequests = async (req, res) => {
                 branch: itemBranch,
                 college: itemCollege,
                 pin_no: itemPinNo,
+                student_mobile: student.student_mobile || null,
+                parent_mobile1: student.parent_mobile1 || null,
                 effective_expiry_date: r.effective_expiry_date,
                 is_expired: isExpired,
             });
@@ -935,13 +937,15 @@ const getTransportRequests = async (req, res) => {
 // @access  Private/Admin
 const updateTransportRequest = async (req, res) => {
     const requestId = req.params.id;
-    const { bus_id, new_id_card_needed } = req.body || {};
+    const { bus_id, new_id_card_needed, not_interested, not_interested_reason } = req.body || {};
     try {
         if (isMongoId(requestId)) {
             const reqRow = await EmployeeTransportRequest.findById(requestId);
             if (reqRow) {
                 if (bus_id !== undefined) reqRow.bus_id = bus_id || null;
                 if (new_id_card_needed !== undefined) reqRow.new_id_card_needed = new_id_card_needed;
+                if (not_interested !== undefined) reqRow.not_interested = not_interested;
+                if (not_interested_reason !== undefined) reqRow.not_interested_reason = not_interested_reason || null;
                 await reqRow.save();
                 return res.json({
                     id: reqRow._id.toString(),
@@ -954,23 +958,35 @@ const updateTransportRequest = async (req, res) => {
                     status: reqRow.status,
                     bus_id: reqRow.bus_id,
                     new_id_card_needed: reqRow.new_id_card_needed,
+                    not_interested: reqRow.not_interested,
+                    not_interested_reason: reqRow.not_interested_reason,
                     user_type: 'employee'
                 });
             }
         }
 
-        const studentReqQuery = { $or: [{ id: Number(requestId) }] };
-        if (isMongoId(requestId)) studentReqQuery.$or.push({ _id: requestId });
-        const studentReq = await TransportRequest.findOne(studentReqQuery);
-        if (studentReq) {
-            if (bus_id !== undefined) studentReq.bus_id = bus_id || null;
-            if (new_id_card_needed !== undefined) studentReq.new_id_card_needed = new_id_card_needed;
-            await studentReq.save();
-            return res.json({
-                ...studentReq.toObject(),
-                id: studentReq.id != null ? studentReq.id : String(studentReq._id),
-                user_type: 'student'
-            });
+        const studentReqQuery = { $or: [] };
+        if (!isNaN(Number(requestId))) {
+            studentReqQuery.$or.push({ id: Number(requestId) });
+        }
+        if (isMongoId(requestId)) {
+            studentReqQuery.$or.push({ _id: requestId });
+        }
+
+        if (studentReqQuery.$or.length > 0) {
+            const studentReq = await TransportRequest.findOne(studentReqQuery);
+            if (studentReq) {
+                if (bus_id !== undefined) studentReq.bus_id = bus_id || null;
+                if (new_id_card_needed !== undefined) studentReq.new_id_card_needed = new_id_card_needed;
+                if (not_interested !== undefined) studentReq.not_interested = not_interested;
+                if (not_interested_reason !== undefined) studentReq.not_interested_reason = not_interested_reason || null;
+                await studentReq.save();
+                return res.json({
+                    ...studentReq.toObject(),
+                    id: studentReq.id != null ? studentReq.id : String(studentReq._id),
+                    user_type: 'student'
+                });
+            }
         }
 
         if (!mysqlPool) {

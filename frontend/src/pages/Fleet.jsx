@@ -107,6 +107,12 @@ const Fleet = () => {
                 const diff = (a.occupancyPercent || 0) - (b.occupancyPercent || 0);
                 return sortDirection === 'asc' ? diff : -diff;
             }
+            if (sortField === 'zone') {
+                const zoneA = a.route ? String(a.route.zone || '') : '';
+                const zoneB = b.route ? String(b.route.zone || '') : '';
+                const cmp = zoneA.localeCompare(zoneB);
+                return sortDirection === 'asc' ? cmp : -cmp;
+            }
             // default: sort by route number
             const cmp = compareRouteId(a, b);
             return sortDirection === 'asc' ? cmp : -cmp;
@@ -558,7 +564,7 @@ const Fleet = () => {
                     </div>
                     <div className="bg-white rounded-xl border border-blue-200 p-3 shadow-sm bg-blue-50/40 flex items-center justify-between gap-3">
                         <div>
-                            <p className="text-[9px] font-bold text-blue-600 uppercase tracking-wider">Remaining · {fleetRemainingPercent}%</p>
+                            <p className="text-[9px] font-bold text-blue-600 uppercase tracking-wider">Vacant · {fleetRemainingPercent}%</p>
                             <p className="text-sm font-black text-blue-700 leading-tight mt-0.5">{totalSeatsAvailable}</p>
                         </div>
                         <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
@@ -642,11 +648,23 @@ const Fleet = () => {
                                             )}
                                         </div>
                                     </th>
-                                    <th className="px-3 py-2">Zone</th>
+                                    <th
+                                        onClick={() => handleSort('zone')}
+                                        className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors select-none group"
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            <span>Zone</span>
+                                            {sortField === 'zone' ? (
+                                                sortDirection === 'asc' ? <ChevronUp size={11} className="text-blue-600" /> : <ChevronDown size={11} className="text-blue-600" />
+                                            ) : (
+                                                <ArrowUpDown size={11} className="text-slate-400 opacity-50 group-hover:opacity-100" />
+                                            )}
+                                        </div>
+                                    </th>
                                     <th className="px-3 py-2">Bus Details</th>
                                     <th className="px-3 py-2">Capacity</th>
                                     <th className="px-3 py-2">Seats Filled</th>
-                                    <th className="px-3 py-2">Rem. Seats</th>
+                                    <th className="px-3 py-2">Vacant Seats</th>
                                     <th className="px-3 py-2">Expected Renewals</th>
                                     <th
                                         onClick={() => handleSort('occupancy')}

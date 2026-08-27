@@ -79,6 +79,14 @@ const employeeTransportRequestSchema = new mongoose.Schema({
         enum: ['employee_left', 'academic_year_ended', 'manual', null],
         default: null
     },
+    not_interested: {
+        type: Boolean,
+        default: false
+    },
+    not_interested_reason: {
+        type: String,
+        default: null
+    },
     request_date: {
         type: Date,
         default: Date.now

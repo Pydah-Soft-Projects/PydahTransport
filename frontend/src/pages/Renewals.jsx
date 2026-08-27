@@ -127,18 +127,22 @@ const buildToBeRenewedPrintHtml = ({
                     );
                 }),
             }));
-    })();
-
-    let serial = 0;
+    })();    let serial = 0;
     const detailSections = collegeGroups.map(({ college, rows }) => {
         const body = rows.map((req) => {
             serial += 1;
             return `
         <tr>
             <td class="num">${serial}</td>
-            <td>${escapeHtml(req.student_name || '—')}</td>
+            <td>
+                ${escapeHtml(req.student_name || '—')}
+                ${req.not_interested ? `<br/><span style="color:#b91c1c;font-size:7.5px;font-weight:bold;">Not Interested${req.not_interested_reason ? `: ${escapeHtml(req.not_interested_reason)}` : ''}</span>` : ''}
+            </td>
             <td>${escapeHtml(req.admission_number || '—')}</td>
-            <td>${escapeHtml(req.pin_no || '—')}</td>
+            <td>
+                ${escapeHtml(req.pin_no || '—')}
+                ${req.student_mobile ? `<br/><span style="color:#475569;font-size:8px;font-weight:semibold;white-space:nowrap;">${escapeHtml(req.student_mobile)}</span>` : ''}
+            </td>
             <td>${escapeHtml(String(req.course || '').trim() || '—')}</td>
             <td class="num">${yearOf(req)}</td>
             <td>${escapeHtml(req.route_name || '—')}</td>
@@ -153,7 +157,7 @@ const buildToBeRenewedPrintHtml = ({
         <th class="num">#</th>
         <th>Name</th>
         <th>ADM NO</th>
-        <th>Pin No</th>
+        <th>Pin / Mobile</th>
         <th>Course</th>
         <th class="num">Year</th>
         <th>Previous Route</th>
@@ -339,7 +343,7 @@ const Renewals = () => {
     const [routeFilter, setRouteFilter] = useState(() => searchParams.get('route') || '');
     const [courseFilter, setCourseFilter] = useState(() => searchParams.get('course') || '');
     const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
-    const [renewalStatusFilter, setRenewalStatusFilter] = useState(() => searchParams.get('status') || '');
+    const [renewalStatusFilter, setRenewalStatusFilter] = useState(() => searchParams.get('status') || 'not_renewed');
     const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') === 'abstract' ? 'abstract' : 'detailed');
     const [expandedColleges, setExpandedColleges] = useState(() => new Set());
     const [expandedCourses, setExpandedCourses] = useState(() => new Set());
@@ -356,7 +360,7 @@ const Renewals = () => {
         setRouteFilter(searchParams.get('route') || '');
         setCourseFilter(searchParams.get('course') || '');
         setSearchQuery(searchParams.get('search') || '');
-        setRenewalStatusFilter(searchParams.get('status') || '');
+        setRenewalStatusFilter(searchParams.get('status') || 'not_renewed');
         setActiveTab(searchParams.get('tab') === 'abstract' ? 'abstract' : 'detailed');
         setCurrentPage(1);
     }, [searchParams]);
@@ -394,6 +398,7 @@ const Renewals = () => {
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(null);
     const [message, setMessage] = useState({ text: '', type: '' });
+    const [successModalText, setSuccessModalText] = useState('');
 
     // Renew Modal state
     const [renewModal, setRenewModal] = useState({
@@ -416,6 +421,15 @@ const Renewals = () => {
         selectedBusId: '',
         loading: false,
         error: null
+    });
+
+    // Not Interested Modal state
+    const [notInterestedModal, setNotInterestedModal] = useState({
+        open: false,
+        passenger: null,
+        reason: '',
+        error: '',
+        saving: false
     });
 
     // Fetch lists
@@ -559,6 +573,80 @@ const Renewals = () => {
         });
         setFeeEligibility(null);
         fetchRenewalFeeEligibility(passenger.admission_number, targetYear);
+    };
+
+    const handleToggleInterest = async (req) => {
+        if (!req.not_interested) {
+            setNotInterestedModal({
+                open: true,
+                passenger: req,
+                reason: '',
+                error: '',
+                saving: false
+            });
+            return;
+        }
+
+        setActionLoading(req._id || req.id);
+        try {
+            const response = await apiFetch(`${API_BASE}/transport-requests/${req._id || req.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ not_interested: false, not_interested_reason: null })
+            });
+            if (response.ok) {
+                setRequests(prev => prev.map(r => {
+                    if ((r._id && r._id === req._id) || (r.id && r.id === req.id)) {
+                        return { ...r, not_interested: false, not_interested_reason: null };
+                    }
+                    return r;
+                }));
+                setMessage({ text: '', type: '' });
+                setSuccessModalText('Passenger marked as interested in renewal.');
+            } else {
+                const data = await response.json();
+                setMessage({ text: data.message || 'Failed to update interest status.', type: 'error' });
+            }
+        } catch (error) {
+            console.error('Error toggling interest status:', error);
+            setMessage({ text: 'Error toggling interest status.', type: 'error' });
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handleConfirmNotInterested = async () => {
+        const { passenger, reason } = notInterestedModal;
+        if (!reason.trim()) {
+            setNotInterestedModal(prev => ({ ...prev, error: 'Please enter a reason.' }));
+            return;
+        }
+        
+        setNotInterestedModal(prev => ({ ...prev, saving: true, error: '' }));
+        try {
+            const response = await apiFetch(`${API_BASE}/transport-requests/${passenger._id || passenger.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ not_interested: true, not_interested_reason: reason })
+            });
+            if (response.ok) {
+                setRequests(prev => prev.map(r => {
+                    if ((r._id && r._id === passenger._id) || (r.id && r.id === passenger.id)) {
+                        return { ...r, not_interested: true, not_interested_reason: reason };
+                    }
+                    return r;
+                }));
+                setMessage({ text: '', type: '' });
+                setSuccessModalText('Passenger marked as Not Interested in renewal.');
+                setNotInterestedModal({ open: false, passenger: null, reason: '', error: '', saving: false });
+            } else {
+                const data = await response.json();
+                setNotInterestedModal(prev => ({ ...prev, error: data.message || 'Failed to update interest status.', saving: false }));
+            }
+        } catch (error) {
+            console.error('Error saving not interested status:', error);
+            setNotInterestedModal(prev => ({ ...prev, error: 'Error toggling interest status.', saving: false }));
+        }
     };
 
     useEffect(() => {
@@ -714,7 +802,8 @@ const Renewals = () => {
     const filteredRequests = requests.filter((r) => {
         const isRenewed = renewedSet.has(String(r.admission_number).trim());
         if (renewalStatusFilter === 'renewed') return isRenewed;
-        if (renewalStatusFilter === 'not_renewed') return !isRenewed;
+        if (renewalStatusFilter === 'not_renewed') return !isRenewed && !r.not_interested;
+        if (renewalStatusFilter === 'not_interested') return r.not_interested;
         return true;
     });
 
@@ -729,7 +818,14 @@ const Renewals = () => {
         () => requests.filter((r) => renewedSet.has(String(r.admission_number || '').trim())).length,
         [requests, renewedSet]
     );
-    const totalPending = totalExpired - totalRenewed;
+    const totalPending = useMemo(
+        () => requests.filter((r) => !renewedSet.has(String(r.admission_number || '').trim()) && !r.not_interested).length,
+        [requests, renewedSet]
+    );
+    const totalNotInterested = useMemo(
+        () => requests.filter((r) => r.not_interested).length,
+        [requests]
+    );
 
     const sortedRoutes = useMemo(
         () => [...routes].sort((a, b) =>
@@ -746,12 +842,12 @@ const Renewals = () => {
 
     // Print uses pending passengers under current API filters (year / route / course / search)
     const printPendingList = useMemo(
-        () => requests.filter((r) => !renewedSet.has(String(r.admission_number || '').trim())),
+        () => requests.filter((r) => !renewedSet.has(String(r.admission_number || '').trim()) && !r.not_interested),
         [requests, renewedSet]
     );
 
     const printAbstractTree = useMemo(
-        () => buildRenewalAbstract(requests, renewedSet),
+        () => buildRenewalAbstract(requests.filter((r) => !r.not_interested), renewedSet),
         [requests, renewedSet]
     );
 
@@ -875,7 +971,7 @@ const Renewals = () => {
             )}
 
             {/* Stats Panel */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3.5">
                     <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 shrink-0 animate-in fade-in zoom-in duration-300">
                         <Users size={20} />
@@ -908,6 +1004,17 @@ const Renewals = () => {
                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Pending Renewal</p>
                         <h3 className="text-lg font-bold text-amber-700 mt-0.5">{totalPending}</h3>
                         <p className="text-[9px] text-amber-500 mt-0.5 font-semibold">Awaiting renewal request</p>
+                    </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center text-rose-600 shrink-0 animate-in fade-in zoom-in duration-300">
+                        <XCircle size={20} />
+                    </div>
+                    <div>
+                        <p className="text-[9px] font-bold text-rose-400 uppercase tracking-wider">Not Interested</p>
+                        <h3 className="text-lg font-bold text-rose-700 mt-0.5">{totalNotInterested}</h3>
+                        <p className="text-[9px] text-rose-500 mt-0.5 font-semibold">Declared not renewing</p>
                     </div>
                 </div>
             </div>
@@ -1007,6 +1114,7 @@ const Renewals = () => {
                             <option value="">All Passengers</option>
                             <option value="not_renewed">Not Renewed</option>
                             <option value="renewed">Renewed</option>
+                            <option value="not_interested">Not Interested</option>
                         </select>
                     </div>
 
@@ -1228,9 +1336,9 @@ const Renewals = () => {
                                 <thead>
                                     <tr className="bg-slate-50/50 border-b border-slate-100 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
                                         <th className="px-4 py-3">Passenger Details</th>
-                                        <th className="px-4 py-3">College</th>
                                         <th className="px-4 py-3">Course & Batch</th>
                                         <th className="px-4 py-3">Previous Route & Stage</th>
+                                        <th className="px-4 py-3">Mobile Number</th>
                                         <th className="px-4 py-3">Expiry Date</th>
                                         <th className="px-4 py-3 text-center">Status</th>
                                         <th className="px-4 py-3 text-right">Actions</th>
@@ -1253,12 +1361,16 @@ const Renewals = () => {
                                                             {req.pin_no && req.pin_no !== 'N/A' && (
                                                                 <p className="text-[10px] font-semibold text-slate-400">Pin: {req.pin_no}</p>
                                                             )}
+                                                            {req.not_interested && (
+                                                                <div className="mt-1">
+                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-100 text-[9px] font-bold">
+                                                                        <XCircle size={8} className="shrink-0" />
+                                                                        Not Interested{req.not_interested_reason ? `: ${req.not_interested_reason}` : ''}
+                                                                    </span>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
-                                                </td>
-
-                                                <td className="px-4 py-2.5">
-                                                    <p className="font-semibold text-slate-700 text-[11px]">{req.college || '—'}</p>
                                                 </td>
 
                                                 {/* Course & Year */}
@@ -1281,6 +1393,17 @@ const Renewals = () => {
                                                         </p>
                                                         <p className="text-[9px] font-bold text-slate-400">{req.stage_name} · {formatFare(req.fare)}</p>
                                                     </div>
+                                                </td>
+
+                                                {/* Mobile Number */}
+                                                <td className="px-4 py-2.5 text-[11px] font-semibold text-slate-700 whitespace-nowrap">
+                                                    {req.student_mobile ? (
+                                                        <span className="inline-flex items-center bg-slate-50 border border-slate-100 px-2 py-0.5 rounded text-[10px] font-mono">
+                                                            {req.student_mobile}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-400">—</span>
+                                                    )}
                                                 </td>
 
                                                 {/* Expiry Date */}
@@ -1307,23 +1430,39 @@ const Renewals = () => {
                                                 </td>
 
                                                 {/* Actions */}
-                                                <td className="px-4 py-2.5 text-right">
-                                                    {isRenewed ? (
-                                                        <button
-                                                            disabled
-                                                            className="px-2.5 py-1 bg-slate-100 text-slate-400 rounded-lg text-[10px] font-bold border border-slate-200 cursor-not-allowed"
-                                                        >
-                                                            Renewed
-                                                        </button>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => handleOpenRenewModal(req)}
-                                                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow-sm transition-all flex items-center gap-1 ml-auto cursor-pointer"
-                                                        >
-                                                            <RefreshCw size={10} className="animate-spin-slow" />
-                                                            Renew
-                                                        </button>
-                                                    )}
+                                                <td className="px-4 py-2.5">
+                                                    <div className="flex items-center justify-end gap-1.5">
+                                                        {isRenewed ? (
+                                                            <button
+                                                                disabled
+                                                                className="px-2.5 py-1 bg-slate-100 text-slate-400 rounded-lg text-[10px] font-bold border border-slate-200 cursor-not-allowed"
+                                                            >
+                                                                Renewed
+                                                            </button>
+                                                        ) : (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => handleToggleInterest(req)}
+                                                                    disabled={actionLoading === (req._id || req.id)}
+                                                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
+                                                                        req.not_interested
+                                                                            ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+                                                                            : 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                                                                    }`}
+                                                                    title={req.not_interested ? "Mark as Interested" : "Mark as Not Interested"}
+                                                                >
+                                                                    {actionLoading === (req._id || req.id) ? 'Updating...' : req.not_interested ? 'Mark Interested' : 'Not Interested'}
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleOpenRenewModal(req)}
+                                                                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow-sm transition-all flex items-center gap-1 shrink-0 cursor-pointer"
+                                                                >
+                                                                    <RefreshCw size={10} className="animate-spin-slow" />
+                                                                    Renew
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                         );
@@ -1603,6 +1742,83 @@ const Renewals = () => {
                             </>
                         )
                     )}
+                </div>
+            </Modal>
+
+            {/* Not Interested Reason Modal */}
+            <Modal
+                isOpen={notInterestedModal.open}
+                onClose={() => !notInterestedModal.saving && setNotInterestedModal(prev => ({ ...prev, open: false }))}
+                title="Mark Passenger Not Interested"
+            >
+                {notInterestedModal.passenger && (
+                    <div className="space-y-4">
+                        <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl">
+                            <h4 className="font-bold text-slate-800 text-xs">{notInterestedModal.passenger.student_name}</h4>
+                            <p className="text-[10px] text-slate-400 font-semibold mt-0.5">ADM: {notInterestedModal.passenger.admission_number}</p>
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Reason for Not Renewing</label>
+                            <textarea
+                                value={notInterestedModal.reason}
+                                onChange={(e) => setNotInterestedModal(prev => ({ ...prev, reason: e.target.value }))}
+                                placeholder="Enter reason (e.g. Completed course, Own vehicle, Distance too far...)"
+                                className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all h-24 resize-none"
+                                disabled={notInterestedModal.saving}
+                            />
+                        </div>
+
+                        {notInterestedModal.error && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-semibold flex items-center gap-2">
+                                <AlertTriangle size={14} className="shrink-0" />
+                                <span>{notInterestedModal.error}</span>
+                            </div>
+                        )}
+
+                        <div className="flex gap-2.5 justify-end">
+                            <button
+                                type="button"
+                                disabled={notInterestedModal.saving}
+                                onClick={() => setNotInterestedModal({ open: false, passenger: null, reason: '', error: '', saving: false })}
+                                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={notInterestedModal.saving || !notInterestedModal.reason.trim()}
+                                onClick={handleConfirmNotInterested}
+                                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                                {notInterestedModal.saving ? 'Saving...' : 'Confirm'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
+            {/* Success Feedback Modal */}
+            <Modal
+                isOpen={Boolean(successModalText)}
+                onClose={() => setSuccessModalText('')}
+                title="Success"
+                maxWidth="max-w-sm"
+            >
+                <div className="flex flex-col items-center justify-center text-center p-2 space-y-4">
+                    <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm">
+                        <CheckCircle2 size={24} className="fill-emerald-100" />
+                    </div>
+                    <div className="space-y-1">
+                        <h4 className="font-extrabold text-slate-800 text-sm">Action Completed</h4>
+                        <p className="text-xs text-slate-500 font-semibold leading-relaxed">{successModalText}</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setSuccessModalText('')}
+                        className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                    >
+                        OK
+                    </button>
                 </div>
             </Modal>
         </Layout>

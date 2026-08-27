@@ -576,6 +576,7 @@ const getBusesOverview = async (req, res) => {
             // Expected renewals: expired approved passengers still on a bus who have not renewed for target year
             mongoStudents.forEach((r) => {
                 if (!r.is_expired) return;
+                if (r.not_interested) return; // Exclude not interested
                 const adm = String(r.admission_number || '').trim();
                 if (!adm || renewedSet.has(adm)) return;
                 if (r.bus_id && busNumbers.includes(r.bus_id)) {
