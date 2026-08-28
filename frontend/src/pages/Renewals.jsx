@@ -63,6 +63,7 @@ const buildToBeRenewedPrintHtml = ({
                 <td class="ctr">${college.total}</td>
                 <td class="ctr">${college.renewed}</td>
                 <td class="ctr">${college.pending}</td>
+                <td class="ctr">${college.notInterested || 0}</td>
                 <td class="ctr">${college.total ? Math.round((college.renewed / college.total) * 100) : 0}%</td>
             </tr>`;
 
@@ -74,6 +75,7 @@ const buildToBeRenewedPrintHtml = ({
                     <td class="ctr">${course.total}</td>
                     <td class="ctr">${course.renewed}</td>
                     <td class="ctr">${course.pending}</td>
+                    <td class="ctr">${course.notInterested || 0}</td>
                     <td class="ctr">${course.total ? Math.round((course.renewed / course.total) * 100) : 0}%</td>
                 </tr>`;
             const yearRows = course.years.map((yearNode) => `
@@ -83,6 +85,7 @@ const buildToBeRenewedPrintHtml = ({
                     <td class="ctr">${yearNode.total}</td>
                     <td class="ctr">${yearNode.renewed}</td>
                     <td class="ctr">${yearNode.pending}</td>
+                    <td class="ctr">${yearNode.notInterested || 0}</td>
                     <td class="ctr">${yearNode.total ? Math.round((yearNode.renewed / yearNode.total) * 100) : 0}%</td>
                 </tr>`).join('');
             return courseRow + yearRows;
@@ -213,16 +216,18 @@ const buildToBeRenewedPrintHtml = ({
         <th class="ctr">Total Expired</th>
         <th class="ctr">Renewed</th>
         <th class="ctr">To Be Renewed</th>
+        <th class="ctr">Not Interested</th>
         <th class="ctr">Renewal %</th>
       </tr>
     </thead>
     <tbody>
-      ${abstractRows || '<tr><td colspan="6" style="text-align:center;">No data</td></tr>'}
+      ${abstractRows || '<tr><td colspan="7" style="text-align:center;">No data</td></tr>'}
       <tr class="total-row">
         <td colspan="2">Grand Total</td>
         <td class="ctr">${abstractTree.reduce((s, c) => s + c.total, 0)}</td>
         <td class="ctr">${abstractTree.reduce((s, c) => s + c.renewed, 0)}</td>
         <td class="ctr">${abstractTree.reduce((s, c) => s + c.pending, 0)}</td>
+        <td class="ctr">${abstractTree.reduce((s, c) => s + (c.notInterested || 0), 0)}</td>
         <td class="ctr">${(() => {
             const total = abstractTree.reduce((s, c) => s + c.total, 0);
             const renewed = abstractTree.reduce((s, c) => s + c.renewed, 0);
@@ -271,6 +276,7 @@ const buildRenewalAbstract = (list, renewedSet, coursesList) => {
         if (isCompleted) return;
 
         const isRenewed = renewedSet.has(String(req.admission_number || '').trim());
+        const isNotInterested = !!req.not_interested;
 
         if (!collegeMap.has(college)) {
             collegeMap.set(college, {
@@ -278,13 +284,19 @@ const buildRenewalAbstract = (list, renewedSet, coursesList) => {
                 total: 0,
                 renewed: 0,
                 pending: 0,
+                notInterested: 0,
                 courses: new Map(),
             });
         }
         const collegeNode = collegeMap.get(college);
         collegeNode.total += 1;
-        if (isRenewed) collegeNode.renewed += 1;
-        else collegeNode.pending += 1;
+        if (isRenewed) {
+            collegeNode.renewed += 1;
+        } else if (isNotInterested) {
+            collegeNode.notInterested += 1;
+        } else {
+            collegeNode.pending += 1;
+        }
 
         if (!collegeNode.courses.has(course)) {
             collegeNode.courses.set(course, {
@@ -292,21 +304,32 @@ const buildRenewalAbstract = (list, renewedSet, coursesList) => {
                 total: 0,
                 renewed: 0,
                 pending: 0,
+                notInterested: 0,
                 years: new Map(),
             });
         }
         const courseNode = collegeNode.courses.get(course);
         courseNode.total += 1;
-        if (isRenewed) courseNode.renewed += 1;
-        else courseNode.pending += 1;
+        if (isRenewed) {
+            courseNode.renewed += 1;
+        } else if (isNotInterested) {
+            courseNode.notInterested += 1;
+        } else {
+            courseNode.pending += 1;
+        }
 
         if (!courseNode.years.has(year)) {
-            courseNode.years.set(year, { year, total: 0, renewed: 0, pending: 0 });
+            courseNode.years.set(year, { year, total: 0, renewed: 0, pending: 0, notInterested: 0 });
         }
         const yearNode = courseNode.years.get(year);
         yearNode.total += 1;
-        if (isRenewed) yearNode.renewed += 1;
-        else yearNode.pending += 1;
+        if (isRenewed) {
+            yearNode.renewed += 1;
+        } else if (isNotInterested) {
+            yearNode.notInterested += 1;
+        } else {
+            yearNode.pending += 1;
+        }
     });
 
     const sortLabel = (a, b) => {
@@ -333,6 +356,7 @@ const AbstractCountCell = ({ value, tone = 'slate' }) => {
         slate: 'text-slate-800',
         emerald: 'text-emerald-700',
         amber: 'text-amber-700',
+        rose: 'text-rose-700',
     };
     return (
         <td className={`px-3 py-2.5 text-right text-xs font-bold tabular-nums whitespace-nowrap ${tones[tone] || tones.slate}`}>
@@ -1232,10 +1256,11 @@ const Renewals = () => {
                             <table className="w-full min-w-[720px] text-left border-collapse">
                                 <thead>
                                     <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                        <th className="px-4 py-3 w-[42%]">College / Course / Year</th>
+                                        <th className="px-4 py-3 w-[36%]">College / Course / Year</th>
                                         <th className="px-3 py-3 text-right w-[12%]">Total</th>
                                         <th className="px-3 py-3 text-right w-[12%]">Renewed</th>
                                         <th className="px-3 py-3 text-right w-[12%]">Pending</th>
+                                        <th className="px-3 py-3 text-right w-[16%]">Not Interested</th>
                                         <th className="px-3 py-3 text-right w-[12%]">Renewal %</th>
                                     </tr>
                                 </thead>
@@ -1271,6 +1296,7 @@ const Renewals = () => {
                                                     <AbstractCountCell value={college.total} />
                                                     <AbstractCountCell value={college.renewed} tone="emerald" />
                                                     <AbstractCountCell value={college.pending} tone="amber" />
+                                                    <AbstractCountCell value={college.notInterested} tone="rose" />
                                                     <td className="px-3 py-3 text-right text-xs font-bold tabular-nums text-slate-600">
                                                         {collegeRate}%
                                                     </td>
@@ -1308,6 +1334,7 @@ const Renewals = () => {
                                                                 <AbstractCountCell value={course.total} />
                                                                 <AbstractCountCell value={course.renewed} tone="emerald" />
                                                                 <AbstractCountCell value={course.pending} tone="amber" />
+                                                                <AbstractCountCell value={course.notInterested} tone="rose" />
                                                                 <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-slate-600">
                                                                     {courseRate}%
                                                                 </td>
@@ -1335,6 +1362,7 @@ const Renewals = () => {
                                                                         <AbstractCountCell value={yearNode.total} />
                                                                         <AbstractCountCell value={yearNode.renewed} tone="emerald" />
                                                                         <AbstractCountCell value={yearNode.pending} tone="amber" />
+                                                                        <AbstractCountCell value={yearNode.notInterested} tone="rose" />
                                                                         <td className="px-3 py-2 text-right text-xs font-bold tabular-nums text-slate-600">
                                                                             {yearRate}%
                                                                         </td>
@@ -1363,6 +1391,10 @@ const Renewals = () => {
                                         <AbstractCountCell
                                             value={abstractTree.reduce((sum, c) => sum + c.pending, 0)}
                                             tone="amber"
+                                        />
+                                        <AbstractCountCell
+                                            value={abstractTree.reduce((sum, c) => sum + (c.notInterested || 0), 0)}
+                                            tone="rose"
                                         />
                                         <td className="px-3 py-3 text-right text-xs font-black tabular-nums text-slate-700">
                                             {(() => {
