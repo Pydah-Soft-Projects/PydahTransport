@@ -10,6 +10,8 @@ const {
   deleteTemplate,
   previewRecipients,
   sendSms,
+  getAutoNotificationSettings,
+  updateAutoNotificationSettings,
 } = require('../controllers/communicationController');
 
 router.use(protect);
@@ -24,5 +26,8 @@ router.delete('/templates/:id', deleteTemplate);
 
 router.get('/recipients', previewRecipients);
 router.post('/send', sendSms);
+
+router.get('/auto-notifications', getAutoNotificationSettings);
+router.put('/auto-notifications', updateAutoNotificationSettings);
 
 module.exports = router;

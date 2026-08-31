@@ -358,6 +358,46 @@ const transferStage = async (req, res) => {
             affectedEmployeesCount: (employeeApprovedResult.modifiedCount || 0) + (employeePendingResult.modifiedCount || 0),
             busAssigned: targetBusId || null
         });
+
+        // SMS runs in background after response — never blocks this action
+        const { fireAutoNotification } = require('../services/autoNotificationService');
+        fireAutoNotification('transfer_stage', () => ({
+            students: passengersList
+                .filter((p) => p.type === 'student')
+                .map((p) => ({
+                    name: p.name,
+                    admissionNumber: p.admissionNumber,
+                    new_route_id: destinationRouteId,
+                    new_route_name: destRoute.routeName,
+                    new_stage_name: stageName,
+                    new_bus_id: targetBusId || '',
+                    old_route_id: sourceRouteId,
+                    old_route_name: sourceRoute.routeName,
+                    old_stage_name: stageName,
+                })),
+            employees: passengersList
+                .filter((p) => p.type === 'employee')
+                .map((p) => ({
+                    name: p.name,
+                    admissionNumber: p.admissionNumber,
+                    new_route_id: destinationRouteId,
+                    new_route_name: destRoute.routeName,
+                    new_stage_name: stageName,
+                    new_bus_id: targetBusId || '',
+                    old_route_id: sourceRouteId,
+                    old_route_name: sourceRoute.routeName,
+                    old_stage_name: stageName,
+                })),
+            extraParams: {
+                old_route_id: sourceRouteId,
+                new_route_id: destinationRouteId,
+                old_route_name: sourceRoute.routeName,
+                new_route_name: destRoute.routeName,
+                old_stage_name: stageName,
+                new_stage_name: stageName,
+                new_bus_id: targetBusId || '',
+            },
+        }));
     } catch (error) {
         console.error('Error transferring stage:', error);
         res.status(500).json({ message: error.message });
@@ -547,6 +587,43 @@ const transferPassengers = async (req, res) => {
             transferredStudents: studentCount,
             transferredEmployees: employeeCount
         });
+
+        // SMS runs in background after response — never blocks this action
+        const { fireAutoNotification } = require('../services/autoNotificationService');
+        fireAutoNotification('transfer_passengers', () => ({
+            students: passengersList
+                .filter((p) => p.type === 'student')
+                .map((p) => ({
+                    name: p.name,
+                    admissionNumber: p.admissionNumber,
+                    new_route_id: destinationRouteId,
+                    new_route_name: destRoute.routeName,
+                    new_stage_name: destinationStageName,
+                    old_route_id: sourceRouteId || '',
+                    old_route_name: sourceRouteName || '',
+                    old_stage_name: sourceStageName || '',
+                })),
+            employees: passengersList
+                .filter((p) => p.type === 'employee')
+                .map((p) => ({
+                    name: p.name,
+                    admissionNumber: p.admissionNumber,
+                    new_route_id: destinationRouteId,
+                    new_route_name: destRoute.routeName,
+                    new_stage_name: destinationStageName,
+                    old_route_id: sourceRouteId || '',
+                    old_route_name: sourceRouteName || '',
+                    old_stage_name: sourceStageName || '',
+                })),
+            extraParams: {
+                old_route_id: sourceRouteId || '',
+                new_route_id: destinationRouteId,
+                old_route_name: sourceRouteName || '',
+                new_route_name: destRoute.routeName,
+                old_stage_name: sourceStageName || '',
+                new_stage_name: destinationStageName,
+            },
+        }));
     } catch (error) {
         console.error('Error transferring passengers:', error);
         res.status(500).json({ message: error.message });

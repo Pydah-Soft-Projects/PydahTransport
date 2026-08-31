@@ -14,7 +14,26 @@ import {
   Bus,
   Map as MapIcon,
   X,
+  Bell,
 } from 'lucide-react';
+
+const AUTO_ACTION_META = {
+  transfer_stage: {
+    label: 'Stage Migration',
+    description: 'When a stage is moved from one route to another, all passengers on that stage receive SMS.',
+    icon: MapIcon,
+  },
+  transfer_passengers: {
+    label: 'Passenger Transfer',
+    description: 'When selected students/employees are transferred to another route and stage.',
+    icon: Users,
+  },
+  bus_route_mapping: {
+    label: 'Bus–Route Mapping',
+    description: 'When a bus is attached or detached from a route and passenger bus assignments update.',
+    icon: Bus,
+  },
+};
 
 const EMPTY_TEMPLATE = {
   name: '',
@@ -26,7 +45,7 @@ const EMPTY_TEMPLATE = {
   isActive: true,
 };
 
-const PLACEHOLDER_HINT = 'Use {#var#} for each value. Transport fields: Passenger Name, Admission/Emp No, Route ID, Route Name, Stage, Bus Number';
+const PLACEHOLDER_HINT = 'Use {#var#} for each value. Transport fields: Passenger Name, Admission/Emp No, Route ID, Route Name, Stage, Bus Number. For transfers: Old/New Route, Stage, Bus fields.';
 
 const VAR_FIELD_OPTIONS = [
   { value: 'name', label: 'Passenger Name' },
@@ -36,6 +55,14 @@ const VAR_FIELD_OPTIONS = [
   { value: 'route_name', label: 'Route Name' },
   { value: 'stage_name', label: 'Boarding Stage' },
   { value: 'bus_id', label: 'Bus Number' },
+  { value: 'old_route_id', label: 'Old Route ID' },
+  { value: 'new_route_id', label: 'New Route ID' },
+  { value: 'old_route_name', label: 'Old Route Name' },
+  { value: 'new_route_name', label: 'New Route Name' },
+  { value: 'old_stage_name', label: 'Old Stage' },
+  { value: 'new_stage_name', label: 'New Stage' },
+  { value: 'old_bus_id', label: 'Old Bus Number' },
+  { value: 'new_bus_id', label: 'New Bus Number' },
 ];
 
 const countDltVars = (body = '') => {
@@ -81,6 +108,10 @@ export default function Communications() {
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState(null);
+
+  const [autoSettings, setAutoSettings] = useState([]);
+  const [loadingAutoSettings, setLoadingAutoSettings] = useState(false);
+  const [savingAutoSettings, setSavingAutoSettings] = useState(false);
 
   const selectedTemplate = useMemo(
     () => templates.find((t) => t._id === sendForm.templateId) || null,
@@ -200,6 +231,55 @@ export default function Communications() {
     loadTemplates();
     loadLookups();
   }, [loadTemplates, loadLookups]);
+
+  const loadAutoSettings = useCallback(async () => {
+    setLoadingAutoSettings(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/communications/auto-notifications`);
+      const json = await res.json();
+      if (json.success) setAutoSettings(json.data || []);
+    } catch (err) {
+      showMessage('error', err.message || 'Failed to load auto notification settings');
+    } finally {
+      setLoadingAutoSettings(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'auto') loadAutoSettings();
+  }, [activeTab, loadAutoSettings]);
+
+  const updateAutoSetting = (action, patch) => {
+    setAutoSettings((prev) => prev.map((s) => (
+      s.action === action ? { ...s, ...patch } : s
+    )));
+  };
+
+  const handleSaveAutoSettings = async () => {
+    setSavingAutoSettings(true);
+    try {
+      const payload = autoSettings.map((s) => ({
+        action: s.action,
+        enabled: Boolean(s.enabled),
+        templateId: s.templateId?._id || s.templateId || null,
+        notifyStudents: s.notifyStudents !== false,
+        notifyEmployees: s.notifyEmployees !== false,
+      }));
+      const res = await apiFetch(`${API_BASE}/communications/auto-notifications`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: payload }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || 'Save failed');
+      setAutoSettings(json.data || []);
+      showMessage('success', 'Auto notification settings saved');
+    } catch (err) {
+      showMessage('error', err.message || 'Failed to save auto notification settings');
+    } finally {
+      setSavingAutoSettings(false);
+    }
+  };
 
   const resetTemplateForm = () => {
     setEditingTemplate(null);
@@ -413,6 +493,12 @@ export default function Communications() {
               >
                 Send SMS
               </button>
+              <button
+                onClick={() => setActiveTab('auto')}
+                className={`px-4 py-1.5 rounded-md transition-all flex items-center gap-1.5 ${activeTab === 'auto' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+              >
+                <Bell size={12} /> Auto Notifications
+              </button>
             </div>
           </div>
         </div>
@@ -619,6 +705,122 @@ export default function Communications() {
                 </div>
               )}
             </div>
+          </div>
+        ) : activeTab === 'auto' ? (
+          <div className="space-y-4">
+            {loadingAutoSettings ? (
+              <div className="flex items-center justify-center py-16 text-slate-400 text-sm gap-2">
+                <Loader2 size={18} className="animate-spin" /> Loading settings…
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-4">
+                  {autoSettings.map((setting) => {
+                    const meta = AUTO_ACTION_META[setting.action] || {
+                      label: setting.action,
+                      description: '',
+                      icon: Bell,
+                    };
+                    const Icon = meta.icon;
+                    const linkedTemplate = setting.templateId && typeof setting.templateId === 'object'
+                      ? setting.templateId
+                      : templates.find((t) => t._id === setting.templateId);
+                    const activeTemplates = templates.filter((t) => t.isActive !== false);
+
+                    return (
+                      <div key={setting.action} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                              <Icon size={16} />
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-bold text-slate-900">{meta.label}</h3>
+                              <p className="text-xs text-slate-500 mt-0.5 max-w-xl">{meta.description}</p>
+                            </div>
+                          </div>
+                          <label className="flex items-center gap-2 text-xs font-bold text-slate-600 shrink-0 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(setting.enabled)}
+                              onChange={(e) => updateAutoSetting(setting.action, { enabled: e.target.checked })}
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            Enabled
+                          </label>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">SMS Template</label>
+                            <select
+                              value={linkedTemplate?._id || setting.templateId || ''}
+                              onChange={(e) => {
+                                const tpl = activeTemplates.find((t) => t._id === e.target.value);
+                                updateAutoSetting(setting.action, { templateId: tpl || e.target.value || null });
+                              }}
+                              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                            >
+                              <option value="">— Select template —</option>
+                              {activeTemplates.map((t) => (
+                                <option key={t._id} value={t._id}>{t.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex items-end gap-4 pb-1">
+                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={setting.notifyStudents !== false}
+                                onChange={(e) => updateAutoSetting(setting.action, { notifyStudents: e.target.checked })}
+                                className="rounded border-slate-300 text-blue-600"
+                              />
+                              Notify students
+                            </label>
+                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={setting.notifyEmployees !== false}
+                                onChange={(e) => updateAutoSetting(setting.action, { notifyEmployees: e.target.checked })}
+                                className="rounded border-slate-300 text-blue-600"
+                              />
+                              Notify employees
+                            </label>
+                          </div>
+                        </div>
+
+                        {linkedTemplate && (
+                          <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 text-xs">
+                            <p className="font-bold text-slate-700 mb-1">Template preview</p>
+                            <p className="text-slate-600 whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
+                              {linkedTemplate.body}
+                            </p>
+                            {linkedTemplate.description && (
+                              <p className="text-slate-400 mt-2 italic">{linkedTemplate.description}</p>
+                            )}
+                          </div>
+                        )}
+
+                        {setting.enabled && !linkedTemplate && (
+                          <p className="text-xs text-amber-700 font-semibold">Select a template to enable sending.</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleSaveAutoSettings}
+                    disabled={savingAutoSettings}
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {savingAutoSettings ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                    Save Auto Notification Settings
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-4">

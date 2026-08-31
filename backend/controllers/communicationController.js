@@ -1,4 +1,6 @@
 const SmsTemplate = require('../models/SmsTemplate');
+const AutoNotificationSetting = require('../models/AutoNotificationSetting');
+const { ensureDefaultSettings, AUTO_NOTIFICATION_ACTIONS } = require('../services/autoNotificationService');
 const TransportRequest = require('../models/TransportRequest');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 const { mysqlPool, getEmployeeConnection } = require('../config/db');
@@ -510,6 +512,46 @@ const sendSms = async (req, res) => {
   }
 };
 
+const getAutoNotificationSettings = async (req, res) => {
+  try {
+    const settings = await ensureDefaultSettings();
+    return res.json({ success: true, data: settings, actions: AUTO_NOTIFICATION_ACTIONS });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const updateAutoNotificationSettings = async (req, res) => {
+  try {
+    const { settings = [] } = req.body;
+    if (!Array.isArray(settings)) {
+      return res.status(400).json({ success: false, message: 'settings array is required' });
+    }
+
+    for (const item of settings) {
+      if (!item.action || !AUTO_NOTIFICATION_ACTIONS.includes(item.action)) continue;
+
+      const update = {
+        enabled: Boolean(item.enabled),
+        notifyStudents: item.notifyStudents !== false,
+        notifyEmployees: item.notifyEmployees !== false,
+        templateId: item.templateId || null,
+      };
+
+      await AutoNotificationSetting.findOneAndUpdate(
+        { action: item.action },
+        { $set: update },
+        { upsert: true, new: true }
+      );
+    }
+
+    const refreshed = await ensureDefaultSettings();
+    return res.json({ success: true, data: refreshed });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getConfigStatus,
   getBalance,
@@ -519,4 +561,6 @@ module.exports = {
   deleteTemplate,
   previewRecipients,
   sendSms,
+  getAutoNotificationSettings,
+  updateAutoNotificationSettings,
 };

@@ -959,12 +959,25 @@ const updateBus = async (req, res) => {
 
         const updatedBus = await bus.save();
 
-        // If route assignment changed, run the passenger allocation sync to match the new mapping
-        if (newRouteId !== undefined && newRouteId !== previousRouteId) {
+        const routeMappingChanged = newRouteId !== undefined && newRouteId !== previousRouteId;
+
+        // If route assignment changed, sync passenger bus allocations first
+        if (routeMappingChanged) {
             await syncPassengersToBusMapping();
         }
 
         res.json(updatedBus);
+
+        // SMS runs in background after response — never blocks this action
+        if (routeMappingChanged) {
+            const { fireBusMappingNotification } = require('../services/autoNotificationService');
+            fireBusMappingNotification({
+                routeIds: [previousRouteId, newRouteId].filter(Boolean),
+                busNumber: updatedBus.busNumber,
+                previousRouteId: previousRouteId || '',
+                newRouteId: newRouteId || '',
+            });
+        }
     } catch (error) {
         res.status(400).json({ message: error.message });
     }
