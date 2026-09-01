@@ -1,5 +1,6 @@
 const SmsTemplate = require('../models/SmsTemplate');
 const AutoNotificationSetting = require('../models/AutoNotificationSetting');
+const AutoNotificationLog = require('../models/AutoNotificationLog');
 const { ensureDefaultSettings, AUTO_NOTIFICATION_ACTIONS } = require('../services/autoNotificationService');
 const TransportRequest = require('../models/TransportRequest');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
@@ -552,6 +553,86 @@ const updateAutoNotificationSettings = async (req, res) => {
   }
 };
 
+const getAutoNotificationLogs = async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+    const skip = (page - 1) * limit;
+    const { action } = req.query;
+
+    const query = {};
+    if (action && AUTO_NOTIFICATION_ACTIONS.includes(action)) {
+      query.action = action;
+    }
+
+    const [logs, total, actionStats, overallStats] = await Promise.all([
+      AutoNotificationLog.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      AutoNotificationLog.countDocuments(query),
+      AutoNotificationLog.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: '$action',
+            dispatches: { $sum: 1 },
+            sentCount: { $sum: '$sentCount' },
+            failedCount: { $sum: '$failedCount' },
+            noPhoneCount: { $sum: '$noPhoneCount' },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
+      AutoNotificationLog.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            dispatches: { $sum: 1 },
+            sentCount: { $sum: '$sentCount' },
+            failedCount: { $sum: '$failedCount' },
+            noPhoneCount: { $sum: '$noPhoneCount' },
+            skippedDispatches: {
+              $sum: { $cond: [{ $eq: ['$status', 'skipped'] }, 1, 0] },
+            },
+          },
+        },
+      ]),
+    ]);
+
+    const stats = {
+      dispatches: overallStats[0]?.dispatches || 0,
+      sentCount: overallStats[0]?.sentCount || 0,
+      failedCount: overallStats[0]?.failedCount || 0,
+      noPhoneCount: overallStats[0]?.noPhoneCount || 0,
+      skippedDispatches: overallStats[0]?.skippedDispatches || 0,
+      byAction: actionStats.map((row) => ({
+        action: row._id,
+        dispatches: row.dispatches,
+        sentCount: row.sentCount,
+        failedCount: row.failedCount,
+        noPhoneCount: row.noPhoneCount,
+      })),
+    };
+
+    return res.json({
+      success: true,
+      data: logs,
+      stats,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit) || 1,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getConfigStatus,
   getBalance,
@@ -563,4 +644,5 @@ module.exports = {
   sendSms,
   getAutoNotificationSettings,
   updateAutoNotificationSettings,
+  getAutoNotificationLogs,
 };

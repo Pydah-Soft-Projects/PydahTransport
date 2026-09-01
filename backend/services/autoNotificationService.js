@@ -1,5 +1,6 @@
 const SmsTemplate = require('../models/SmsTemplate');
 const AutoNotificationSetting = require('../models/AutoNotificationSetting');
+const AutoNotificationLog = require('../models/AutoNotificationLog');
 const TransportRequest = require('../models/TransportRequest');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 const { mysqlPool, getEmployeeConnection } = require('../config/db');
@@ -204,15 +205,42 @@ const buildRecipientsFromLists = async ({
   return recipients;
 };
 
+const buildMessageDetail = (recipient, message, status, error = '') => ({
+  recipientName: recipient?.name || '',
+  recipientId: recipient?.params?.admission_number || recipient?.params?.emp_no || '',
+  recipientType: recipient?.type || 'unknown',
+  phone: recipient?.phone || '',
+  message: message || '',
+  status,
+  error,
+});
+
+const resolveDispatchStatus = ({ sent = 0, failed = 0, skipped = false } = {}) => {
+  if (skipped) return 'skipped';
+  if (sent > 0 && failed > 0) return 'partial';
+  if (sent > 0) return 'sent';
+  return 'failed';
+};
+
+const persistAutoNotificationLog = async (payload = {}) => {
+  try {
+    await AutoNotificationLog.create(payload);
+  } catch (err) {
+    console.error('[AutoNotify] Failed to persist delivery log:', err.message);
+  }
+};
+
 const sendToRecipients = async (template, recipients, extraParams = {}) => {
   try {
     if (!isBulkSmsConfigured()) {
-      return { success: false, skipped: true, reason: 'BulkSMS not configured', sent: 0, failed: 0 };
-    }
-
-    const targets = recipients.filter((r) => r.phone);
-    if (targets.length === 0) {
-      return { success: true, skipped: true, reason: 'No recipients with phone numbers', sent: 0, failed: 0, noPhone: recipients.length };
+      return {
+        success: false,
+        skipped: true,
+        reason: 'BulkSMS not configured',
+        sent: 0,
+        failed: 0,
+        messageDetails: [],
+      };
     }
 
     const dltTemplateId = String(template.dltTemplateId).trim();
@@ -228,10 +256,28 @@ const sendToRecipients = async (template, recipients, extraParams = {}) => {
       return applyTemplateParams(message, { ...extraParams, ...recipientParams });
     };
 
+    const noPhoneDetails = recipients
+      .filter((r) => !r.phone)
+      .map((r) => buildMessageDetail(r, buildMessageForRecipient(r.params || {}), 'no_phone'));
+
+    const targets = recipients.filter((r) => r.phone);
+    if (targets.length === 0) {
+      return {
+        success: true,
+        skipped: true,
+        reason: 'No recipients with phone numbers',
+        sent: 0,
+        failed: 0,
+        noPhone: recipients.length,
+        messageDetails: noPhoneDetails,
+      };
+    }
+
     const needsPersonalization = dltVarCount > 0 || mappingsNeedPersonalization(effectiveMappings);
 
     if (needsPersonalization) {
       const items = targets.map((r) => ({
+        recipient: r,
         number: r.phone,
         name: r.name,
         message: buildMessageForRecipient(r.params || {}),
@@ -245,11 +291,22 @@ const sendToRecipients = async (template, recipients, extraParams = {}) => {
           unicode: template.unicode,
           templateId: dltTemplateId,
         });
+        const status = result.success ? 'sent' : 'failed';
+        const messageDetails = [
+          ...noPhoneDetails,
+          ...items.map((item) => buildMessageDetail(
+            item.recipient,
+            item.message,
+            status,
+            result.success ? '' : (result.error || result.response || 'Send failed')
+          )),
+        ];
         return {
           success: result.success,
           sent: result.success ? targets.length : 0,
           failed: result.success ? 0 : targets.length,
           mode: 'bulk',
+          messageDetails,
         };
       }
 
@@ -257,11 +314,28 @@ const sendToRecipients = async (template, recipients, extraParams = {}) => {
         unicode: template.unicode,
         templateId: dltTemplateId,
       });
+      const resultByPhone = new Map(
+        (result.results || []).map((row) => [String(row.number || ''), row])
+      );
+      const messageDetails = [
+        ...noPhoneDetails,
+        ...items.map((item) => {
+          const row = resultByPhone.get(String(item.number || ''));
+          const status = row?.success ? 'sent' : 'failed';
+          return buildMessageDetail(
+            item.recipient,
+            item.message,
+            status,
+            row?.success ? '' : (row?.response || row?.error || 'Send failed')
+          );
+        }),
+      ];
       return {
         success: result.success,
         sent: result.sent || 0,
         failed: result.failed || 0,
         mode: 'personalized',
+        messageDetails,
       };
     }
 
@@ -272,15 +346,33 @@ const sendToRecipients = async (template, recipients, extraParams = {}) => {
       unicode: template.unicode,
       templateId: dltTemplateId,
     });
+    const status = result.success ? 'sent' : 'failed';
+    const messageDetails = [
+      ...noPhoneDetails,
+      ...targets.map((recipient) => buildMessageDetail(
+        recipient,
+        message,
+        status,
+        result.success ? '' : (result.error || result.response || 'Send failed')
+      )),
+    ];
     return {
       success: result.success,
       sent: result.success ? targets.length : 0,
       failed: result.success ? 0 : targets.length,
       mode: 'bulk',
+      messageDetails,
     };
   } catch (err) {
     console.error('[AutoNotify] sendToRecipients error:', err.message);
-    return { success: false, skipped: true, reason: err.message, sent: 0, failed: 0 };
+    return {
+      success: false,
+      skipped: true,
+      reason: err.message,
+      sent: 0,
+      failed: 0,
+      messageDetails: [],
+    };
   }
 };
 
@@ -293,15 +385,42 @@ const triggerAutoNotification = async (action, {
   employees = [],
   extraParams = {},
 } = {}) => {
+  const baseLog = {
+    action,
+    extraParams,
+    messages: [],
+    totalRecipients: 0,
+    sentCount: 0,
+    failedCount: 0,
+    noPhoneCount: 0,
+  };
+
   try {
     const setting = await AutoNotificationSetting.findOne({ action }).lean();
     if (!setting || !setting.enabled || !setting.templateId) {
-      return { skipped: true, reason: 'Auto notification disabled or no template' };
+      const skipReason = 'Auto notification disabled or no template';
+      setImmediate(() => {
+        persistAutoNotificationLog({
+          ...baseLog,
+          status: 'skipped',
+          skipReason,
+        });
+      });
+      return { skipped: true, reason: skipReason };
     }
 
     const template = await SmsTemplate.findById(setting.templateId).lean();
     if (!template || !template.isActive || !template.dltTemplateId) {
-      return { skipped: true, reason: 'Template missing or inactive' };
+      const skipReason = 'Template missing or inactive';
+      setImmediate(() => {
+        persistAutoNotificationLog({
+          ...baseLog,
+          status: 'skipped',
+          skipReason,
+          templateId: setting.templateId || null,
+        });
+      });
+      return { skipped: true, reason: skipReason };
     }
 
     const filteredStudents = setting.notifyStudents !== false ? students : [];
@@ -314,10 +433,42 @@ const triggerAutoNotification = async (action, {
     });
 
     const result = await sendToRecipients(template, recipients, extraParams);
-    console.log(`[AutoNotify:${action}] sent=${result.sent || 0} failed=${result.failed || 0} skipped=${Boolean(result.skipped)}`);
+    const messageDetails = Array.isArray(result.messageDetails) ? result.messageDetails : [];
+    const sentCount = Number(result.sent || 0);
+    const failedCount = Number(result.failed || 0);
+    const noPhoneCount = messageDetails.filter((m) => m.status === 'no_phone').length;
+
+    const logPayload = {
+      ...baseLog,
+      status: resolveDispatchStatus({ sent: sentCount, failed: failedCount, skipped: Boolean(result.skipped) }),
+      skipReason: result.skipped ? (result.reason || '') : '',
+      error: result.success === false && !result.skipped ? (result.reason || result.error || '') : '',
+      templateId: template._id,
+      templateName: template.name || '',
+      dltTemplateId: template.dltTemplateId || '',
+      mode: result.mode || '',
+      sentCount,
+      failedCount,
+      noPhoneCount,
+      totalRecipients: messageDetails.length,
+      messages: messageDetails,
+    };
+
+    setImmediate(() => {
+      persistAutoNotificationLog(logPayload);
+    });
+
+    console.log(`[AutoNotify:${action}] sent=${sentCount} failed=${failedCount} skipped=${Boolean(result.skipped)}`);
     return result;
   } catch (err) {
     console.error(`[AutoNotify:${action}] error:`, err.message);
+    setImmediate(() => {
+      persistAutoNotificationLog({
+        ...baseLog,
+        status: 'failed',
+        error: err.message,
+      });
+    });
     return { success: false, error: err.message, sent: 0, failed: 0 };
   }
 };

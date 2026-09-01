@@ -12,6 +12,7 @@ const {
   sendSms,
   getAutoNotificationSettings,
   updateAutoNotificationSettings,
+  getAutoNotificationLogs,
 } = require('../controllers/communicationController');
 
 router.use(protect);
@@ -29,5 +30,6 @@ router.post('/send', sendSms);
 
 router.get('/auto-notifications', getAutoNotificationSettings);
 router.put('/auto-notifications', updateAutoNotificationSettings);
+router.get('/auto-notifications/logs', getAutoNotificationLogs);
 
 module.exports = router;

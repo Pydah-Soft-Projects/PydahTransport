@@ -15,6 +15,10 @@ import {
   Map as MapIcon,
   X,
   Bell,
+  BarChart3,
+  FileText,
+  ChevronRight,
+  Clock,
 } from 'lucide-react';
 
 const AUTO_ACTION_META = {
@@ -112,6 +116,20 @@ export default function Communications() {
   const [autoSettings, setAutoSettings] = useState([]);
   const [loadingAutoSettings, setLoadingAutoSettings] = useState(false);
   const [savingAutoSettings, setSavingAutoSettings] = useState(false);
+  const [autoLogs, setAutoLogs] = useState([]);
+  const [autoLogStats, setAutoLogStats] = useState({
+    dispatches: 0,
+    sentCount: 0,
+    failedCount: 0,
+    noPhoneCount: 0,
+    skippedDispatches: 0,
+    byAction: [],
+  });
+  const [loadingAutoLogs, setLoadingAutoLogs] = useState(false);
+  const [selectedLogId, setSelectedLogId] = useState(null);
+  const [logActionFilter, setLogActionFilter] = useState('');
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsPagination, setLogsPagination] = useState({ page: 1, pages: 1, total: 0 });
 
   const selectedTemplate = useMemo(
     () => templates.find((t) => t._id === sendForm.templateId) || null,
@@ -248,6 +266,73 @@ export default function Communications() {
   useEffect(() => {
     if (activeTab === 'auto') loadAutoSettings();
   }, [activeTab, loadAutoSettings]);
+
+  const loadAutoLogs = useCallback(async () => {
+    setLoadingAutoLogs(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(logsPage),
+        limit: '25',
+      });
+      if (logActionFilter) params.set('action', logActionFilter);
+      const res = await apiFetch(`${API_BASE}/communications/auto-notifications/logs?${params.toString()}`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || 'Failed to load delivery logs');
+      const rows = json.data || [];
+      setAutoLogs(rows);
+      setAutoLogStats(json.stats || {
+        dispatches: 0,
+        sentCount: 0,
+        failedCount: 0,
+        noPhoneCount: 0,
+        skippedDispatches: 0,
+        byAction: [],
+      });
+      setLogsPagination(json.pagination || { page: 1, pages: 1, total: 0 });
+      setSelectedLogId((prev) => {
+        if (prev && rows.some((row) => String(row._id) === String(prev))) return prev;
+        return rows[0]?._id || null;
+      });
+    } catch (err) {
+      showMessage('error', err.message || 'Failed to load auto notification logs');
+    } finally {
+      setLoadingAutoLogs(false);
+    }
+  }, [logsPage, logActionFilter]);
+
+  useEffect(() => {
+    if (activeTab === 'auto') loadAutoLogs();
+  }, [activeTab, loadAutoLogs]);
+
+  const selectedAutoLog = useMemo(
+    () => autoLogs.find((log) => String(log._id) === String(selectedLogId)) || null,
+    [autoLogs, selectedLogId]
+  );
+
+  const formatLogDate = (value) => {
+    if (!value) return '—';
+    return new Date(value).toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const statusTone = (status) => {
+    if (status === 'sent') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    if (status === 'partial') return 'bg-amber-50 text-amber-700 border-amber-200';
+    if (status === 'failed') return 'bg-red-50 text-red-700 border-red-200';
+    return 'bg-slate-50 text-slate-600 border-slate-200';
+  };
+
+  const messageStatusTone = (status) => {
+    if (status === 'sent') return 'text-emerald-700 bg-emerald-50';
+    if (status === 'failed') return 'text-red-700 bg-red-50';
+    if (status === 'no_phone') return 'text-amber-700 bg-amber-50';
+    return 'text-slate-600 bg-slate-100';
+  };
 
   const updateAutoSetting = (action, patch) => {
     setAutoSettings((prev) => prev.map((s) => (
@@ -707,120 +792,372 @@ export default function Communications() {
             </div>
           </div>
         ) : activeTab === 'auto' ? (
-          <div className="space-y-4">
-            {loadingAutoSettings ? (
-              <div className="flex items-center justify-center py-16 text-slate-400 text-sm gap-2">
-                <Loader2 size={18} className="animate-spin" /> Loading settings…
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-4 items-start">
+            {/* Left column — Auto notification settings */}
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Bell size={15} className="text-blue-600" /> Notification Settings
+                  </h2>
+                  <p className="text-[11px] text-slate-500 mt-1">Configure templates and triggers for automatic SMS on route actions.</p>
+                </div>
+                <button
+                  onClick={handleSaveAutoSettings}
+                  disabled={savingAutoSettings || loadingAutoSettings}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 disabled:opacity-50 shadow-sm shrink-0"
+                >
+                  {savingAutoSettings ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  Save Settings
+                </button>
               </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 gap-4">
-                  {autoSettings.map((setting) => {
-                    const meta = AUTO_ACTION_META[setting.action] || {
-                      label: setting.action,
-                      description: '',
-                      icon: Bell,
-                    };
-                    const Icon = meta.icon;
-                    const linkedTemplate = setting.templateId && typeof setting.templateId === 'object'
-                      ? setting.templateId
-                      : templates.find((t) => t._id === setting.templateId);
-                    const activeTemplates = templates.filter((t) => t.isActive !== false);
 
-                    return (
-                      <div key={setting.action} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-3">
-                            <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-                              <Icon size={16} />
+              {loadingAutoSettings ? (
+                <div className="flex items-center justify-center py-16 text-slate-400 text-sm gap-2 bg-white rounded-xl border border-slate-200">
+                  <Loader2 size={18} className="animate-spin" /> Loading settings…
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-4">
+                    {autoSettings.map((setting) => {
+                      const meta = AUTO_ACTION_META[setting.action] || {
+                        label: setting.action,
+                        description: '',
+                        icon: Bell,
+                      };
+                      const Icon = meta.icon;
+                      const linkedTemplate = setting.templateId && typeof setting.templateId === 'object'
+                        ? setting.templateId
+                        : templates.find((t) => t._id === setting.templateId);
+                      const activeTemplates = templates.filter((t) => t.isActive !== false);
+
+                      return (
+                        <div key={setting.action} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-3">
+                              <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                                <Icon size={16} />
+                              </div>
+                              <div>
+                                <h3 className="text-sm font-bold text-slate-900">{meta.label}</h3>
+                                <p className="text-xs text-slate-500 mt-0.5">{meta.description}</p>
+                              </div>
                             </div>
+                            <label className="flex items-center gap-2 text-xs font-bold text-slate-600 shrink-0 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(setting.enabled)}
+                                onChange={(e) => updateAutoSetting(setting.action, { enabled: e.target.checked })}
+                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              Enabled
+                            </label>
+                          </div>
+
+                          <div className="space-y-3 pt-1">
                             <div>
-                              <h3 className="text-sm font-bold text-slate-900">{meta.label}</h3>
-                              <p className="text-xs text-slate-500 mt-0.5 max-w-xl">{meta.description}</p>
+                              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">SMS Template</label>
+                              <select
+                                value={linkedTemplate?._id || setting.templateId || ''}
+                                onChange={(e) => {
+                                  const tpl = activeTemplates.find((t) => t._id === e.target.value);
+                                  updateAutoSetting(setting.action, { templateId: tpl || e.target.value || null });
+                                }}
+                                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                              >
+                                <option value="">— Select template —</option>
+                                {activeTemplates.map((t) => (
+                                  <option key={t._id} value={t._id}>{t.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-4">
+                              <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={setting.notifyStudents !== false}
+                                  onChange={(e) => updateAutoSetting(setting.action, { notifyStudents: e.target.checked })}
+                                  className="rounded border-slate-300 text-blue-600"
+                                />
+                                Notify students
+                              </label>
+                              <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={setting.notifyEmployees !== false}
+                                  onChange={(e) => updateAutoSetting(setting.action, { notifyEmployees: e.target.checked })}
+                                  className="rounded border-slate-300 text-blue-600"
+                                />
+                                Notify employees
+                              </label>
                             </div>
                           </div>
-                          <label className="flex items-center gap-2 text-xs font-bold text-slate-600 shrink-0 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(setting.enabled)}
-                              onChange={(e) => updateAutoSetting(setting.action, { enabled: e.target.checked })}
-                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            Enabled
-                          </label>
-                        </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-                          <div>
-                            <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">SMS Template</label>
-                            <select
-                              value={linkedTemplate?._id || setting.templateId || ''}
-                              onChange={(e) => {
-                                const tpl = activeTemplates.find((t) => t._id === e.target.value);
-                                updateAutoSetting(setting.action, { templateId: tpl || e.target.value || null });
-                              }}
-                              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                          {linkedTemplate && (
+                            <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 text-xs">
+                              <p className="font-bold text-slate-700 mb-1">Template preview</p>
+                              <p className="text-slate-600 whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
+                                {linkedTemplate.body}
+                              </p>
+                              {linkedTemplate.description && (
+                                <p className="text-slate-400 mt-2 italic">{linkedTemplate.description}</p>
+                              )}
+                            </div>
+                          )}
+
+                          {setting.enabled && !linkedTemplate && (
+                            <p className="text-xs text-amber-700 font-semibold">Select a template to enable sending.</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Right column — Delivery stats & message details */}
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <BarChart3 size={15} className="text-blue-600" /> Message Stats
+                  </h2>
+                  <p className="text-[11px] text-slate-500 mt-1">Delivery history and the exact SMS content sent to each recipient.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadAutoLogs}
+                  className="px-3 py-1.5 text-[10px] font-bold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center gap-1 shrink-0"
+                >
+                  <RefreshCw size={11} /> Refresh
+                </button>
+              </div>
+
+              {loadingAutoLogs ? (
+                <div className="flex items-center justify-center py-16 text-slate-400 text-sm gap-2 bg-white rounded-xl border border-slate-200">
+                  <Loader2 size={18} className="animate-spin" /> Loading delivery stats…
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="bg-white rounded-xl border border-slate-200 p-3">
+                      <p className="text-[10px] font-bold uppercase text-slate-400">Dispatches</p>
+                      <p className="text-xl font-black text-slate-900 mt-1">{autoLogStats.dispatches}</p>
+                    </div>
+                    <div className="bg-white rounded-xl border border-emerald-100 p-3">
+                      <p className="text-[10px] font-bold uppercase text-emerald-600">Messages Sent</p>
+                      <p className="text-xl font-black text-emerald-700 mt-1">{autoLogStats.sentCount}</p>
+                    </div>
+                    <div className="bg-white rounded-xl border border-red-100 p-3">
+                      <p className="text-[10px] font-bold uppercase text-red-500">Failed</p>
+                      <p className="text-xl font-black text-red-700 mt-1">{autoLogStats.failedCount}</p>
+                    </div>
+                    <div className="bg-white rounded-xl border border-amber-100 p-3">
+                      <p className="text-[10px] font-bold uppercase text-amber-600">No Phone</p>
+                      <p className="text-xl font-black text-amber-700 mt-1">{autoLogStats.noPhoneCount}</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Filter by Action</h3>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setLogActionFilter(''); setLogsPage(1); }}
+                        className={`px-2.5 py-1 rounded-md text-[10px] font-bold border ${!logActionFilter ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-600 border-slate-200'}`}
+                      >
+                        All
+                      </button>
+                      {Object.entries(AUTO_ACTION_META).map(([action, meta]) => (
+                        <button
+                          key={action}
+                          type="button"
+                          onClick={() => { setLogActionFilter(action); setLogsPage(1); }}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-bold border ${logActionFilter === action ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-600 border-slate-200'}`}
+                        >
+                          {meta.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {(autoLogStats.byAction || []).length > 0 && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                        {autoLogStats.byAction.map((row) => {
+                          const meta = AUTO_ACTION_META[row.action] || { label: row.action };
+                          return (
+                            <div key={row.action} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                              <p className="text-[11px] font-bold text-slate-800">{meta.label}</p>
+                              <p className="text-[10px] text-slate-500 mt-1">
+                                {row.dispatches} dispatches · {row.sentCount} sent
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <Clock size={15} className="text-blue-600" /> Recent Dispatches
+                    </h3>
+                    <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                      {autoLogs.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic py-4 text-center">No auto notification deliveries logged yet.</p>
+                      ) : (
+                        autoLogs.map((log) => {
+                          const meta = AUTO_ACTION_META[log.action] || { label: log.action };
+                          const isSelected = String(log._id) === String(selectedLogId);
+                          return (
+                            <button
+                              key={log._id}
+                              type="button"
+                              onClick={() => setSelectedLogId(log._id)}
+                              className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${isSelected ? 'border-blue-300 bg-blue-50' : 'border-slate-100 bg-white hover:bg-slate-50'}`}
                             >
-                              <option value="">— Select template —</option>
-                              {activeTemplates.map((t) => (
-                                <option key={t._id} value={t._id}>{t.name}</option>
-                              ))}
-                            </select>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold text-slate-800 truncate">{meta.label}</p>
+                                  <p className="text-[10px] text-slate-500 mt-0.5">{formatLogDate(log.createdAt)}</p>
+                                  <p className="text-[10px] text-slate-500 mt-1 truncate">
+                                    {log.templateName || 'No template'} · {log.sentCount || 0} sent
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusTone(log.status)}`}>
+                                    {log.status}
+                                  </span>
+                                  <ChevronRight size={14} className="text-slate-400" />
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {logsPagination.pages > 1 && (
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                        <button
+                          type="button"
+                          disabled={logsPage <= 1}
+                          onClick={() => setLogsPage((p) => Math.max(1, p - 1))}
+                          className="px-2.5 py-1 text-[10px] font-bold rounded border border-slate-200 disabled:opacity-40"
+                        >
+                          Prev
+                        </button>
+                        <span className="text-[10px] text-slate-500 font-semibold">
+                          Page {logsPagination.page} of {logsPagination.pages}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={logsPage >= logsPagination.pages}
+                          onClick={() => setLogsPage((p) => p + 1)}
+                          className="px-2.5 py-1 text-[10px] font-bold rounded border border-slate-200 disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                    <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+                      <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <FileText size={15} className="text-blue-600" /> Message Details
+                      </h3>
+                      {selectedAutoLog ? (
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          {(AUTO_ACTION_META[selectedAutoLog.action]?.label || selectedAutoLog.action)}
+                          {' · '}
+                          {formatLogDate(selectedAutoLog.createdAt)}
+                          {' · '}
+                          {selectedAutoLog.templateName || 'No template'}
+                          {selectedAutoLog.skipReason ? ` · ${selectedAutoLog.skipReason}` : ''}
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-slate-500 mt-1">Select a dispatch above to view message content.</p>
+                      )}
+                    </div>
+
+                    {!selectedAutoLog ? (
+                      <div className="flex items-center justify-center text-sm text-slate-400 p-10 text-center min-h-[200px]">
+                        Delivery details will appear here once a dispatch is selected.
+                      </div>
+                    ) : (
+                      <div className="overflow-auto max-h-[420px]">
+                        <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 border-b border-slate-100 text-[11px]">
+                          <div>
+                            <p className="text-slate-400 font-bold uppercase text-[9px]">Status</p>
+                            <p className="font-bold text-slate-800 mt-0.5 capitalize">{selectedAutoLog.status}</p>
                           </div>
-                          <div className="flex items-end gap-4 pb-1">
-                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={setting.notifyStudents !== false}
-                                onChange={(e) => updateAutoSetting(setting.action, { notifyStudents: e.target.checked })}
-                                className="rounded border-slate-300 text-blue-600"
-                              />
-                              Notify students
-                            </label>
-                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={setting.notifyEmployees !== false}
-                                onChange={(e) => updateAutoSetting(setting.action, { notifyEmployees: e.target.checked })}
-                                className="rounded border-slate-300 text-blue-600"
-                              />
-                              Notify employees
-                            </label>
+                          <div>
+                            <p className="text-slate-400 font-bold uppercase text-[9px]">Sent</p>
+                            <p className="font-bold text-emerald-700 mt-0.5">{selectedAutoLog.sentCount || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-slate-400 font-bold uppercase text-[9px]">Failed</p>
+                            <p className="font-bold text-red-700 mt-0.5">{selectedAutoLog.failedCount || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-slate-400 font-bold uppercase text-[9px]">Recipients</p>
+                            <p className="font-bold text-slate-800 mt-0.5">{selectedAutoLog.totalRecipients || 0}</p>
                           </div>
                         </div>
 
-                        {linkedTemplate && (
-                          <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 text-xs">
-                            <p className="font-bold text-slate-700 mb-1">Template preview</p>
-                            <p className="text-slate-600 whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
-                              {linkedTemplate.body}
-                            </p>
-                            {linkedTemplate.description && (
-                              <p className="text-slate-400 mt-2 italic">{linkedTemplate.description}</p>
-                            )}
+                        {Array.isArray(selectedAutoLog.messages) && selectedAutoLog.messages.length > 0 ? (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse min-w-[640px]">
+                              <thead>
+                                <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-400 font-bold">
+                                  <th className="px-3 py-2.5">Recipient</th>
+                                  <th className="px-3 py-2.5">Type</th>
+                                  <th className="px-3 py-2.5">Phone</th>
+                                  <th className="px-3 py-2.5">Message Sent</th>
+                                  <th className="px-3 py-2.5 text-right">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-50">
+                                {selectedAutoLog.messages.map((entry, idx) => (
+                                  <tr key={`${entry.recipientId || entry.phone || idx}`} className="text-xs align-top">
+                                    <td className="px-3 py-2.5">
+                                      <p className="font-semibold text-slate-800">{entry.recipientName || '—'}</p>
+                                      {entry.recipientId && (
+                                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">{entry.recipientId}</p>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2.5 capitalize text-slate-600">{entry.recipientType || '—'}</td>
+                                    <td className="px-3 py-2.5 font-mono text-slate-700">{entry.phone || '—'}</td>
+                                    <td className="px-3 py-2.5">
+                                      <p className="text-slate-700 whitespace-pre-wrap leading-relaxed font-mono text-[11px]">
+                                        {entry.message || '—'}
+                                      </p>
+                                      {entry.error && (
+                                        <p className="text-[10px] text-red-600 mt-1">{entry.error}</p>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right">
+                                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${messageStatusTone(entry.status)}`}>
+                                        {(entry.status || 'unknown').replace('_', ' ')}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
-                        )}
-
-                        {setting.enabled && !linkedTemplate && (
-                          <p className="text-xs text-amber-700 font-semibold">Select a template to enable sending.</p>
+                        ) : (
+                          <div className="p-6 text-sm text-slate-500">
+                            {selectedAutoLog.skipReason || selectedAutoLog.error || 'No individual message records for this dispatch.'}
+                          </div>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-
-                <div className="flex justify-end">
-                  <button
-                    onClick={handleSaveAutoSettings}
-                    disabled={savingAutoSettings}
-                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold flex items-center gap-2 disabled:opacity-50"
-                  >
-                    {savingAutoSettings ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                    Save Auto Notification Settings
-                  </button>
-                </div>
-              </>
-            )}
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         ) : (
           <div className="space-y-4">
