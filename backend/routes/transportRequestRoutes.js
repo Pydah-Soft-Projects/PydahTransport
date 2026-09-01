@@ -11,6 +11,7 @@ const {
     createTransportRequest,
     getConcessions,
     getDashboardStats,
+    getRenewalStats,
     updateConcession,
     deleteConcession,
     getApprovedPassengers,
@@ -35,6 +36,7 @@ router.post('/change-request', submitRouteChangeRequest);
 router.post('/expire-staff-requests', triggerStaffExpiry);
 router.get('/concessions', getConcessions);
 router.get('/stats', getDashboardStats);
+router.get('/renewal-stats', getRenewalStats);
 router.patch('/:id/concession', updateConcession);
 router.get('/:id/semester-options', getSemesterOptions);
 router.get('/:id/full-details', getPassengerFullDetails);

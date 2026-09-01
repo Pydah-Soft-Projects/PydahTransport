@@ -27,6 +27,7 @@ import Loader from '../components/Loader';
 import { apiFetch, API_BASE } from '../utils/api';
 import { printHtmlDocument } from '../utils/printHtml';
 import { getDefaultAcademicYear, getAcademicYearOptions, getPreviousAcademicYear } from '../utils/academicYear';
+import { getTargetYearOfStudy, computeRenewalStats } from '../utils/renewalStats';
 
 const statusDisplay = (s) => (s || 'pending').charAt(0).toUpperCase() + (s || 'pending').slice(1);
 const formatFare = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
@@ -249,20 +250,6 @@ const buildToBeRenewedPrintHtml = ({
 };
 
 const EMPTY_LABEL = 'Unknown';
-
-const getTargetYearOfStudy = (req, coursesList) => {
-    const courseObj = (coursesList || []).find(c => String(c.name).toLowerCase() === String(req.course || '').toLowerCase());
-    const maxYears = courseObj ? Number(courseObj.total_years) : null;
-    const expiredYearOfStudy = req.year_of_study != null ? Number(req.year_of_study) : 1;
-    const targetYearOfStudy = expiredYearOfStudy + 1;
-    
-    const isCompleted = maxYears !== null && targetYearOfStudy > maxYears;
-    return {
-        year: targetYearOfStudy,
-        isCompleted,
-        maxYears
-    };
-};
 
 const buildRenewalAbstract = (list, renewedSet, coursesList) => {
     const collegeMap = new Map();
@@ -512,22 +499,19 @@ const Renewals = () => {
         }
     };
 
-    // Load active/pending requests in target year to identify already renewed passengers
-    const fetchTargetYearRequests = async () => {
+    // Lightweight lookup: which passengers already renewed in target year
+    const fetchRenewalLookup = async () => {
         try {
-            const response = await apiFetch(`${API_BASE}/transport-requests?academicYear=${encodeURIComponent(targetYear)}`);
+            const response = await apiFetch(
+                `${API_BASE}/transport-requests/renewal-stats?lookupOnly=1&targetYear=${encodeURIComponent(targetYear)}`
+            );
             if (response.ok) {
                 const data = await response.json();
-                const set = new Set();
-                data.forEach((r) => {
-                    if (r.admission_number && ['pending', 'approved'].includes((r.status || '').toLowerCase())) {
-                        set.add(String(r.admission_number).trim());
-                    }
-                });
-                setRenewedSet(set);
+                const numbers = Array.isArray(data.renewedAdmissionNumbers) ? data.renewedAdmissionNumbers : [];
+                setRenewedSet(new Set(numbers.map((n) => String(n).trim())));
             }
         } catch (error) {
-            console.error('Error fetching target year requests:', error);
+            console.error('Error fetching renewal lookup:', error);
         }
     };
 
@@ -566,7 +550,7 @@ const Renewals = () => {
     }, []);
 
     useEffect(() => {
-        fetchTargetYearRequests();
+        fetchRenewalLookup();
     }, [targetYear]);
 
     useEffect(() => {
@@ -762,7 +746,7 @@ const Renewals = () => {
                 
                 // Refresh list data
                 fetchExpiredRequests();
-                fetchTargetYearRequests();
+                fetchRenewalLookup();
 
                 // Open approve modal immediately to assign bus and finalize
                 if (createdRequestId) {
@@ -830,7 +814,7 @@ const Renewals = () => {
                 });
                 setApproveModal({ open: false, requestId: null, data: null, selectedBusId: '', loading: false, error: null });
                 fetchExpiredRequests();
-                fetchTargetYearRequests();
+                fetchRenewalLookup();
             } else {
                 setApproveModal(prev => ({ ...prev, loading: false, error: data.message || 'Failed to approve' }));
             }
@@ -858,44 +842,10 @@ const Renewals = () => {
         [requests, renewedSet, courses]
     );
 
-    // Mutually exclusive renewal buckets so KPIs always add up:
-    // Renewed + Pending + Not Interested + Course Completed = all expired
-    const renewalStats = useMemo(() => {
-        let renewed = 0;
-        let pending = 0;
-        let notInterested = 0;
-        let completed = 0;
-
-        requests.forEach((r) => {
-            const isRenewed = renewedSet.has(String(r.admission_number || '').trim());
-            const { isCompleted } = getTargetYearOfStudy(r, courses);
-
-            if (isRenewed) {
-                renewed += 1;
-                return;
-            }
-            if (r.not_interested) {
-                notInterested += 1;
-                return;
-            }
-            if (isCompleted) {
-                // Final-year / course finished — not expected to renew
-                completed += 1;
-                return;
-            }
-            pending += 1;
-        });
-
-        const eligible = renewed + pending + notInterested;
-        return {
-            allExpired: requests.length,
-            eligible,
-            renewed,
-            pending,
-            notInterested,
-            completed,
-        };
-    }, [requests, renewedSet, courses]);
+    const renewalStats = useMemo(
+        () => computeRenewalStats(requests, renewedSet, courses),
+        [requests, renewedSet, courses]
+    );
 
     const totalExpired = renewalStats.eligible;
     const totalRenewed = renewalStats.renewed;
@@ -1060,9 +1010,9 @@ const Renewals = () => {
                     </div>
                     <div>
                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Expired Passengers</p>
-                        <h3 className="text-lg font-bold text-slate-800 mt-0.5">{renewalStats.allExpired}</h3>
+                        <h3 className="text-lg font-bold text-slate-800 mt-0.5">{totalExpired}</h3>
                         <p className="text-[9px] text-slate-500 mt-0.5 font-semibold">
-                            {totalExpired} eligible for {targetYear}
+                            {renewalStats.allExpired} total expired
                             {totalCompleted > 0 && (
                                 <span className="text-slate-400 font-medium"> · {totalCompleted} course completed</span>
                             )}

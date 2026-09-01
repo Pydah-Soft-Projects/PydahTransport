@@ -14,7 +14,8 @@ import {
     Activity,
     RefreshCw,
     CheckCircle2,
-    AlertTriangle
+    AlertTriangle,
+    XCircle
 } from 'lucide-react';
 import { apiFetch, API_BASE } from '../utils/api';
 import { getDefaultAcademicYear, getAcademicYearOptions, getPreviousAcademicYear } from '../utils/academicYear';
@@ -50,9 +51,12 @@ const Dashboard = () => {
     const [renewalStats, setRenewalStats] = useState({
         expiredYear: '',
         targetYear: '',
-        totalExpired: 0,
+        allExpired: 0,
+        eligible: 0,
         totalRenewed: 0,
-        totalNotRenewed: 0,
+        totalPending: 0,
+        totalNotInterested: 0,
+        completed: 0,
         courseBreakdown: [],
         loading: true,
         error: null,
@@ -154,57 +158,27 @@ const Dashboard = () => {
             setRenewalStats((prev) => ({ ...prev, loading: true, error: null, expiredYear, targetYear }));
 
             try {
-                const [expiredRes, targetRes] = await Promise.all([
-                    apiFetch(`${API_BASE}/transport-requests?status=expired&academicYear=${encodeURIComponent(expiredYear)}`),
-                    apiFetch(`${API_BASE}/transport-requests?academicYear=${encodeURIComponent(targetYear)}`),
-                ]);
+                const statsRes = await apiFetch(
+                    `${API_BASE}/transport-requests/renewal-stats?expiredYear=${encodeURIComponent(expiredYear)}&targetYear=${encodeURIComponent(targetYear)}`
+                );
 
-                if (!expiredRes.ok) {
-                    const errBody = await expiredRes.json().catch(() => ({}));
-                    throw new Error(errBody.message || `Failed to load expired renewals (${expiredRes.status})`);
-                }
-                if (!targetRes.ok) {
-                    const errBody = await targetRes.json().catch(() => ({}));
-                    throw new Error(errBody.message || `Failed to load target-year renewals (${targetRes.status})`);
+                if (!statsRes.ok) {
+                    const errBody = await statsRes.json().catch(() => ({}));
+                    throw new Error(errBody.message || `Failed to load renewal stats (${statsRes.status})`);
                 }
 
-                const expiredRaw = await expiredRes.json();
-                const targetRaw = await targetRes.json();
-                const expiredList = Array.isArray(expiredRaw) ? expiredRaw : [];
-                const targetList = Array.isArray(targetRaw) ? targetRaw : [];
-
-                const renewedSet = new Set();
-                targetList.forEach((r) => {
-                    if (r.admission_number && ['pending', 'approved'].includes(String(r.status || '').toLowerCase())) {
-                        renewedSet.add(String(r.admission_number).trim());
-                    }
-                });
-
-                const totalExpired = expiredList.length;
-                const totalRenewed = expiredList.filter((r) => renewedSet.has(String(r.admission_number || '').trim())).length;
-
-                const courseMap = new Map();
-                expiredList.forEach((r) => {
-                    const course = (r.course && String(r.course).trim()) || 'N/A';
-                    const isRenewed = renewedSet.has(String(r.admission_number || '').trim());
-                    if (!courseMap.has(course)) {
-                        courseMap.set(course, { course, expired: 0, renewed: 0, notRenewed: 0 });
-                    }
-                    const row = courseMap.get(course);
-                    row.expired += 1;
-                    if (isRenewed) row.renewed += 1;
-                    else row.notRenewed += 1;
-                });
-
-                const courseBreakdown = Array.from(courseMap.values()).sort((a, b) => b.expired - a.expired);
+                const data = await statsRes.json();
 
                 setRenewalStats({
-                    expiredYear,
-                    targetYear,
-                    totalExpired,
-                    totalRenewed,
-                    totalNotRenewed: Math.max(0, totalExpired - totalRenewed),
-                    courseBreakdown,
+                    expiredYear: data.expiredYear || expiredYear,
+                    targetYear: data.targetYear || targetYear,
+                    allExpired: data.allExpired ?? 0,
+                    eligible: data.eligible ?? 0,
+                    totalRenewed: data.renewed ?? 0,
+                    totalPending: data.pending ?? 0,
+                    totalNotInterested: data.notInterested ?? 0,
+                    completed: data.completed ?? 0,
+                    courseBreakdown: Array.isArray(data.courseBreakdown) ? data.courseBreakdown : [],
                     loading: false,
                     error: null,
                 });
@@ -212,9 +186,12 @@ const Dashboard = () => {
                 console.error('Error fetching renewal stats:', error);
                 setRenewalStats((prev) => ({
                     ...prev,
-                    totalExpired: 0,
+                    allExpired: 0,
+                    eligible: 0,
                     totalRenewed: 0,
-                    totalNotRenewed: 0,
+                    totalPending: 0,
+                    totalNotInterested: 0,
+                    completed: 0,
                     courseBreakdown: [],
                     loading: false,
                     error: error.message || 'Failed to load renewal stats',
@@ -597,7 +574,7 @@ const Dashboard = () => {
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                                     <button
                                         type="button"
                                         onClick={() => navigate(buildRenewalsPath({
@@ -611,8 +588,13 @@ const Dashboard = () => {
                                         </div>
                                         <div>
                                             <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Total Expired</p>
-                                            <p className="text-xl font-black text-slate-900 leading-none mt-1">{renewalStats.totalExpired}</p>
-                                            <p className="text-[10px] text-slate-400 mt-1">Passengers needing renewal</p>
+                                            <p className="text-xl font-black text-slate-900 leading-none mt-1">{renewalStats.eligible}</p>
+                                            <p className="text-[10px] text-slate-400 mt-1">
+                                                {renewalStats.allExpired} total expired
+                                                {renewalStats.completed > 0 && (
+                                                    <span> · {renewalStats.completed} course completed</span>
+                                                )}
+                                            </p>
                                         </div>
                                     </button>
 
@@ -632,9 +614,9 @@ const Dashboard = () => {
                                             <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-600/80">Renewed</p>
                                             <p className="text-xl font-black text-emerald-700 leading-none mt-1">{renewalStats.totalRenewed}</p>
                                             <p className="text-[10px] text-emerald-700/70 mt-1">
-                                                {renewalStats.totalExpired > 0
-                                                    ? `${Math.round((renewalStats.totalRenewed / renewalStats.totalExpired) * 100)}% completed`
-                                                    : 'No expired records'}
+                                                {renewalStats.eligible > 0
+                                                    ? `${Math.round((renewalStats.totalRenewed / renewalStats.eligible) * 100)}% of eligible`
+                                                    : 'No eligible records'}
                                             </p>
                                         </div>
                                     </button>
@@ -652,9 +634,28 @@ const Dashboard = () => {
                                             <AlertTriangle size={18} />
                                         </div>
                                         <div>
-                                            <p className="text-[10px] font-bold uppercase tracking-wide text-amber-600/80">Not Renewed</p>
-                                            <p className="text-xl font-black text-amber-700 leading-none mt-1">{renewalStats.totalNotRenewed}</p>
-                                            <p className="text-[10px] text-amber-700/70 mt-1">Still pending renewal</p>
+                                            <p className="text-[10px] font-bold uppercase tracking-wide text-amber-600/80">Pending Renewal</p>
+                                            <p className="text-xl font-black text-amber-700 leading-none mt-1">{renewalStats.totalPending}</p>
+                                            <p className="text-[10px] text-amber-700/70 mt-1">Still awaiting renewal</p>
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate(buildRenewalsPath({
+                                            expiredYear: renewalStats.expiredYear,
+                                            targetYear: renewalStats.targetYear,
+                                            status: 'not_interested',
+                                        }))}
+                                        className="rounded-xl border border-rose-100 bg-rose-50/50 p-4 flex items-center gap-3 text-left hover:border-rose-300 hover:bg-rose-50 transition-colors cursor-pointer"
+                                    >
+                                        <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                                            <XCircle size={18} />
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] font-bold uppercase tracking-wide text-rose-600/80">Not Interested</p>
+                                            <p className="text-xl font-black text-rose-700 leading-none mt-1">{renewalStats.totalNotInterested}</p>
+                                            <p className="text-[10px] text-rose-700/70 mt-1">Declared not renewing</p>
                                         </div>
                                     </button>
                                 </div>
@@ -671,15 +672,15 @@ const Dashboard = () => {
                                                 <thead>
                                                     <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-400 font-bold">
                                                         <th className="px-3 py-2.5">Course</th>
-                                                        <th className="px-3 py-2.5 text-right">Expired</th>
+                                                        <th className="px-3 py-2.5 text-right">Eligible</th>
                                                         <th className="px-3 py-2.5 text-right text-emerald-600">Renewed</th>
-                                                        <th className="px-3 py-2.5 text-right text-amber-600">Not Renewed</th>
+                                                        <th className="px-3 py-2.5 text-right text-amber-600">Pending</th>
                                                         <th className="px-3 py-2.5 text-right">Progress</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-50">
                                                     {renewalStats.courseBreakdown.map((row) => {
-                                                        const pct = row.expired > 0 ? Math.round((row.renewed / row.expired) * 100) : 0;
+                                                        const pct = row.eligible > 0 ? Math.round((row.renewed / row.eligible) * 100) : 0;
                                                         return (
                                                             <tr
                                                                 key={row.course}
@@ -705,9 +706,9 @@ const Dashboard = () => {
                                                                 <td className="px-3 py-2.5 font-bold text-slate-800 max-w-[220px] truncate" title={row.course}>
                                                                     {row.course}
                                                                 </td>
-                                                                <td className="px-3 py-2.5 text-right font-semibold text-slate-700">{row.expired}</td>
+                                                                <td className="px-3 py-2.5 text-right font-semibold text-slate-700">{row.eligible}</td>
                                                                 <td className="px-3 py-2.5 text-right font-semibold text-emerald-700">{row.renewed}</td>
-                                                                <td className="px-3 py-2.5 text-right font-semibold text-amber-700">{row.notRenewed}</td>
+                                                                <td className="px-3 py-2.5 text-right font-semibold text-amber-700">{row.pending}</td>
                                                                 <td className="px-3 py-2.5">
                                                                     <div className="flex items-center justify-end gap-2">
                                                                         <div className="w-16 bg-slate-100 rounded-full h-1.5 overflow-hidden">

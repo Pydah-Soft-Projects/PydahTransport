@@ -14,6 +14,14 @@ const { getCollegesForCampuses } = require('./campusController');
 const campusService = require('../services/campusService');
 const { resolveStudentExpiries } = require('../utils/expiryResolver');
 const { checkStudentRequestEligibility } = require('../services/requestEligibilityService');
+const {
+    buildRenewedSet,
+    computeRenewalStats,
+    buildCourseRenewalBreakdown,
+    buildAcademicYearMongoFilter,
+    mergeMongoFilters,
+    getPreviousAcademicYear,
+} = require('../utils/renewalStats');
 
 const getRestrictedCollegesForUser = async (user, selectedCampusId = null) => {
     const isSuperAdmin = user && user.roles && user.roles.includes('superadmin');
@@ -739,7 +747,7 @@ const getTransportRequests = async (req, res) => {
         const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
 
         // Build MongoDB query for student transport requests
-        const studentMongoQuery = {};
+        let studentMongoQuery = {};
         if (route_id) studentMongoQuery.route_id = route_id;
         if (status === 'expired' || status === 'active') {
             studentMongoQuery.status = 'approved';
@@ -784,13 +792,12 @@ const getTransportRequests = async (req, res) => {
             }
         }
 
-        const rawStudentMongoRows = await TransportRequest.find(studentMongoQuery).lean();
+        if (filterAcademicYear) {
+            const ayFilter = buildAcademicYearMongoFilter(filterAcademicYear, fallbackAcademicYear);
+            studentMongoQuery = mergeMongoFilters(studentMongoQuery, ayFilter);
+        }
 
-        const filteredStudentMongoRows = filterAcademicYear
-            ? rawStudentMongoRows.filter(
-                (r) => (r.academic_year || fallbackAcademicYear) === filterAcademicYear
-            )
-            : rawStudentMongoRows;
+        const filteredStudentMongoRows = await TransportRequest.find(studentMongoQuery).lean();
 
         // Resolve student request expiry details dynamically from SQL
         await resolveStudentExpiries(filteredStudentMongoRows, mysqlPool);
@@ -1921,6 +1928,142 @@ const createTransportRequest = async (req, res) => {
             });
         }
         console.error('Error creating transport request:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Aggregated renewal statistics (lightweight — avoids loading full request lists)
+// @route   GET /api/transport-requests/renewal-stats
+// @access  Private/Admin
+const getRenewalStats = async (req, res) => {
+    try {
+        const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
+        const targetYear = req.query.targetYear || req.query.target_year || fallbackAcademicYear;
+        const expiredYear = req.query.expiredYear || req.query.expired_year || getPreviousAcademicYear(targetYear);
+        const lookupOnly = ['1', 'true', 'yes'].includes(String(req.query.lookupOnly || req.query.lookup_only || '').toLowerCase());
+
+        let targetQuery = { status: { $in: ['pending', 'approved'] } };
+        targetQuery = mergeMongoFilters(
+            targetQuery,
+            buildAcademicYearMongoFilter(targetYear, fallbackAcademicYear)
+        );
+
+        const targetRows = await TransportRequest.find(targetQuery)
+            .select('admission_number status')
+            .lean();
+
+        const renewedSet = buildRenewedSet(targetRows);
+
+        if (lookupOnly) {
+            return res.json({
+                targetYear,
+                renewedAdmissionNumbers: Array.from(renewedSet),
+            });
+        }
+
+        const isSuperAdmin = req.user && req.user.roles && req.user.roles.includes('superadmin');
+        const hasCampusRestriction = req.user && !isSuperAdmin && req.user.campuses && req.user.campuses.length > 0;
+        const hasCourseRestriction = req.user && !isSuperAdmin && req.user.courses && req.user.courses.length > 0;
+        const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
+
+        let allowedRouteIds = [];
+        let filterByCampusRoutes = false;
+        const queryCampusId = campusService.normalizeCampusId(req.query.campus);
+        if (queryCampusId === null && hasCampusRestriction) {
+            const allowedCampusIds = campusService.normalizeCampusIds(req.user.campuses);
+            const allowedRoutes = await Route.find({ campus: { $in: allowedCampusIds } }).select('routeId').lean();
+            allowedRouteIds = allowedRoutes.map((r) => r.routeId);
+            filterByCampusRoutes = true;
+        } else if (queryCampusId !== null) {
+            const campusRoutes = await Route.find({ campus: queryCampusId }).select('routeId').lean();
+            allowedRouteIds = campusRoutes.map((r) => r.routeId);
+            filterByCampusRoutes = true;
+        }
+
+        let expiredQuery = { status: 'approved' };
+        expiredQuery = mergeMongoFilters(
+            expiredQuery,
+            buildAcademicYearMongoFilter(expiredYear, fallbackAcademicYear)
+        );
+
+        if (filterByCampusRoutes) {
+            expiredQuery.route_id = allowedRouteIds.length > 0 ? { $in: allowedRouteIds } : '__NONE__';
+        }
+
+        const expiredRows = await TransportRequest.find(expiredQuery)
+            .select('admission_number course year_of_study not_interested academic_year status route_id semester_id expiry_date semester_end_date')
+            .lean();
+
+        await resolveStudentExpiries(expiredRows, mysqlPool);
+
+        const admissionNos = [...new Set(expiredRows.map((r) => r.admission_number).filter(Boolean))];
+        const studentMap = {};
+        if (mysqlPool && admissionNos.length > 0) {
+            const [studentRows] = await mysqlPool.query(
+                `SELECT admission_number, admission_no, course, college, current_year
+                 FROM students
+                 WHERE admission_number IN (?) OR admission_no IN (?)`,
+                [admissionNos, admissionNos]
+            );
+            for (const s of studentRows) {
+                if (s.admission_number) studentMap[s.admission_number] = s;
+                if (s.admission_no) studentMap[s.admission_no] = s;
+            }
+        }
+
+        const expiredList = [];
+        for (const r of expiredRows) {
+            if (!r.is_expired || r.status !== 'approved') continue;
+
+            const student = (r.admission_number && studentMap[r.admission_number]) || {};
+            const itemCourse = student.course || r.course || 'N/A';
+            const itemCollege = student.college || null;
+            const itemYear = r.year_of_study || student.current_year || 1;
+
+            if (restrictedColleges !== null && (!itemCollege || !restrictedColleges.includes(itemCollege))) continue;
+            if (hasCourseRestriction && (!itemCourse || !req.user.courses.includes(itemCourse))) continue;
+
+            expiredList.push({
+                admission_number: r.admission_number,
+                course: itemCourse,
+                year_of_study: itemYear,
+                not_interested: !!r.not_interested,
+            });
+        }
+
+        let coursesList = [];
+        if (mysqlPool) {
+            let sql = 'SELECT c.id, c.name, c.total_years FROM courses c';
+            const params = [];
+            if (restrictedColleges !== null) {
+                sql += ' JOIN colleges coll ON c.college_id = coll.id';
+            }
+            sql += ' WHERE c.is_active = 1';
+            if (restrictedColleges !== null) {
+                sql += ' AND coll.name IN (?)';
+                params.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
+            }
+            if (hasCourseRestriction) {
+                sql += ' AND c.name IN (?)';
+                params.push(req.user.courses);
+            }
+            sql += ' ORDER BY c.name ASC';
+            const [courseRows] = await mysqlPool.query(sql, params);
+            coursesList = courseRows;
+        }
+
+        const stats = computeRenewalStats(expiredList, renewedSet, coursesList);
+        const courseBreakdown = buildCourseRenewalBreakdown(expiredList, renewedSet, coursesList);
+
+        res.json({
+            expiredYear,
+            targetYear,
+            renewedAdmissionNumbers: Array.from(renewedSet),
+            courseBreakdown,
+            ...stats,
+        });
+    } catch (error) {
+        console.error('Error fetching renewal stats:', error);
         res.status(500).json({ message: error.message });
     }
 };
@@ -3263,6 +3406,7 @@ module.exports = {
     createTransportRequest,
     getConcessions,
     getDashboardStats,
+    getRenewalStats,
     updateConcession,
     deleteConcession,
     getApprovedPassengers,
