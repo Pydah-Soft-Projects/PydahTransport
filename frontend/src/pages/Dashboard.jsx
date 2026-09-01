@@ -668,13 +668,14 @@ const Dashboard = () => {
                                     </div>
                                     {renewalStats.courseBreakdown?.length > 0 ? (
                                         <div className="overflow-x-auto rounded-xl border border-slate-100">
-                                            <table className="w-full text-left border-collapse min-w-[480px]">
+                                            <table className="w-full text-left border-collapse min-w-[560px]">
                                                 <thead>
                                                     <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-400 font-bold">
                                                         <th className="px-3 py-2.5">Course</th>
                                                         <th className="px-3 py-2.5 text-right">Eligible</th>
                                                         <th className="px-3 py-2.5 text-right text-emerald-600">Renewed</th>
                                                         <th className="px-3 py-2.5 text-right text-amber-600">Pending</th>
+                                                        <th className="px-3 py-2.5 text-right text-rose-600">Not Interested</th>
                                                         <th className="px-3 py-2.5 text-right">Progress</th>
                                                     </tr>
                                                 </thead>
@@ -709,6 +710,7 @@ const Dashboard = () => {
                                                                 <td className="px-3 py-2.5 text-right font-semibold text-slate-700">{row.eligible}</td>
                                                                 <td className="px-3 py-2.5 text-right font-semibold text-emerald-700">{row.renewed}</td>
                                                                 <td className="px-3 py-2.5 text-right font-semibold text-amber-700">{row.pending}</td>
+                                                                <td className="px-3 py-2.5 text-right font-semibold text-rose-700">{row.notInterested ?? 0}</td>
                                                                 <td className="px-3 py-2.5">
                                                                     <div className="flex items-center justify-end gap-2">
                                                                         <div className="w-16 bg-slate-100 rounded-full h-1.5 overflow-hidden">
