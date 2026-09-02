@@ -4,6 +4,7 @@ import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
 import { apiFetch } from '../utils/api';
+import { printHtmlDocument } from '../utils/printHtml';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 import { campusIdsMatch, filterCampusesForUser, getCampusId } from '../utils/campus';
 import {
@@ -24,7 +25,8 @@ import {
     AlertTriangle,
     Bus,
     Layers,
-    GripVertical
+    GripVertical,
+    Printer,
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -60,6 +62,160 @@ const compareRouteIds = (a, b) => {
 };
 
 const sortRoutesByRouteId = (routeList = []) => [...routeList].sort(compareRouteIds);
+
+const escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+const buildRoutesPrintHtml = ({
+    routes = [],
+    academicYear,
+    campusLabel = 'All Campuses',
+    searchQuery = '',
+}) => {
+    const sortedRoutes = sortRoutesByRouteId(routes);
+    const totalStages = sortedRoutes.reduce((sum, route) => sum + (route.stages?.length || 0), 0);
+    const filterBits = [
+        `Academic Year: ${academicYear}`,
+        `Campus: ${campusLabel}`,
+        searchQuery ? `Search: ${searchQuery}` : null,
+    ].filter(Boolean).join(' · ');
+    const printedAt = new Date().toLocaleString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+
+    const routeSections = sortedRoutes.map((route) => {
+        const stages = Array.isArray(route.stages) ? route.stages : [];
+        const campusName = route.campus?.name || route.campus?.code || route.campus || '—';
+
+        const stageRows = stages.length === 0
+            ? '<tr><td colspan="3" class="ctr muted">No stages defined</td></tr>'
+            : stages.map((stage, idx) => {
+                const fare = resolveStageFareForYear(stage, academicYear);
+                return `
+        <tr>
+          <td class="ctr col-index">${idx + 1}</td>
+          <td class="col-stage">${escapeHtml(stage.stageName || '—')}</td>
+          <td class="ctr col-fare">₹${Number(fare || 0).toLocaleString('en-IN')}</td>
+        </tr>`;
+            }).join('');
+
+        return `
+      <div class="route-block">
+        <div class="route-head">
+          <div class="route-head-row">
+            <div class="route-head-main">
+              <h3>${escapeHtml(route.routeId || '—')} — ${escapeHtml(route.routeName || 'Unnamed Route')}</h3>
+              <p class="route-meta">
+                Campus: ${escapeHtml(campusName)}
+                · Zone: ${escapeHtml(route.zone || '—')}
+                · ${stages.length} stage${stages.length === 1 ? '' : 's'}
+              </p>
+            </div>
+            <div class="route-head-points">
+              <p><span>Start</span> ${escapeHtml(route.startPoint || '—')}</p>
+              <p><span>End</span> ${escapeHtml(route.endPoint || '—')}</p>
+            </div>
+          </div>
+        </div>
+        <table class="stage-table">
+          <colgroup>
+            <col class="col-index" />
+            <col class="col-stage" />
+            <col class="col-fare" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="ctr col-index">#</th>
+              <th class="col-stage">Stage Name</th>
+              <th class="ctr col-fare">Fare (${escapeHtml(academicYear)})</th>
+            </tr>
+          </thead>
+          <tbody>${stageRows}</tbody>
+        </table>
+      </div>`;
+    }).join('');
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Routes &amp; Stages - ${escapeHtml(academicYear)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #111; font-size: 9.5px; margin: 0; }
+    .print-header { text-align: center; margin-bottom: 14px; }
+    h1 { font-size: 18px; margin: 0 0 6px; font-weight: 800; letter-spacing: 0.01em; }
+    .print-subheader { font-size: 11px; font-weight: 700; color: #222; margin: 0; }
+    .print-summary { margin: 12px 0 16px; }
+    .summary-table { width: 100%; border-collapse: collapse; }
+    .summary-table th, .summary-table td { border: 1px solid #222; padding: 4px 8px; }
+    .summary-table th { background: #e8e8e8; text-transform: uppercase; font-size: 8.5px; letter-spacing: 0.02em; }
+    .route-block { page-break-inside: avoid; margin-bottom: 16px; border: 1px solid #222; }
+    .route-head { background: #e8e8e8; border-bottom: 1px solid #222; padding: 6px 8px; }
+    .route-head-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .route-head-main { flex: 1; min-width: 0; }
+    .route-head h3 { margin: 0 0 3px; font-size: 11px; font-weight: 800; }
+    .route-meta { margin: 0; font-size: 8.5px; color: #444; font-weight: 600; }
+    .route-head-points { text-align: right; font-size: 8.5px; color: #222; max-width: 42%; flex-shrink: 0; }
+    .route-head-points p { margin: 0 0 2px; line-height: 1.35; }
+    .route-head-points span { font-weight: 800; text-transform: uppercase; font-size: 7.5px; color: #555; margin-right: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    .stage-table { table-layout: fixed; width: 100%; }
+    .stage-table th, .stage-table td { border: 1px solid #222; padding: 3px 5px; vertical-align: middle; text-align: center; }
+    .stage-table th { background: #f3f4f6; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.02em; }
+    .stage-table .col-index { width: 10%; }
+    .stage-table .col-stage { width: 58%; word-wrap: break-word; overflow-wrap: anywhere; }
+    .stage-table th.col-stage { text-align: center; }
+    .stage-table td.col-stage { text-align: left; }
+    .stage-table .col-fare { width: 32%; }
+    .num { text-align: right; white-space: nowrap; }
+    .ctr { text-align: center; white-space: nowrap; }
+    .muted { color: #666; font-style: italic; }
+    .footer { margin-top: 12px; color: #555; font-size: 8.5px; display: flex; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <div class="print-header">
+    <h1>Pydah Transport — Routes &amp; Stages</h1>
+    <p class="print-subheader">${escapeHtml(filterBits)}</p>
+  </div>
+
+  <div class="print-summary">
+    <table class="summary-table">
+      <thead>
+        <tr>
+          <th>Total Routes</th>
+          <th>Total Stages</th>
+          <th>Printed On</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ctr">${sortedRoutes.length}</td>
+          <td class="ctr">${totalStages}</td>
+          <td class="ctr">${escapeHtml(printedAt)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  ${routeSections || '<p class="ctr muted">No routes to print</p>'}
+
+  <div class="footer">
+    <span>Pydah Transport Management System</span>
+    <span>End of report</span>
+  </div>
+</body>
+</html>`;
+};
 
 const createLocalStageId = () => `stage-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -791,6 +947,7 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
 const RouteManagement = () => {
     const [routes, setRoutes] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [isPrintingRoutes, setIsPrintingRoutes] = useState(false);
     const [saveMessage, setSaveMessage] = useState({ text: '', type: '' });
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
     const academicYearOptions = getAcademicYearOptions();
@@ -2300,6 +2457,40 @@ const RouteManagement = () => {
         }
     }, [campuses]);
 
+    const handlePrintRoutes = () => {
+        if (isPrintingRoutes) return;
+        if (filteredRoutes.length === 0) {
+            setSaveMessage({ text: 'No routes to print for the current filters.', type: 'error' });
+            return;
+        }
+
+        const campusLabel = selectedCampusFilter
+            ? (() => {
+                const campus = allowedCampuses.find((c) => String(getCampusId(c)) === String(selectedCampusFilter));
+                return campus ? `${campus.name} (${campus.code})` : 'Selected Campus';
+            })()
+            : 'All Campuses';
+
+        setIsPrintingRoutes(true);
+        try {
+            const html = buildRoutesPrintHtml({
+                routes: filteredRoutes,
+                academicYear,
+                campusLabel,
+                searchQuery,
+            });
+            printHtmlDocument(
+                html,
+                `Routes-Stages-${academicYear}`,
+                () => setIsPrintingRoutes(false)
+            );
+        } catch (error) {
+            console.error('Error printing routes:', error);
+            setSaveMessage({ text: 'Failed to prepare routes print document.', type: 'error' });
+            setIsPrintingRoutes(false);
+        }
+    };
+
     return (
         <Layout>
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-3">
@@ -2386,13 +2577,25 @@ const RouteManagement = () => {
                         </select>
                     </div>
                     {activeTab === 'network' && (
-                        <button
-                            onClick={() => setIsModalOpen(true)}
-                            className="bg-blue-900 hover:bg-blue-700 text-white px-6 py-3 rounded-lg text-sm font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group"
-                        >
-                            <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={18} />
-                            Create Route
-                        </button>
+                        <>
+                            <button
+                                type="button"
+                                onClick={handlePrintRoutes}
+                                disabled={isPrintingRoutes || loading || filteredRoutes.length === 0}
+                                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Print all routes with stages (A4)"
+                            >
+                                <Printer size={14} className={isPrintingRoutes ? 'animate-pulse' : ''} />
+                                {isPrintingRoutes ? 'Preparing…' : 'Print Routes'}
+                            </button>
+                            <button
+                                onClick={() => setIsModalOpen(true)}
+                                className="bg-blue-900 hover:bg-blue-700 text-white px-6 py-3 rounded-lg text-sm font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group"
+                            >
+                                <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={18} />
+                                Create Route
+                            </button>
+                        </>
                     )}
                 </div>
             </div>
