@@ -1933,6 +1933,8 @@ const createTransportRequest = async (req, res) => {
             });
         }
         console.error('Error creating transport request:', error);
+        res.status(500).json({ message: error.message });
+    }
 };
 
 // @desc    Generate Transport ID (Admit Card ID / application_number) after verifying fee eligibility
