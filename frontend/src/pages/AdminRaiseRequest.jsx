@@ -479,10 +479,6 @@ const AdminRaiseRequest = () => {
             return;
         }
 
-        if (activeTab === 'new' && userType === 'student' && feeEligibility && feeEligibility.enabled && !feeEligibility.ok) {
-            setFormError(feeEligibility.message || 'Fee payment eligibility not satisfied.');
-            return;
-        }
 
         setFormError('');
         setSubmitting(true);

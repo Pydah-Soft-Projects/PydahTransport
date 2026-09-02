@@ -1203,27 +1203,39 @@ const approveTransportRequest = async (req, res) => {
                 studentReq.fare = overrideFare;
             }
         }
-        // Resolve application number context and assign numbers
-        const context = await resolveApplicationNumberContext(mysqlPool, {
-            admissionNumber: studentReq.admission_number,
-            userType: 'student',
-        });
-        const application = await assignTransportApplicationNumber(mysqlPool, {
-            academicYear: resolvedAcademicYear,
-            collegeCode: context.collegeCode,
-            courseCode: context.courseCode,
-            existingApplicationNumber: studentReq.application_number,
-            existingApplicationSerial: studentReq.application_serial,
-        });
+        // Verify fee eligibility before generating Transport ID
+        const eligibility = await checkStudentRequestEligibility(studentReq.admission_number, resolvedAcademicYear);
+        const isFeeEligible = eligibility.ok || Boolean(studentReq.application_number);
+
+        let application = {
+            application_number: studentReq.application_number || null,
+            application_serial: studentReq.application_serial || null,
+            college_code: studentReq.application_college_code || null,
+            course_code: studentReq.application_course_code || null,
+        };
+
+        if (isFeeEligible && mysqlPool) {
+            const context = await resolveApplicationNumberContext(mysqlPool, {
+                admissionNumber: studentReq.admission_number,
+                userType: 'student',
+            });
+            application = await assignTransportApplicationNumber(mysqlPool, {
+                academicYear: resolvedAcademicYear,
+                collegeCode: context.collegeCode,
+                courseCode: context.courseCode,
+                existingApplicationNumber: studentReq.application_number,
+                existingApplicationSerial: studentReq.application_serial,
+            });
+        }
 
         // Update Mongo document with approval data
         const updateFields = {
-            status: 'approved',
+            status: isFeeEligible ? 'approved' : 'pending',
             academic_year: resolvedAcademicYear,
-            application_number: application.application_number,
-            application_serial: application.application_serial,
-            application_college_code: application.college_code,
-            application_course_code: application.course_code,
+            application_number: application.application_number || null,
+            application_serial: application.application_serial || null,
+            application_college_code: application.college_code || null,
+            application_course_code: application.course_code || null,
         };
         if (req.body.bus_id) {
             updateFields.bus_id = req.body.bus_id;
@@ -1860,13 +1872,6 @@ const createTransportRequest = async (req, res) => {
             });
         }
 
-        const eligibility = await checkStudentRequestEligibility(admission_number, resolvedAcademicYear);
-        if (!eligibility.ok) {
-            return res.status(403).json({
-                message: eligibility.message,
-                eligibility,
-            });
-        }
 
         const yearOfStudy = studentRecord.current_year != null
             ? Number(studentRecord.current_year)
@@ -1928,7 +1933,123 @@ const createTransportRequest = async (req, res) => {
             });
         }
         console.error('Error creating transport request:', error);
-        res.status(500).json({ message: error.message });
+};
+
+// @desc    Generate Transport ID (Admit Card ID / application_number) after verifying fee eligibility
+// @route   POST /api/transport-requests/:id/generate-id
+// @access  Private/Admin
+const generateTransportId = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const studentReqQuery = { $or: [] };
+        if (!isNaN(Number(id))) studentReqQuery.$or.push({ id: Number(id) });
+        if (isMongoId(id)) studentReqQuery.$or.push({ _id: id });
+        
+        if (studentReqQuery.$or.length === 0) {
+            return res.status(400).json({ message: 'Invalid request ID format' });
+        }
+
+        const request = await TransportRequest.findOne(studentReqQuery);
+        if (!request) {
+            return res.status(404).json({ message: 'Transport request not found' });
+        }
+
+        if (['rejected', 'cancelled'].includes(request.status)) {
+            return res.status(400).json({ message: `Cannot generate Transport ID for request in ${request.status} status` });
+        }
+
+        // Prevent duplicate ID generation
+        if (request.application_number) {
+            return res.json({
+                message: `Transport ID already generated: ${request.application_number}`,
+                application_number: request.application_number,
+                application_serial: request.application_serial,
+                alreadyGenerated: true,
+                request,
+            });
+        }
+
+        const resolvedAcademicYear = request.academic_year || process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
+
+        // SERVER-SIDE ELIGIBILITY CHECK
+        const eligibility = await checkStudentRequestEligibility(request.admission_number, resolvedAcademicYear);
+        if (!eligibility.ok) {
+            return res.status(403).json({
+                message: eligibility.message,
+                eligible: false,
+                eligibility,
+            });
+        }
+
+        if (!mysqlPool) {
+            return res.status(500).json({ message: 'MySQL connection not established' });
+        }
+
+        const context = await resolveApplicationNumberContext(mysqlPool, {
+            admissionNumber: request.admission_number,
+            userType: 'student',
+        });
+        const application = await assignTransportApplicationNumber(mysqlPool, {
+            academicYear: resolvedAcademicYear,
+            collegeCode: context.collegeCode,
+            courseCode: context.courseCode,
+            existingApplicationNumber: request.application_number,
+            existingApplicationSerial: request.application_serial,
+        });
+
+        request.application_number = application.application_number;
+        request.application_serial = application.application_serial;
+        request.application_college_code = application.college_code;
+        request.application_course_code = application.course_code;
+        request.status = 'approved';
+        await request.save();
+
+        res.json({
+            message: `Transport ID generated successfully: ${application.application_number}`,
+            application_number: application.application_number,
+            application_serial: application.application_serial,
+            status: request.status,
+            request,
+        });
+    } catch (error) {
+        console.error('Error generating transport ID:', error);
+        res.status(500).json({ message: error.message || 'Failed to generate Transport ID' });
+    }
+};
+
+// @desc    Get fee eligibility breakdown for a transport request
+// @route   GET /api/transport-requests/:id/eligibility
+// @access  Private
+const getRequestEligibility = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const studentReqQuery = { $or: [] };
+        if (!isNaN(Number(id))) studentReqQuery.$or.push({ id: Number(id) });
+        if (isMongoId(id)) studentReqQuery.$or.push({ _id: id });
+        
+        if (studentReqQuery.$or.length === 0) {
+            return res.status(400).json({ message: 'Invalid request ID format' });
+        }
+
+        const request = await TransportRequest.findOne(studentReqQuery).lean();
+        if (!request) {
+            return res.status(404).json({ message: 'Transport request not found' });
+        }
+
+        const resolvedAcademicYear = request.academic_year || process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
+        const eligibility = await checkStudentRequestEligibility(request.admission_number, resolvedAcademicYear);
+
+        res.json({
+            requestId: request.id || String(request._id),
+            admission_number: request.admission_number,
+            academic_year: resolvedAcademicYear,
+            hasTransportId: Boolean(request.application_number),
+            application_number: request.application_number || null,
+            eligibility,
+        });
+    } catch (error) {
+        console.error('Error fetching request eligibility:', error);
+        res.status(500).json({ message: error.message || 'Failed to fetch request eligibility' });
     }
 };
 
@@ -3404,6 +3525,8 @@ module.exports = {
     rejectTransportRequest,
     cancelTransportRequest,
     createTransportRequest,
+    generateTransportId,
+    getRequestEligibility,
     getConcessions,
     getDashboardStats,
     getRenewalStats,

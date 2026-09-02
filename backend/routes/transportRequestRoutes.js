@@ -9,6 +9,8 @@ const {
     rejectTransportRequest,
     cancelTransportRequest,
     createTransportRequest,
+    generateTransportId,
+    getRequestEligibility,
     getConcessions,
     getDashboardStats,
     getRenewalStats,
@@ -38,6 +40,8 @@ router.get('/concessions', getConcessions);
 router.get('/stats', getDashboardStats);
 router.get('/renewal-stats', getRenewalStats);
 router.patch('/:id/concession', updateConcession);
+router.get('/:id/eligibility', getRequestEligibility);
+router.post('/:id/generate-id', generateTransportId);
 router.get('/:id/semester-options', getSemesterOptions);
 router.get('/:id/full-details', getPassengerFullDetails);
 router.patch('/:id/approve', approveTransportRequest);

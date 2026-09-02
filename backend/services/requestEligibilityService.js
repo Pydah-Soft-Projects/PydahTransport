@@ -150,26 +150,44 @@ const checkStudentRequestEligibility = async (admissionNumber, academicYear) => 
   };
 
   if (!settings.enabled) {
-    return { ok: true, skipped: true, reason: 'disabled', ...base, totalPaid: null };
+    return {
+      ok: true,
+      eligible: true,
+      skipped: true,
+      reason: 'disabled',
+      ...base,
+      totalPaid: 0,
+      minimumAmount: base.minPaidAmount,
+      paidAmount: 0,
+      balanceAmount: 0,
+    };
   }
 
   if (!base.feeHeadId) {
     return {
       ok: false,
+      eligible: false,
       reason: 'settings_incomplete',
       message: 'Request eligibility is enabled but no fee head is configured in Settings.',
       ...base,
       totalPaid: 0,
+      minimumAmount: base.minPaidAmount,
+      paidAmount: 0,
+      balanceAmount: base.minPaidAmount,
     };
   }
 
   if (!base.admissionNumber || !base.academicYear) {
     return {
       ok: false,
+      eligible: false,
       reason: 'missing_input',
       message: 'Admission number and academic year are required for fee eligibility check.',
       ...base,
       totalPaid: 0,
+      minimumAmount: base.minPaidAmount,
+      paidAmount: 0,
+      balanceAmount: base.minPaidAmount,
     };
   }
 
@@ -177,10 +195,14 @@ const checkStudentRequestEligibility = async (admissionNumber, academicYear) => 
   if (!models) {
     return {
       ok: false,
+      eligible: false,
       reason: 'fee_db_unavailable',
       message: 'Fee Management database is not connected. Cannot verify fee payment eligibility.',
       ...base,
       totalPaid: 0,
+      minimumAmount: base.minPaidAmount,
+      paidAmount: 0,
+      balanceAmount: base.minPaidAmount,
     };
   }
 
@@ -188,10 +210,14 @@ const checkStudentRequestEligibility = async (admissionNumber, academicYear) => 
   if (!mongoose.Types.ObjectId.isValid(base.feeHeadId)) {
     return {
       ok: false,
+      eligible: false,
       reason: 'invalid_fee_head',
       message: 'Configured fee head is invalid. Update it in Settings.',
       ...base,
       totalPaid: 0,
+      minimumAmount: base.minPaidAmount,
+      paidAmount: 0,
+      balanceAmount: base.minPaidAmount,
     };
   }
 
@@ -200,10 +226,14 @@ const checkStudentRequestEligibility = async (admissionNumber, academicYear) => 
   if (!feeHead) {
     return {
       ok: false,
+      eligible: false,
       reason: 'fee_head_missing',
       message: 'Configured fee head was not found in Fee Management. Update it in Settings.',
       ...base,
       totalPaid: 0,
+      minimumAmount: base.minPaidAmount,
+      paidAmount: 0,
+      balanceAmount: base.minPaidAmount,
     };
   }
 
@@ -218,28 +248,37 @@ const checkStudentRequestEligibility = async (admissionNumber, academicYear) => 
   const totalPaid = paidInfo.totalPaid;
   const minPaidAmount = base.minPaidAmount;
   const feeLabel = feeHead.name || base.feeHeadName || base.feeHeadCode || 'selected fee head';
+  const balance = Math.max(0, minPaidAmount - totalPaid);
 
   if (totalPaid + 1e-9 < minPaidAmount) {
     return {
       ok: false,
+      eligible: false,
       reason: 'insufficient_payment',
-      message: `Cannot raise request: student has paid ₹${totalPaid.toLocaleString('en-IN')} toward ${feeLabel} for ${base.academicYear}, but minimum required is ₹${minPaidAmount.toLocaleString('en-IN')}.`,
+      message: `Minimum transport fee of ₹${minPaidAmount.toLocaleString('en-IN')} required for ${base.academicYear}. Paid: ₹${totalPaid.toLocaleString('en-IN')}. Balance: ₹${balance.toLocaleString('en-IN')}.`,
       ...base,
       feeHeadName: feeHead.name || base.feeHeadName,
       feeHeadCode: feeHead.code || base.feeHeadCode,
       totalPaid,
-      shortfall: Math.max(0, minPaidAmount - totalPaid),
+      minimumAmount: minPaidAmount,
+      paidAmount: totalPaid,
+      balanceAmount: balance,
+      shortfall: balance,
     };
   }
 
   return {
     ok: true,
+    eligible: true,
     reason: 'eligible',
     message: `Eligible: paid ₹${totalPaid.toLocaleString('en-IN')} toward ${feeLabel} for ${base.academicYear} (minimum ₹${minPaidAmount.toLocaleString('en-IN')}).`,
     ...base,
     feeHeadName: feeHead.name || base.feeHeadName,
     feeHeadCode: feeHead.code || base.feeHeadCode,
     totalPaid,
+    minimumAmount: minPaidAmount,
+    paidAmount: totalPaid,
+    balanceAmount: 0,
     shortfall: 0,
   };
 };

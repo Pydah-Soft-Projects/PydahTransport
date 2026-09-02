@@ -70,7 +70,7 @@ async function expireStudentTransportRequests() {
             }
         }
 
-        // 4. Bulk update expired requests in MongoDB
+        // 4. Bulk update expired requests in MongoDB (Admission Cancelled)
         if (requestsToExpire.length > 0) {
             const result = await TransportRequest.updateMany(
                 { _id: { $in: requestsToExpire } },
@@ -85,10 +85,51 @@ async function expireStudentTransportRequests() {
             console.log(`[Student Expiry] Successfully expired ${summary.expiredCount} student transport request(s).`);
         }
 
+        // 5. Delete pending requests with zero payments made toward transport fee
+        const { getEligibilitySettings, getPaidAmountForFeeHead } = require('../services/requestEligibilityService');
+        const { getFeePortalModels } = require('../models/fee-portal-models');
+        const mongoose = require('mongoose');
+
+        const settings = await getEligibilitySettings();
+        const models = getFeePortalModels();
+
+        if (settings.enabled && settings.feeHeadId && models && mongoose.Types.ObjectId.isValid(settings.feeHeadId)) {
+            const { Transaction, StudentFee } = models;
+            const feeHeadObjectId = new mongoose.Types.ObjectId(settings.feeHeadId);
+
+            const pendingUnpaidRequests = await TransportRequest.find({
+                status: 'pending',
+                $or: [{ application_number: null }, { application_number: '' }, { application_number: { $exists: false } }]
+            }).lean();
+
+            const requestsToDelete = [];
+            for (const req of pendingUnpaidRequests) {
+                if (!req.admission_number || !req.academic_year) continue;
+                const paidInfo = await getPaidAmountForFeeHead({
+                    Transaction,
+                    StudentFee,
+                    studentId: req.admission_number,
+                    feeHeadObjectId,
+                    academicYear: req.academic_year,
+                });
+                if (paidInfo.totalPaid === 0) {
+                    requestsToDelete.push(req._id);
+                    console.log(`[Nightly Cleanup] Request for student ${req.student_name} (${req.admission_number}) in ${req.academic_year} has zero payment. Deleting unpaid request.`);
+                }
+            }
+
+            if (requestsToDelete.length > 0) {
+                const deleteResult = await TransportRequest.deleteMany({ _id: { $in: requestsToDelete } });
+                summary.deletedUnpaidCount = deleteResult.deletedCount || 0;
+                console.log(`[Nightly Cleanup] Successfully deleted ${summary.deletedUnpaidCount} unpaid pending transport request(s).`);
+            }
+        }
+
         console.log(
             `[Student Expiry] ─────────────────────────────────────────────\n` +
-            `  Scanned  : ${summary.scanned}\n` +
-            `  Expired  : ${summary.expiredCount}\n` +
+            `  Scanned       : ${summary.scanned}\n` +
+            `  Expired       : ${summary.expiredCount}\n` +
+            `  Deleted Unpaid: ${summary.deletedUnpaidCount || 0}\n` +
             `[Student Expiry] ─────────────────────────────────────────────`
         );
 
