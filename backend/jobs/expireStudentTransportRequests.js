@@ -103,6 +103,8 @@ async function expireStudentTransportRequests() {
             }).lean();
 
             const requestsToDelete = [];
+            const studentFeesToDelete = [];
+
             for (const req of pendingUnpaidRequests) {
                 if (!req.admission_number || !req.academic_year) continue;
                 const paidInfo = await getPaidAmountForFeeHead({
@@ -114,14 +116,30 @@ async function expireStudentTransportRequests() {
                 });
                 if (paidInfo.totalPaid === 0) {
                     requestsToDelete.push(req._id);
-                    console.log(`[Nightly Cleanup] Request for student ${req.student_name} (${req.admission_number}) in ${req.academic_year} has zero payment. Deleting unpaid request.`);
+                    studentFeesToDelete.push({
+                        studentId: String(req.admission_number),
+                        academicYear: req.academic_year,
+                    });
+                    console.log(`[Nightly Cleanup] Request for student ${req.student_name} (${req.admission_number}) in ${req.academic_year} has zero payment. Deleting unpaid request & StudentFee.`);
                 }
             }
 
             if (requestsToDelete.length > 0) {
                 const deleteResult = await TransportRequest.deleteMany({ _id: { $in: requestsToDelete } });
                 summary.deletedUnpaidCount = deleteResult.deletedCount || 0;
-                console.log(`[Nightly Cleanup] Successfully deleted ${summary.deletedUnpaidCount} unpaid pending transport request(s).`);
+
+                // Delete associated StudentFee entries from Fee Management DB
+                let deletedStudentFeesCount = 0;
+                for (const target of studentFeesToDelete) {
+                    const feeDelRes = await StudentFee.deleteMany({
+                        studentId: target.studentId,
+                        feeHead: feeHeadObjectId,
+                        academicYear: target.academicYear,
+                    });
+                    deletedStudentFeesCount += feeDelRes.deletedCount || 0;
+                }
+                summary.deletedUnpaidStudentFeesCount = deletedStudentFeesCount;
+                console.log(`[Nightly Cleanup] Successfully deleted ${summary.deletedUnpaidCount} unpaid pending request(s) and ${deletedStudentFeesCount} StudentFee record(s) from Fee DB.`);
             }
         }
 

@@ -491,13 +491,16 @@ const TransportRequests = () => {
         }
     };
 
-    const fetchEligibility = async (requestId) => {
+    const fetchEligibility = async (requestId, autoApproveIfEligible = false) => {
         setEligibilityLoading(true);
         try {
             const res = await apiFetch(`${API_BASE}/transport-requests/${requestId}/eligibility`);
             const data = await res.json().catch(() => ({}));
             if (res.ok) {
                 setEligibilityData(data.eligibility);
+                if (autoApproveIfEligible && data.eligibility?.eligible) {
+                    await handleGenerateTransportId(requestId, true);
+                }
             } else {
                 setEligibilityData(null);
             }
@@ -508,7 +511,7 @@ const TransportRequests = () => {
         }
     };
 
-    const handleGenerateTransportId = async (requestId) => {
+    const handleGenerateTransportId = async (requestId, silent = false) => {
         setGeneratingId(true);
         try {
             const res = await apiFetch(`${API_BASE}/transport-requests/${requestId}/generate-id`, {
@@ -516,20 +519,32 @@ const TransportRequests = () => {
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok) {
-                setMessage({ text: data.message || 'Transport ID generated successfully!', type: 'success' });
-                const updatedReq = { ...detailModal.request, application_number: data.application_number, status: 'approved' };
-                setDetailModal((prev) => ({
-                    ...prev,
-                    request: updatedReq,
-                }));
-                fetchEligibility(requestId);
+                if (!silent && !data.alreadyGenerated) {
+                    setMessage({ text: data.message || 'Transport ID generated successfully!', type: 'success' });
+                }
+                setDetailModal((prev) => {
+                    if (!prev.request) return prev;
+                    return {
+                        ...prev,
+                        request: {
+                            ...prev.request,
+                            application_number: data.application_number || prev.request.application_number,
+                            status: 'approved',
+                            bus_id: data.request?.bus_id || prev.request.bus_id,
+                        },
+                    };
+                });
                 fetchRequests();
             } else {
-                setMessage({ text: data.message || 'Failed to generate Transport ID.', type: 'error' });
+                if (!silent) {
+                    setMessage({ text: data.message || 'Failed to generate Transport ID.', type: 'error' });
+                }
             }
         } catch (err) {
             console.error('Error generating transport ID:', err);
-            setMessage({ text: 'Error generating transport ID. Please try again.', type: 'error' });
+            if (!silent) {
+                setMessage({ text: 'Error generating transport ID. Please try again.', type: 'error' });
+            }
         } finally {
             setGeneratingId(false);
         }
@@ -538,9 +553,6 @@ const TransportRequests = () => {
     const openDetailModal = async (req) => {
         setDetailModal({ open: true, request: req, loading: true });
         setEligibilityData(null);
-        if (req.user_type !== 'employee') {
-            fetchEligibility(req.id || req._id);
-        }
         try {
             const response = await apiFetch(`${API_BASE}/transport-requests/${req.id}/full-details`);
             if (response.ok) {
@@ -558,6 +570,10 @@ const TransportRequests = () => {
             }
         } catch {
             setDetailModal((prev) => ({ ...prev, loading: false }));
+        }
+
+        if (req.user_type !== 'employee') {
+            fetchEligibility(req.id || req._id, true);
         }
     };
 
@@ -1573,6 +1589,40 @@ const TransportRequests = () => {
                                                         : 'Student'}
                                                 </p>
                                             </div>
+
+                                            {/* Single-Line Fee Eligibility Banner */}
+                                            {!isEmployee && (
+                                                <div className="col-span-2 sm:col-span-3 rounded-xl bg-slate-50/90 border border-slate-200 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 mt-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Fee Eligibility:</span>
+                                                        {eligibilityLoading ? (
+                                                            <span className="text-xs font-semibold text-slate-400 animate-pulse">Checking…</span>
+                                                        ) : eligibilityData ? (
+                                                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${eligibilityData.eligible ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-900 border border-amber-200'}`}>
+                                                                {eligibilityData.eligible ? 'Eligible' : 'Ineligible'}
+                                                            </span>
+                                                        ) : null}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => fetchEligibility(req.id || req._id, true)}
+                                                            disabled={eligibilityLoading}
+                                                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-white hover:bg-blue-50 px-2 py-0.5 rounded border border-blue-200 shadow-2xs transition-all cursor-pointer"
+                                                        >
+                                                            {eligibilityLoading ? 'Syncing…' : 'Sync Fee'}
+                                                        </button>
+                                                    </div>
+
+                                                    {eligibilityData && (
+                                                        <div className="flex items-center gap-3 text-xs font-bold text-slate-700">
+                                                            <span>Min Required: <span className="text-slate-900 font-black">₹{Number(eligibilityData.minimumAmount || 0).toLocaleString('en-IN')}</span></span>
+                                                            <span className="text-slate-300">•</span>
+                                                            <span>Total Paid: <span className="text-emerald-700 font-black">₹{Number(eligibilityData.paidAmount || 0).toLocaleString('en-IN')}</span></span>
+                                                            <span className="text-slate-300">•</span>
+                                                            <span>Balance: <span className={`font-black ${eligibilityData.balanceAmount > 0 ? 'text-amber-700' : 'text-slate-800'}`}>₹{Number(eligibilityData.balanceAmount || 0).toLocaleString('en-IN')}</span></span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -1652,67 +1702,10 @@ const TransportRequests = () => {
                                     </div>
                                 )}
                                 <div className="lg:border-l lg:pl-5 border-slate-100">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Fee & Eligibility</p>
-
-                                    {!isEmployee && (
-                                        <div className="mb-4 p-3 rounded-xl border border-slate-200 bg-slate-50/70">
-                                            <div className="flex items-center justify-between mb-1.5">
-                                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Min Fee Status</span>
-                                                {eligibilityLoading ? (
-                                                    <span className="text-[10px] text-slate-400 font-semibold animate-pulse">Checking…</span>
-                                                ) : eligibilityData ? (
-                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${eligibilityData.eligible ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-800 border border-amber-200'}`}>
-                                                        {eligibilityData.eligible ? 'Eligible' : 'Ineligible'}
-                                                    </span>
-                                                ) : null}
-                                            </div>
-
-                                            {eligibilityData && (
-                                                <div className="space-y-1 text-[11px] font-medium text-slate-700">
-                                                    <div className="flex justify-between">
-                                                        <span className="text-slate-500">Min Required:</span>
-                                                        <span className="font-bold">₹{Number(eligibilityData.minimumAmount || 0).toLocaleString('en-IN')}</span>
-                                                    </div>
-                                                    <div className="flex justify-between">
-                                                        <span className="text-slate-500">Total Paid:</span>
-                                                        <span className="font-bold text-emerald-700">₹{Number(eligibilityData.paidAmount || 0).toLocaleString('en-IN')}</span>
-                                                    </div>
-                                                    <div className="flex justify-between border-t border-slate-200 pt-1 mt-1">
-                                                        <span className="text-slate-600 font-semibold">Balance:</span>
-                                                        <span className={`font-bold ${eligibilityData.balanceAmount > 0 ? 'text-amber-700' : 'text-slate-800'}`}>
-                                                            ₹{Number(eligibilityData.balanceAmount || 0).toLocaleString('en-IN')}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {!req.application_number && !['rejected', 'cancelled'].includes(req.status) && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleGenerateTransportId(req.id || req._id)}
-                                                    disabled={generatingId || (eligibilityData && !eligibilityData.eligible)}
-                                                    className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold disabled:opacity-50 disabled:bg-slate-300 disabled:cursor-not-allowed shadow-sm transition-all cursor-pointer"
-                                                >
-                                                    <CreditCard size={14} />
-                                                    {generatingId ? 'Generating ID…' : 'Generate Transport ID'}
-                                                </button>
-                                            )}
-                                        </div>
-                                    )}
-
                                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Actions</p>
                                     <div className="space-y-2">
                                         {isPending(req) && (
                                             <>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleApprove(req.id)}
-                                                    disabled={actionLoading !== null}
-                                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 shadow-sm transition-colors"
-                                                >
-                                                    <CheckCircle2 size={17} />
-                                                    Approve & Assign Bus
-                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => handleReject(req.id)}

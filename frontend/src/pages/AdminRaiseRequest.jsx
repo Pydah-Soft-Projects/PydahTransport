@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Bus } from 'lucide-react';
+import { RefreshCw, Bus, CheckCircle2 } from 'lucide-react';
 import Layout from '../components/Layout';
 import Loader from '../components/Loader';
 import Modal from '../components/Modal';
@@ -79,6 +79,7 @@ const AdminRaiseRequest = () => {
     const [profileLoading, setProfileLoading] = useState(false);
     const [formError, setFormError] = useState('');
     const [routeFullModal, setRouteFullModal] = useState(null); // { message, buses: [{busNumber, seatsFilled, capacity}] }
+    const [requestSuccessModal, setRequestSuccessModal] = useState({ open: false, message: '' });
     const [stageSearchQuery, setStageSearchQuery] = useState('');
     const [isStageDropdownOpen, setIsStageDropdownOpen] = useState(false);
     const stageDropdownRef = React.useRef(null);
@@ -532,14 +533,19 @@ const AdminRaiseRequest = () => {
                     setBusesOnRoute([]);
                     setChangeType('route');
                 } else {
-                    const requestId = resData.id || resData._id;
-                    if (requestId) {
-                        setRaisedPendingRequestId(requestId);
-                        setMessage({ text: 'Review the details below and confirm approval.', type: 'success' });
-                        await openApproveModal(requestId);
-                    } else {
-                        setMessage({ text: 'Request raised but could not open approval dialog. Approve from Transport Requests.', type: 'error' });
-                    }
+                    setRequestSuccessModal({
+                        open: true,
+                        message: 'Transport request raised successfully in Pending status. Transport ID will be generated upon fee payment.',
+                    });
+                    setMessage({ text: '', type: '' });
+                    setSearchQuery('');
+                    setStudents([]);
+                    setApprovedStudents([]);
+                    setSelectedStudent(null);
+                    setSelectedRoute(null);
+                    setSelectedStage(null);
+                    setStageSearchQuery('');
+                    setBusesOnRoute([]);
                 }
             } else {
                 const data = await response.json();
@@ -1053,9 +1059,9 @@ const AdminRaiseRequest = () => {
                                 )}
 
                                 {!formError && activeTab === 'new' && userType === 'student' && feeEligibility && feeEligibility.enabled && !feeEligibility.ok && (
-                                    <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm leading-relaxed">
-                                        <p className="font-bold text-amber-950 text-xs uppercase tracking-wide mb-1">Fee eligibility</p>
-                                        <p>{feeEligibility.message}</p>
+                                    <div className="p-3 rounded-xl border border-blue-200 bg-blue-50 text-blue-900 text-xs leading-relaxed font-medium">
+                                        <p className="font-bold text-blue-950 text-[10px] uppercase tracking-wide mb-0.5">Fee Payment Notice</p>
+                                        <p>{feeEligibility.message} Request will be saved in <strong>Pending</strong> status; Transport ID will generate upon fee payment.</p>
                                     </div>
                                 )}
 
@@ -1072,15 +1078,14 @@ const AdminRaiseRequest = () => {
                                     submitting
                                     || !selectedStage
                                     || (activeTab === 'new' && userType === 'student' && academicValidation && !academicValidation.valid)
-                                    || (activeTab === 'new' && userType === 'student' && feeEligibility && feeEligibility.enabled && !feeEligibility.ok)
                                     || (activeTab === 'new' && userType === 'student' && (validationLoading || feeEligibilityLoading))
                                 }
-                                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-black disabled:opacity-50 transition-all shadow-xl active:scale-95 flex items-center justify-center gap-2"
+                                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-black disabled:opacity-50 transition-all shadow-xl active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
                             >
                                 {submitting ? (
                                     <>Processing...</>
                                 ) : (
-                                    <>{activeTab === 'new' ? 'Raise & Approve' : 'Confirm Route Change'}</>
+                                    <>{activeTab === 'new' ? 'Raise Transport Request' : 'Confirm Route Change'}</>
                                 )}
                             </button>
                         </form>
@@ -1257,6 +1262,35 @@ const AdminRaiseRequest = () => {
                         </div>
                     </>
                 )}
+            </Modal>
+
+            {/* Request Created Success Modal */}
+            <Modal
+                isOpen={requestSuccessModal.open}
+                onClose={() => setRequestSuccessModal({ open: false, message: '' })}
+                title="Request Created Successfully"
+                maxWidth="max-w-md"
+            >
+                <div className="text-center py-4 space-y-4">
+                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                        <CheckCircle2 size={36} />
+                    </div>
+                    <div>
+                        <h3 className="text-base font-bold text-slate-900">Request Raised (Pending)</h3>
+                        <p className="text-xs text-slate-600 mt-2 leading-relaxed font-medium">
+                            {requestSuccessModal.message}
+                        </p>
+                    </div>
+                    <div className="pt-3 border-t border-slate-100">
+                        <button
+                            type="button"
+                            onClick={() => setRequestSuccessModal({ open: false, message: '' })}
+                            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer"
+                        >
+                            OK, Got it
+                        </button>
+                    </div>
+                </div>
             </Modal>
         </Layout>
     );

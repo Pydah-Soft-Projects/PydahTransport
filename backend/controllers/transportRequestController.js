@@ -495,7 +495,12 @@ function buildDuplicateRequestMessage(existing, academicYear, userType) {
 
 // Get buses and their available capacities, combining counts from MySQL (students) and MongoDB (employees)
 async function getBusesWithSeatsForRoute(routeId) {
-    const buses = await Bus.find({ assignedRouteId: routeId }).lean();
+    const buses = await Bus.find({
+        $or: [
+            { assignedRouteId: String(routeId) },
+            { routeId: String(routeId) }
+        ]
+    }).lean();
     if (buses.length === 0) return [];
 
     const busNumbers = buses.map((b) => b.busNumber);
@@ -1124,6 +1129,35 @@ async function checkBusCapacityGuard(busNumber) {
     }
     return null;
 }
+
+async function autoAssignBusForRoute(routeId) {
+    if (!routeId) return null;
+    try {
+        const allBuses = await Bus.find({
+            $or: [
+                { assignedRouteId: String(routeId) },
+                { routeId: String(routeId) }
+            ]
+        }).lean();
+
+        if (!allBuses || allBuses.length === 0) return null;
+
+        const activeBuses = allBuses.filter(b => !b.status || ['active', 'Active'].includes(String(b.status).trim()));
+        const busesToConsider = activeBuses.length > 0 ? activeBuses : allBuses;
+
+        for (const bus of busesToConsider) {
+            if (!bus.busNumber) continue;
+            const capErr = await checkBusCapacityGuard(bus.busNumber);
+            if (!capErr) {
+                return bus.busNumber;
+            }
+        }
+        return busesToConsider[0]?.busNumber || null;
+    } catch (err) {
+        console.error('Error auto-assigning bus for route from Mongo:', err);
+    }
+    return null;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 const approveTransportRequest = async (req, res) => {
@@ -1203,43 +1237,16 @@ const approveTransportRequest = async (req, res) => {
                 studentReq.fare = overrideFare;
             }
         }
-        // Verify fee eligibility before generating Transport ID
-        const eligibility = await checkStudentRequestEligibility(studentReq.admission_number, resolvedAcademicYear);
-        const isFeeEligible = eligibility.ok || Boolean(studentReq.application_number);
-
-        let application = {
-            application_number: studentReq.application_number || null,
-            application_serial: studentReq.application_serial || null,
-            college_code: studentReq.application_college_code || null,
-            course_code: studentReq.application_course_code || null,
-        };
-
-        if (isFeeEligible && mysqlPool) {
-            const context = await resolveApplicationNumberContext(mysqlPool, {
-                admissionNumber: studentReq.admission_number,
-                userType: 'student',
-            });
-            application = await assignTransportApplicationNumber(mysqlPool, {
-                academicYear: resolvedAcademicYear,
-                collegeCode: context.collegeCode,
-                courseCode: context.courseCode,
-                existingApplicationNumber: studentReq.application_number,
-                existingApplicationSerial: studentReq.application_serial,
-            });
+        // Update Mongo document with bus assignment and academic year
+        let resolvedBusId = req.body.bus_id || studentReq.bus_id || null;
+        if (!resolvedBusId && studentReq.route_id) {
+            resolvedBusId = await autoAssignBusForRoute(studentReq.route_id);
         }
 
-        // Update Mongo document with approval data
         const updateFields = {
-            status: isFeeEligible ? 'approved' : 'pending',
             academic_year: resolvedAcademicYear,
-            application_number: application.application_number || null,
-            application_serial: application.application_serial || null,
-            application_college_code: application.college_code || null,
-            application_course_code: application.course_code || null,
+            ...(resolvedBusId ? { bus_id: resolvedBusId } : {}),
         };
-        if (req.body.bus_id) {
-            updateFields.bus_id = req.body.bus_id;
-        }
         // Hard capacity guard — block approval if bus is full
         const effectiveBusId = updateFields.bus_id || studentReq.bus_id;
         const capacityError = await checkBusCapacityGuard(effectiveBusId);
@@ -1247,7 +1254,6 @@ const approveTransportRequest = async (req, res) => {
             return res.status(capacityError.status).json({ message: capacityError.message });
         }
         await TransportRequest.updateOne({ _id: studentReq._id }, { $set: updateFields });
-        // Merge updates into request object for downstream processing
         const request = { ...studentReq, ...updateFields };
 
         const admissionNumber = request.admission_number || request.admission_no;
@@ -1257,19 +1263,17 @@ const approveTransportRequest = async (req, res) => {
             });
         }
 
-        // Duplicate resolvedAcademicYear block removed; using earlier definition.
-
         // Fetch student from MySQL for course, branch, batch, year, semester, category
         let student = null;
         if (admissionNumber) {
             const [studentRows] = await mysqlPool.query(
-                'SELECT course, branch, batch, current_year, current_semester, stud_type FROM students WHERE admission_number = ? OR admission_no = ? LIMIT 1',
+                'SELECT college, course, branch, batch, current_year, current_semester, stud_type FROM students WHERE admission_number = ? OR admission_no = ? LIMIT 1',
                 [admissionNumber, admissionNumber]
             );
             student = studentRows[0] || null;
         }
 
-        // Fetch last semester for expiry date and semester update (same as legacy path)
+        // Fetch last semester for expiry date and semester update
         let lastSem = null;
         try {
             lastSem = await getLastSemesterForRequest(mysqlPool, request);
@@ -1277,13 +1281,12 @@ const approveTransportRequest = async (req, res) => {
             console.error('Error fetching last semester for transport request:', semErr);
         }
 
-        const college = process.env.FEE_DEFAULT_COLLEGE || 'Default';
+        const college = student?.college || process.env.FEE_DEFAULT_COLLEGE || 'Default';
         const course = student?.course || 'N/A';
         const branch = student?.branch || 'N/A';
         const batch = student?.batch || 'N/A';
         const studentYear = student?.current_year != null ? Number(student.current_year) : 1;
         const semester = student?.current_semester != null ? Number(student.current_semester) : null;
-        const category = student?.stud_type || 'Regular';
         const amount = Number(request.fare);
         const studentName = request.student_name || '';
         const remarks = 'Transport';
@@ -1295,7 +1298,7 @@ const approveTransportRequest = async (req, res) => {
             });
         }
 
-        const { FeeHead, StudentFee, TransportConcession } = feeModels;
+        const { FeeHead, StudentFee } = feeModels;
         const transportFeeHead = await FeeHead.findOne({
             $or: [
                 { code: TRANSPORT_FEE_HEAD_CODE },
@@ -1309,7 +1312,6 @@ const approveTransportRequest = async (req, res) => {
             });
         }
 
-        // Check for persistent concession
         const finalAmount = amount;
 
         const existingFee = await StudentFee.findOne({
@@ -1321,48 +1323,22 @@ const approveTransportRequest = async (req, res) => {
             remarks,
             ...ACTIVE_STUDENT_FEE_FILTER,
         });
-        if (existingFee) {
-            if (lastSem) {
-                await updateTransportRequestSemester(mysqlPool, requestId, {
-                    semester_id: lastSem.id,
-                    semester_start_date: lastSem.start_date,
-                    semester_end_date: lastSem.end_date,
-                    academic_year_id: lastSem.academic_year_id,
-                    year_of_study: lastSem.year_of_study,
-                    semester_number: lastSem.semester_number,
-                });
-            }
-            const approvedApp = await markTransportRequestApproved(mysqlPool, requestId, {
-                bus_id: req.body.bus_id,
-                academicYear: resolvedAcademicYear,
-                existingApplicationNumber: request.application_number,
-                existingApplicationSerial: request.application_serial,
-                admissionNumber,
-                userType: 'student',
-            });
 
-            return res.json({
-                message: `Request approved. Application No: ${approvedApp.application_number}. Transport fee for this student/year already exists in Fee Management.`,
-                requestId: Number(requestId),
-                application_number: approvedApp.application_number,
-                application_serial: approvedApp.application_serial,
-                expiry_date: lastSem?.end_date || null,
+        if (!existingFee) {
+            await StudentFee.create({
+                studentId: String(admissionNumber),
+                studentName: studentName,
+                feeHead: transportFeeHead._id,
+                college,
+                course,
+                branch,
+                academicYear: resolvedAcademicYear,
+                studentYear,
+                semester: semester || undefined,
+                amount: finalAmount,
+                remarks,
             });
         }
-
-        await StudentFee.create({
-            studentId: String(admissionNumber),
-            studentName: studentName,
-            feeHead: transportFeeHead._id,
-            college,
-            course,
-            branch,
-            academicYear: resolvedAcademicYear,
-            studentYear,
-            semester: semester || undefined,
-            amount: finalAmount,
-            remarks,
-        });
 
         if (lastSem) {
             await updateTransportRequestSemester(mysqlPool, requestId, {
@@ -1374,21 +1350,36 @@ const approveTransportRequest = async (req, res) => {
                 semester_number: lastSem.semester_number,
             });
         }
-        const finalApprovedApp = await markTransportRequestApproved(mysqlPool, requestId, {
-            bus_id: req.body.bus_id,
-            academicYear: resolvedAcademicYear,
-            existingApplicationNumber: request.application_number,
-            existingApplicationSerial: request.application_serial,
-            admissionNumber,
-            userType: 'student',
-        });
 
+        // Check fee eligibility
+        const eligibility = await checkStudentRequestEligibility(admissionNumber, resolvedAcademicYear);
+        const isFeeEligible = eligibility.ok || Boolean(studentReq.application_number);
+
+        if (isFeeEligible) {
+            const approvedApp = await markTransportRequestApproved(mysqlPool, requestId, {
+                bus_id: req.body.bus_id,
+                academicYear: resolvedAcademicYear,
+                existingApplicationNumber: studentReq.application_number,
+                existingApplicationSerial: studentReq.application_serial,
+                admissionNumber,
+                userType: 'student',
+            });
+            return res.json({
+                message: `Request approved. Application No: ${approvedApp.application_number}.`,
+                requestId: Number(requestId),
+                application_number: approvedApp.application_number,
+                application_serial: approvedApp.application_serial,
+                expiry_date: lastSem?.end_date || null,
+            });
+        }
+
+        // For pending requests not yet fee eligible: bus assigned and fee created, but Transport ID awaits fee payment
         res.json({
-            message: `Transport request approved. Application No: ${finalApprovedApp.application_number}. Transport Fee (TRN01) created in Fee Management.`,
+            message: `Bus assigned and Transport Fee (TRN01) created in Fee Management. Transport ID will be generated upon fee payment.`,
             requestId: Number(requestId),
             academicYear: resolvedAcademicYear,
-            application_number: finalApprovedApp.application_number,
-            application_serial: finalApprovedApp.application_serial,
+            application_number: null,
+            application_serial: null,
             amount,
             expiry_date: lastSem?.end_date || null,
         });
@@ -1894,6 +1885,11 @@ const createTransportRequest = async (req, res) => {
 
         const nextRequestId = await TransportRequest.getNextRequestId();
 
+        let resolvedBusId = req.body.bus_id || null;
+        if (!resolvedBusId && route_id) {
+            resolvedBusId = await autoAssignBusForRoute(route_id);
+        }
+
         const docData = {
             id: nextRequestId,
             admission_number,
@@ -1901,6 +1897,7 @@ const createTransportRequest = async (req, res) => {
             route_id,
             route_name,
             stage_name,
+            bus_id: resolvedBusId,
             fare: fare ? Number(fare) : 0,
             status: 'pending',
             raised_by: resolvedRaisedBy,
@@ -1911,6 +1908,66 @@ const createTransportRequest = async (req, res) => {
 
         const newReq = new TransportRequest(docData);
         await newReq.save();
+
+        // Create StudentFee in Fee Management immediately so fee payments can be collected
+        if (admission_number && fare && Number(fare) > 0 && user_type !== 'employee') {
+            try {
+                const feeModels = getFeePortalModels();
+                if (feeModels && mysqlPool) {
+                    const { FeeHead, StudentFee } = feeModels;
+                    const transportFeeHead = await FeeHead.findOne({
+                        $or: [
+                            { code: TRANSPORT_FEE_HEAD_CODE },
+                            { code: String(TRANSPORT_FEE_HEAD_CODE).toLowerCase() },
+                            { name: { $regex: /transport/i } }
+                        ]
+                    });
+
+                    if (transportFeeHead) {
+                        const [studentRows] = await mysqlPool.query(
+                            'SELECT college, course, branch, batch, current_year, current_semester FROM students WHERE admission_number = ? OR admission_no = ? LIMIT 1',
+                            [admission_number, admission_number]
+                        );
+                        const student = studentRows[0] || null;
+
+                        const college = student?.college || process.env.FEE_DEFAULT_COLLEGE || 'Default';
+                        const course = student?.course || 'N/A';
+                        const branch = student?.branch || 'N/A';
+                        const studentYear = student?.current_year != null ? Number(student.current_year) : (yearOfStudy || 1);
+                        const semester = student?.current_semester != null ? Number(student.current_semester) : null;
+                        const remarks = 'Transport';
+
+                        const existingFee = await StudentFee.findOne({
+                            studentId: String(admission_number),
+                            feeHead: transportFeeHead._id,
+                            academicYear: resolvedAcademicYear,
+                            studentYear,
+                            semester: semester || null,
+                            remarks,
+                            ...ACTIVE_STUDENT_FEE_FILTER,
+                        });
+
+                        if (!existingFee) {
+                            await StudentFee.create({
+                                studentId: String(admission_number),
+                                studentName: student_name || '',
+                                feeHead: transportFeeHead._id,
+                                college,
+                                course,
+                                branch,
+                                academicYear: resolvedAcademicYear,
+                                studentYear,
+                                semester: semester || undefined,
+                                amount: Number(fare),
+                                remarks,
+                            });
+                        }
+                    }
+                }
+            } catch (feeErr) {
+                console.error('[createTransportRequest] Error creating StudentFee in Fee Management:', feeErr);
+            }
+        }
 
         res.status(201).json({
             id: newReq.id || newReq._id.toString(),
@@ -1998,6 +2055,13 @@ const generateTransportId = async (req, res) => {
             existingApplicationNumber: request.application_number,
             existingApplicationSerial: request.application_serial,
         });
+
+        if (!request.bus_id && request.route_id) {
+            const autoBus = await autoAssignBusForRoute(request.route_id);
+            if (autoBus) {
+                request.bus_id = autoBus;
+            }
+        }
 
         request.application_number = application.application_number;
         request.application_serial = application.application_serial;
