@@ -558,11 +558,25 @@ const getAutoNotificationLogs = async (req, res) => {
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
     const skip = (page - 1) * limit;
-    const { action } = req.query;
+    const { action, search } = req.query;
 
     const query = {};
     if (action && AUTO_NOTIFICATION_ACTIONS.includes(action)) {
       query.action = action;
+    }
+
+    const searchText = String(search || '').trim();
+    if (searchText) {
+      const escapedSearch = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const searchRegex = new RegExp(escapedSearch, 'i');
+      query.messages = {
+        $elemMatch: {
+          $or: [
+            { recipientName: searchRegex },
+            { phone: searchRegex },
+          ],
+        },
+      };
     }
 
     const [logs, total, actionStats, overallStats] = await Promise.all([

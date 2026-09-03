@@ -17,6 +17,7 @@ import {
   Bell,
   BarChart3,
   FileText,
+  Search,
   ChevronRight,
   Clock,
 } from 'lucide-react';
@@ -127,6 +128,8 @@ export default function Communications() {
   });
   const [loadingAutoLogs, setLoadingAutoLogs] = useState(false);
   const [selectedLogId, setSelectedLogId] = useState(null);
+  const [messageSearch, setMessageSearch] = useState('');
+  const [debouncedMessageSearch, setDebouncedMessageSearch] = useState('');
   const [logActionFilter, setLogActionFilter] = useState('');
   const [logsPage, setLogsPage] = useState(1);
   const [logsPagination, setLogsPagination] = useState({ page: 1, pages: 1, total: 0 });
@@ -275,6 +278,7 @@ export default function Communications() {
         limit: '25',
       });
       if (logActionFilter) params.set('action', logActionFilter);
+      if (debouncedMessageSearch.trim()) params.set('search', debouncedMessageSearch.trim());
       const res = await apiFetch(`${API_BASE}/communications/auto-notifications/logs?${params.toString()}`);
       const json = await res.json();
       if (!json.success) throw new Error(json.message || 'Failed to load delivery logs');
@@ -298,7 +302,15 @@ export default function Communications() {
     } finally {
       setLoadingAutoLogs(false);
     }
-  }, [logsPage, logActionFilter]);
+  }, [logsPage, logActionFilter, debouncedMessageSearch]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedMessageSearch(messageSearch);
+      setLogsPage(1);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [messageSearch]);
 
   useEffect(() => {
     if (activeTab === 'auto') loadAutoLogs();
@@ -308,6 +320,22 @@ export default function Communications() {
     () => autoLogs.find((log) => String(log._id) === String(selectedLogId)) || null,
     [autoLogs, selectedLogId]
   );
+
+  const filteredMessages = useMemo(() => {
+    const messages = Array.isArray(selectedAutoLog?.messages) ? selectedAutoLog.messages : [];
+    const query = messageSearch.trim().toLowerCase();
+    if (!query) return messages;
+
+    return messages.filter((entry) => [
+      entry.recipientName,
+      entry.recipientId,
+      entry.recipientType,
+      entry.phone,
+      entry.message,
+      entry.status,
+      entry.error,
+    ].some((value) => String(value || '').toLowerCase().includes(query)));
+  }, [selectedAutoLog, messageSearch]);
 
   const formatLogDate = (value) => {
     if (!value) return '—';
@@ -1064,9 +1092,23 @@ export default function Communications() {
 
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                     <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-                      <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                        <FileText size={15} className="text-blue-600" /> Message Details
-                      </h3>
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                          <FileText size={15} className="text-blue-600" /> Message Details
+                        </h3>
+                        <div className="relative w-full max-w-[220px]">
+                          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="search"
+                            value={messageSearch}
+                            onChange={(e) => setMessageSearch(e.target.value)}
+                            disabled={!selectedAutoLog}
+                            placeholder="Search messages..."
+                            aria-label="Search message details"
+                            className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-[11px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                          />
+                        </div>
+                      </div>
                       {selectedAutoLog ? (
                         <p className="text-[11px] text-slate-500 mt-1">
                           {(AUTO_ACTION_META[selectedAutoLog.action]?.label || selectedAutoLog.action)}
@@ -1119,7 +1161,7 @@ export default function Communications() {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-50">
-                                {selectedAutoLog.messages.map((entry, idx) => (
+                                {filteredMessages.map((entry, idx) => (
                                   <tr key={`${entry.recipientId || entry.phone || idx}`} className="text-xs align-top">
                                     <td className="px-3 py-2.5">
                                       <p className="font-semibold text-slate-800">{entry.recipientName || '—'}</p>
@@ -1146,6 +1188,9 @@ export default function Communications() {
                                 ))}
                               </tbody>
                             </table>
+                            {filteredMessages.length === 0 && (
+                              <p className="p-6 text-center text-sm text-slate-400">No messages match your search.</p>
+                            )}
                           </div>
                         ) : (
                           <div className="p-6 text-sm text-slate-500">
