@@ -4,6 +4,7 @@ const AutoNotificationLog = require('../models/AutoNotificationLog');
 const TransportRequest = require('../models/TransportRequest');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 const { mysqlPool, getEmployeeConnection } = require('../config/db');
+const { resolveStudentExpiries } = require('../utils/expiryResolver');
 const {
   normalizePhone,
   sendBulkSms,
@@ -101,6 +102,49 @@ const fetchEmployeePhones = async (empNos = []) => {
     if (emp.emp_no) map[String(emp.emp_no)] = phone;
   }
   return map;
+};
+
+/**
+ * Keep only students with at least one non-expired transport request.
+ * Expired approved passes must not receive route-management auto SMS.
+ */
+const filterActiveStudents = async (students = []) => {
+  if (!Array.isArray(students) || students.length === 0) return [];
+
+  const admissionNos = [...new Set(
+    students
+      .map((s) => String(s.admissionNumber || s.admission_number || '').trim())
+      .filter(Boolean)
+  )];
+  if (admissionNos.length === 0) return [];
+
+  const requests = await TransportRequest.find({
+    admission_number: { $in: admissionNos },
+    status: { $in: ['approved', 'pending'] },
+  })
+    .select('admission_number academic_year year_of_study course semester_id expiry_date semester_end_date status')
+    .lean();
+
+  await resolveStudentExpiries(requests, mysqlPool);
+
+  const activeAdmissions = new Set(
+    requests
+      .filter((r) => !r.is_expired)
+      .map((r) => String(r.admission_number || '').trim())
+      .filter(Boolean)
+  );
+
+  const filtered = students.filter((s) => {
+    const adm = String(s.admissionNumber || s.admission_number || '').trim();
+    return adm && activeAdmissions.has(adm);
+  });
+
+  const skippedExpired = students.length - filtered.length;
+  if (skippedExpired > 0) {
+    console.log(`[AutoNotify] Skipped ${skippedExpired} expired student(s); notifying ${filtered.length} active student(s)`);
+  }
+
+  return filtered;
 };
 
 const DEFAULT_SETTINGS = AutoNotificationSetting.AUTO_NOTIFICATION_ACTIONS.map((action) => ({
@@ -423,8 +467,25 @@ const triggerAutoNotification = async (action, {
       return { skipped: true, reason: skipReason };
     }
 
-    const filteredStudents = setting.notifyStudents !== false ? students : [];
+    const filteredStudents = setting.notifyStudents !== false
+      ? await filterActiveStudents(students)
+      : [];
     const filteredEmployees = setting.notifyEmployees !== false ? employees : [];
+
+    if (filteredStudents.length === 0 && filteredEmployees.length === 0) {
+      const skipReason = 'No active recipients to notify';
+      setImmediate(() => {
+        persistAutoNotificationLog({
+          ...baseLog,
+          status: 'skipped',
+          skipReason,
+          templateId: template._id,
+          templateName: template.name || '',
+          dltTemplateId: template.dltTemplateId || '',
+        });
+      });
+      return { skipped: true, reason: skipReason, sent: 0, failed: 0 };
+    }
 
     const recipients = await buildRecipientsFromLists({
       students: filteredStudents,
@@ -488,14 +549,17 @@ const notifyBusMappingChange = async ({
       TransportRequest.find({
         status: 'approved',
         route_id: { $in: uniqueRouteIds },
-      }).select('student_name admission_number route_id route_name stage_name bus_id').lean(),
+      }).select('student_name admission_number route_id route_name stage_name bus_id academic_year year_of_study course semester_id expiry_date semester_end_date').lean(),
       EmployeeTransportRequest.find({
         status: 'approved',
         route_id: { $in: uniqueRouteIds },
       }).select('employee_name emp_no route_id route_name stage_name bus_id').lean(),
     ]);
 
-    const studentList = students.map((s) => ({
+    await resolveStudentExpiries(students, mysqlPool);
+    const activeStudents = students.filter((s) => !s.is_expired);
+
+    const studentList = activeStudents.map((s) => ({
       name: s.student_name,
       admissionNumber: s.admission_number,
       route_id: s.route_id,
