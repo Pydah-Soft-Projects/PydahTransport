@@ -73,18 +73,100 @@ const TransportRequests = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const [rowsPerPage, setRowsPerPage] = useState(10);
     const [userTypeFilter, setUserTypeFilter] = useState('student'); // 'student' or 'employee'
+    const [sortField, setSortField] = useState('application_number');
+    const [sortOrder, setSortOrder] = useState('desc');
+
+    const handleSort = (field) => {
+        if (sortField === field) {
+            setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+        } else {
+            setSortField(field);
+            setSortOrder('desc');
+        }
+    };
 
     const filteredRequestsByType = React.useMemo(() => {
-        const list = requests.filter((r) => {
+        const query = (searchQuery || '').trim().toLowerCase();
+
+        let list = requests.filter((r) => {
             const userType = r.user_type || 'student';
-            return userType === userTypeFilter;
+            if (userType !== userTypeFilter) return false;
+
+            if (!query) return true;
+
+            const name = (r.student_name || r.employee_name || '').toLowerCase();
+            const adm = (r.admission_number || r.emp_no || '').toLowerCase();
+            const appNo = (r.application_number || '').toLowerCase();
+            const appSerial = (r.application_serial != null ? String(r.application_serial) : '').toLowerCase();
+            const pinNo = (r.pin_no || '').toLowerCase();
+            const courseStr = (r.course || '').toLowerCase();
+            const branchStr = (r.branch || '').toLowerCase();
+            const collegeStr = (r.college || '').toLowerCase();
+            const routeStr = (r.route_name || r.route_id || '').toLowerCase();
+            const stageStr = (r.stage_name || '').toLowerCase();
+            const busStr = (r.bus_id || '').toLowerCase();
+            const mobileStr = (r.student_mobile || r.parent_mobile1 || '').toLowerCase();
+            const statusStr = (r.status || '').toLowerCase();
+
+            return (
+                name.includes(query) ||
+                adm.includes(query) ||
+                appNo.includes(query) ||
+                appSerial.includes(query) ||
+                pinNo.includes(query) ||
+                courseStr.includes(query) ||
+                branchStr.includes(query) ||
+                collegeStr.includes(query) ||
+                routeStr.includes(query) ||
+                stageStr.includes(query) ||
+                busStr.includes(query) ||
+                mobileStr.includes(query) ||
+                statusStr.includes(query)
+            );
         });
-        return [...list].sort((a, b) => {
-            const aNeed = a.new_id_card_needed ? 1 : 0;
-            const bNeed = b.new_id_card_needed ? 1 : 0;
-            return bNeed - aNeed;
+
+        return list.sort((a, b) => {
+            let valA, valB;
+
+            if (sortField === 'application_number') {
+                valA = a.application_serial != null ? a.application_serial : (a.application_number || '');
+                valB = b.application_serial != null ? b.application_serial : (b.application_number || '');
+            } else if (sortField === 'pin_no') {
+                valA = a.pin_no || '';
+                valB = b.pin_no || '';
+            } else if (sortField === 'admission_number') {
+                valA = a.admission_number || a.emp_no || '';
+                valB = b.admission_number || b.emp_no || '';
+            } else if (sortField === 'name') {
+                valA = a.student_name || a.employee_name || '';
+                valB = b.student_name || b.employee_name || '';
+            } else if (sortField === 'fare') {
+                valA = a.payable_fare ?? a.fare ?? 0;
+                valB = b.payable_fare ?? b.fare ?? 0;
+            } else if (sortField === 'status') {
+                valA = a.status || '';
+                valB = b.status || '';
+            } else {
+                valA = a[sortField] || '';
+                valB = b[sortField] || '';
+            }
+
+            let cmp = 0;
+            if (typeof valA === 'number' && typeof valB === 'number') {
+                cmp = valA - valB;
+            } else {
+                cmp = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
+            }
+
+            if (cmp === 0) {
+                const aNeed = a.new_id_card_needed ? 1 : 0;
+                const bNeed = b.new_id_card_needed ? 1 : 0;
+                cmp = bNeed - aNeed;
+            }
+
+            return sortOrder === 'asc' ? cmp : -cmp;
         });
-    }, [requests, userTypeFilter]);
+    }, [requests, userTypeFilter, searchQuery, sortField, sortOrder]);
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(null);
     const [message, setMessage] = useState({ text: '', type: '' });
@@ -1128,11 +1210,11 @@ const TransportRequests = () => {
                     </select>
                 </div>
 
-                <div className="flex-[2] min-w-[180px] relative">
+                <div className="flex-[2] min-w-[200px] relative">
                     <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                     <input
                         type="text"
-                        placeholder="Search name/ID..."
+                        placeholder="Search App No, Name, Pin, Adm No, Course, Route..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full pl-8.5 pr-2 py-1.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-xs text-slate-800 placeholder-slate-400 font-medium"
@@ -1278,7 +1360,7 @@ const TransportRequests = () => {
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
+                                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider select-none">
                                     <th className="px-3 py-2 w-8">
                                         <input
                                             type="checkbox"
@@ -1293,13 +1375,43 @@ const TransportRequests = () => {
                                             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                                         />
                                     </th>
-                                    <th className="px-3 py-2">Pin Number</th>
-                                    <th className="px-3 py-2">Adm Number</th>
-                                    <th className="px-3 py-2">App No.</th>
-                                    <th className="px-3 py-2">Name</th>
+                                    <th onClick={() => handleSort('pin_no')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Pin Number">
+                                        <div className="flex items-center gap-1">
+                                            <span>Pin Number</span>
+                                            <span className="text-[10px] text-slate-400">{sortField === 'pin_no' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                        </div>
+                                    </th>
+                                    <th onClick={() => handleSort('admission_number')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Adm / Emp Number">
+                                        <div className="flex items-center gap-1">
+                                            <span>Adm Number</span>
+                                            <span className="text-[10px] text-slate-400">{sortField === 'admission_number' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                        </div>
+                                    </th>
+                                    <th onClick={() => handleSort('application_number')} className="px-3 py-2 cursor-pointer hover:bg-slate-100/90 transition-colors bg-blue-50/60 text-indigo-900 font-black border-x border-slate-200/60" title="Click to sort by Application Number">
+                                        <div className="flex items-center gap-1">
+                                            <span>App No.</span>
+                                            <span className="text-xs font-bold text-indigo-600">{sortField === 'application_number' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                        </div>
+                                    </th>
+                                    <th onClick={() => handleSort('name')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Name">
+                                        <div className="flex items-center gap-1">
+                                            <span>Name</span>
+                                            <span className="text-[10px] text-slate-400">{sortField === 'name' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                        </div>
+                                    </th>
                                     <th className="px-3 py-2">Academic Info</th>
-                                    <th className="px-3 py-2">Fare</th>
-                                    <th className="px-3 py-2">Status</th>
+                                    <th onClick={() => handleSort('fare')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Fare">
+                                        <div className="flex items-center gap-1">
+                                            <span>Fare</span>
+                                            <span className="text-[10px] text-slate-400">{sortField === 'fare' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                        </div>
+                                    </th>
+                                    <th onClick={() => handleSort('status')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Status">
+                                        <div className="flex items-center gap-1">
+                                            <span>Status</span>
+                                            <span className="text-[10px] text-slate-400">{sortField === 'status' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                        </div>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">

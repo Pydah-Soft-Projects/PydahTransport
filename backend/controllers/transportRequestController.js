@@ -762,11 +762,22 @@ const getTransportRequests = async (req, res) => {
             }
         }
         if (search) {
-            const searchRegex = new RegExp(search, 'i');
+            const cleanSearch = String(search).trim();
+            const searchRegex = new RegExp(cleanSearch, 'i');
             const searchConditions = [
                 { student_name: searchRegex },
-                { admission_number: searchRegex }
+                { admission_number: searchRegex },
+                { application_number: searchRegex },
+                { pin_no: searchRegex },
+                { route_name: searchRegex },
+                { stage_name: searchRegex },
+                { course: searchRegex },
+                { branch: searchRegex },
             ];
+            const parsedNum = Number(cleanSearch);
+            if (!isNaN(parsedNum) && Number.isFinite(parsedNum)) {
+                searchConditions.push({ application_serial: parsedNum });
+            }
             if (studentMongoQuery.$or) {
                 studentMongoQuery.$and = [
                     { $or: studentMongoQuery.$or },
@@ -868,10 +879,19 @@ const getTransportRequests = async (req, res) => {
             }
         }
         if (search) {
+            const cleanSearch = String(search).trim();
+            const searchRegex = new RegExp(cleanSearch, 'i');
             mongoQuery.$or = [
-                { employee_name: { $regex: search, $options: 'i' } },
-                { emp_no: { $regex: search, $options: 'i' } }
+                { employee_name: searchRegex },
+                { emp_no: searchRegex },
+                { application_number: searchRegex },
+                { route_name: searchRegex },
+                { stage_name: searchRegex },
             ];
+            const parsedNum = Number(cleanSearch);
+            if (!isNaN(parsedNum) && Number.isFinite(parsedNum)) {
+                mongoQuery.$or.push({ application_serial: parsedNum });
+            }
         }
         if (hasCampusRestriction) {
             if (allowedRouteIds.length > 0) {
