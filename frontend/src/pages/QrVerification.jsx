@@ -81,14 +81,39 @@ const QrVerification = () => {
     const SCAN_COOLDOWN_MS = 1800;
 
     /** Fetch available cameras (built-in, rear, front, and USB webcams) prioritizing active index. */
-    const getCameraCandidates = useCallback(async (preferredIndex = activeCameraIndexRef.current) => {
+    const getCameraCandidates = useCallback(async (preferredIndex = activeCameraIndexRef.current, { exclusive = false } = {}) => {
         let camerasList = [];
 
-        // Query all video input devices directly without opening dummy streams
         try {
             const discoveredMap = new Map();
 
-            // Html5Qrcode.getCameras()
+            // Unlock labels on some browsers (empty until a stream was granted once)
+            if (navigator.mediaDevices?.getUserMedia && navigator.mediaDevices?.enumerateDevices) {
+                try {
+                    const pre = await navigator.mediaDevices.enumerateDevices();
+                    const videoPre = pre.filter((d) => d.kind === 'videoinput');
+                    const labelsMissing = videoPre.length === 0 || videoPre.every((d) => !d.label);
+                    if (labelsMissing) {
+                        try {
+                            const warm = await navigator.mediaDevices.getUserMedia({
+                                video: { facingMode: { ideal: 'environment' } },
+                                audio: false,
+                            });
+                            warm.getTracks().forEach((t) => t.stop());
+                        } catch {
+                            try {
+                                const warm = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                                warm.getTracks().forEach((t) => t.stop());
+                            } catch {
+                                // permission may already be denied; continue with what we have
+                            }
+                        }
+                    }
+                } catch {
+                    // ignore pre-enumeration failures
+                }
+            }
+
             try {
                 const h5Cameras = await Html5Qrcode.getCameras();
                 if (h5Cameras?.length) {
@@ -102,7 +127,6 @@ const QrVerification = () => {
                 console.warn('[Camera] Html5Qrcode.getCameras warning:', err);
             }
 
-            // Direct navigator.mediaDevices.enumerateDevices() for external USB webcams
             if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === 'function') {
                 const allDevices = await navigator.mediaDevices.enumerateDevices();
                 const videoInputs = allDevices.filter((d) => d.kind === 'videoinput');
@@ -110,8 +134,8 @@ const QrVerification = () => {
                 videoInputs.forEach((vInput, i) => {
                     if (vInput.deviceId) {
                         const existingLabel = discoveredMap.get(vInput.deviceId);
-                        const newLabel = vInput.label || `USB / Video Camera ${i + 1}`;
-                        if (!existingLabel || existingLabel.startsWith('Camera ')) {
+                        const newLabel = vInput.label || `Camera ${i + 1}`;
+                        if (!existingLabel || /^Camera\s+\d+$/i.test(existingLabel)) {
                             discoveredMap.set(vInput.deviceId, newLabel);
                         }
                     }
@@ -119,79 +143,116 @@ const QrVerification = () => {
             }
 
             if (discoveredMap.size > 0) {
-                const rawList = Array.from(discoveredMap.entries()).map(([id, label]) => ({ id, label }));
-                
-                // Prioritize rear/outer/USB cameras before front integrated webcams
-                const sorted = [...rawList];
-                sorted.sort((a, b) => {
-                    const aUsbOrRear = /usb|external|webcam|back|rear|environment|world/i.test(a.label);
-                    const bUsbOrRear = /usb|external|webcam|back|rear|environment|world/i.test(b.label);
-                    if (aUsbOrRear && !bUsbOrRear) return -1;
-                    if (!aUsbOrRear && bUsbOrRear) return 1;
-                    return 0;
+                const rawList = Array.from(discoveredMap.entries()).map(([id, label]) => {
+                    const lower = String(label || '').toLowerCase();
+                    const isFront = /front|user|selfie|face/i.test(lower);
+                    const isBack = /back|rear|environment|world|outer|usb|external/i.test(lower);
+                    return {
+                        id,
+                        label,
+                        facingHint: isFront ? 'user' : (isBack ? 'environment' : null),
+                    };
                 });
 
-                camerasList = sorted;
+                // Prefer rear/environment first, then unknown, then front
+                const score = (cam) => {
+                    if (cam.facingHint === 'environment') return 0;
+                    if (cam.facingHint == null) return 1;
+                    return 2;
+                };
+                camerasList = [...rawList].sort((a, b) => score(a) - score(b));
             }
         } catch (err) {
             console.warn('[Camera] Failed to enumerate devices:', err);
         }
 
-        // Fallbacks if no specific camera IDs enumerated
+        // FacingMode fallbacks when device enumeration is empty / incomplete
         if (camerasList.length === 0) {
             camerasList = [
-                { facingMode: 'environment', label: 'Rear / Outer Camera' },
-                { facingMode: 'user', label: 'Front / Integrated Camera' },
+                { facingMode: 'environment', facingHint: 'environment', label: 'Rear / Outer Camera' },
+                { facingMode: 'user', facingHint: 'user', label: 'Front / Integrated Camera' },
             ];
         } else if (camerasList.length === 1) {
-            const isUser = /front|user|selfie/i.test(camerasList[0].label || '');
-            camerasList.push(
-                isUser
-                    ? { facingMode: 'environment', label: 'Outer / USB Camera' }
-                    : { facingMode: 'user', label: 'Front / Integrated Camera' }
-            );
+            const only = camerasList[0];
+            if (only.facingHint === 'user') {
+                camerasList.push({ facingMode: 'environment', facingHint: 'environment', label: 'Rear / Outer Camera' });
+            } else if (only.facingHint === 'environment') {
+                camerasList.push({ facingMode: 'user', facingHint: 'user', label: 'Front / Integrated Camera' });
+            } else {
+                camerasList = [
+                    { ...only, facingHint: only.facingHint || 'environment' },
+                    { facingMode: 'environment', facingHint: 'environment', label: 'Rear / Outer Camera' },
+                    { facingMode: 'user', facingHint: 'user', label: 'Front / Integrated Camera' },
+                ];
+            }
+        } else {
+            const hasEnv = camerasList.some((c) => c.facingHint === 'environment' || c.facingMode === 'environment');
+            const hasUser = camerasList.some((c) => c.facingHint === 'user' || c.facingMode === 'user');
+            if (!hasEnv) {
+                camerasList.push({ facingMode: 'environment', facingHint: 'environment', label: 'Rear / Outer Camera' });
+            }
+            if (!hasUser) {
+                camerasList.push({ facingMode: 'user', facingHint: 'user', label: 'Front / Integrated Camera' });
+            }
         }
 
         setAvailableCameras(camerasList);
 
         const safeIdx = Math.abs(preferredIndex) % camerasList.length;
-        
-        const candidates = [];
         const target = camerasList[safeIdx];
-        if (target?.id) {
-            candidates.push(target.id);
-            candidates.push({ deviceId: { exact: target.id } });
-            candidates.push({ deviceId: target.id });
-        } else if (target?.facingMode) {
-            candidates.push({ facingMode: target.facingMode });
+        const candidates = [];
+
+        const pushTargetVariants = (cam) => {
+            if (!cam) return;
+            if (cam.id) {
+                candidates.push({ deviceId: { exact: cam.id } });
+                candidates.push({ deviceId: cam.id });
+                candidates.push(cam.id);
+            }
+            if (cam.facingMode) {
+                candidates.push({ facingMode: { exact: cam.facingMode } });
+                candidates.push({ facingMode: cam.facingMode });
+            } else if (cam.facingHint) {
+                candidates.push({ facingMode: { exact: cam.facingHint } });
+                candidates.push({ facingMode: cam.facingHint });
+            }
+        };
+
+        pushTargetVariants(target);
+
+        // Only fall back to other cameras on initial start — not when user explicitly switched
+        if (!exclusive) {
+            camerasList.forEach((cam, idx) => {
+                if (idx === safeIdx) return;
+                if (cam.id) candidates.push({ deviceId: { exact: cam.id } });
+                else if (cam.facingMode) candidates.push({ facingMode: cam.facingMode });
+                else if (cam.facingHint) candidates.push({ facingMode: cam.facingHint });
+            });
+            candidates.push({ facingMode: 'environment' });
+            candidates.push({ facingMode: 'user' });
         }
 
-        camerasList.forEach((cam, idx) => {
-            if (idx !== safeIdx) {
-                if (cam.id) candidates.push(cam.id);
-                else if (cam.facingMode) candidates.push({ facingMode: cam.facingMode });
-            }
-        });
-
-        candidates.push({ facingMode: safeIdx === 0 ? 'environment' : 'user' });
-        candidates.push({ facingMode: safeIdx === 0 ? 'user' : 'environment' });
-
-        return { candidates, camerasList, safeIdx };
+        return { candidates, camerasList, safeIdx, target };
     }, []);
 
-    const getScannerConfig = useCallback(() => ({
+    const getScannerConfig = useCallback((relaxed = false) => ({
         fps: 30,
-        // Dual-ratio scan box optimized for both small QR targets and wide badges
         qrbox: (viewfinderWidth, viewfinderHeight) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const size = Math.max(260, Math.floor(minEdge * 0.92));
+            const size = Math.max(220, Math.floor(minEdge * (relaxed ? 0.85 : 0.92)));
             return { width: size, height: size };
         },
         disableFlip: false,
-        videoConstraints: {
-            width: { min: 1280, ideal: 2560, max: 3840 },
-            height: { min: 720, ideal: 1440, max: 2160 },
-        }
+        // Strict mins often block rear cameras on mobile when switching — soften them
+        videoConstraints: relaxed
+            ? {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+            }
+            : {
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+            },
     }), []);
 
     const refreshMeta = useCallback(async () => {
@@ -714,7 +775,8 @@ const QrVerification = () => {
 
     handleScanRef.current = processQrText;
 
-    const startScanner = useCallback(async (targetIndex) => {
+    const startScanner = useCallback(async (targetIndex, options = {}) => {
+        const exclusive = Boolean(options.exclusive);
         const session = ++scanSessionRef.current;
         setCameraError('');
         setScanning(false);
@@ -733,6 +795,9 @@ const QrVerification = () => {
             try { prev.clear(); } catch { /* ignore */ }
         }
         clearReaderDom();
+
+        // Ensure previous camera track is fully released before opening another (esp. rear cam on mobile)
+        await new Promise((r) => setTimeout(r, exclusive ? 280 : 80));
 
         // Ensure DOM element is painted
         if (!document.getElementById('qr-reader')) {
@@ -757,14 +822,13 @@ const QrVerification = () => {
             }
             lastScanRef.current = { text: trimmed, at: now };
 
-            // Fire-and-forget so the scanner loop is not blocked
             if (handleScanRef.current) {
                 Promise.resolve(handleScanRef.current(trimmed)).catch(() => {});
             }
         };
 
         try {
-            const { candidates, safeIdx } = await getCameraCandidates(reqIndex);
+            const { candidates, safeIdx, target } = await getCameraCandidates(reqIndex, { exclusive });
             if (session !== scanSessionRef.current) return;
 
             const scanner = new Html5Qrcode('qr-reader', {
@@ -780,25 +844,63 @@ const QrVerification = () => {
 
             let started = false;
             let lastError = null;
-            const config = getScannerConfig();
+            const configs = [getScannerConfig(false), getScannerConfig(true)];
 
+            // Deduplicate candidates (objects stringify poorly — keep order with Set of JSON)
+            const seen = new Set();
+            const uniqueCandidates = [];
             for (const camera of candidates) {
-                if (session !== scanSessionRef.current) return;
-                try {
-                    await scanner.start(camera, config, onDecoded, () => {});
-                    started = true;
-                    break;
-                } catch (err) {
-                    lastError = err;
+                const key = typeof camera === 'string' ? camera : JSON.stringify(camera);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                uniqueCandidates.push(camera);
+            }
+
+            outer:
+            for (const camera of uniqueCandidates) {
+                for (const config of configs) {
+                    if (session !== scanSessionRef.current) return;
                     try {
-                        const state = scanner.getState?.();
-                        if (state === 2 || state === 3) await scanner.stop();
-                    } catch { /* ignore */ }
+                        await scanner.start(camera, config, onDecoded, () => {});
+                        started = true;
+                        break outer;
+                    } catch (err) {
+                        lastError = err;
+                        try {
+                            const state = scanner.getState?.();
+                            if (state === 2 || state === 3) await scanner.stop();
+                        } catch { /* ignore */ }
+                    }
+                }
+            }
+
+            // Last resort for exclusive switch: facingMode of the intended camera type
+            if (!started && exclusive && target) {
+                const facing = target.facingMode || target.facingHint;
+                if (facing) {
+                    for (const config of configs) {
+                        if (session !== scanSessionRef.current) return;
+                        try {
+                            await scanner.start({ facingMode: facing }, config, onDecoded, () => {});
+                            started = true;
+                            break;
+                        } catch (err) {
+                            lastError = err;
+                            try {
+                                const state = scanner.getState?.();
+                                if (state === 2 || state === 3) await scanner.stop();
+                            } catch { /* ignore */ }
+                        }
+                    }
                 }
             }
 
             if (!started) {
-                throw lastError || new Error('No usable camera found.');
+                throw lastError || new Error(
+                    exclusive
+                        ? 'Could not open the selected camera. Try Start again or pick another camera.'
+                        : 'No usable camera found.'
+                );
             }
 
             activeCameraIndexRef.current = safeIdx;
@@ -815,13 +917,11 @@ const QrVerification = () => {
             setScanning(true);
             setCameraError('');
 
-            // Query and configure camera capabilities (Torch, Zoom, Continuous Focus)
             try {
                 const track = scanner.getActiveCameraTrack();
                 if (track) {
                     const capabilities = track.getCapabilities?.() || {};
-                    
-                    // 1. Setup continuous autofocus, exposure & white balance for crisp long-distance frames
+
                     const advanced = {};
                     if (capabilities.focusMode?.includes('continuous')) {
                         advanced.focusMode = 'continuous';
@@ -840,15 +940,13 @@ const QrVerification = () => {
                         }
                     }
 
-                    // 2. Detect Torch Support
                     if ('torch' in capabilities) {
                         setTorchSupported(true);
-                        setTorchOn(false); // default to off
+                        setTorchOn(false);
                     } else {
                         setTorchSupported(false);
                     }
 
-                    // 3. Detect Zoom Support
                     if ('zoom' in capabilities) {
                         setZoomSupported(true);
                         const zMin = capabilities.zoom.min || 1;
@@ -884,30 +982,30 @@ const QrVerification = () => {
             const res = await getCameraCandidates(activeCameraIndexRef.current);
             list = res.camerasList;
         }
-        const nextIndex = (activeCameraIndexRef.current + 1) % (list.length || 2);
+        const nextIndex = (activeCameraIndexRef.current + 1) % Math.max(list.length, 2);
         activeCameraIndexRef.current = nextIndex;
         setActiveCameraIndex(nextIndex);
 
-        if (scannerRunning.current || scanning) {
-            await stopScanner();
-            setTimeout(() => {
-                startScanner(nextIndex);
-            }, 150);
-        }
-    }, [availableCameras, scanning, stopScanner, startScanner, getCameraCandidates]);
+        await stopScanner();
+        // Give the OS time to release the previous camera before opening the next
+        setTimeout(() => {
+            startScanner(nextIndex, { exclusive: true });
+        }, 320);
+    }, [availableCameras, stopScanner, startScanner, getCameraCandidates]);
 
     const handleCameraSelect = useCallback(async (index) => {
         const nextIndex = Number(index);
+        if (Number.isNaN(nextIndex)) return;
+        if (nextIndex === activeCameraIndexRef.current && scannerRunning.current) return;
+
         activeCameraIndexRef.current = nextIndex;
         setActiveCameraIndex(nextIndex);
 
-        if (scannerRunning.current || scanning) {
-            await stopScanner();
-            setTimeout(() => {
-                startScanner(nextIndex);
-            }, 150);
-        }
-    }, [scanning, stopScanner, startScanner]);
+        await stopScanner();
+        setTimeout(() => {
+            startScanner(nextIndex, { exclusive: true });
+        }, 320);
+    }, [stopScanner, startScanner]);
 
     // Handle USB device plugging/unplugging in real-time
     useEffect(() => {
