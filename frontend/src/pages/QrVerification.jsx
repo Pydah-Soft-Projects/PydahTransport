@@ -77,35 +77,156 @@ const QrVerification = () => {
     const busyRef = useRef(false);
     const lastScanRef = useRef({ text: '', at: 0 });
     const activeCameraIndexRef = useRef(0);
+    const cameraPermissionWarmedRef = useRef(false);
 
     const SCAN_COOLDOWN_MS = 1800;
 
-    /** Fetch available cameras explicitly as Front and Back to bypass buggy mobile device IDs */
+    const classifyCameraFacing = useCallback((label = '') => {
+        const text = String(label || '').toLowerCase();
+        if (/back|rear|environment|world|facing.?back|ultra.?wide|wide.?angle|telephoto/.test(text)) {
+            return 'environment';
+        }
+        if (/front|user|face|facing.?front|selfie|frontal/.test(text)) {
+            return 'user';
+        }
+        return null;
+    }, []);
+
+    /** Warm permission once so enumerateDevices / getCameras returns labeled devices on mobile */
+    const ensureCameraPermission = useCallback(async () => {
+        if (cameraPermissionWarmedRef.current) return;
+        if (!navigator.mediaDevices?.getUserMedia) return;
+        let stream = null;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: 'environment' } },
+                audio: false,
+            });
+        } catch {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            } catch {
+                return;
+            }
+        }
+        try {
+            stream?.getTracks?.().forEach((track) => track.stop());
+        } catch {
+            // ignore
+        }
+        cameraPermissionWarmedRef.current = true;
+        // Brief pause so the OS fully releases the warm-up track before Html5Qrcode opens
+        await new Promise((r) => setTimeout(r, 120));
+    }, []);
+
+    /**
+     * Enumerate real cameras (deviceId) and build start candidates.
+     * facingMode-only selection is unreliable on many Android / WebView browsers —
+     * switching often keeps the front camera while the UI claims "Back".
+     */
     const getCameraCandidates = useCallback(async (preferredIndex = activeCameraIndexRef.current, { exclusive = false } = {}) => {
-        const camerasList = [
-            { facingMode: 'environment', label: 'Back Camera' },
-            { facingMode: 'user', label: 'Front Camera' }
-        ];
+        await ensureCameraPermission();
+
+        let devices = [];
+        try {
+            devices = await Html5Qrcode.getCameras();
+        } catch {
+            devices = [];
+        }
+
+        let camerasList = [];
+
+        if (Array.isArray(devices) && devices.length > 0) {
+            const mapped = devices.map((device, i) => {
+                const facingMode = classifyCameraFacing(device.label);
+                return {
+                    id: device.id,
+                    deviceId: device.id,
+                    label: device.label || `Camera ${i + 1}`,
+                    facingMode,
+                };
+            });
+
+            const backs = mapped.filter((c) => c.facingMode === 'environment');
+            const fronts = mapped.filter((c) => c.facingMode === 'user');
+            const unknown = mapped.filter((c) => !c.facingMode);
+
+            if (backs.length || fronts.length) {
+                camerasList = [
+                    ...backs.map((c, i) => ({
+                        ...c,
+                        label: c.label || (backs.length > 1 ? `Back Camera ${i + 1}` : 'Back Camera'),
+                    })),
+                    // Extra unlabeled modules are usually additional rear lenses on phones
+                    ...unknown.map((c, i) => ({
+                        ...c,
+                        facingMode: backs.length || !fronts.length ? 'environment' : 'user',
+                        label: c.label || `Camera ${backs.length + fronts.length + i + 1}`,
+                    })),
+                    ...fronts.map((c, i) => ({
+                        ...c,
+                        label: c.label || (fronts.length > 1 ? `Front Camera ${i + 1}` : 'Front Camera'),
+                    })),
+                ];
+            } else if (mapped.length === 2) {
+                // Common mobile ordering when labels are empty: [0]=back, [1]=front
+                camerasList = [
+                    { ...mapped[0], facingMode: 'environment', label: mapped[0].label || 'Back Camera' },
+                    { ...mapped[1], facingMode: 'user', label: mapped[1].label || 'Front Camera' },
+                ];
+            } else {
+                camerasList = mapped.map((c, i) => ({
+                    ...c,
+                    facingMode: i === mapped.length - 1 && mapped.length > 1 ? 'user' : 'environment',
+                    label: c.label || `Camera ${i + 1}`,
+                }));
+            }
+        }
+
+        // Last resort when enumeration is empty / blocked
+        if (camerasList.length === 0) {
+            camerasList = [
+                { id: 'facing-environment', facingMode: 'environment', label: 'Back Camera' },
+                { id: 'facing-user', facingMode: 'user', label: 'Front Camera' },
+            ];
+        }
 
         setAvailableCameras(camerasList);
 
-        const safeIdx = Math.abs(preferredIndex) % 2;
+        const len = camerasList.length;
+        const safeIdx = ((Number(preferredIndex) % len) + len) % len;
         const target = camerasList[safeIdx];
         const candidates = [];
 
-        // Prioritize exact facing mode
-        candidates.push({ facingMode: { exact: target.facingMode } });
-        candidates.push({ facingMode: target.facingMode });
+        const pushDeviceCandidates = (cam) => {
+            const deviceId = cam?.deviceId || (cam?.id && !String(cam.id).startsWith('facing-') ? cam.id : null);
+            if (!deviceId) return;
+            // html5-qrcode accepts a cameraId string; also try constraint forms
+            candidates.push(deviceId);
+            candidates.push({ deviceId: { exact: deviceId } });
+            candidates.push({ deviceId });
+        };
 
-        // If not exclusive, fallback to the other camera
+        const pushFacingCandidates = (facing) => {
+            if (!facing) return;
+            candidates.push({ facingMode: { exact: facing } });
+            candidates.push({ facingMode: facing });
+        };
+
+        // Prefer concrete deviceId — most reliable way to open the rear camera on mobile
+        pushDeviceCandidates(target);
+        pushFacingCandidates(target.facingMode);
+
         if (!exclusive) {
-            const fallbackFacing = safeIdx === 0 ? 'user' : 'environment';
-            candidates.push({ facingMode: { exact: fallbackFacing } });
-            candidates.push({ facingMode: fallbackFacing });
+            for (let i = 0; i < camerasList.length; i += 1) {
+                if (i === safeIdx) continue;
+                pushDeviceCandidates(camerasList[i]);
+                pushFacingCandidates(camerasList[i].facingMode);
+            }
         }
 
         return { candidates, camerasList, safeIdx, target };
-    }, []);
+    }, [classifyCameraFacing, ensureCameraPermission]);
 
     const getScannerConfig = useCallback((relaxed = false) => ({
         fps: 30,
@@ -115,7 +236,7 @@ const QrVerification = () => {
             return { width: size, height: size };
         },
         disableFlip: false,
-        // Strict mins often block rear cameras on mobile when switching — soften them
+        // High ideals often overconstrain rear modules when switching on mobile
         videoConstraints: relaxed
             ? {
                 width: { ideal: 1280 },
@@ -126,6 +247,36 @@ const QrVerification = () => {
                 height: { ideal: 1080 },
             },
     }), []);
+
+    const resolveOpenedCameraIndex = useCallback((camerasList, preferredIdx, target, startedWith) => {
+        if (!Array.isArray(camerasList) || camerasList.length === 0) return preferredIdx;
+
+        const matchDevice = (deviceId) => {
+            if (!deviceId) return -1;
+            return camerasList.findIndex((c) => c.deviceId === deviceId || c.id === deviceId);
+        };
+
+        if (typeof startedWith === 'string') {
+            const byId = matchDevice(startedWith);
+            if (byId >= 0) return byId;
+        } else if (startedWith && typeof startedWith === 'object') {
+            const rawId = startedWith.deviceId?.exact || startedWith.deviceId;
+            const byId = matchDevice(rawId);
+            if (byId >= 0) return byId;
+            const facing = startedWith.facingMode?.exact || startedWith.facingMode;
+            if (facing) {
+                const byFacing = camerasList.findIndex((c) => c.facingMode === facing);
+                if (byFacing >= 0) return byFacing;
+            }
+        }
+
+        if (target?.deviceId || target?.id) {
+            const byTarget = matchDevice(target.deviceId || target.id);
+            if (byTarget >= 0) return byTarget;
+        }
+
+        return preferredIdx;
+    }, []);
 
     const refreshMeta = useCallback(async () => {
         const [syncAt, count, storedYear, keyInfo] = await Promise.all([
@@ -669,7 +820,7 @@ const QrVerification = () => {
         clearReaderDom();
 
         // Ensure previous camera track is fully released before opening another (esp. rear cam on mobile)
-        await new Promise((r) => setTimeout(r, exclusive ? 280 : 80));
+        await new Promise((r) => setTimeout(r, exclusive ? 350 : 80));
 
         // Ensure DOM element is painted
         if (!document.getElementById('qr-reader')) {
@@ -700,7 +851,7 @@ const QrVerification = () => {
         };
 
         try {
-            const { candidates, safeIdx, target } = await getCameraCandidates(reqIndex, { exclusive });
+            const { candidates, camerasList, safeIdx, target } = await getCameraCandidates(reqIndex, { exclusive });
             if (session !== scanSessionRef.current) return;
 
             const scanner = new Html5Qrcode('qr-reader', {
@@ -715,8 +866,12 @@ const QrVerification = () => {
             scannerRef.current = scanner;
 
             let started = false;
+            let startedWith = null;
             let lastError = null;
-            const configs = [getScannerConfig(false), getScannerConfig(true)];
+            // Prefer relaxed constraints first when switching — high ideals often block rear cams
+            const configs = exclusive
+                ? [getScannerConfig(true), getScannerConfig(false)]
+                : [getScannerConfig(false), getScannerConfig(true)];
 
             // Deduplicate candidates (objects stringify poorly — keep order with Set of JSON)
             const seen = new Set();
@@ -728,40 +883,86 @@ const QrVerification = () => {
                 uniqueCandidates.push(camera);
             }
 
+            const stopPartialStart = async () => {
+                try {
+                    const state = scanner.getState?.();
+                    if (state === 2 || state === 3) await scanner.stop();
+                } catch { /* ignore */ }
+            };
+
+            const isWrongFacing = (track) => {
+                if (!exclusive || !target?.facingMode || !track?.getSettings) return false;
+                const openedFacing = track.getSettings()?.facingMode;
+                // Only reject when the browser reports a clear mismatch
+                return Boolean(openedFacing && openedFacing !== target.facingMode);
+            };
+
+            const isWrongDevice = (camera, track) => {
+                if (!track?.getSettings) return false;
+                const openedId = track.getSettings()?.deviceId;
+                if (!openedId) return false;
+                let wantId = null;
+                if (typeof camera === 'string' && !camera.startsWith('facing-')) wantId = camera;
+                else if (camera?.deviceId) wantId = camera.deviceId.exact || camera.deviceId;
+                if (!wantId || String(wantId).startsWith('facing-')) return false;
+                return openedId !== wantId;
+            };
+
             outer:
             for (const camera of uniqueCandidates) {
                 for (const config of configs) {
                     if (session !== scanSessionRef.current) return;
                     try {
                         await scanner.start(camera, config, onDecoded, () => {});
+                        const track = scanner.getActiveCameraTrack?.() || null;
+                        if (isWrongDevice(camera, track) || isWrongFacing(track)) {
+                            lastError = new Error('Opened the wrong camera; trying next candidate.');
+                            await stopPartialStart();
+                            continue;
+                        }
                         started = true;
+                        startedWith = camera;
                         break outer;
                     } catch (err) {
                         lastError = err;
-                        try {
-                            const state = scanner.getState?.();
-                            if (state === 2 || state === 3) await scanner.stop();
-                        } catch { /* ignore */ }
+                        await stopPartialStart();
                     }
                 }
             }
 
             // Last resort for exclusive switch: facingMode of the intended camera type
-            if (!started && exclusive && target) {
-                const facing = target.facingMode || target.facingHint;
-                if (facing) {
-                    for (const config of configs) {
-                        if (session !== scanSessionRef.current) return;
+            if (!started && exclusive && target?.facingMode) {
+                const facing = target.facingMode;
+                for (const config of configs) {
+                    if (session !== scanSessionRef.current) return;
+                    try {
+                        await scanner.start({ facingMode: { exact: facing } }, config, onDecoded, () => {});
+                        const track = scanner.getActiveCameraTrack?.() || null;
+                        if (isWrongFacing(track)) {
+                            lastError = new Error('Opened the wrong camera; trying next candidate.');
+                            await stopPartialStart();
+                        } else {
+                            started = true;
+                            startedWith = { facingMode: { exact: facing } };
+                            break;
+                        }
+                    } catch (err) {
+                        lastError = err;
+                        await stopPartialStart();
                         try {
                             await scanner.start({ facingMode: facing }, config, onDecoded, () => {});
-                            started = true;
-                            break;
-                        } catch (err) {
-                            lastError = err;
-                            try {
-                                const state = scanner.getState?.();
-                                if (state === 2 || state === 3) await scanner.stop();
-                            } catch { /* ignore */ }
+                            const track = scanner.getActiveCameraTrack?.() || null;
+                            if (isWrongFacing(track)) {
+                                lastError = new Error('Opened the wrong camera; trying next candidate.');
+                                await stopPartialStart();
+                            } else {
+                                started = true;
+                                startedWith = { facingMode: facing };
+                                break;
+                            }
+                        } catch (err2) {
+                            lastError = err2;
+                            await stopPartialStart();
                         }
                     }
                 }
@@ -775,8 +976,26 @@ const QrVerification = () => {
                 );
             }
 
-            activeCameraIndexRef.current = safeIdx;
-            setActiveCameraIndex(safeIdx);
+            // Sync UI index to the camera that actually opened (avoids "Back" label on front feed)
+            let resolvedIdx = resolveOpenedCameraIndex(camerasList, safeIdx, target, startedWith);
+            try {
+                const track = scanner.getActiveCameraTrack?.();
+                const settings = track?.getSettings?.() || {};
+                if (settings.deviceId) {
+                    const byDevice = camerasList.findIndex(
+                        (c) => c.deviceId === settings.deviceId || c.id === settings.deviceId
+                    );
+                    if (byDevice >= 0) resolvedIdx = byDevice;
+                } else if (settings.facingMode) {
+                    const byFacing = camerasList.findIndex((c) => c.facingMode === settings.facingMode);
+                    if (byFacing >= 0) resolvedIdx = byFacing;
+                }
+            } catch {
+                // keep resolvedIdx from candidate match
+            }
+
+            activeCameraIndexRef.current = resolvedIdx;
+            setActiveCameraIndex(resolvedIdx);
 
             if (session !== scanSessionRef.current) {
                 try { await scanner.stop(); } catch { /* ignore */ }
@@ -846,7 +1065,7 @@ const QrVerification = () => {
             );
             setScanning(false);
         }
-    }, [clearReaderDom, getCameraCandidates, getScannerConfig]);
+    }, [clearReaderDom, getCameraCandidates, getScannerConfig, resolveOpenedCameraIndex]);
 
     const switchCamera = useCallback(async (e) => {
         if (e && typeof e.preventDefault === 'function') e.preventDefault();
@@ -854,7 +1073,7 @@ const QrVerification = () => {
 
         let list = availableCameras;
         if (!list || list.length <= 1) {
-            const res = await getCameraCandidates(activeCameraIndexRef.current);
+            const res = await getCameraCandidates(activeCameraIndexRef.current, { exclusive: true });
             list = res.camerasList;
         }
         const nextIndex = (activeCameraIndexRef.current + 1) % Math.max(list.length, 2);
@@ -862,10 +1081,10 @@ const QrVerification = () => {
         setActiveCameraIndex(nextIndex);
 
         await stopScanner();
-        // Give the OS time to release the previous camera before opening the next
+        // Give the OS time to release the previous camera before opening the next (rear cams need longer)
         setTimeout(() => {
             startScanner(nextIndex, { exclusive: true });
-        }, 600);
+        }, 700);
     }, [availableCameras, stopScanner, startScanner, getCameraCandidates]);
 
     const handleCameraSelect = useCallback(async (index) => {
@@ -879,7 +1098,7 @@ const QrVerification = () => {
         await stopScanner();
         setTimeout(() => {
             startScanner(nextIndex, { exclusive: true });
-        }, 600);
+        }, 700);
     }, [stopScanner, startScanner]);
 
     // Handle USB device plugging/unplugging in real-time
@@ -1085,7 +1304,11 @@ const QrVerification = () => {
                                     <div className="absolute top-3 right-3 left-3 flex justify-between items-start pointer-events-none z-30">
                                         <div className="bg-slate-950/85 border border-slate-800/80 text-slate-200 text-[9px] sm:text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 backdrop-blur-sm shadow-md">
                                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                            Live View
+                                            {availableCameras[activeCameraIndex]?.facingMode === 'user'
+                                                ? 'Front Camera'
+                                                : availableCameras[activeCameraIndex]?.facingMode === 'environment'
+                                                    ? 'Back Camera'
+                                                    : 'Live View'}
                                         </div>
                                         <div className="flex flex-col gap-2 items-end pointer-events-auto">
                                             {/* Switch Camera Overlay Button */}
