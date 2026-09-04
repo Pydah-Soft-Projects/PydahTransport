@@ -68,6 +68,8 @@ const QrVerification = () => {
     const [zoomValue, setZoomValue] = useState(1);
     const [availableCameras, setAvailableCameras] = useState([]);
     const [activeCameraIndex, setActiveCameraIndex] = useState(0);
+    // Actual facing reported by the live MediaStreamTrack (UI must follow this, not our guess)
+    const [activeFacingMode, setActiveFacingMode] = useState(null);
 
     const scannerRef = useRef(null);
     const scannerRunning = useRef(false);
@@ -78,6 +80,7 @@ const QrVerification = () => {
     const lastScanRef = useRef({ text: '', at: 0 });
     const activeCameraIndexRef = useRef(0);
     const cameraPermissionWarmedRef = useRef(false);
+    const probedCamerasRef = useRef(null);
 
     const SCAN_COOLDOWN_MS = 1800;
 
@@ -120,6 +123,54 @@ const QrVerification = () => {
     }, []);
 
     /**
+     * Briefly open each device to learn real facingMode.
+     * Label-only / index-only guesses often mark the front cam as "Back" on phones.
+     */
+    const probeCameraFacing = useCallback(async (devices) => {
+        if (probedCamerasRef.current) return probedCamerasRef.current;
+        if (!navigator.mediaDevices?.getUserMedia || !Array.isArray(devices) || devices.length === 0) {
+            return devices || [];
+        }
+
+        const probed = [];
+        for (let i = 0; i < devices.length; i += 1) {
+            const device = devices[i];
+            let facingMode = classifyCameraFacing(device.label);
+            let stream = null;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { deviceId: { exact: device.id }, width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false,
+                });
+                const track = stream.getVideoTracks?.()[0];
+                const reported = track?.getSettings?.()?.facingMode;
+                if (reported === 'user' || reported === 'environment') {
+                    facingMode = reported;
+                }
+            } catch {
+                // keep label-based facingMode
+            } finally {
+                try {
+                    stream?.getTracks?.().forEach((t) => t.stop());
+                } catch {
+                    // ignore
+                }
+            }
+            probed.push({
+                id: device.id,
+                deviceId: device.id,
+                label: device.label || `Camera ${i + 1}`,
+                facingMode,
+            });
+            // Small gap so mobile OS releases the probe track
+            await new Promise((r) => setTimeout(r, 80));
+        }
+
+        probedCamerasRef.current = probed;
+        return probed;
+    }, [classifyCameraFacing]);
+
+    /**
      * Enumerate real cameras (deviceId) and build start candidates.
      * facingMode-only selection is unreliable on many Android / WebView browsers —
      * switching often keeps the front camera while the UI claims "Back".
@@ -137,15 +188,7 @@ const QrVerification = () => {
         let camerasList = [];
 
         if (Array.isArray(devices) && devices.length > 0) {
-            const mapped = devices.map((device, i) => {
-                const facingMode = classifyCameraFacing(device.label);
-                return {
-                    id: device.id,
-                    deviceId: device.id,
-                    label: device.label || `Camera ${i + 1}`,
-                    facingMode,
-                };
-            });
+            const mapped = await probeCameraFacing(devices);
 
             const backs = mapped.filter((c) => c.facingMode === 'environment');
             const fronts = mapped.filter((c) => c.facingMode === 'user');
@@ -155,7 +198,9 @@ const QrVerification = () => {
                 camerasList = [
                     ...backs.map((c, i) => ({
                         ...c,
-                        label: c.label || (backs.length > 1 ? `Back Camera ${i + 1}` : 'Back Camera'),
+                        label: /back|rear|environment/i.test(c.label)
+                            ? c.label
+                            : (backs.length > 1 ? `Back Camera ${i + 1}` : 'Back Camera'),
                     })),
                     // Extra unlabeled modules are usually additional rear lenses on phones
                     ...unknown.map((c, i) => ({
@@ -165,19 +210,21 @@ const QrVerification = () => {
                     })),
                     ...fronts.map((c, i) => ({
                         ...c,
-                        label: c.label || (fronts.length > 1 ? `Front Camera ${i + 1}` : 'Front Camera'),
+                        label: /front|user|face|selfie/i.test(c.label)
+                            ? c.label
+                            : (fronts.length > 1 ? `Front Camera ${i + 1}` : 'Front Camera'),
                     })),
                 ];
             } else if (mapped.length === 2) {
-                // Common mobile ordering when labels are empty: [0]=back, [1]=front
-                camerasList = [
-                    { ...mapped[0], facingMode: 'environment', label: mapped[0].label || 'Back Camera' },
-                    { ...mapped[1], facingMode: 'user', label: mapped[1].label || 'Front Camera' },
-                ];
+                // Empty labels + no facingMode from probe: do NOT assume index order.
+                // Keep both as unknown-facing and prefer facingMode constraints when starting.
+                camerasList = mapped.map((c, i) => ({
+                    ...c,
+                    label: c.label || `Camera ${i + 1}`,
+                }));
             } else {
                 camerasList = mapped.map((c, i) => ({
                     ...c,
-                    facingMode: i === mapped.length - 1 && mapped.length > 1 ? 'user' : 'environment',
                     label: c.label || `Camera ${i + 1}`,
                 }));
             }
@@ -201,7 +248,6 @@ const QrVerification = () => {
         const pushDeviceCandidates = (cam) => {
             const deviceId = cam?.deviceId || (cam?.id && !String(cam.id).startsWith('facing-') ? cam.id : null);
             if (!deviceId) return;
-            // html5-qrcode accepts a cameraId string; also try constraint forms
             candidates.push(deviceId);
             candidates.push({ deviceId: { exact: deviceId } });
             candidates.push({ deviceId });
@@ -213,20 +259,40 @@ const QrVerification = () => {
             candidates.push({ facingMode: facing });
         };
 
-        // Prefer concrete deviceId — most reliable way to open the rear camera on mobile
-        pushDeviceCandidates(target);
-        pushFacingCandidates(target.facingMode);
+        // Want back? Ask the browser for environment FIRST — deviceId guesses are wrong on many phones.
+        // Want front? Same with user. Then pin with deviceId when we have a verified match.
+        const wantFacing = target.facingMode
+            || (safeIdx === 0 && camerasList.every((c) => !c.facingMode) ? 'environment' : null)
+            || (safeIdx === 1 && camerasList.length >= 2 && camerasList.every((c) => !c.facingMode) ? 'user' : null);
+
+        if (wantFacing === 'environment' || wantFacing === 'user') {
+            pushFacingCandidates(wantFacing);
+            // Prefer deviceIds already classified as that facing
+            camerasList
+                .filter((c) => c.facingMode === wantFacing)
+                .forEach((c) => pushDeviceCandidates(c));
+            // Then the selected row itself
+            pushDeviceCandidates(target);
+        } else {
+            pushDeviceCandidates(target);
+            pushFacingCandidates(target.facingMode);
+        }
 
         if (!exclusive) {
             for (let i = 0; i < camerasList.length; i += 1) {
                 if (i === safeIdx) continue;
-                pushDeviceCandidates(camerasList[i]);
                 pushFacingCandidates(camerasList[i].facingMode);
+                pushDeviceCandidates(camerasList[i]);
             }
         }
 
-        return { candidates, camerasList, safeIdx, target };
-    }, [classifyCameraFacing, ensureCameraPermission]);
+        return {
+            candidates,
+            camerasList,
+            safeIdx,
+            target: { ...target, facingMode: wantFacing || target.facingMode },
+        };
+    }, [classifyCameraFacing, ensureCameraPermission, probeCameraFacing]);
 
     const getScannerConfig = useCallback((relaxed = false) => ({
         fps: 30,
@@ -344,6 +410,7 @@ const QrVerification = () => {
         setTorchSupported(false);
         setTorchOn(false);
         setZoomSupported(false);
+        setActiveFacingMode(null);
 
         if (scanner) {
             try {
@@ -892,9 +959,19 @@ const QrVerification = () => {
 
             const isWrongFacing = (track) => {
                 if (!exclusive || !target?.facingMode || !track?.getSettings) return false;
-                const openedFacing = track.getSettings()?.facingMode;
-                // Only reject when the browser reports a clear mismatch
-                return Boolean(openedFacing && openedFacing !== target.facingMode);
+                const settings = track.getSettings() || {};
+                const openedFacing = settings.facingMode;
+                if (openedFacing && openedFacing !== target.facingMode) return true;
+
+                // Cross-check probed device list — catches phones that omit facingMode in getSettings
+                const openedId = settings.deviceId;
+                if (openedId) {
+                    const known = (probedCamerasRef.current || camerasList).find(
+                        (c) => c.deviceId === openedId || c.id === openedId
+                    );
+                    if (known?.facingMode && known.facingMode !== target.facingMode) return true;
+                }
+                return false;
             };
 
             const isWrongDevice = (camera, track) => {
@@ -976,19 +1053,38 @@ const QrVerification = () => {
                 );
             }
 
-            // Sync UI index to the camera that actually opened (avoids "Back" label on front feed)
+            // Sync UI index + facing badge to the camera that actually opened
+            // (this is the bug users saw: label said "Back" while the track was front)
             let resolvedIdx = resolveOpenedCameraIndex(camerasList, safeIdx, target, startedWith);
+            let liveFacing = target?.facingMode || null;
             try {
                 const track = scanner.getActiveCameraTrack?.();
                 const settings = track?.getSettings?.() || {};
+                if (settings.facingMode === 'user' || settings.facingMode === 'environment') {
+                    liveFacing = settings.facingMode;
+                }
                 if (settings.deviceId) {
                     const byDevice = camerasList.findIndex(
                         (c) => c.deviceId === settings.deviceId || c.id === settings.deviceId
                     );
                     if (byDevice >= 0) resolvedIdx = byDevice;
-                } else if (settings.facingMode) {
-                    const byFacing = camerasList.findIndex((c) => c.facingMode === settings.facingMode);
+                } else if (liveFacing) {
+                    const byFacing = camerasList.findIndex((c) => c.facingMode === liveFacing);
                     if (byFacing >= 0) resolvedIdx = byFacing;
+                }
+
+                // Correct mislabeled list rows from the live track
+                if (liveFacing && camerasList[resolvedIdx] && camerasList[resolvedIdx].facingMode !== liveFacing) {
+                    const corrected = camerasList.map((cam, idx) => (
+                        idx === resolvedIdx
+                            ? {
+                                ...cam,
+                                facingMode: liveFacing,
+                                label: liveFacing === 'user' ? 'Front Camera' : 'Back Camera',
+                            }
+                            : cam
+                    ));
+                    setAvailableCameras(corrected);
                 }
             } catch {
                 // keep resolvedIdx from candidate match
@@ -996,6 +1092,7 @@ const QrVerification = () => {
 
             activeCameraIndexRef.current = resolvedIdx;
             setActiveCameraIndex(resolvedIdx);
+            setActiveFacingMode(liveFacing);
 
             if (session !== scanSessionRef.current) {
                 try { await scanner.stop(); } catch { /* ignore */ }
@@ -1304,11 +1401,15 @@ const QrVerification = () => {
                                     <div className="absolute top-3 right-3 left-3 flex justify-between items-start pointer-events-none z-30">
                                         <div className="bg-slate-950/85 border border-slate-800/80 text-slate-200 text-[9px] sm:text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 backdrop-blur-sm shadow-md">
                                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                            {availableCameras[activeCameraIndex]?.facingMode === 'user'
+                                            {activeFacingMode === 'user'
                                                 ? 'Front Camera'
-                                                : availableCameras[activeCameraIndex]?.facingMode === 'environment'
+                                                : activeFacingMode === 'environment'
                                                     ? 'Back Camera'
-                                                    : 'Live View'}
+                                                    : availableCameras[activeCameraIndex]?.facingMode === 'user'
+                                                        ? 'Front Camera'
+                                                        : availableCameras[activeCameraIndex]?.facingMode === 'environment'
+                                                            ? 'Back Camera'
+                                                            : 'Live View'}
                                         </div>
                                         <div className="flex flex-col gap-2 items-end pointer-events-auto">
                                             {/* Switch Camera Overlay Button */}
