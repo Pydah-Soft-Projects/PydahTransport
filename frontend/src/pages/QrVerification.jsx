@@ -14,6 +14,7 @@ import {
     Zap,
     ZapOff,
     SwitchCamera,
+    ZoomIn,
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
@@ -154,23 +155,43 @@ const QrVerification = () => {
     const isFrontLabel = useCallback((label = '') => /front|user|face|selfie|facing\s*front/i.test(label), []);
     const isRearLabel = useCallback((label = '') => /back|rear|environment|facing\s*back|world/i.test(label), []);
 
-    /** Scanner config WITHOUT videoConstraints (those override deviceId in html5-qrcode). */
-    const getScannerConfig = useCallback((relaxed = false) => ({
-        fps: 30,
+    /**
+     * Scanner tuned for small printed pass QRs (do not change print layout).
+     * - Tighter qrbox: decoder sees a denser crop when the QR is centered
+     * - Higher fps: more chances while the hand moves
+     * NEVER put videoConstraints here — they override deviceId in html5-qrcode.
+     */
+    const getScannerConfig = useCallback(() => ({
+        fps: 20,
         qrbox: (viewfinderWidth, viewfinderHeight) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const size = Math.max(220, Math.floor(minEdge * (relaxed ? 0.85 : 0.92)));
+            // ~48% crop helps small distant QRs fill more of the decode region
+            const size = Math.max(180, Math.min(320, Math.floor(minEdge * 0.48)));
             return { width: size, height: size };
         },
+        aspectRatio: 1.0,
         disableFlip: false,
+        experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true,
+        },
     }), []);
 
-    /** Build MediaTrackConstraints that keep deviceId (passed as start()'s first arg, not config). */
-    const deviceConstraint = useCallback((deviceId, relaxed = true) => ({
+    /** Prefer higher resolution so small printed modules resolve more pixels. */
+    const deviceConstraint = useCallback((deviceId, highRes = true) => ({
         deviceId: { exact: deviceId },
-        width: { ideal: relaxed ? 1280 : 1920 },
-        height: { ideal: relaxed ? 720 : 1080 },
+        width: { ideal: highRes ? 1920 : 1280 },
+        height: { ideal: highRes ? 1080 : 720 },
     }), []);
+
+    /** Pick a modest zoom so small pass QRs decode without holding the phone flush to the card. */
+    const pickSmallQrZoom = useCallback((zMin, zMax) => {
+        const min = Number(zMin) || 1;
+        const max = Number(zMax) || 1;
+        if (max <= min) return min;
+        // ~2x, or 35% into the zoom range — enough for tiny printed codes
+        const target = Math.max(min * 1.8, min + (max - min) * 0.35);
+        return Math.min(max, Math.max(min, Number(target.toFixed(2))));
+    }, []);
 
     const refreshMeta = useCallback(async () => {
         const [syncAt, count, storedYear, keyInfo] = await Promise.all([
@@ -322,12 +343,14 @@ const QrVerification = () => {
     const cycleZoom = useCallback(() => {
         const minZ = zoomCapabilities.min || 1;
         const maxZ = zoomCapabilities.max || 5;
-        
-        let nextZoom = zoomValue + 1;
-        if (nextZoom > maxZ || nextZoom > 5) {
-            nextZoom = minZ;
-        }
-        handleZoomChange(nextZoom);
+        const steps = [minZ, 1.5, 2, 2.5, 3, 4]
+            .map((z) => Math.min(maxZ, Math.max(minZ, z)))
+            .filter((z, i, arr) => arr.indexOf(z) === i)
+            .sort((a, b) => a - b);
+
+        const current = Number(zoomValue) || minZ;
+        const next = steps.find((z) => z > current + 0.05) ?? minZ;
+        handleZoomChange(next);
     }, [zoomValue, zoomCapabilities, handleZoomChange]);
 
     const syncNow = useCallback(async () => {
@@ -814,7 +837,7 @@ const QrVerification = () => {
             scannerRef.current = scanner;
 
             // Config must NOT include videoConstraints — that overrides deviceId in html5-qrcode
-            const config = getScannerConfig(true);
+            const config = getScannerConfig();
 
             let ordered = [...camerasList];
             if (camerasList.length > 0) {
@@ -862,10 +885,10 @@ const QrVerification = () => {
             for (const cam of ordered) {
                 if (!cam?.id || session !== scanSessionRef.current) break;
 
-                // Try deviceId as string, then as MediaTrackConstraints (with resolution on the SAME object)
+                // Prefer high-res first so small printed QR modules resolve more pixels
                 const attempts = [
-                    cam.id,
                     deviceConstraint(cam.id, true),
+                    cam.id,
                     { deviceId: { exact: cam.id } },
                     deviceConstraint(cam.id, false),
                 ];
@@ -961,11 +984,28 @@ const QrVerification = () => {
                     if (capabilities.whiteBalanceMode?.includes('continuous')) {
                         advanced.whiteBalanceMode = 'continuous';
                     }
+
+                    // Auto-zoom a bit so already-printed small pass QRs decode without phone-flush distance
+                    let appliedZoom = null;
+                    if ('zoom' in capabilities) {
+                        const zMin = capabilities.zoom.min || 1;
+                        const zMax = capabilities.zoom.max || 1;
+                        const zStep = capabilities.zoom.step || 0.1;
+                        setZoomSupported(true);
+                        setZoomCapabilities({ min: zMin, max: zMax, step: zStep });
+                        appliedZoom = pickSmallQrZoom(zMin, zMax);
+                        advanced.zoom = appliedZoom;
+                        setZoomValue(appliedZoom);
+                    } else {
+                        setZoomSupported(false);
+                    }
+
                     if (Object.keys(advanced).length > 0) {
                         try {
                             await track.applyConstraints({ advanced: [advanced] });
                         } catch (e) {
                             console.warn('[Camera] Failed to apply advanced track constraints:', e);
+                            if (appliedZoom != null) setZoomValue(capabilities.zoom?.min || 1);
                         }
                     }
 
@@ -974,17 +1014,6 @@ const QrVerification = () => {
                         setTorchOn(false);
                     } else {
                         setTorchSupported(false);
-                    }
-
-                    if ('zoom' in capabilities) {
-                        setZoomSupported(true);
-                        const zMin = capabilities.zoom.min || 1;
-                        const zMax = capabilities.zoom.max || 1;
-                        const zStep = capabilities.zoom.step || 0.1;
-                        setZoomCapabilities({ min: zMin, max: zMax, step: zStep });
-                        setZoomValue(zMin);
-                    } else {
-                        setZoomSupported(false);
                     }
                 }
             } catch (capErr) {
@@ -1011,6 +1040,7 @@ const QrVerification = () => {
         isFrontLabel,
         isMobileDevice,
         isRearLabel,
+        pickSmallQrZoom,
         preferRearCameraIndex,
     ]);
 
@@ -1197,7 +1227,7 @@ const QrVerification = () => {
                             <div className="px-3 sm:px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
                                 <div className="flex items-center gap-2 min-w-0">
                                     <p className="text-xs font-bold text-slate-700 truncate">
-                                        {verifying ? 'QR detected — verifying…' : scanning ? 'Point at transport QR' : 'Camera ready'}
+                                        {verifying ? 'QR detected — verifying…' : scanning ? 'Center the pass QR in the box' : 'Camera ready'}
                                     </p>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
@@ -1250,10 +1280,10 @@ const QrVerification = () => {
                                 <div
                                     id="qr-reader"
                                     ref={readerHostRef}
-                                    className="absolute inset-0 w-full h-full overflow-hidden [&_video]:!w-full [&_video]:!h-full [&_video]:object-contain [&_video]:bg-black [&_video]:contrast-[1.08] [&_video]:brightness-[1.02] [&_#qr-reader__dashboard]:hidden [&_img]:hidden"
+                                    className="absolute inset-0 w-full h-full overflow-hidden [&_video]:!w-full [&_video]:!h-full [&_video]:object-contain [&_video]:bg-black [&_video]:contrast-[1.12] [&_video]:brightness-[1.04] [&_video]:saturate-[1.05] [&_#qr-reader__dashboard]:hidden [&_img]:hidden"
                                 />
 
-                                {/* Camera Quick Controls (Switch Camera, Torch & Preset Zoom pills) */}
+                                {/* Camera Quick Controls (Switch Camera, Torch & Zoom for small pass QRs) */}
                                 {scanning && (
                                     <div className="absolute top-3 right-3 left-3 flex justify-between items-start pointer-events-none z-30">
                                         <div className="bg-slate-950/85 border border-slate-800/80 text-slate-200 text-[9px] sm:text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 backdrop-blur-sm shadow-md">
@@ -1261,7 +1291,6 @@ const QrVerification = () => {
                                             {availableCameras[activeCameraIndex]?.label || 'Live View'}
                                         </div>
                                         <div className="flex flex-col gap-2 items-end pointer-events-auto">
-                                            {/* Switch Camera Overlay Button */}
                                             <button
                                                 type="button"
                                                 onClick={switchCamera}
@@ -1271,7 +1300,18 @@ const QrVerification = () => {
                                                 <SwitchCamera size={14} className="text-blue-400" />
                                             </button>
 
-                                            {/* Flashlight Button */}
+                                            {zoomSupported && (
+                                                <button
+                                                    type="button"
+                                                    onClick={cycleZoom}
+                                                    className="px-2 py-1.5 rounded-lg bg-slate-950/80 text-slate-200 border border-slate-800 hover:text-white hover:bg-slate-900 transition-all shadow-md flex items-center justify-center gap-1 cursor-pointer"
+                                                    title="Zoom for small printed QR (tap to cycle)"
+                                                >
+                                                    <ZoomIn size={14} className="text-emerald-400" />
+                                                    <span className="text-[10px] font-bold tabular-nums">{Number(zoomValue).toFixed(1)}x</span>
+                                                </button>
+                                            )}
+
                                             {torchSupported && (
                                                 <button
                                                     type="button"
@@ -1290,14 +1330,14 @@ const QrVerification = () => {
                                     </div>
                                 )}
 
-                                {/* Decorative viewfinder — pointer-events none so it never blocks the camera */}
+                                {/* Decorative viewfinder — aim the small pass QR inside this box */}
                                 {scanning && !verifying && (
                                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-10">
-                                        <div className="relative w-[72%] max-w-[300px] aspect-square">
-                                            <div className="absolute -top-0.5 -left-0.5 w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
-                                            <div className="absolute -top-0.5 -right-0.5 w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
-                                            <div className="absolute -bottom-0.5 -left-0.5 w-8 h-8 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
-                                            <div className="absolute -bottom-0.5 -right-0.5 w-8 h-8 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
+                                        <div className="relative w-[48%] max-w-[280px] min-w-[160px] aspect-square">
+                                            <div className="absolute -top-0.5 -left-0.5 w-7 h-7 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
+                                            <div className="absolute -top-0.5 -right-0.5 w-7 h-7 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
+                                            <div className="absolute -bottom-0.5 -left-0.5 w-7 h-7 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
+                                            <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
                                             <div className="qr-scan-line absolute left-3 right-3 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
                                         </div>
                                     </div>
@@ -1326,6 +1366,11 @@ const QrVerification = () => {
                             {cameraError && (
                                 <div className="px-3 py-2 text-xs text-red-700 bg-red-50 border-t border-red-100">
                                     {cameraError}
+                                </div>
+                            )}
+                            {scanning && !cameraError && (
+                                <div className="px-3 py-2 text-[11px] text-slate-600 bg-slate-50 border-t border-slate-100">
+                                    Small printed pass QR: hold steady and use <span className="font-semibold">Zoom</span> if needed — no need to reprint cards.
                                 </div>
                             )}
                         </div>

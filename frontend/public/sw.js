@@ -1,5 +1,5 @@
 /* Pydah Transport app-shell service worker */
-const CACHE = 'pydah-transport-shell-v9';
+const CACHE = 'pydah-transport-shell-v10';
 const PRECACHE = [
   '/',
   '/index.html',
