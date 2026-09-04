@@ -79,6 +79,7 @@ const QrVerification = () => {
     const activeCameraIndexRef = useRef(0);
     const camerasFetchedRef = useRef(false);
     const availableCamerasRef = useRef([]);
+    const scanResultTokenRef = useRef(0);
 
     const SCAN_COOLDOWN_MS = 1800;
 
@@ -507,6 +508,13 @@ const QrVerification = () => {
         }
     };
 
+    /** Online payload is useful only when it confirms identity or registration — not bare "not found". */
+    const isUsefulOnlineVerify = (data) => {
+        if (!data || typeof data !== 'object') return false;
+        if (data.registered) return true;
+        return Boolean(data.student_name || data.admission_number || data.status);
+    };
+
     const showOfflineResult = async (parsed, signatureStatus) => {
         const offline = await verifyOfflinePassenger(parsed, lastSyncAt);
         showResult({
@@ -536,6 +544,7 @@ const QrVerification = () => {
         setVerifying(true);
         setCameraError('');
         setScanFlash(true);
+        const scanToken = ++scanResultTokenRef.current;
 
         try {
             const parsed = parseQrText(rawText);
@@ -616,29 +625,59 @@ const QrVerification = () => {
                 });
                 await stopScanner();
 
-                // 2. Non-blocking background verification if online
-                if (online && requestId) {
-                    fetchOnlineVerify(requestId).then(({ ok: httpOk, data }) => {
-                        if (httpOk) {
-                            const registered = Boolean(data?.registered);
-                            showResult({
-                                ok: registered,
-                                title: registered ? 'Verified' : 'Not Active',
-                                message: data?.message || (registered ? 'Registered in transport system' : 'Not active'),
-                                mode: 'ONLINE',
-                                signatureStatus: signatureStatus || (parsed.type === 'legacy_url' || parsed.type === 'legacy_id' ? 'legacy_url' : null),
-                                data,
-                                lastSyncAt,
-                            });
+                // 2. Background online confirm — never wipe a good local result with bare "not found"
+                if (online) {
+                    const idsToTry = [];
+                    const localRid = offline.local?.requestId ? String(offline.local.requestId) : null;
+                    // Prefer latest local request id (QR rid may be an older superseded id)
+                    if (localRid) idsToTry.push(localRid);
+                    if (requestId && String(requestId) !== localRid) idsToTry.push(String(requestId));
+
+                    (async () => {
+                        let best = null;
+                        for (const id of idsToTry) {
+                            try {
+                                const { ok: httpOk, data } = await fetchOnlineVerify(id);
+                                if (!httpOk || !isUsefulOnlineVerify(data)) continue;
+                                best = data;
+                                if (data.registered) break;
+                            } catch {
+                                // try next id
+                            }
+                        }
+
+                        // Stale response after a newer scan / modal close — ignore
+                        if (scanToken !== scanResultTokenRef.current) return;
+                        if (!best) {
+                            // Keep local UI; still log that online could not re-confirm
                             logScan({
-                                verificationResult: registered ? 'VALID' : 'INACTIVE',
-                                mode: 'ONLINE',
-                                requestId,
-                                studentId: data?.admission_number,
+                                verificationResult: offline.ok ? 'VALID_LOCAL_ONLINE_MISS' : 'INACTIVE_LOCAL_ONLINE_MISS',
+                                mode: 'LOCAL_SYNCED',
+                                requestId: localRid || requestId,
+                                studentId: offline.local?.studentId || parsed.payload?.sid || null,
                                 rawPayload: parsed.payload || { requestId },
                             }).catch(() => {});
+                            return;
                         }
-                    }).catch(() => {});
+
+                        const registered = Boolean(best.registered);
+                        showResult({
+                            ok: registered,
+                            title: registered ? 'Verified' : 'Not Active',
+                            message: best.message || (registered ? 'Registered in transport system' : 'Not active'),
+                            mode: 'ONLINE',
+                            signatureStatus: signatureStatus || (parsed.type === 'legacy_url' || parsed.type === 'legacy_id' ? 'legacy_url' : null),
+                            data: best,
+                            lastSyncAt,
+                        });
+                        logScan({
+                            verificationResult: registered ? 'VALID' : 'INACTIVE',
+                            mode: 'ONLINE',
+                            requestId: localRid || requestId,
+                            studentId: best?.admission_number || offline.local?.studentId || null,
+                            rawPayload: parsed.payload || { requestId },
+                        }).catch(() => {});
+                    })().catch(() => {});
                 } else {
                     await logScan({
                         verificationResult: offline.ok ? 'VALID_OFFLINE' : 'INACTIVE_OFFLINE',
@@ -655,7 +694,7 @@ const QrVerification = () => {
             if (online && requestId) {
                 try {
                     const { ok: httpOk, data } = await fetchOnlineVerify(requestId);
-                    if (httpOk) {
+                    if (httpOk && isUsefulOnlineVerify(data)) {
                         const registered = Boolean(data?.registered);
                         showResult({
                             ok: registered,
@@ -671,6 +710,25 @@ const QrVerification = () => {
                             mode: 'ONLINE',
                             requestId,
                             studentId: data?.admission_number,
+                            rawPayload: parsed.payload || { requestId },
+                        });
+                        await stopScanner();
+                        return;
+                    }
+                    if (httpOk && data && !isUsefulOnlineVerify(data)) {
+                        showResult({
+                            ok: false,
+                            title: 'Not Active',
+                            message: data.message || 'No transport registration found for this QR code.',
+                            mode: 'ONLINE',
+                            signatureStatus,
+                            data: null,
+                            lastSyncAt,
+                        });
+                        await logScan({
+                            verificationResult: 'INACTIVE',
+                            mode: 'ONLINE',
+                            requestId,
                             rawPayload: parsed.payload || { requestId },
                         });
                         await stopScanner();
@@ -1030,6 +1088,7 @@ const QrVerification = () => {
     }, [activeTab, modalOpen, startScanner, stopScanner]);
 
     const closeResultModal = () => {
+        scanResultTokenRef.current += 1; // invalidate any in-flight online re-check
         setModalOpen(false);
         setResult(null);
         busyRef.current = false;
@@ -1038,6 +1097,9 @@ const QrVerification = () => {
     };
 
     const detail = result?.data;
+    const hasPassengerDetail = Boolean(
+        detail && (detail.student_name || detail.admission_number || detail.route_name || detail.bus_id || detail.status)
+    );
     const photoSrc = normalizeStudentPhoto(detail?.student_photo);
     const loggedIn = isAuthenticated();
     const Shell = loggedIn ? Layout : OfflineVerifyShell;
@@ -1364,7 +1426,7 @@ const QrVerification = () => {
                             </div>
                         )}
 
-                        {detail && (
+                        {hasPassengerDetail && (
                             <div className="flex gap-4 pb-3 border-b border-slate-100 text-left items-stretch">
                                 {/* Left column: Student photo, not rounded, not cropped (using object-contain) */}
                                 <div className="w-28 border border-slate-200 overflow-hidden bg-slate-50 shadow-sm flex items-center justify-center rounded-lg shrink-0">
@@ -1413,7 +1475,7 @@ const QrVerification = () => {
                             </div>
                         )}
 
-                        {detail && (
+                        {hasPassengerDetail && (
                             <div className="space-y-2">
                                 <DetailRow label="Type" value={detail.user_type === 'employee' ? 'Employee' : 'Student'} />
                                 <DetailRow label="Route" value={detail.route_id ? `${detail.route_id} · ${detail.route_name || ''}` : detail.route_name} />
