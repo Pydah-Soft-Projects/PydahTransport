@@ -976,7 +976,10 @@ const QrVerification = () => {
         }
     }, [clearReaderDom, getCameraCandidates, getScannerConfig]);
 
-    const switchCamera = useCallback(async () => {
+    const switchCamera = useCallback(async (e) => {
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+
         let list = availableCameras;
         if (!list || list.length <= 1) {
             const res = await getCameraCandidates(activeCameraIndexRef.current);
@@ -990,7 +993,7 @@ const QrVerification = () => {
         // Give the OS time to release the previous camera before opening the next
         setTimeout(() => {
             startScanner(nextIndex, { exclusive: true });
-        }, 320);
+        }, 600);
     }, [availableCameras, stopScanner, startScanner, getCameraCandidates]);
 
     const handleCameraSelect = useCallback(async (index) => {
@@ -1004,7 +1007,7 @@ const QrVerification = () => {
         await stopScanner();
         setTimeout(() => {
             startScanner(nextIndex, { exclusive: true });
-        }, 320);
+        }, 600);
     }, [stopScanner, startScanner]);
 
     // Handle USB device plugging/unplugging in real-time
