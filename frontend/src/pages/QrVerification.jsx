@@ -204,17 +204,20 @@ const QrVerification = () => {
 
         const pushTargetVariants = (cam) => {
             if (!cam) return;
+            
+            // Prioritize facingMode over deviceId. Many mobile browsers (especially on Android)
+            // will silently ignore deviceId or map it incorrectly, opening the front camera.
+            // By requesting facingMode first, we guarantee the correct camera facing.
+            if (cam.facingMode || cam.facingHint) {
+                const facing = cam.facingMode || cam.facingHint;
+                candidates.push({ facingMode: { exact: facing } });
+                candidates.push({ facingMode: facing });
+            }
+            
             if (cam.id) {
                 candidates.push({ deviceId: { exact: cam.id } });
                 candidates.push({ deviceId: cam.id });
                 candidates.push(cam.id);
-            }
-            if (cam.facingMode) {
-                candidates.push({ facingMode: { exact: cam.facingMode } });
-                candidates.push({ facingMode: cam.facingMode });
-            } else if (cam.facingHint) {
-                candidates.push({ facingMode: { exact: cam.facingHint } });
-                candidates.push({ facingMode: cam.facingHint });
             }
         };
 
