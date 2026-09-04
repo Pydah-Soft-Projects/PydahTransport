@@ -117,7 +117,7 @@ const QrVerification = () => {
             } catch {
                 // ignore
             }
-            await new Promise((r) => setTimeout(r, 150));
+            await new Promise((r) => setTimeout(r, 280));
         }
 
         let devices = [];
@@ -133,7 +133,16 @@ const QrVerification = () => {
         }));
 
         availableCamerasRef.current = list;
-        setAvailableCameras(list);
+        // Avoid re-render loops that abort an in-flight camera start
+        setAvailableCameras((prev) => {
+            if (
+                prev.length === list.length
+                && prev.every((cam, i) => cam.id === list[i]?.id && cam.label === list[i]?.label)
+            ) {
+                return prev;
+            }
+            return list;
+        });
         camerasFetchedRef.current = true;
         return list;
     }, []);
@@ -157,9 +166,8 @@ const QrVerification = () => {
 
     /**
      * Scanner tuned for small printed pass QRs (do not change print layout).
-     * - Tighter qrbox: decoder sees a denser crop when the QR is centered
-     * - Higher fps: more chances while the hand moves
-     * NEVER put videoConstraints here — they override deviceId in html5-qrcode.
+     * NEVER put videoConstraints or aspectRatio here — they can override/break
+     * deviceId selection on Android and surface as a fake "permission denied".
      */
     const getScannerConfig = useCallback(() => ({
         fps: 20,
@@ -169,11 +177,7 @@ const QrVerification = () => {
             const size = Math.max(180, Math.min(320, Math.floor(minEdge * 0.48)));
             return { width: size, height: size };
         },
-        aspectRatio: 1.0,
         disableFlip: false,
-        experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true,
-        },
     }), []);
 
     /** Prefer higher resolution so small printed modules resolve more pixels. */
@@ -182,6 +186,30 @@ const QrVerification = () => {
         width: { ideal: highRes ? 1920 : 1280 },
         height: { ideal: highRes ? 1080 : 720 },
     }), []);
+
+    const formatCameraError = useCallback((err) => {
+        const name = String(err?.name || '');
+        const message = String(err?.message || err || 'Camera unavailable.');
+        const blob = `${name} ${message}`;
+
+        if (/notallowed|permissiondenied|permission.?denied|securityerror/i.test(blob)) {
+            return 'Camera permission denied. Allow camera access for this site, then tap Start.';
+        }
+        if (/notreadable|trackstart|could not start video|device.?in.?use|abort/i.test(blob)) {
+            return 'Camera is busy or failed to start. Close other apps using the camera, then tap Start.';
+        }
+        if (/overconstrained|constraint|could not start.*camera/i.test(blob)) {
+            return 'Could not open this camera with the requested settings. Tap Start to retry, or switch camera.';
+        }
+        if (/notfound|requested device not found|no camera/i.test(blob)) {
+            return 'No usable camera found on this device.';
+        }
+        // html5-qrcode often wraps real errors — avoid always blaming permissions
+        if (/permission|notallowed|denied/i.test(message) && !/overconstrained|notreadable|busy/i.test(blob)) {
+            return 'Camera permission denied. Allow camera access for this site, then tap Start.';
+        }
+        return message.length > 160 ? `${message.slice(0, 160)}…` : message;
+    }, []);
 
     /** Pick a modest zoom so small pass QRs decode without holding the phone flush to the card. */
     const pickSmallQrZoom = useCallback((zMin, zMax) => {
@@ -885,12 +913,13 @@ const QrVerification = () => {
             for (const cam of ordered) {
                 if (!cam?.id || session !== scanSessionRef.current) break;
 
-                // Prefer high-res first so small printed QR modules resolve more pixels
+                // Open with plain deviceId first (most reliable on Android).
+                // High-res ideals are optional — overconstraints must not block the camera.
                 const attempts = [
-                    deviceConstraint(cam.id, true),
                     cam.id,
                     { deviceId: { exact: cam.id } },
                     deviceConstraint(cam.id, false),
+                    deviceConstraint(cam.id, true),
                 ];
 
                 for (const cameraArg of attempts) {
@@ -1024,18 +1053,14 @@ const QrVerification = () => {
             scannerRunning.current = false;
             scannerRef.current = null;
             clearReaderDom();
-            const message = err?.message || 'Camera permission denied or unavailable.';
-            setCameraError(
-                /permission|notallowed|denied/i.test(message)
-                    ? 'Camera permission denied. Allow camera access and tap Start.'
-                    : message
-            );
+            setCameraError(formatCameraError(err));
             setScanning(false);
         }
     }, [
         clearReaderDom,
         deviceConstraint,
         fetchCameras,
+        formatCameraError,
         getScannerConfig,
         isFrontLabel,
         isMobileDevice,
@@ -1043,6 +1068,12 @@ const QrVerification = () => {
         pickSmallQrZoom,
         preferRearCameraIndex,
     ]);
+
+    // Keep latest start/stop on refs so the mount effect does not restart on every callback identity change
+    const startScannerRef = useRef(startScanner);
+    const stopScannerRef = useRef(stopScanner);
+    startScannerRef.current = startScanner;
+    stopScannerRef.current = stopScanner;
 
     const switchCamera = useCallback(async (e) => {
         if (e && typeof e.preventDefault === 'function') e.preventDefault();
@@ -1100,22 +1131,22 @@ const QrVerification = () => {
 
     useEffect(() => {
         if (activeTab !== 'scan' || modalOpen) {
-            stopScanner();
+            stopScannerRef.current();
             return undefined;
         }
 
         let cancelled = false;
-        // Fast 40ms mount trigger for instant camera launch
+        // Give the DOM a beat; avoid restarting whenever startScanner identity changes
         const timer = setTimeout(() => {
-            if (!cancelled) startScanner();
-        }, 40);
+            if (!cancelled) startScannerRef.current();
+        }, 120);
 
         return () => {
             cancelled = true;
             clearTimeout(timer);
-            stopScanner();
+            stopScannerRef.current();
         };
-    }, [activeTab, modalOpen, startScanner, stopScanner]);
+    }, [activeTab, modalOpen]);
 
     const closeResultModal = () => {
         scanResultTokenRef.current += 1; // invalidate any in-flight online re-check
