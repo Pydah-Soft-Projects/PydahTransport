@@ -80,159 +80,28 @@ const QrVerification = () => {
 
     const SCAN_COOLDOWN_MS = 1800;
 
-    /** Fetch available cameras (built-in, rear, front, and USB webcams) prioritizing active index. */
+    /** Fetch available cameras explicitly as Front and Back to bypass buggy mobile device IDs */
     const getCameraCandidates = useCallback(async (preferredIndex = activeCameraIndexRef.current, { exclusive = false } = {}) => {
-        let camerasList = [];
-
-        try {
-            const discoveredMap = new Map();
-
-            // Unlock labels on some browsers (empty until a stream was granted once)
-            if (navigator.mediaDevices?.getUserMedia && navigator.mediaDevices?.enumerateDevices) {
-                try {
-                    const pre = await navigator.mediaDevices.enumerateDevices();
-                    const videoPre = pre.filter((d) => d.kind === 'videoinput');
-                    const labelsMissing = videoPre.length === 0 || videoPre.every((d) => !d.label);
-                    if (labelsMissing) {
-                        try {
-                            const warm = await navigator.mediaDevices.getUserMedia({
-                                video: { facingMode: { ideal: 'environment' } },
-                                audio: false,
-                            });
-                            warm.getTracks().forEach((t) => t.stop());
-                        } catch {
-                            try {
-                                const warm = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                                warm.getTracks().forEach((t) => t.stop());
-                            } catch {
-                                // permission may already be denied; continue with what we have
-                            }
-                        }
-                    }
-                } catch {
-                    // ignore pre-enumeration failures
-                }
-            }
-
-            try {
-                const h5Cameras = await Html5Qrcode.getCameras();
-                if (h5Cameras?.length) {
-                    h5Cameras.forEach((cam, i) => {
-                        if (cam.id) {
-                            discoveredMap.set(cam.id, cam.label || `Camera ${i + 1}`);
-                        }
-                    });
-                }
-            } catch (err) {
-                console.warn('[Camera] Html5Qrcode.getCameras warning:', err);
-            }
-
-            if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === 'function') {
-                const allDevices = await navigator.mediaDevices.enumerateDevices();
-                const videoInputs = allDevices.filter((d) => d.kind === 'videoinput');
-
-                videoInputs.forEach((vInput, i) => {
-                    if (vInput.deviceId) {
-                        const existingLabel = discoveredMap.get(vInput.deviceId);
-                        const newLabel = vInput.label || `Camera ${i + 1}`;
-                        if (!existingLabel || /^Camera\s+\d+$/i.test(existingLabel)) {
-                            discoveredMap.set(vInput.deviceId, newLabel);
-                        }
-                    }
-                });
-            }
-
-            if (discoveredMap.size > 0) {
-                const rawList = Array.from(discoveredMap.entries()).map(([id, label]) => {
-                    const lower = String(label || '').toLowerCase();
-                    const isFront = /front|user|selfie|face/i.test(lower);
-                    const isBack = /back|rear|environment|world|outer|usb|external/i.test(lower);
-                    return {
-                        id,
-                        label,
-                        facingHint: isFront ? 'user' : (isBack ? 'environment' : null),
-                    };
-                });
-
-                // Prefer rear/environment first, then unknown, then front
-                const score = (cam) => {
-                    if (cam.facingHint === 'environment') return 0;
-                    if (cam.facingHint == null) return 1;
-                    return 2;
-                };
-                camerasList = [...rawList].sort((a, b) => score(a) - score(b));
-            }
-        } catch (err) {
-            console.warn('[Camera] Failed to enumerate devices:', err);
-        }
-
-        // FacingMode fallbacks when device enumeration is empty / incomplete
-        if (camerasList.length === 0) {
-            camerasList = [
-                { facingMode: 'environment', facingHint: 'environment', label: 'Rear / Outer Camera' },
-                { facingMode: 'user', facingHint: 'user', label: 'Front / Integrated Camera' },
-            ];
-        } else if (camerasList.length === 1) {
-            const only = camerasList[0];
-            if (only.facingHint === 'user') {
-                camerasList.push({ facingMode: 'environment', facingHint: 'environment', label: 'Rear / Outer Camera' });
-            } else if (only.facingHint === 'environment') {
-                camerasList.push({ facingMode: 'user', facingHint: 'user', label: 'Front / Integrated Camera' });
-            } else {
-                camerasList = [
-                    { ...only, facingHint: only.facingHint || 'environment' },
-                    { facingMode: 'environment', facingHint: 'environment', label: 'Rear / Outer Camera' },
-                    { facingMode: 'user', facingHint: 'user', label: 'Front / Integrated Camera' },
-                ];
-            }
-        } else {
-            const hasEnv = camerasList.some((c) => c.facingHint === 'environment' || c.facingMode === 'environment');
-            const hasUser = camerasList.some((c) => c.facingHint === 'user' || c.facingMode === 'user');
-            if (!hasEnv) {
-                camerasList.push({ facingMode: 'environment', facingHint: 'environment', label: 'Rear / Outer Camera' });
-            }
-            if (!hasUser) {
-                camerasList.push({ facingMode: 'user', facingHint: 'user', label: 'Front / Integrated Camera' });
-            }
-        }
+        const camerasList = [
+            { facingMode: 'environment', label: 'Back Camera' },
+            { facingMode: 'user', label: 'Front Camera' }
+        ];
 
         setAvailableCameras(camerasList);
 
-        const safeIdx = Math.abs(preferredIndex) % camerasList.length;
+        const safeIdx = Math.abs(preferredIndex) % 2;
         const target = camerasList[safeIdx];
         const candidates = [];
 
-        const pushTargetVariants = (cam) => {
-            if (!cam) return;
-            
-            // Prioritize facingMode over deviceId. Many mobile browsers (especially on Android)
-            // will silently ignore deviceId or map it incorrectly, opening the front camera.
-            // By requesting facingMode first, we guarantee the correct camera facing.
-            if (cam.facingMode || cam.facingHint) {
-                const facing = cam.facingMode || cam.facingHint;
-                candidates.push({ facingMode: { exact: facing } });
-                candidates.push({ facingMode: facing });
-            }
-            
-            if (cam.id) {
-                candidates.push({ deviceId: { exact: cam.id } });
-                candidates.push({ deviceId: cam.id });
-                candidates.push(cam.id);
-            }
-        };
+        // Prioritize exact facing mode
+        candidates.push({ facingMode: { exact: target.facingMode } });
+        candidates.push({ facingMode: target.facingMode });
 
-        pushTargetVariants(target);
-
-        // Only fall back to other cameras on initial start — not when user explicitly switched
+        // If not exclusive, fallback to the other camera
         if (!exclusive) {
-            camerasList.forEach((cam, idx) => {
-                if (idx === safeIdx) return;
-                if (cam.id) candidates.push({ deviceId: { exact: cam.id } });
-                else if (cam.facingMode) candidates.push({ facingMode: cam.facingMode });
-                else if (cam.facingHint) candidates.push({ facingMode: cam.facingHint });
-            });
-            candidates.push({ facingMode: 'environment' });
-            candidates.push({ facingMode: 'user' });
+            const fallbackFacing = safeIdx === 0 ? 'user' : 'environment';
+            candidates.push({ facingMode: { exact: fallbackFacing } });
+            candidates.push({ facingMode: fallbackFacing });
         }
 
         return { candidates, camerasList, safeIdx, target };
