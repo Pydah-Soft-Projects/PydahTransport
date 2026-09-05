@@ -23,17 +23,20 @@ import {
     Navigation,
     UserCheck,
     MessageSquare,
-    ShieldCheck
+    ShieldCheck,
+    Camera,
+    FileText,
 } from 'lucide-react';
 
-const Layout = ({ children }) => {
+const Layout = ({ children, title }) => {
     const location = useLocation();
     const navigate = useNavigate();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [openGroups, setOpenGroups] = useState(() => ({
         inventory: location.pathname.startsWith('/inventory'),
-        route_management: location.pathname.startsWith('/routes')
+        route_management: location.pathname.startsWith('/routes'),
+        qr_verification: location.pathname.startsWith('/verify') || location.pathname.startsWith('/inspection-reports'),
     }));
 
     const handleLogout = () => {
@@ -92,7 +95,18 @@ const Layout = ({ children }) => {
             items: [
                 { path: '/raise-request', label: 'Raise New Request', permission: 'raise_request', icon: <PlusCircle size={20} /> },
                 { path: '/transport-requests', label: 'Passenger Requests', permission: 'transport_requests', icon: <ClipboardList size={20} /> },
-                { path: '/verify', label: 'QR Verification', permission: 'qr_verification', icon: <ShieldCheck size={20} /> },
+                {
+                    key: 'qr_verification',
+                    label: 'QR Verification',
+                    icon: <ShieldCheck size={20} />,
+                    permission: 'qr_verification',
+                    children: [
+                        { path: '/verify?tab=scan', label: 'QR Scanner', icon: <Camera size={16} /> },
+                        { path: '/verify?tab=inspection', label: 'Route Inspection', icon: <Bus size={16} /> },
+                        { path: '/verify?tab=sync', label: 'Sync & Data', icon: <RefreshCw size={16} /> },
+                        { path: '/inspection-reports', label: 'Inspection Reports', icon: <FileText size={16} /> },
+                    ]
+                },
                 { path: '/renewals', label: 'Renewals', permission: 'renewals', icon: <RefreshCw size={20} /> },
             ]
         },
@@ -138,7 +152,7 @@ const Layout = ({ children }) => {
             const [basePath, searchStr] = path.split('?');
             const params = new URLSearchParams(searchStr);
             const activeTab = params.get('tab');
-            const currentTab = new URLSearchParams(location.search).get('tab') || 'network';
+            const currentTab = new URLSearchParams(location.search).get('tab') || (basePath === '/routes' ? 'network' : (basePath === '/verify' ? 'scan' : ''));
             return location.pathname === basePath && currentTab === activeTab;
         }
         if (path === '/fleet') {
@@ -150,7 +164,7 @@ const Layout = ({ children }) => {
             return location.pathname === '/buses';
         }
         return location.pathname === path
-            || (path !== '/inventory' && location.pathname.startsWith(`${path}/`));
+            || (path !== '/inventory' && path !== '/verify' && location.pathname.startsWith(`${path}/`));
     };
 
     const isGroupActive = (item) => {
@@ -249,6 +263,41 @@ const Layout = ({ children }) => {
                 {!collapsed && <span className="truncate text-[11px] animate-in fade-in slide-in-from-left-2">{item.label}</span>}
             </Link>
         );
+    };
+
+    const getMobileTitle = () => {
+        if (title) return title;
+        const [basePath, searchStr] = (location.pathname + location.search).split('?');
+        const tabParam = new URLSearchParams(searchStr || '').get('tab');
+        if (basePath === '/verify') {
+            if (tabParam === 'inspection') return 'Route Inspection';
+            if (tabParam === 'sync') return 'Sync & Data';
+            return 'QR Scanner';
+        }
+        if (basePath === '/inspection-reports') return 'Inspection Reports';
+        if (basePath === '/dashboard') return 'Dashboard';
+        if (basePath === '/buses') return 'Vehicle Management';
+        if (basePath === '/fleet') return 'Fleet & Passengers';
+        if (basePath === '/routes') {
+            if (tabParam === 'bus-mapping') return 'Bus–Route Mapping';
+            if (tabParam === 'transfer') return 'Transfer Stage';
+            if (tabParam === 'student-transfer') return 'Transfer Students';
+            if (tabParam === 'history') return 'History Logs';
+            return 'Route Network';
+        }
+        if (basePath === '/gps-tracking') return 'GPS Live Tracking';
+        if (basePath === '/communications') return 'Communications';
+        if (basePath === '/raise-request') return 'Raise New Request';
+        if (basePath === '/transport-requests') return 'Passenger Requests';
+        if (basePath === '/renewals') return 'Renewals';
+        if (basePath === '/transport-dues') return 'Transport Dues';
+        if (basePath === '/concessions') return 'Concessions';
+        if (basePath === '/attendance') return 'Attendance';
+        if (basePath === '/inventory') return 'Inventory';
+        if (basePath === '/inventory/raise-bill') return 'Bills';
+        if (basePath === '/settings') return 'Settings';
+        if (basePath === '/users') return 'User Management';
+        return 'Pydah Transport';
     };
 
     return (
@@ -393,12 +442,14 @@ const Layout = ({ children }) => {
             </aside>
 
             <div className="flex-1 flex flex-col h-screen overflow-hidden relative bg-[#EAF3FF] w-full">
-                <header className="md:hidden bg-white shadow-sm border-b border-slate-200 h-16 flex items-center justify-between px-4 z-20">
+                <header className="md:hidden bg-white shadow-sm border-b border-slate-200 h-14 sm:h-16 flex items-center justify-between px-3.5 z-20">
                     <button type="button" onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-slate-600 rounded-lg hover:bg-slate-100">
-                        <Menu size={24} />
+                        <Menu size={22} />
                     </button>
-                    <h1 className="text-lg font-bold text-slate-800 truncate">Pydah Transport</h1>
-                    <div className="w-10"></div>
+                    <h1 className="text-sm sm:text-base font-bold text-slate-800 truncate px-2 text-center flex-1">
+                        {getMobileTitle()}
+                    </h1>
+                    <div className="w-9"></div>
                 </header>
 
                 <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 scroll-smooth w-full">

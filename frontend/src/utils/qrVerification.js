@@ -96,6 +96,26 @@ export function idbGetAllByStudent(studentId) {
     }));
 }
 
+export function idbGetAllPassengers() {
+    return openDb().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_PASSENGERS, 'readonly');
+        const store = tx.objectStore(STORE_PASSENGERS);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    }));
+}
+
+export function idbGetPassengersByRoute(routeId) {
+    return openDb().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_PASSENGERS, 'readonly');
+        const index = tx.objectStore(STORE_PASSENGERS).index('routeId');
+        const req = index.getAll(String(routeId));
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    }));
+}
+
 function selectLatestPassenger(records) {
     if (!records || records.length === 0) return null;
     if (records.length === 1) return records[0];

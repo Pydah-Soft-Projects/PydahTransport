@@ -23,6 +23,7 @@ import GpsTracking from './pages/GpsTracking';
 import Communications from './pages/Communications';
 import Attendance from './pages/Attendance';
 import Settings from './pages/Settings';
+import InspectionReports from './pages/InspectionReports';
 import './App.css';
 
 function App() {
@@ -34,6 +35,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/verify-transport/:id" element={<TransportVerify />} />
           <Route path="/verify" element={<VerifyAccessRoute><QrVerification /></VerifyAccessRoute>} />
+          <Route path="/inspection-reports" element={<ProtectedRoute><InspectionReports /></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/buses" element={<ProtectedRoute><BusManagement /></ProtectedRoute>} />
           <Route path="/buses/:id" element={<ProtectedRoute><BusDetails /></ProtectedRoute>} />
