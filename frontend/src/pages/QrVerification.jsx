@@ -15,6 +15,7 @@ import {
     Zap,
     ZapOff,
     SwitchCamera,
+    ZoomIn,
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
@@ -79,126 +80,148 @@ const QrVerification = () => {
     const busyRef = useRef(false);
     const lastScanRef = useRef({ text: '', at: 0 });
     const activeCameraIndexRef = useRef(0);
-    const guidanceTimerRef = useRef(null);
+    const camerasFetchedRef = useRef(false);
+    const availableCamerasRef = useRef([]);
+    const scanResultTokenRef = useRef(0);
 
     const SCAN_COOLDOWN_MS = 1800;
 
-    /** Fetch available cameras (built-in, rear, front, and USB webcams) prioritizing active index. */
-    const getCameraCandidates = useCallback(async (preferredIndex = activeCameraIndexRef.current) => {
-        let camerasList = [];
-
-        // Query all video input devices directly without opening dummy streams
-        try {
-            const discoveredMap = new Map();
-
-            // Html5Qrcode.getCameras()
-            try {
-                const h5Cameras = await Html5Qrcode.getCameras();
-                if (h5Cameras?.length) {
-                    h5Cameras.forEach((cam, i) => {
-                        if (cam.id) {
-                            discoveredMap.set(cam.id, cam.label || `Camera ${i + 1}`);
-                        }
-                    });
-                }
-            } catch (err) {
-                console.warn('[Camera] Html5Qrcode.getCameras warning:', err);
-            }
-
-            // Direct navigator.mediaDevices.enumerateDevices() for external USB webcams
-            if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === 'function') {
-                const allDevices = await navigator.mediaDevices.enumerateDevices();
-                const videoInputs = allDevices.filter((d) => d.kind === 'videoinput');
-
-                videoInputs.forEach((vInput, i) => {
-                    if (vInput.deviceId) {
-                        const existingLabel = discoveredMap.get(vInput.deviceId);
-                        const newLabel = vInput.label || `USB / Video Camera ${i + 1}`;
-                        if (!existingLabel || existingLabel.startsWith('Camera ')) {
-                            discoveredMap.set(vInput.deviceId, newLabel);
-                        }
-                    }
-                });
-            }
-
-            if (discoveredMap.size > 0) {
-                const rawList = Array.from(discoveredMap.entries()).map(([id, label]) => ({ id, label }));
-                
-                // Prioritize rear/outer/USB cameras before front integrated webcams
-                const sorted = [...rawList];
-                sorted.sort((a, b) => {
-                    const aUsbOrRear = /usb|external|webcam|back|rear|environment|world/i.test(a.label);
-                    const bUsbOrRear = /usb|external|webcam|back|rear|environment|world/i.test(b.label);
-                    if (aUsbOrRear && !bUsbOrRear) return -1;
-                    if (!aUsbOrRear && bUsbOrRear) return 1;
-                    return 0;
-                });
-
-                camerasList = sorted;
-            }
-        } catch (err) {
-            console.warn('[Camera] Failed to enumerate devices:', err);
-        }
-
-        // Fallbacks if no specific camera IDs enumerated
-        if (camerasList.length === 0) {
-            camerasList = [
-                { facingMode: 'environment', label: 'Rear / Outer Camera' },
-                { facingMode: 'user', label: 'Front / Integrated Camera' },
-            ];
-        } else if (camerasList.length === 1) {
-            const isUser = /front|user|selfie/i.test(camerasList[0].label || '');
-            camerasList.push(
-                isUser
-                    ? { facingMode: 'environment', label: 'Outer / USB Camera' }
-                    : { facingMode: 'user', label: 'Front / Integrated Camera' }
-            );
-        }
-
-        setAvailableCameras(camerasList);
-
-        const safeIdx = Math.abs(preferredIndex) % camerasList.length;
-        
-        const candidates = [];
-        const target = camerasList[safeIdx];
-        if (target?.id) {
-            candidates.push(target.id);
-            candidates.push({ deviceId: { exact: target.id } });
-            candidates.push({ deviceId: target.id });
-        } else if (target?.facingMode) {
-            candidates.push({ facingMode: target.facingMode });
-        }
-
-        camerasList.forEach((cam, idx) => {
-            if (idx !== safeIdx) {
-                if (cam.id) candidates.push(cam.id);
-                else if (cam.facingMode) candidates.push({ facingMode: cam.facingMode });
-            }
-        });
-
-        candidates.push({ facingMode: safeIdx === 0 ? 'environment' : 'user' });
-        candidates.push({ facingMode: safeIdx === 0 ? 'user' : 'environment' });
-
-        return { candidates, camerasList, safeIdx };
+    const isMobileDevice = useCallback(() => {
+        if (typeof navigator === 'undefined') return false;
+        const ua = navigator.userAgent || '';
+        if (/Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return true;
+        return navigator.maxTouchPoints > 1 && window.matchMedia?.('(pointer: coarse)')?.matches;
     }, []);
 
+    /**
+     * NOTE (mobile QR): verification needs the rear camera by default.
+     * Do not hardcode Front/Back — fetch real devices from the phone and let the user switch.
+     *
+     * CRITICAL (html5-qrcode): never put `videoConstraints` in the scanner config.
+     * That field OVERRIDES cameraId/deviceId, so Android opens the default front
+     * camera while the dropdown still shows "facing back".
+     */
+    const fetchCameras = useCallback(async ({ force = false } = {}) => {
+        if (!force && camerasFetchedRef.current && availableCamerasRef.current.length > 0) {
+            return availableCamerasRef.current;
+        }
+
+        // Basic permission so labels populate (do not pin facingMode here — it can stick on front)
+        if (navigator.mediaDevices?.getUserMedia) {
+            let stream = null;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            } catch {
+                // continue — getCameras may still work if permission was granted earlier
+            }
+            try {
+                stream?.getTracks?.().forEach((t) => t.stop());
+            } catch {
+                // ignore
+            }
+            await new Promise((r) => setTimeout(r, 280));
+        }
+
+        let devices = [];
+        try {
+            devices = await Html5Qrcode.getCameras();
+        } catch {
+            devices = [];
+        }
+
+        const list = (Array.isArray(devices) ? devices : []).map((d, i) => ({
+            id: d.id,
+            label: (d.label && String(d.label).trim()) || `Camera ${i + 1}`,
+        }));
+
+        availableCamerasRef.current = list;
+        // Avoid re-render loops that abort an in-flight camera start
+        setAvailableCameras((prev) => {
+            if (
+                prev.length === list.length
+                && prev.every((cam, i) => cam.id === list[i]?.id && cam.label === list[i]?.label)
+            ) {
+                return prev;
+            }
+            return list;
+        });
+        camerasFetchedRef.current = true;
+        return list;
+    }, []);
+
+    /** Prefer a rear camera from the fetched list when the device labels it; otherwise index 0. */
+    const preferRearCameraIndex = useCallback((list) => {
+        if (!Array.isArray(list) || list.length === 0) return 0;
+        const rear = list.findIndex((c) =>
+            /back|rear|environment|facing\s*back|world/i.test(c.label || '')
+        );
+        if (rear >= 0) return rear;
+        if (isMobileDevice()) {
+            const nonFront = list.findIndex((c) => !/front|user|face|selfie|facing\s*front/i.test(c.label || ''));
+            if (nonFront >= 0) return nonFront;
+        }
+        return 0;
+    }, [isMobileDevice]);
+
+    const isFrontLabel = useCallback((label = '') => /front|user|face|selfie|facing\s*front/i.test(label), []);
+    const isRearLabel = useCallback((label = '') => /back|rear|environment|facing\s*back|world/i.test(label), []);
+
+    /**
+     * Scanner tuned for small printed pass QRs (do not change print layout).
+     * NEVER put videoConstraints or aspectRatio here — they can override/break
+     * deviceId selection on Android and surface as a fake "permission denied".
+     */
     const getScannerConfig = useCallback(() => ({
-        fps: 30,
-        // Scan full camera frame without cropping so QR code is detected anywhere in view
-        qrbox: (viewfinderWidth, viewfinderHeight) => ({
-            width: viewfinderWidth,
-            height: viewfinderHeight,
-        }),
+        fps: 20,
+        qrbox: (viewfinderWidth, viewfinderHeight) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            // ~48% crop helps small distant QRs fill more of the decode region
+            const size = Math.max(180, Math.min(320, Math.floor(minEdge * 0.48)));
+            return { width: size, height: size };
+        },
         disableFlip: false,
-        videoConstraints: {
-            width: { min: 1280, ideal: 1920, max: 3840 },
-            height: { min: 720, ideal: 1080, max: 2160 },
-            facingMode: { ideal: 'environment' },
-        },
-        experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true,
-        },
     }), []);
+
+    /** Prefer higher resolution so small printed modules resolve more pixels. */
+    const deviceConstraint = useCallback((deviceId, highRes = true) => ({
+        deviceId: { exact: deviceId },
+        width: { ideal: highRes ? 1920 : 1280 },
+        height: { ideal: highRes ? 1080 : 720 },
+    }), []);
+
+    const formatCameraError = useCallback((err) => {
+        const name = String(err?.name || '');
+        const message = String(err?.message || err || 'Camera unavailable.');
+        const blob = `${name} ${message}`;
+
+        if (/notallowed|permissiondenied|permission.?denied|securityerror/i.test(blob)) {
+            return 'Camera permission denied. Allow camera access for this site, then tap Start.';
+        }
+        if (/notreadable|trackstart|could not start video|device.?in.?use|abort/i.test(blob)) {
+            return 'Camera is busy or failed to start. Close other apps using the camera, then tap Start.';
+        }
+        if (/overconstrained|constraint|could not start.*camera/i.test(blob)) {
+            return 'Could not open this camera with the requested settings. Tap Start to retry, or switch camera.';
+        }
+        if (/notfound|requested device not found|no camera/i.test(blob)) {
+            return 'No usable camera found on this device.';
+        }
+        // html5-qrcode often wraps real errors — avoid always blaming permissions
+        if (/permission|notallowed|denied/i.test(message) && !/overconstrained|notreadable|busy/i.test(blob)) {
+            return 'Camera permission denied. Allow camera access for this site, then tap Start.';
+        }
+        return message.length > 160 ? `${message.slice(0, 160)}…` : message;
+    }, []);
+
+    /** Pick a modest zoom so small pass QRs decode without holding the phone flush to the card. */
+    const pickSmallQrZoom = useCallback((zMin, zMax) => {
+        const min = Number(zMin) || 1;
+        const max = Number(zMax) || 1;
+        if (max <= min) return min;
+        // ~2x, or 35% into the zoom range — enough for tiny printed codes
+        const target = Math.max(min * 1.8, min + (max - min) * 0.35);
+        return Math.min(max, Math.max(min, Number(target.toFixed(2))));
+    }, []);
 
     const refreshMeta = useCallback(async () => {
         const [syncAt, count, storedYear, keyInfo] = await Promise.all([
@@ -474,12 +497,14 @@ const QrVerification = () => {
     const cycleZoom = useCallback(() => {
         const minZ = zoomCapabilities.min || 1;
         const maxZ = zoomCapabilities.max || 5;
-        
-        let nextZoom = zoomValue + 1;
-        if (nextZoom > maxZ || nextZoom > 5) {
-            nextZoom = minZ;
-        }
-        handleZoomChange(nextZoom);
+        const steps = [minZ, 1.5, 2, 2.5, 3, 4]
+            .map((z) => Math.min(maxZ, Math.max(minZ, z)))
+            .filter((z, i, arr) => arr.indexOf(z) === i)
+            .sort((a, b) => a - b);
+
+        const current = Number(zoomValue) || minZ;
+        const next = steps.find((z) => z > current + 0.05) ?? minZ;
+        handleZoomChange(next);
     }, [zoomValue, zoomCapabilities, handleZoomChange]);
 
     const syncNow = useCallback(async () => {
@@ -660,6 +685,13 @@ const QrVerification = () => {
         }
     };
 
+    /** Online payload is useful only when it confirms identity or registration — not bare "not found". */
+    const isUsefulOnlineVerify = (data) => {
+        if (!data || typeof data !== 'object') return false;
+        if (data.registered) return true;
+        return Boolean(data.student_name || data.admission_number || data.status);
+    };
+
     const showOfflineResult = async (parsed, signatureStatus) => {
         const offline = await verifyOfflinePassenger(parsed, lastSyncAt);
         showResult({
@@ -690,6 +722,7 @@ const QrVerification = () => {
         setVerifying(true);
         setCameraError('');
         setScanFlash(true);
+        const scanToken = ++scanResultTokenRef.current;
 
         try {
             const parsed = parseQrText(rawText);
@@ -744,43 +777,59 @@ const QrVerification = () => {
                 });
                 await stopScanner();
 
-                // 2. Non-blocking background verification if online
-                if (online && (requestId || rawText)) {
-                    fetch(`${API_BASE}/verification/verify`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ qrText: rawText, requestId }),
-                    })
-                        .then((res) => (res.ok ? res.json() : null))
-                        .then((resData) => {
-                            if (!resData) return;
-                            const isOnlineValid = Boolean(resData.valid || resData.data?.registered);
-                            if (isOnlineValid || !offline.ok) {
-                                const onlinePassengerData = resData.data
-                                    ? mapPassengerToVerifyData(resData.data)
-                                    : offline.data;
-                                showResult({
-                                    ok: isOnlineValid,
-                                    title: isOnlineValid ? 'Verified' : 'Not Active',
-                                    message: resData.message || (isOnlineValid ? 'Registered transport passenger.' : 'Not active'),
-                                    mode: 'ONLINE',
-                                    signatureStatus: resData.signature || signatureStatus,
-                                    data: onlinePassengerData,
-                                    lastSyncAt,
-                                    warning: !isOnlineValid,
-                                });
+                // 2. Background online confirm — never wipe a good local result with bare "not found"
+                if (online) {
+                    const idsToTry = [];
+                    const localRid = offline.local?.requestId ? String(offline.local.requestId) : null;
+                    // Prefer latest local request id (QR rid may be an older superseded id)
+                    if (localRid) idsToTry.push(localRid);
+                    if (requestId && String(requestId) !== localRid) idsToTry.push(String(requestId));
+
+                    (async () => {
+                        let best = null;
+                        for (const id of idsToTry) {
+                            try {
+                                const { ok: httpOk, data } = await fetchOnlineVerify(id);
+                                if (!httpOk || !isUsefulOnlineVerify(data)) continue;
+                                best = data;
+                                if (data.registered) break;
+                            } catch {
+                                // try next id
                             }
+                        }
+
+                        // Stale response after a newer scan / modal close — ignore
+                        if (scanToken !== scanResultTokenRef.current) return;
+                        if (!best) {
+                            // Keep local UI; still log that online could not re-confirm
                             logScan({
-                                verificationResult: isOnlineValid ? 'VALID' : 'INACTIVE',
-                                mode: 'ONLINE',
-                                requestId: resData.requestId || requestId,
-                                studentId: resData.data?.admission_number || offline.local?.studentId,
+                                verificationResult: offline.ok ? 'VALID_LOCAL_ONLINE_MISS' : 'INACTIVE_LOCAL_ONLINE_MISS',
+                                mode: 'LOCAL_SYNCED',
+                                requestId: localRid || requestId,
+                                studentId: offline.local?.studentId || parsed.payload?.sid || null,
                                 rawPayload: parsed.payload || { requestId },
                             }).catch(() => {});
-                        })
-                        .catch((err) => {
-                            console.warn('[Online Verify] Background check skipped:', err);
+                            return;
+                        }
+
+                        const registered = Boolean(best.registered);
+                        showResult({
+                            ok: registered,
+                            title: registered ? 'Verified' : 'Not Active',
+                            message: best.message || (registered ? 'Registered in transport system' : 'Not active'),
+                            mode: 'ONLINE',
+                            signatureStatus: signatureStatus || (parsed.type === 'legacy_url' || parsed.type === 'legacy_id' ? 'legacy_url' : null),
+                            data: best,
+                            lastSyncAt,
                         });
+                        logScan({
+                            verificationResult: registered ? 'VALID' : 'INACTIVE',
+                            mode: 'ONLINE',
+                            requestId: localRid || requestId,
+                            studentId: best?.admission_number || offline.local?.studentId || null,
+                            rawPayload: parsed.payload || { requestId },
+                        }).catch(() => {});
+                    })().catch(() => {});
                 } else {
                     await logScan({
                         verificationResult: offline.ok ? 'VALID_OFFLINE' : 'INACTIVE_OFFLINE',
@@ -796,14 +845,9 @@ const QrVerification = () => {
             // 3. Fallback online fetch if record not stored locally in IndexedDB
             if (online && (requestId || parsed.studentId || rawText)) {
                 try {
-                    const res = await fetch(`${API_BASE}/verification/verify`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ qrText: rawText, requestId }),
-                    });
-                    const data = await res.json().catch(() => ({}));
-                    if (res.ok && data?.data) {
-                        const registered = Boolean(data.valid);
+                    const { ok: httpOk, data } = await fetchOnlineVerify(requestId);
+                    if (httpOk && isUsefulOnlineVerify(data)) {
+                        const registered = Boolean(data?.registered);
                         showResult({
                             ok: registered,
                             title: registered ? 'Verified' : 'Not Active',
@@ -824,6 +868,45 @@ const QrVerification = () => {
                         await stopScanner();
                         return;
                     }
+                    if (httpOk && data && !isUsefulOnlineVerify(data)) {
+                        showResult({
+                            ok: false,
+                            title: 'Not Active',
+                            message: data.message || 'No transport registration found for this QR code.',
+                            mode: 'ONLINE',
+                            signatureStatus,
+                            data: null,
+                            lastSyncAt,
+                        });
+                        await logScan({
+                            verificationResult: 'INACTIVE',
+                            mode: 'ONLINE',
+                            requestId,
+                            studentId: data?.admission_number,
+                            rawPayload: parsed.payload || { requestId },
+                        });
+                        await stopScanner();
+                        return;
+                    }
+                    if (httpOk && data && !isUsefulOnlineVerify(data)) {
+                        showResult({
+                            ok: false,
+                            title: 'Not Active',
+                            message: data.message || 'No transport registration found for this QR code.',
+                            mode: 'ONLINE',
+                            signatureStatus,
+                            data: null,
+                            lastSyncAt,
+                        });
+                        await logScan({
+                            verificationResult: 'INACTIVE',
+                            mode: 'ONLINE',
+                            requestId,
+                            rawPayload: parsed.payload || { requestId },
+                        });
+                        await stopScanner();
+                        return;
+                    }
                 } catch {
                     // fall through to offline result
                 }
@@ -840,13 +923,13 @@ const QrVerification = () => {
 
     handleScanRef.current = processQrText;
 
-    const startScanner = useCallback(async (targetIndex) => {
+    const startScanner = useCallback(async (targetIndex, options = {}) => {
+        const exclusive = Boolean(options.exclusive);
+        const preferRear = options.preferRear !== false;
         const session = ++scanSessionRef.current;
         setCameraError('');
         setScanning(false);
         busyRef.current = false;
-
-        const reqIndex = targetIndex !== undefined ? targetIndex : activeCameraIndexRef.current;
 
         const prev = scannerRef.current;
         scannerRef.current = null;
@@ -860,7 +943,8 @@ const QrVerification = () => {
         }
         clearReaderDom();
 
-        // Ensure DOM element is painted
+        await new Promise((r) => setTimeout(r, exclusive ? 400 : 150));
+
         if (!document.getElementById('qr-reader')) {
             await new Promise((r) => requestAnimationFrame(r));
         }
@@ -883,7 +967,6 @@ const QrVerification = () => {
             }
             lastScanRef.current = { text: trimmed, at: now };
 
-            // Fire-and-forget so the scanner loop is not blocked
             if (handleScanRef.current) {
                 Promise.resolve(handleScanRef.current(trimmed)).catch(() => {});
             }
@@ -894,7 +977,7 @@ const QrVerification = () => {
         };
 
         try {
-            const { candidates, safeIdx } = await getCameraCandidates(reqIndex);
+            const camerasList = await fetchCameras();
             if (session !== scanSessionRef.current) return;
 
             const scanner = new Html5Qrcode('qr-reader', {
@@ -908,31 +991,128 @@ const QrVerification = () => {
             }
             scannerRef.current = scanner;
 
-            let started = false;
-            let lastError = null;
+            // Config must NOT include videoConstraints — that overrides deviceId in html5-qrcode
             const config = getScannerConfig();
 
-            for (const camera of candidates) {
-                if (session !== scanSessionRef.current) return;
+            let ordered = [...camerasList];
+            if (camerasList.length > 0) {
+                let idx;
+                if (targetIndex !== undefined && Number.isFinite(Number(targetIndex))) {
+                    const len = camerasList.length;
+                    idx = ((Number(targetIndex) % len) + len) % len;
+                } else if (preferRear) {
+                    idx = preferRearCameraIndex(camerasList);
+                } else {
+                    idx = activeCameraIndexRef.current || 0;
+                }
+                const preferred = camerasList[idx];
+                ordered = [
+                    preferred,
+                    ...camerasList.filter((_, i) => i !== idx),
+                ].filter(Boolean);
+
+                // When user picks one camera, only try that device
+                if (exclusive) {
+                    ordered = preferred ? [preferred] : [];
+                }
+            }
+
+            const stopPartialStart = async () => {
                 try {
-                    await scanner.start(camera, config, onDecoded, onDecodeError);
-                    started = true;
-                    break;
-                } catch (err) {
-                    lastError = err;
+                    const state = scanner.getState?.();
+                    if (state === 2 || state === 3) await scanner.stop();
+                } catch { /* ignore */ }
+            };
+
+            const trackMatchesCamera = (track, cam) => {
+                if (!track?.getSettings || !cam?.id) return true; // can't verify — accept
+                const settings = track.getSettings() || {};
+                if (settings.deviceId && settings.deviceId !== cam.id) return false;
+                if (settings.facingMode === 'user' && isRearLabel(cam.label)) return false;
+                if (settings.facingMode === 'environment' && isFrontLabel(cam.label)) return false;
+                return true;
+            };
+
+            let started = false;
+            let startedCam = null;
+            let lastError = null;
+
+            for (const cam of ordered) {
+                if (!cam?.id || session !== scanSessionRef.current) break;
+
+                // Open with plain deviceId first (most reliable on Android).
+                // High-res ideals are optional — overconstraints must not block the camera.
+                const attempts = [
+                    cam.id,
+                    { deviceId: { exact: cam.id } },
+                    deviceConstraint(cam.id, false),
+                    deviceConstraint(cam.id, true),
+                ];
+
+                for (const cameraArg of attempts) {
+                    if (session !== scanSessionRef.current) return;
                     try {
-                        const state = scanner.getState?.();
-                        if (state === 2 || state === 3) await scanner.stop();
-                    } catch { /* ignore */ }
+                        await scanner.start(cameraArg, config, onDecoded, () => {});
+                        const track = scanner.getActiveCameraTrack?.() || null;
+                        if (!trackMatchesCamera(track, cam)) {
+                            lastError = new Error('Camera mismatch — retrying next device.');
+                            await stopPartialStart();
+                            continue;
+                        }
+                        started = true;
+                        startedCam = cam;
+                        break;
+                    } catch (err) {
+                        lastError = err;
+                        await stopPartialStart();
+                    }
+                }
+                if (started) break;
+            }
+
+            // Last resort only if no device list: facingMode (never mix with videoConstraints in config)
+            if (!started && camerasList.length === 0) {
+                const fallbacks = isMobileDevice()
+                    ? [{ facingMode: { exact: 'environment' } }, { facingMode: 'environment' }, { facingMode: 'user' }]
+                    : [{ facingMode: 'environment' }, { facingMode: 'user' }];
+                for (const cameraArg of fallbacks) {
+                    if (session !== scanSessionRef.current) return;
+                    try {
+                        await scanner.start(cameraArg, config, onDecoded, () => {});
+                        started = true;
+                        break;
+                    } catch (err) {
+                        lastError = err;
+                        await stopPartialStart();
+                    }
                 }
             }
 
             if (!started) {
-                throw lastError || new Error('No usable camera found.');
+                throw lastError || new Error(
+                    exclusive
+                        ? 'Could not open the selected camera. Try Start again or pick another camera.'
+                        : 'No usable camera found.'
+                );
             }
 
-            activeCameraIndexRef.current = safeIdx;
-            setActiveCameraIndex(safeIdx);
+            // Dropdown must follow the device that actually opened
+            let resolvedIdx = 0;
+            if (startedCam?.id) {
+                const byId = camerasList.findIndex((c) => c.id === startedCam.id);
+                if (byId >= 0) resolvedIdx = byId;
+            } else {
+                try {
+                    const openedId = scanner.getActiveCameraTrack?.()?.getSettings?.()?.deviceId;
+                    const byOpened = camerasList.findIndex((c) => c.id === openedId);
+                    if (byOpened >= 0) resolvedIdx = byOpened;
+                } catch {
+                    resolvedIdx = preferRearCameraIndex(camerasList);
+                }
+            }
+
+            activeCameraIndexRef.current = resolvedIdx;
+            setActiveCameraIndex(resolvedIdx);
 
             if (session !== scanSessionRef.current) {
                 try { await scanner.stop(); } catch { /* ignore */ }
@@ -946,13 +1126,11 @@ const QrVerification = () => {
             setCameraError('');
             startFrameProcessingLoop(onDecoded);
 
-            // Query and configure camera capabilities (Torch, Zoom, Continuous Focus)
             try {
                 const track = getActiveTrack();
                 if (track) {
                     const capabilities = track.getCapabilities?.() || {};
-                    
-                    // 1. Setup continuous autofocus, exposure & white balance for crisp long-distance frames
+
                     const advanced = {};
                     if (capabilities.focusMode?.includes('continuous')) {
                         advanced.focusMode = 'continuous';
@@ -963,120 +1141,143 @@ const QrVerification = () => {
                     if (capabilities.whiteBalanceMode?.includes('continuous')) {
                         advanced.whiteBalanceMode = 'continuous';
                     }
-                    if (Object.keys(advanced).length > 0 && typeof track.applyConstraints === 'function') {
-                        try {
-                            await track.applyConstraints({ advanced: [advanced] });
-                        } catch {
-                            // silent fallback for webcams that reject photo/focus options
-                        }
-                    }
 
-                    // 2. Detect Torch Support
-                    if ('torch' in capabilities) {
-                        setTorchSupported(true);
-                        setTorchOn(false); // default to off
-                    } else {
-                        setTorchSupported(false);
-                    }
-
-                    // 3. Detect Zoom Support
+                    // Auto-zoom a bit so already-printed small pass QRs decode without phone-flush distance
+                    let appliedZoom = null;
                     if ('zoom' in capabilities) {
-                        setZoomSupported(true);
                         const zMin = capabilities.zoom.min || 1;
                         const zMax = capabilities.zoom.max || 1;
                         const zStep = capabilities.zoom.step || 0.1;
+                        setZoomSupported(true);
                         setZoomCapabilities({ min: zMin, max: zMax, step: zStep });
-                        setZoomValue(zMin);
+                        appliedZoom = pickSmallQrZoom(zMin, zMax);
+                        advanced.zoom = appliedZoom;
+                        setZoomValue(appliedZoom);
                     } else {
                         setZoomSupported(false);
                     }
+
+                    if (Object.keys(advanced).length > 0) {
+                        try {
+                            await track.applyConstraints({ advanced: [advanced] });
+                        } catch (e) {
+                            console.warn('[Camera] Failed to apply advanced track constraints:', e);
+                            if (appliedZoom != null) setZoomValue(capabilities.zoom?.min || 1);
+                        }
+                    }
+
+                    if ('torch' in capabilities) {
+                        setTorchSupported(true);
+                        setTorchOn(false);
+                    } else {
+                        setTorchSupported(false);
+                    }
                 }
-            } catch {
-                // silent fallback
+            } catch (capErr) {
+                console.warn('[Camera] Error querying track capabilities:', capErr);
             }
         } catch (err) {
             if (session !== scanSessionRef.current) return;
             scannerRunning.current = false;
             scannerRef.current = null;
             clearReaderDom();
-            const message = err?.message || 'Camera permission denied or unavailable.';
-            setCameraError(
-                /permission|notallowed|denied/i.test(message)
-                    ? 'Camera permission denied. Allow camera access and tap Start.'
-                    : message
-            );
+            setCameraError(formatCameraError(err));
             setScanning(false);
         }
-    }, [clearReaderDom, getCameraCandidates, getScannerConfig, getActiveTrack]);
+    }, [
+        clearReaderDom,
+        deviceConstraint,
+        fetchCameras,
+        formatCameraError,
+        getScannerConfig,
+        isFrontLabel,
+        isMobileDevice,
+        isRearLabel,
+        pickSmallQrZoom,
+        preferRearCameraIndex,
+    ]);
 
-    const switchCamera = useCallback(async () => {
+    // Keep latest start/stop on refs so the mount effect does not restart on every callback identity change
+    const startScannerRef = useRef(startScanner);
+    const stopScannerRef = useRef(stopScanner);
+    startScannerRef.current = startScanner;
+    stopScannerRef.current = stopScanner;
+
+    const switchCamera = useCallback(async (e) => {
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+
         let list = availableCameras;
-        if (!list || list.length <= 1) {
-            const res = await getCameraCandidates(activeCameraIndexRef.current);
-            list = res.camerasList;
+        if (!list || list.length === 0) {
+            list = await fetchCameras();
         }
-        const nextIndex = (activeCameraIndexRef.current + 1) % (list.length || 2);
+        if (!list.length) {
+            setCameraError('No cameras found on this device.');
+            return;
+        }
+
+        const nextIndex = (activeCameraIndexRef.current + 1) % list.length;
         activeCameraIndexRef.current = nextIndex;
         setActiveCameraIndex(nextIndex);
 
-        if (scannerRunning.current || scanning) {
-            await stopScanner();
-            setTimeout(() => {
-                startScanner(nextIndex);
-            }, 150);
-        }
-    }, [availableCameras, scanning, stopScanner, startScanner, getCameraCandidates]);
+        await stopScanner();
+        setTimeout(() => {
+            startScanner(nextIndex, { exclusive: true, preferRear: false });
+        }, 500);
+    }, [availableCameras, stopScanner, startScanner, fetchCameras]);
 
     const handleCameraSelect = useCallback(async (index) => {
         const nextIndex = Number(index);
+        if (Number.isNaN(nextIndex)) return;
+        if (nextIndex === activeCameraIndexRef.current && scannerRunning.current) return;
+
         activeCameraIndexRef.current = nextIndex;
         setActiveCameraIndex(nextIndex);
 
-        if (scannerRunning.current || scanning) {
-            await stopScanner();
-            setTimeout(() => {
-                startScanner(nextIndex);
-            }, 150);
-        }
-    }, [scanning, stopScanner, startScanner]);
+        await stopScanner();
+        setTimeout(() => {
+            startScanner(nextIndex, { exclusive: true, preferRear: false });
+        }, 500);
+    }, [stopScanner, startScanner]);
 
-    // Handle USB device plugging/unplugging in real-time
+    // Refresh fetched camera list when USB / external cameras are plugged
     useEffect(() => {
         if (!navigator.mediaDevices || typeof navigator.mediaDevices.addEventListener !== 'function') return undefined;
 
         const handleDeviceChange = async () => {
-            const res = await getCameraCandidates(activeCameraIndexRef.current);
-            if (res?.camerasList?.length > 0) {
-                setAvailableCameras(res.camerasList);
-            }
+            camerasFetchedRef.current = false;
+            availableCamerasRef.current = [];
+            const list = await fetchCameras({ force: true });
+            if (list?.length > 0) setAvailableCameras(list);
         };
 
         navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
         return () => {
             navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
         };
-    }, [getCameraCandidates]);
+    }, [fetchCameras]);
 
     useEffect(() => {
         if (activeTab !== 'scan' || modalOpen) {
-            stopScanner();
+            stopScannerRef.current();
             return undefined;
         }
 
         let cancelled = false;
-        // Fast 40ms mount trigger for instant camera launch
+        // Give the DOM a beat; avoid restarting whenever startScanner identity changes
         const timer = setTimeout(() => {
-            if (!cancelled) startScanner();
-        }, 40);
+            if (!cancelled) startScannerRef.current();
+        }, 120);
 
         return () => {
             cancelled = true;
             clearTimeout(timer);
-            stopScanner();
+            stopScannerRef.current();
         };
-    }, [activeTab, modalOpen, startScanner, stopScanner]);
+    }, [activeTab, modalOpen]);
 
     const closeResultModal = () => {
+        scanResultTokenRef.current += 1; // invalidate any in-flight online re-check
         setModalOpen(false);
         setResult(null);
         busyRef.current = false;
@@ -1085,6 +1286,9 @@ const QrVerification = () => {
     };
 
     const detail = result?.data;
+    const hasPassengerDetail = Boolean(
+        detail && (detail.student_name || detail.admission_number || detail.route_name || detail.bus_id || detail.status)
+    );
     const photoSrc = normalizeStudentPhoto(detail?.student_photo);
     const loggedIn = isAuthenticated();
     const Shell = loggedIn ? Layout : OfflineVerifyShell;
@@ -1182,7 +1386,7 @@ const QrVerification = () => {
                             <div className="px-3 sm:px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
                                 <div className="flex items-center gap-2 min-w-0">
                                     <p className="text-xs font-bold text-slate-700 truncate">
-                                        {verifying ? 'QR detected — verifying…' : scanning ? 'Point at transport QR' : 'Camera ready'}
+                                        {verifying ? 'QR detected — verifying…' : scanning ? 'Center the pass QR in the box' : 'Camera ready'}
                                     </p>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
@@ -1196,7 +1400,7 @@ const QrVerification = () => {
                                         >
                                             {availableCameras.map((cam, idx) => (
                                                 <option key={cam.id || idx} value={idx}>
-                                                    📷 {cam.label || `Camera ${idx + 1}`}
+                                                    {cam.label || `Camera ${idx + 1}`}
                                                 </option>
                                             ))}
                                         </select>
@@ -1234,18 +1438,17 @@ const QrVerification = () => {
                                 <div
                                     id="qr-reader"
                                     ref={readerHostRef}
-                                    className="absolute inset-0 w-full h-full overflow-hidden [&_video]:!w-full [&_video]:!h-full [&_video]:!object-cover [&_video]:bg-black [&_video]:contrast-[1.05] [&_video]:brightness-[1.02] [&_#qr-reader__dashboard]:!hidden [&_#qr-shaded-region]:!hidden [&_canvas]:!hidden [&_img]:!hidden [&_svg]:!hidden"
+                                    className="absolute inset-0 w-full h-full overflow-hidden [&_video]:!w-full [&_video]:!h-full [&_video]:object-contain [&_video]:bg-black [&_video]:contrast-[1.12] [&_video]:brightness-[1.04] [&_video]:saturate-[1.05] [&_#qr-reader__dashboard]:hidden [&_img]:hidden"
                                 />
 
-                                {/* Camera Quick Controls (Switch Camera, Torch & Live View Badge) */}
+                                {/* Camera Quick Controls (Switch Camera, Torch & Zoom for small pass QRs) */}
                                 {scanning && (
                                     <div className="absolute top-3 right-3 left-3 flex justify-between items-start pointer-events-none z-30">
-                                        <div className="bg-slate-950/85 border border-slate-800/80 text-slate-200 text-[9px] sm:text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-md shadow-md">
-                                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                                            Rear Camera Live
+                                        <div className="bg-slate-950/85 border border-slate-800/80 text-slate-200 text-[9px] sm:text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 backdrop-blur-sm shadow-md">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                            {availableCameras[activeCameraIndex]?.label || 'Live View'}
                                         </div>
                                         <div className="flex flex-col gap-2 items-end pointer-events-auto">
-                                            {/* Switch Camera Overlay Button */}
                                             <button
                                                 type="button"
                                                 onClick={switchCamera}
@@ -1255,7 +1458,18 @@ const QrVerification = () => {
                                                 <SwitchCamera size={15} className="text-blue-400" />
                                             </button>
 
-                                            {/* Flashlight Button */}
+                                            {zoomSupported && (
+                                                <button
+                                                    type="button"
+                                                    onClick={cycleZoom}
+                                                    className="px-2 py-1.5 rounded-lg bg-slate-950/80 text-slate-200 border border-slate-800 hover:text-white hover:bg-slate-900 transition-all shadow-md flex items-center justify-center gap-1 cursor-pointer"
+                                                    title="Zoom for small printed QR (tap to cycle)"
+                                                >
+                                                    <ZoomIn size={14} className="text-emerald-400" />
+                                                    <span className="text-[10px] font-bold tabular-nums">{Number(zoomValue).toFixed(1)}x</span>
+                                                </button>
+                                            )}
+
                                             {torchSupported && (
                                                 <button
                                                     type="button"
@@ -1274,40 +1488,15 @@ const QrVerification = () => {
                                     </div>
                                 )}
 
-                                {/* Centered Scanning Frame & Instruction directly below scan frame */}
-                                {scanning && (
-                                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center z-20 p-4">
-                                        {/* Dynamic Centered Square Scan Frame */}
-                                        <div className="relative w-[72%] max-w-[270px] sm:max-w-[320px] aspect-square flex items-center justify-center">
-                                            {/* Subtle Animated Corner Brackets */}
-                                            <div className="absolute -top-0.5 -left-0.5 w-5 h-5 border-t-2 border-l-2 border-emerald-400 rounded-tl-xs shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
-                                            <div className="absolute -top-0.5 -right-0.5 w-5 h-5 border-t-2 border-r-2 border-emerald-400 rounded-tr-xs shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
-                                            <div className="absolute -bottom-0.5 -left-0.5 w-5 h-5 border-b-2 border-l-2 border-emerald-400 rounded-bl-xs shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
-                                            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 border-b-2 border-r-2 border-emerald-400 rounded-br-xs shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
-
-                                            {/* Subtle Laser Scan Line Sweep */}
-                                            {!verifying && (
-                                                <div className="qr-scan-line absolute left-2 right-2 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_10px_rgba(52,211,153,0.9)]" />
-                                            )}
-                                        </div>
-
-                                        {/* Dynamic Instruction Text Directly Below the Scan Frame */}
-                                        <div className="mt-4 sm:mt-5 transition-all duration-300 transform scale-100 opacity-100 pointer-events-auto">
-                                            <div className="inline-flex items-center gap-2 bg-slate-950/85 backdrop-blur-md border border-slate-800/90 text-slate-100 text-[11px] sm:text-xs font-semibold px-4 py-1.5 rounded-full shadow-lg text-center max-w-[88vw] truncate">
-                                                {verifying ? (
-                                                    <>
-                                                        <Loader2 size={13} className="animate-spin text-blue-400 shrink-0" />
-                                                        <span>Scanning…</span>
-                                                    </>
-                                                ) : scanFlash ? (
-                                                    <>
-                                                        <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
-                                                        <span>QR scanned successfully</span>
-                                                    </>
-                                                ) : (
-                                                    <span>{scanInstruction}</span>
-                                                )}
-                                            </div>
+                                {/* Decorative viewfinder — aim the small pass QR inside this box */}
+                                {scanning && !verifying && (
+                                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-10">
+                                        <div className="relative w-[48%] max-w-[280px] min-w-[160px] aspect-square">
+                                            <div className="absolute -top-0.5 -left-0.5 w-7 h-7 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
+                                            <div className="absolute -top-0.5 -right-0.5 w-7 h-7 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
+                                            <div className="absolute -bottom-0.5 -left-0.5 w-7 h-7 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
+                                            <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
+                                            <div className="qr-scan-line absolute left-3 right-3 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
                                         </div>
                                     </div>
                                 )}
@@ -1362,6 +1551,11 @@ const QrVerification = () => {
                             {cameraError && (
                                 <div className="px-3 py-2 text-xs text-red-700 bg-red-50 border-t border-red-100">
                                     {cameraError}
+                                </div>
+                            )}
+                            {scanning && !cameraError && (
+                                <div className="px-3 py-2 text-[11px] text-slate-600 bg-slate-50 border-t border-slate-100">
+                                    Small printed pass QR: hold steady and use <span className="font-semibold">Zoom</span> if needed — no need to reprint cards.
                                 </div>
                             )}
                         </div>
@@ -1461,7 +1655,7 @@ const QrVerification = () => {
                             </div>
                         )}
 
-                        {detail && (
+                        {hasPassengerDetail && (
                             <div className="flex gap-4 pb-3 border-b border-slate-100 text-left items-stretch">
                                 {/* Left column: Student photo, not rounded, not cropped (using object-contain) */}
                                 <div className="w-28 border border-slate-200 overflow-hidden bg-slate-50 shadow-sm flex items-center justify-center rounded-lg shrink-0">
@@ -1510,7 +1704,7 @@ const QrVerification = () => {
                             </div>
                         )}
 
-                        {detail && (
+                        {hasPassengerDetail && (
                             <div className="space-y-2">
                                 <DetailRow label="Type" value={detail.user_type === 'employee' ? 'Employee' : 'Student'} />
                                 <DetailRow label="Route" value={detail.route_id ? `${detail.route_id} · ${detail.route_name || ''}` : detail.route_name} />

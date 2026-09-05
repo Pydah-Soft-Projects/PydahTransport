@@ -7,7 +7,8 @@ on:
 
 concurrency:
   group: deploy-lightsail-main
-  cancel-in-progress: false
+  # Only the latest push matters — cancel older queued/in-progress deploys to save install+build time
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -32,7 +33,12 @@ jobs:
           VITE_API_URL: /api
           VITE_CRM_URL: https://crm.pydah.edu.in
         run: |
-          npm ci || npm install
+          # npm ci is faster/reproducible when lockfile is present; falls back only if needed
+          if [ -f package-lock.json ]; then
+            npm ci --prefer-offline --no-audit --no-fund
+          else
+            npm install --prefer-offline --no-audit --no-fund
+          fi
           printf 'VITE_API_URL=%s\nVITE_CRM_URL=%s\n' "${VITE_API_URL}" "${VITE_CRM_URL}" > .env.production
           npm run build
           test -d dist

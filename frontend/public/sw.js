@@ -1,5 +1,5 @@
 /* Pydah Transport app-shell service worker */
-const CACHE = 'pydah-transport-shell-v5';
+const CACHE = 'pydah-transport-shell-v11';
 const PRECACHE = [
   '/',
   '/index.html',
@@ -47,20 +47,27 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // SPA navigation: serve cached shell for document requests
-  if (request.mode === 'navigate') {
+  // Hashed JS/CSS: network-first so camera fixes reach phones (avoid stale app shell)
+  const isVersionedAsset = /\.(?:js|css)$/i.test(url.pathname) || url.pathname.startsWith('/assets/');
+
+  // SPA navigation + versioned assets: prefer network when online
+  if (request.mode === 'navigate' || isVersionedAsset) {
     event.respondWith(
       fetch(request)
         .then((response) => {
           if (response && response.ok) {
             const clone = response.clone();
-            caches.open(CACHE).then((cache) => cache.put('/index.html', clone));
+            const cacheKey = request.mode === 'navigate' ? '/index.html' : request;
+            caches.open(CACHE).then((cache) => cache.put(cacheKey, clone));
           }
           return response;
         })
         .catch(async () => {
-          const cached = (await caches.match('/index.html')) || (await caches.match('/'));
-          return cached || offlineFallback();
+          if (request.mode === 'navigate') {
+            const cached = (await caches.match('/index.html')) || (await caches.match('/'));
+            return cached || offlineFallback();
+          }
+          return (await caches.match(request)) || offlineFallback();
         })
     );
     return;

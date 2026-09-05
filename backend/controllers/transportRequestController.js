@@ -220,6 +220,18 @@ function resolveAcademicYear(source) {
     return fromSource || process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
 }
 
+/**
+ * Admins live in MongoDB, but audit_logs.admin_id FKs to MySQL `admins`.
+ * Always store NULL in the FK column and put the Mongo admin identity in details.
+ */
+function buildAuditDetails(payload = {}, adminId = null, adminName = null) {
+    return JSON.stringify({
+        ...payload,
+        admin_name: adminName || payload.admin_name || null,
+        admin_mongo_id: adminId != null && adminId !== '' ? String(adminId) : null,
+    });
+}
+
 const STUDENT_JOINS_SQL = `
     LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
     LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL`;
@@ -2558,17 +2570,16 @@ const deleteConcession = async (req, res) => {
                 await TransportRequest.deleteOne({ _id: studentReq._id });
 
                 if (mysqlPool) {
-                    const auditDetails = JSON.stringify({
+                    // admin_id FK is MySQL-only; admins are in Mongo — store identity in details
+                    const auditDetails = buildAuditDetails({
                         action: 'delete_transport_request',
                         student_id: admissionNumber,
-                        admin_name,
                         status: studentReq.status,
                         academic_year: requestAcademicYear,
-                    });
-                    const adminIdForAudit = admin_id && !isNaN(parseInt(admin_id, 10)) ? parseInt(admin_id, 10) : null;
+                    }, admin_id, admin_name);
                     await mysqlPool.query(
                         'INSERT INTO audit_logs (action_type, entity_type, entity_id, admin_id, details) VALUES (?, ?, ?, ?, ?)',
-                        ['FEE_DELETION', 'TRANSPORT_REQUEST', requestIdForAudit, adminIdForAudit, auditDetails]
+                        ['FEE_DELETION', 'TRANSPORT_REQUEST', requestIdForAudit, null, auditDetails]
                     );
                 }
 
@@ -2611,19 +2622,16 @@ const deleteConcession = async (req, res) => {
         await mysqlPool.query('DELETE FROM transport_requests WHERE id = ?', [id]);
 
         // Log to audit logs in MySQL
-        const auditDetails = JSON.stringify({
+        // admin_id FK is MySQL-only; admins are in Mongo — store identity in details
+        const auditDetails = buildAuditDetails({
             action: 'delete_transport_request',
             student_id: studentId,
-            admin_name,
             academic_year: requestAcademicYear,
-        });
-
-        // Only insert admin_id if it's a valid number (MySQL foreign key constraint)
-        const adminIdForAudit = admin_id && !isNaN(parseInt(admin_id, 10)) ? parseInt(admin_id, 10) : null;
+        }, admin_id, admin_name);
 
         await mysqlPool.query(
             'INSERT INTO audit_logs (action_type, entity_type, entity_id, admin_id, details) VALUES (?, ?, ?, ?, ?)',
-            ['FEE_DELETION', 'TRANSPORT_REQUEST', String(id), adminIdForAudit, auditDetails]
+            ['FEE_DELETION', 'TRANSPORT_REQUEST', String(id), null, auditDetails]
         );
 
         const message = request.status === 'approved'
@@ -2901,8 +2909,10 @@ const submitRouteChangeRequest = async (req, res) => {
             }
         }
 
-        // Log to audit logs - Allow NULL admin_id if it's not a valid reference
-        const auditDetails = JSON.stringify({
+        // Log to audit logs.
+        // MySQL audit_logs.admin_id FKs to MySQL admins, but app admins are in MongoDB —
+        // so leave admin_id NULL and store Mongo admin identity in details.
+        const auditDetails = buildAuditDetails({
             action: 'route_change',
             admission_number,
             old_route: currentRequest.route_name,
@@ -2910,15 +2920,11 @@ const submitRouteChangeRequest = async (req, res) => {
             new_route: new_route_name,
             new_stage: new_stage_name,
             fare_diff: fareDiff,
-            admin_name: admin_name
-        });
-
-        // Only insert admin_id if it's a valid number (MySQL foreign key constraint)
-        const adminIdForAudit = admin_id && !isNaN(parseInt(admin_id, 10)) ? parseInt(admin_id, 10) : null;
+        }, admin_id, admin_name);
 
         await mysqlPool.query(
             'INSERT INTO audit_logs (action_type, entity_type, entity_id, admin_id, details) VALUES (?, ?, ?, ?, ?)',
-            ['ROUTE_CHANGE', 'TRANSPORT_REQUEST', String(currentRequest.id), adminIdForAudit, auditDetails]
+            ['ROUTE_CHANGE', 'TRANSPORT_REQUEST', String(currentRequest.id || currentRequest._id), null, auditDetails]
         );
 
         res.json({
