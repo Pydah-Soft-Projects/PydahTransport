@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { useReactToPrint } from 'react-to-print';
 import { FileText, Trash2, Calendar, Pencil, Users, CheckCircle2, XCircle, User, MapPin, GraduationCap, Clock, Bus, Printer, Ban, CreditCard } from 'lucide-react';
@@ -192,8 +192,8 @@ const TransportRequests = () => {
     const [idCardCourseCode, setIdCardCourseCode] = useState('');
     const [idCardAllApplications, setIdCardAllApplications] = useState([]);
     const [idCardApplicationsLoading, setIdCardApplicationsLoading] = useState(false);
-    const [idCardFromSerial, setIdCardFromSerial] = useState('');
-    const [idCardToSerial, setIdCardToSerial] = useState('');
+    const [idCardFromAppId, setIdCardFromAppId] = useState('');
+    const [idCardToAppId, setIdCardToAppId] = useState('');
     const [idCardStartDate, setIdCardStartDate] = useState('');
     const [idCardEndDate, setIdCardEndDate] = useState('');
     const [idCardPerPage, setIdCardPerPage] = useState(6);
@@ -363,33 +363,24 @@ const TransportRequests = () => {
 
 
 
-    const idCardCollegeOptions = [...new Set(
+    const idCardCollegeOptions = useMemo(() => [...new Set(
         idCardAllApplications.map((app) => app.college_code).filter(Boolean)
-    )].sort();
-    const idCardCourseOptions = [...new Set(
+    )].sort(), [idCardAllApplications]);
+
+    const idCardCourseOptions = useMemo(() => [...new Set(
         idCardAllApplications
             .filter((app) => !idCardCollegeCode || app.college_code === idCardCollegeCode)
             .map((app) => app.course_code)
             .filter(Boolean)
-    )].sort();
-    const idCardApplications = idCardAllApplications.filter((app) => {
-        if (idCardCollegeCode && app.college_code !== idCardCollegeCode) return false;
-        if (idCardCourseCode && app.course_code !== idCardCourseCode) return false;
-        return true;
-    });
+    )].sort(), [idCardAllApplications, idCardCollegeCode]);
 
-    const buildIdCardQuery = (fromSerial, toSerial) => {
-        const params = new URLSearchParams({
-            academicYear: idCardAcademicYear,
-            fromSerial: String(fromSerial),
-            toSerial: String(toSerial),
+    const idCardApplications = useMemo(() => {
+        return idCardAllApplications.filter((app) => {
+            if (idCardCollegeCode && app.college_code !== idCardCollegeCode) return false;
+            if (idCardCourseCode && app.course_code !== idCardCourseCode) return false;
+            return true;
         });
-        if (idCardCollegeCode) params.append('collegeCode', idCardCollegeCode);
-        if (idCardCourseCode) params.append('courseCode', idCardCourseCode);
-        if (idCardStartDate) params.append('startDate', idCardStartDate);
-        if (idCardEndDate) params.append('endDate', idCardEndDate);
-        return params.toString();
-    };
+    }, [idCardAllApplications, idCardCollegeCode, idCardCourseCode]);
 
     const fetchIdCardApplications = async (year, startD = idCardStartDate, endD = idCardEndDate) => {
         setIdCardApplicationsLoading(true);
@@ -403,21 +394,12 @@ const TransportRequests = () => {
             if (response.ok) {
                 const apps = data.applications || [];
                 setIdCardAllApplications(apps);
-                setIdCardCollegeCode('');
-                setIdCardCourseCode('');
-                setIdCardFromSerial('');
-                setIdCardToSerial('');
-                setIdCardPreviewCount(null);
             } else {
                 setIdCardAllApplications([]);
-                setIdCardFromSerial('');
-                setIdCardToSerial('');
                 setMessage({ text: data.message || 'Failed to load transport application numbers.', type: 'error' });
             }
         } catch {
             setIdCardAllApplications([]);
-            setIdCardFromSerial('');
-            setIdCardToSerial('');
             setMessage({ text: 'Error loading transport application numbers.', type: 'error' });
         } finally {
             setIdCardApplicationsLoading(false);
@@ -426,20 +408,58 @@ const TransportRequests = () => {
 
     useEffect(() => {
         if (!idCardApplications.length) {
-            setIdCardFromSerial('');
-            setIdCardToSerial('');
+            setIdCardFromAppId('');
+            setIdCardToAppId('');
             return;
         }
-        setIdCardFromSerial(String(idCardApplications[0].application_serial));
-        setIdCardToSerial(String(idCardApplications[idCardApplications.length - 1].application_serial));
-        setIdCardPreviewCount(null);
-    }, [idCardCollegeCode, idCardCourseCode, idCardAllApplications]);
+
+        const fromExists = idCardApplications.some((a) => String(a.id) === String(idCardFromAppId));
+        const firstId = String(idCardApplications[0].id);
+        const lastId = String(idCardApplications[idCardApplications.length - 1].id);
+
+        let activeFromId = fromExists ? idCardFromAppId : firstId;
+        if (!fromExists) {
+            setIdCardFromAppId(activeFromId);
+        }
+
+        const fromIdx = idCardApplications.findIndex((a) => String(a.id) === String(activeFromId));
+        const toIdx = idCardApplications.findIndex((a) => String(a.id) === String(idCardToAppId));
+
+        if (toIdx < fromIdx || toIdx === -1) {
+            setIdCardToAppId(lastId);
+        }
+    }, [idCardApplications]);
+
+    const fromIndex = useMemo(() => {
+        if (!idCardApplications.length) return -1;
+        const idx = idCardApplications.findIndex((a) => String(a.id) === String(idCardFromAppId));
+        return idx >= 0 ? idx : 0;
+    }, [idCardApplications, idCardFromAppId]);
+
+    const idCardToOptions = useMemo(() => {
+        if (fromIndex < 0) return [];
+        return idCardApplications.slice(fromIndex);
+    }, [idCardApplications, fromIndex]);
+
+    const toIndex = useMemo(() => {
+        if (!idCardApplications.length || fromIndex < 0) return -1;
+        const idx = idCardApplications.findIndex((a) => String(a.id) === String(idCardToAppId));
+        return idx >= fromIndex ? idx : idCardApplications.length - 1;
+    }, [idCardApplications, fromIndex, idCardToAppId]);
+
+    const selectedRangePassengers = useMemo(() => {
+        if (fromIndex < 0 || toIndex < 0 || fromIndex > toIndex) return [];
+        return idCardApplications.slice(fromIndex, toIndex + 1);
+    }, [idCardApplications, fromIndex, toIndex]);
 
     const openIdCardModal = () => {
         setIdCardAcademicYear(academicYear);
+        setIdCardCollegeCode('');
+        setIdCardCourseCode('');
+        setIdCardFromAppId('');
+        setIdCardToAppId('');
         setIdCardStartDate('');
         setIdCardEndDate('');
-        setIdCardPreviewCount(null);
         setIdCardPrintMode(selectedRequestIds.length > 0 ? 'selected' : 'range');
         setIdCardModalOpen(true);
     };
@@ -447,54 +467,14 @@ const TransportRequests = () => {
     const closeIdCardModal = () => {
         if (idCardPrintLoading) return;
         setIdCardModalOpen(false);
-        setIdCardPreviewCount(null);
     };
 
-    const handleIdCardFromChange = (serial) => {
-        setIdCardFromSerial(serial);
-        setIdCardPreviewCount(null);
-        if (idCardToSerial && Number(idCardToSerial) < Number(serial)) {
-            setIdCardToSerial(serial);
-        }
-    };
-
-    const idCardToOptions = idCardApplications.filter(
-        (app) => !idCardFromSerial || Number(app.application_serial) >= Number(idCardFromSerial)
-    );
-
-    const validateIdCardRange = () => {
-        if (!idCardApplications.length) {
-            setMessage({ text: 'No approved transport application numbers found for this academic year.', type: 'error' });
-            return null;
-        }
-        const fromSerial = Number(idCardFromSerial);
-        const toSerial = Number(idCardToSerial);
-        if (!Number.isFinite(fromSerial) || !Number.isFinite(toSerial) || toSerial < fromSerial) {
-            setMessage({ text: 'Select a valid transport application number range (From ≤ To).', type: 'error' });
-            return null;
-        }
-        return { fromSerial, toSerial };
-    };
-
-    const handlePreviewIdCardCount = async () => {
-        const range = validateIdCardRange();
-        if (!range) return;
-        const { fromSerial, toSerial } = range;
-        setIdCardPrintLoading(true);
-        try {
-            const response = await apiFetch(
-                `${API_BASE}/transport-requests/id-cards-print?${buildIdCardQuery(fromSerial, toSerial)}`
-            );
-            const data = await response.json().catch(() => ({}));
-            if (response.ok) {
-                setIdCardPreviewCount(data.count ?? 0);
-            } else {
-                setMessage({ text: data.message || 'Failed to preview ID cards.', type: 'error' });
-            }
-        } catch {
-            setMessage({ text: 'Error previewing ID cards.', type: 'error' });
-        } finally {
-            setIdCardPrintLoading(false);
+    const handleIdCardFromChange = (newFromId) => {
+        setIdCardFromAppId(newFromId);
+        const newFromIdx = idCardApplications.findIndex((a) => String(a.id) === String(newFromId));
+        const curToIdx = idCardApplications.findIndex((a) => String(a.id) === String(idCardToAppId));
+        if (curToIdx < newFromIdx && newFromIdx >= 0) {
+            setIdCardToAppId(String(idCardApplications[idCardApplications.length - 1].id));
         }
     };
 
@@ -508,33 +488,11 @@ const TransportRequests = () => {
             }
             requestIds = selectedRequestIds;
         } else {
-            const range = validateIdCardRange();
-            if (!range) return;
-            const { fromSerial, toSerial } = range;
-            setIdCardPrintLoading(true);
-            try {
-                const response = await apiFetch(
-                    `${API_BASE}/transport-requests/id-cards-print?${buildIdCardQuery(fromSerial, toSerial)}`
-                );
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok) {
-                    setMessage({ text: data.message || 'Failed to load ID cards for printing.', type: 'error' });
-                    setIdCardPrintLoading(false);
-                    return;
-                }
-                const passengers = data.passengers || [];
-                if (!passengers.length) {
-                    setMessage({ text: 'No approved passengers found in that application number range.', type: 'error' });
-                    setIdCardPrintLoading(false);
-                    return;
-                }
-                requestIds = passengers.map(p => p.id || p._id);
-            } catch (error) {
-                console.error('Error printing ID cards:', error);
-                setMessage({ text: 'Error preparing ID cards for print.', type: 'error' });
-                setIdCardPrintLoading(false);
+            if (!selectedRangePassengers.length) {
+                setMessage({ text: 'No approved passengers found for the selected filters.', type: 'error' });
                 return;
             }
+            requestIds = selectedRangePassengers.map(p => p.id || p._id);
         }
 
         setIdCardPrintLoading(true);
@@ -546,7 +504,7 @@ const TransportRequests = () => {
                     template: 'transport-bus-idcard-sheet',
                     data: {
                         requestIds,
-                        academicYear: academicYear,
+                        academicYear: idCardAcademicYear,
                         cardsPerPage: 6,
                         padToFullPage: true
                     }
@@ -555,7 +513,7 @@ const TransportRequests = () => {
 
             if (printResponse.ok) {
                 const html = await printResponse.text();
-                printHtmlDocument(html, `Bus-ID-Cards-Range-${academicYear}`);
+                printHtmlDocument(html, `Bus-ID-Cards-${idCardAcademicYear}`);
                 setIdCardModalOpen(false);
                 setSelectedRequestIds([]); // Clear selections after successful printing
                 setSelectedRequestsMap({});
@@ -2251,10 +2209,7 @@ const TransportRequests = () => {
                                         <input
                                             type="date"
                                             value={idCardStartDate}
-                                            onChange={(e) => {
-                                                setIdCardStartDate(e.target.value);
-                                                setIdCardPreviewCount(null);
-                                            }}
+                                            onChange={(e) => setIdCardStartDate(e.target.value)}
                                             disabled={idCardPrintLoading}
                                             className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
                                         />
@@ -2264,10 +2219,7 @@ const TransportRequests = () => {
                                         <input
                                             type="date"
                                             value={idCardEndDate}
-                                            onChange={(e) => {
-                                                setIdCardEndDate(e.target.value);
-                                                setIdCardPreviewCount(null);
-                                            }}
+                                            onChange={(e) => setIdCardEndDate(e.target.value)}
                                             disabled={idCardPrintLoading}
                                             className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
                                         />
@@ -2331,7 +2283,7 @@ const TransportRequests = () => {
 
                             {!idCardApplications.length ? (
                                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
-                                    No approved transport application numbers found for {idCardAcademicYear}.
+                                    No approved transport application numbers found for the selected filters ({idCardAcademicYear}).
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2340,14 +2292,14 @@ const TransportRequests = () => {
                                             From Transport Application No.
                                         </label>
                                         <select
-                                            value={idCardFromSerial}
+                                            value={idCardFromAppId}
                                             onChange={(e) => handleIdCardFromChange(e.target.value)}
-                                            disabled={idCardPrintLoading}
-                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
+                                            disabled={idCardPrintLoading || !idCardApplications.length}
+                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 font-medium"
                                         >
                                             {idCardApplications.map((app) => (
-                                                <option key={`from-${app.id}-${app.application_serial}`} value={app.application_serial}>
-                                                    {app.application_number} — {app.student_name}
+                                                <option key={`from-${app.id}`} value={app.id}>
+                                                    {app.application_number} — {app.student_name} ({app.college_code || 'UNK'}-{app.course_code || 'GEN'})
                                                 </option>
                                             ))}
                                         </select>
@@ -2357,17 +2309,14 @@ const TransportRequests = () => {
                                             To Transport Application No.
                                         </label>
                                         <select
-                                            value={idCardToSerial}
-                                            onChange={(e) => {
-                                                setIdCardToSerial(e.target.value);
-                                                setIdCardPreviewCount(null);
-                                            }}
-                                            disabled={idCardPrintLoading}
-                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60"
+                                            value={idCardToAppId}
+                                            onChange={(e) => setIdCardToAppId(e.target.value)}
+                                            disabled={idCardPrintLoading || !idCardApplications.length}
+                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 font-medium"
                                         >
                                             {idCardToOptions.map((app) => (
-                                                <option key={`to-${app.id}-${app.application_serial}`} value={app.application_serial}>
-                                                    {app.application_number} — {app.student_name}
+                                                <option key={`to-${app.id}`} value={app.id}>
+                                                    {app.application_number} — {app.student_name} ({app.college_code || 'UNK'}-{app.course_code || 'GEN'})
                                                 </option>
                                             ))}
                                         </select>
@@ -2381,12 +2330,10 @@ const TransportRequests = () => {
                         ID cards will be printed in a 6 cards per A4 page layout (front + back layout) to match the official template.
                     </div>
 
-                    {idCardPrintMode === 'range' && idCardPreviewCount != null && (
+                    {idCardPrintMode === 'range' && selectedRangePassengers.length > 0 && (
                         <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                            <strong>{idCardPreviewCount}</strong> approved passenger{idCardPreviewCount === 1 ? '' : 's'} found in this range.
-                            {idCardPreviewCount > 0 && (
-                                <span> Will print across {Math.ceil(idCardPreviewCount / idCardPerPage)} page{Math.ceil(idCardPreviewCount / idCardPerPage) === 1 ? '' : 's'}.</span>
-                            )}
+                            <strong>{selectedRangePassengers.length}</strong> approved passenger{selectedRangePassengers.length === 1 ? '' : 's'} selected for printing.
+                            <span> Will print across {Math.ceil(selectedRangePassengers.length / idCardPerPage)} page{Math.ceil(selectedRangePassengers.length / idCardPerPage) === 1 ? '' : 's'}.</span>
                         </div>
                     )}
                 </div>
@@ -2396,7 +2343,7 @@ const TransportRequests = () => {
                     <button
                         type="button"
                         onClick={handleConfirmPrintIdCards}
-                        disabled={idCardPrintLoading || (idCardPrintMode === 'selected' ? selectedRequestIds.length === 0 : (idCardApplicationsLoading || !idCardApplications.length))}
+                        disabled={idCardPrintLoading || (idCardPrintMode === 'selected' ? selectedRequestIds.length === 0 : (idCardApplicationsLoading || selectedRangePassengers.length === 0))}
                         className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <Printer size={18} />

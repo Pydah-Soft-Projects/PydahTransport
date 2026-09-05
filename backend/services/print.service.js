@@ -109,7 +109,7 @@ function getTranspiledComponent(filePath) {
  * Fetch data for Transport Admit Card
  */
 const fetchAdmitCardData = async (data) => {
-    const id = data.studentId || data.requestId || data.admissionNumber || data.passengerId;
+    const id = data.studentId || data.requestId || data.admissionNumber || data.passengerId || data.empNo;
     if (!id) {
         const error = new Error('Missing studentId, admissionNumber, or requestId in data');
         error.statusCode = 400;
@@ -118,41 +118,50 @@ const fetchAdmitCardData = async (data) => {
 
     const isMongoId = mongoose.Types.ObjectId.isValid(id)
         && String(new mongoose.Types.ObjectId(id)) === String(id);
+    
+    let reqRow = null;
     if (isMongoId) {
-        const reqRow = await EmployeeTransportRequest.findById(id).lean();
-        if (reqRow) {
-            let profilePhoto = null;
-            if (reqRow.emp_no) {
-                try {
-                    const { getEmployeeConnection } = require('../config/db');
-                    const empConn = getEmployeeConnection();
-                    if (empConn) {
-                        const empCollection = empConn.collection('employees');
-                        const empRecord = await empCollection.findOne(
-                            { emp_no: reqRow.emp_no },
-                            { projection: { profilePhoto: 1, dynamicFields: 1 } }
-                        );
-                        if (empRecord) {
-                            profilePhoto =
-                                empRecord.profilePhoto ||
-                                empRecord.dynamicFields?.profilePhoto ||
-                                null;
-                        }
+        reqRow = await EmployeeTransportRequest.findById(id).lean();
+    }
+    if (!reqRow && !isNaN(id)) {
+        reqRow = await EmployeeTransportRequest.findOne({ id: Number(id) }).lean();
+    }
+    if (!reqRow) {
+        reqRow = await EmployeeTransportRequest.findOne({ emp_no: String(id) }).sort({ request_date: -1 }).lean();
+    }
+
+    if (reqRow) {
+        let profilePhoto = null;
+        if (reqRow.emp_no) {
+            try {
+                const { getEmployeeConnection } = require('../config/db');
+                const empConn = getEmployeeConnection();
+                if (empConn) {
+                    const empCollection = empConn.collection('employees');
+                    const empRecord = await empCollection.findOne(
+                        { emp_no: reqRow.emp_no },
+                        { projection: { profilePhoto: 1, dynamicFields: 1 } }
+                    );
+                    if (empRecord) {
+                        profilePhoto =
+                            empRecord.profilePhoto ||
+                            empRecord.dynamicFields?.profilePhoto ||
+                            null;
                     }
-                } catch (err) {
-                    console.error(`Error fetching employee photo for ${reqRow.emp_no}:`, err.message);
                 }
+            } catch (err) {
+                console.error(`Error fetching employee photo for ${reqRow.emp_no}:`, err.message);
             }
-            return {
-                ...reqRow,
-                id: reqRow._id.toString(),
-                admission_number: reqRow.emp_no,
-                student_name: reqRow.employee_name,
-                user_type: 'employee',
-                course: 'Employee',
-                student_photo: profilePhoto
-            };
         }
+        return {
+            ...reqRow,
+            id: reqRow._id ? reqRow._id.toString() : String(reqRow.id),
+            admission_number: reqRow.emp_no,
+            student_name: reqRow.employee_name,
+            user_type: 'employee',
+            course: 'Employee',
+            student_photo: profilePhoto
+        };
     }
 
     return fetchStudentTransportPrintData(id);
@@ -450,10 +459,6 @@ const fetchIdCardSheetData = async (data) => {
                 verifyContent = buildSignedVerifyUrl(pid, {
                     rid: String(pid),
                     sid: passenger.admission_number || passenger.emp_no || '',
-                    ay: passenger.academic_year || academicYear || null,
-                    rid2: passenger.route_id || null,
-                    bid: passenger.bus_id || null,
-                    exp: passenger.effective_expiry_date || passenger.expiry_date || null,
                 }, verifyBase);
             } catch (signErr) {
                 console.error('QR signing failed, using plain URL:', signErr.message);
@@ -461,9 +466,9 @@ const fetchIdCardSheetData = async (data) => {
         }
         try {
             passenger.qrDataUrl = await QRCode.toDataURL(verifyContent, {
-                errorCorrectionLevel: 'M',
+                errorCorrectionLevel: 'L',
                 margin: 1,
-                width: 256,
+                width: 300,
                 color: { dark: '#000000', light: '#ffffff' }
             });
         } catch (qrErr) {

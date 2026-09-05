@@ -65,16 +65,18 @@ function fromBase64Url(str) {
 
 /** Stable JSON without whitespace — only unsigned fields. */
 function canonicalizePayload(fields) {
+    if (!fields) return '{}';
     const ordered = {
-        v: fields.v,
-        kid: fields.kid,
-        rid: fields.rid,
-        sid: fields.sid,
-        ay: fields.ay || null,
-        rid2: fields.rid2 || null,
-        bid: fields.bid || null,
-        exp: fields.exp || null,
+        v: Number(fields.v || 1),
+        kid: fields.kid ? String(fields.kid) : null,
+        rid: fields.rid !== undefined && fields.rid !== null ? String(fields.rid) : null,
+        sid: fields.sid !== undefined && fields.sid !== null ? String(fields.sid) : '',
     };
+    if (fields.ay) ordered.ay = String(fields.ay);
+    if (fields.rid2 !== undefined && fields.rid2 !== null) ordered.rid2 = String(fields.rid2);
+    if (fields.bid !== undefined && fields.bid !== null) ordered.bid = String(fields.bid);
+    if (fields.exp) ordered.exp = String(fields.exp);
+
     return JSON.stringify(ordered);
 }
 

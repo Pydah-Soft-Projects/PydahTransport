@@ -233,33 +233,33 @@ const getSignedQrContent = async (req, res) => {
 const verifyOnlinePayload = async (req, res) => {
     try {
         const { qrText, requestId } = req.body || {};
-        let resolvedId = requestId ? String(requestId) : null;
         let signatureCheck = null;
+        let candidateIds = [];
+
+        if (requestId) {
+            candidateIds.push(String(requestId).trim());
+        }
 
         if (qrText) {
             signatureCheck = verifySignedToken(qrText);
-            if (signatureCheck.ok) {
-                resolvedId = String(signatureCheck.payload.rid);
-            } else if (signatureCheck.reason === 'invalid_signature' || signatureCheck.reason === 'tampered') {
-                return res.status(400).json({
-                    valid: false,
-                    reason: signatureCheck.reason,
-                    message: 'QR signature is invalid.',
-                });
-            } else if (signatureCheck.reason === 'expired') {
-                return res.status(400).json({
-                    valid: false,
-                    reason: 'expired',
-                    message: 'QR code has expired.',
-                    payload: signatureCheck.payload,
-                });
-            } else if (!resolvedId) {
-                const urlMatch = String(qrText).match(/verify-transport\/([^/?#]+)/i);
-                if (urlMatch) resolvedId = decodeURIComponent(urlMatch[1]);
+            if (signatureCheck?.payload?.rid) {
+                candidateIds.push(String(signatureCheck.payload.rid).trim());
+            }
+            if (signatureCheck?.payload?.sid) {
+                candidateIds.push(String(signatureCheck.payload.sid).trim());
+            }
+            const urlMatch = String(qrText).match(/verify-transport\/([^/?#]+)/i);
+            if (urlMatch) {
+                candidateIds.push(decodeURIComponent(urlMatch[1]).trim());
+            }
+            if (/^[a-f0-9]{24}$/i.test(qrText) || /^\d+$/.test(qrText) || /^[A-Za-z0-9\-\/]{3,30}$/.test(qrText)) {
+                candidateIds.push(String(qrText).trim());
             }
         }
 
-        if (!resolvedId) {
+        candidateIds = Array.from(new Set(candidateIds.filter(Boolean)));
+
+        if (candidateIds.length === 0) {
             return res.status(400).json({
                 valid: false,
                 reason: 'missing_id',
@@ -267,31 +267,45 @@ const verifyOnlinePayload = async (req, res) => {
             });
         }
 
-        // Reuse public verify endpoint logic via internal HTTP is heavy —
-        // call the same controller function pattern by requiring lookup here.
         const { verifyTransportPassenger } = require('./transportRequestController');
-        const fakeReq = { params: { id: resolvedId } };
         let payload = null;
-        const fakeRes = {
-            statusCode: 200,
-            status(code) {
-                this.statusCode = code;
-                return this;
-            },
-            json(body) {
-                payload = body;
-                return this;
-            },
-        };
-        await verifyTransportPassenger(fakeReq, fakeRes);
+        let matchedId = candidateIds[0];
 
-        res.status(fakeRes.statusCode || 200).json({
-            valid: Boolean(payload?.registered),
+        for (const candId of candidateIds) {
+            const fakeReq = { params: { id: candId } };
+            let currentPayload = null;
+            const fakeRes = {
+                statusCode: 200,
+                status(code) {
+                    this.statusCode = code;
+                    return this;
+                },
+                json(body) {
+                    currentPayload = body;
+                    return this;
+                },
+            };
+            // eslint-disable-next-line no-await-in-loop
+            await verifyTransportPassenger(fakeReq, fakeRes);
+            if (currentPayload) {
+                payload = currentPayload;
+                matchedId = candId;
+                if (currentPayload.registered) {
+                    break;
+                }
+            }
+        }
+
+        const isRegistered = Boolean(payload?.registered);
+        const sigReason = signatureCheck ? (signatureCheck.ok ? 'valid' : signatureCheck.reason) : 'unverified';
+
+        return res.status(200).json({
+            valid: isRegistered,
             mode: 'ONLINE',
-            requestId: resolvedId,
-            signature: signatureCheck?.ok
-                ? 'valid'
-                : (signatureCheck ? signatureCheck.reason : 'legacy_url'),
+            requestId: matchedId,
+            signature: sigReason,
+            signatureValid: Boolean(signatureCheck?.ok),
+            message: payload?.message || (isRegistered ? 'Registered in transport system' : 'Not active'),
             data: payload,
         });
     } catch (error) {

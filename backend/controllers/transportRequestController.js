@@ -2997,8 +2997,16 @@ const getIdCardApplicationNumbers = async (req, res) => {
         };
         if (startDate || endDate) {
             const dateRange = {};
-            if (startDate) dateRange.$gte = new Date(new Date(startDate).setHours(0, 0, 0, 0));
-            if (endDate) dateRange.$lte = new Date(new Date(endDate).setHours(23, 59, 59, 999));
+            if (startDate) {
+                const s = new Date(startDate);
+                s.setHours(0, 0, 0, 0);
+                dateRange.$gte = s;
+            }
+            if (endDate) {
+                const e = new Date(endDate);
+                e.setHours(23, 59, 59, 999);
+                dateRange.$lte = e;
+            }
             studentQuery.request_date = dateRange;
         }
         if (collegeCode) studentQuery.application_college_code = collegeCode;
@@ -3038,8 +3046,16 @@ const getIdCardApplicationNumbers = async (req, res) => {
         };
         if (startDate || endDate) {
             const dateRange = {};
-            if (startDate) dateRange.$gte = new Date(new Date(startDate).setHours(0, 0, 0, 0));
-            if (endDate) dateRange.$lte = new Date(new Date(endDate).setHours(23, 59, 59, 999));
+            if (startDate) {
+                const s = new Date(startDate);
+                s.setHours(0, 0, 0, 0);
+                dateRange.$gte = s;
+            }
+            if (endDate) {
+                const e = new Date(endDate);
+                e.setHours(23, 59, 59, 999);
+                dateRange.$lte = e;
+            }
             mongoQuery.request_date = dateRange;
         }
         if (collegeCode) mongoQuery.application_college_code = collegeCode;
@@ -3142,8 +3158,16 @@ const getIdCardsForPrint = async (req, res) => {
         };
         if (startDate || endDate) {
             const dateRange = {};
-            if (startDate) dateRange.$gte = new Date(new Date(startDate).setHours(0, 0, 0, 0));
-            if (endDate) dateRange.$lte = new Date(new Date(endDate).setHours(23, 59, 59, 999));
+            if (startDate) {
+                const s = new Date(startDate);
+                s.setHours(0, 0, 0, 0);
+                dateRange.$gte = s;
+            }
+            if (endDate) {
+                const e = new Date(endDate);
+                e.setHours(23, 59, 59, 999);
+                dateRange.$lte = e;
+            }
             studentQuery.request_date = dateRange;
         }
         if (collegeCode) studentQuery.application_college_code = collegeCode;
@@ -3204,8 +3228,16 @@ const getIdCardsForPrint = async (req, res) => {
         };
         if (startDate || endDate) {
             const dateRange = {};
-            if (startDate) dateRange.$gte = new Date(new Date(startDate).setHours(0, 0, 0, 0));
-            if (endDate) dateRange.$lte = new Date(new Date(endDate).setHours(23, 59, 59, 999));
+            if (startDate) {
+                const s = new Date(startDate);
+                s.setHours(0, 0, 0, 0);
+                dateRange.$gte = s;
+            }
+            if (endDate) {
+                const e = new Date(endDate);
+                e.setHours(23, 59, 59, 999);
+                dateRange.$lte = e;
+            }
             mongoQuery.request_date = dateRange;
         }
         if (collegeCode) mongoQuery.application_college_code = collegeCode;
@@ -3272,13 +3304,28 @@ const getIdCardsForPrint = async (req, res) => {
 // @route   GET /api/transport-verify/:id
 // @access  Public
 const verifyTransportPassenger = async (req, res) => {
-    const requestId = req.params.id;
+    const requestId = String(req.params.id || '').trim();
     try {
+        if (!requestId) {
+            return res.json({ registered: false, message: 'No transport registration found for this QR code.' });
+        }
+
+        // 1. Check MongoDB for Employee Transport Requests
+        let reqRow = null;
         if (isMongoId(requestId)) {
-            let reqRow = await EmployeeTransportRequest.findById(requestId).lean();
-            if (!reqRow) {
-                return res.json({ registered: false, message: 'No transport registration found for this QR code.' });
-            }
+            reqRow = await EmployeeTransportRequest.findById(requestId).lean();
+        }
+        if (!reqRow) {
+            reqRow = await EmployeeTransportRequest.findOne({
+                $or: [
+                    { emp_no: requestId },
+                    { application_number: requestId },
+                    { employee_name: requestId },
+                ]
+            }).sort({ created_at: -1 }).lean();
+        }
+
+        if (reqRow) {
             if (reqRow.emp_no) {
                 const latestApproved = await EmployeeTransportRequest.findOne({
                     emp_no: reqRow.emp_no,
@@ -3315,6 +3362,7 @@ const verifyTransportPassenger = async (req, res) => {
             });
         }
 
+        // 2. Check MySQL for Student Transport Requests
         if (!mysqlPool) {
             return res.status(500).json({ message: 'Service unavailable' });
         }
@@ -3323,29 +3371,93 @@ const verifyTransportPassenger = async (req, res) => {
         const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
         const parts = getActivePassengerSqlParts(fallbackAcademicYear);
 
-        const [rows] = await mysqlPool.query(
-            `SELECT tr.*,
-                    COALESCE(s1.course, s2.course) as course,
-                    COALESCE(s1.branch, s2.branch) as branch,
-                    COALESCE(s1.student_photo, s2.student_photo) as student_photo,
-                    COALESCE(s1.student_data, s2.student_data) as student_data,
-                    COALESCE(s1.pin_no, s2.pin_no) as pin_no,
-                    COALESCE(s1.student_mobile, s2.student_mobile) as student_mobile,
-                    ${parts.effectiveExpiryExpr} as effective_expiry_date,
-                    ${parts.isExpiredExpr} as is_expired
-             FROM transport_requests tr
-             LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
-             LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
-             ${parts.expiryJoins}
-             WHERE tr.id = ?`,
-            [...parts.expiryParams, requestId]
-        );
+        let row = null;
+        const isNumericId = /^\d+$/.test(requestId);
 
-        if (!rows[0]) {
-            return res.json({ registered: false, message: 'No transport registration found for this QR code.' });
+        // Attempt 1: Query with full student joins & expiry joins
+        try {
+            const [rows] = await mysqlPool.query(
+                `SELECT tr.*,
+                        COALESCE(s1.course, s2.course) as course,
+                        COALESCE(s1.branch, s2.branch) as branch,
+                        COALESCE(s1.student_photo, s2.student_photo) as student_photo,
+                        COALESCE(s1.student_data, s2.student_data) as student_data,
+                        COALESCE(s1.pin_no, s2.pin_no) as pin_no,
+                        COALESCE(s1.student_mobile, s2.student_mobile) as student_mobile,
+                        ${parts.effectiveExpiryExpr} as effective_expiry_date,
+                        ${parts.isExpiredExpr} as is_expired
+                 FROM transport_requests tr
+                 LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
+                 LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
+                 ${parts.expiryJoins}
+                 WHERE tr.id = ? 
+                    OR tr.admission_number = ? 
+                    OR tr.application_number = ? 
+                    OR s1.pin_no = ? 
+                    OR s2.pin_no = ?
+                 ORDER BY (tr.id = ?) DESC, (tr.admission_number = ?) DESC, (LOWER(tr.status) = 'approved') DESC, tr.academic_year DESC, tr.id DESC
+                 LIMIT 1`,
+                [...parts.expiryParams, requestId, requestId, requestId, requestId, requestId, isNumericId ? Number(requestId) : 0, requestId]
+            );
+            if (rows && rows.length > 0) {
+                row = rows[0];
+            }
+        } catch (e1) {
+            console.warn('[Verify] Primary query with expiryJoins failed, using fallback:', e1.message);
         }
 
-        let row = rows[0];
+        // Attempt 2: Direct query on transport_requests + simple student join
+        if (!row) {
+            try {
+                const [fallbackRows] = await mysqlPool.query(
+                    `SELECT tr.*,
+                            COALESCE(s1.course, s2.course) as course,
+                            COALESCE(s1.branch, s2.branch) as branch,
+                            COALESCE(s1.student_photo, s2.student_photo) as student_photo,
+                            COALESCE(s1.student_data, s2.student_data) as student_data,
+                            COALESCE(s1.pin_no, s2.pin_no) as pin_no,
+                            COALESCE(s1.student_mobile, s2.student_mobile) as student_mobile
+                     FROM transport_requests tr
+                     LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
+                     LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
+                     WHERE tr.id = ? 
+                        OR tr.admission_number = ? 
+                        OR tr.application_number = ? 
+                        OR s1.pin_no = ? 
+                        OR s2.pin_no = ?
+                     ORDER BY (tr.id = ?) DESC, (tr.admission_number = ?) DESC, (LOWER(tr.status) = 'approved') DESC, tr.academic_year DESC, tr.id DESC
+                     LIMIT 1`,
+                    [requestId, requestId, requestId, requestId, requestId, isNumericId ? Number(requestId) : 0, requestId]
+                );
+                if (fallbackRows && fallbackRows.length > 0) {
+                    row = fallbackRows[0];
+                }
+            } catch (e2) {
+                console.warn('[Verify] Secondary query with student joins failed:', e2.message);
+            }
+        }
+
+        // Attempt 3: Direct query on transport_requests only
+        if (!row) {
+            try {
+                const [directRows] = await mysqlPool.query(
+                    `SELECT * FROM transport_requests 
+                     WHERE id = ? OR admission_number = ? OR application_number = ?
+                     ORDER BY (id = ?) DESC, (admission_number = ?) DESC, (LOWER(status) = 'approved') DESC, academic_year DESC, id DESC
+                     LIMIT 1`,
+                    [requestId, requestId, requestId, isNumericId ? Number(requestId) : 0, requestId]
+                );
+                if (directRows && directRows.length > 0) {
+                    row = directRows[0];
+                }
+            } catch (e3) {
+                console.warn('[Verify] Direct query on transport_requests failed:', e3.message);
+            }
+        }
+
+        if (!row) {
+            return res.json({ registered: false, message: 'No transport registration found for this QR code.' });
+        }
 
         // Fetch the latest approved request for the same student if it exists
         if (row.admission_number) {
@@ -3364,7 +3476,7 @@ const verifyTransportPassenger = async (req, res) => {
                      LEFT JOIN students s1 ON tr.admission_number = s1.admission_number
                      LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
                      ${parts.expiryJoins}
-                     WHERE tr.admission_number = ? AND tr.status = 'approved'
+                     WHERE tr.admission_number = ? AND LOWER(tr.status) = 'approved'
                      ORDER BY tr.academic_year DESC, tr.id DESC
                      LIMIT 1`,
                     [...parts.expiryParams, row.admission_number]
@@ -3377,7 +3489,8 @@ const verifyTransportPassenger = async (req, res) => {
             }
         }
 
-        if (row.status !== 'approved') {
+        const isApproved = String(row.status || '').trim().toLowerCase() === 'approved';
+        if (!isApproved) {
             return res.json({
                 registered: false,
                 message: `Transport record exists but is not active (status: ${row.status}).`,

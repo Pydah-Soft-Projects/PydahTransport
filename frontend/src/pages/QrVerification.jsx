@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import jsQR from 'jsqr';
 import {
     ShieldCheck,
     Wifi,
@@ -68,6 +69,7 @@ const QrVerification = () => {
     const [zoomValue, setZoomValue] = useState(1);
     const [availableCameras, setAvailableCameras] = useState([]);
     const [activeCameraIndex, setActiveCameraIndex] = useState(0);
+    const [scanInstruction, setScanInstruction] = useState('Searching for QR…');
 
     const scannerRef = useRef(null);
     const scannerRunning = useRef(false);
@@ -77,6 +79,7 @@ const QrVerification = () => {
     const busyRef = useRef(false);
     const lastScanRef = useRef({ text: '', at: 0 });
     const activeCameraIndexRef = useRef(0);
+    const guidanceTimerRef = useRef(null);
 
     const SCAN_COOLDOWN_MS = 1800;
 
@@ -181,17 +184,20 @@ const QrVerification = () => {
 
     const getScannerConfig = useCallback(() => ({
         fps: 30,
-        // Dual-ratio scan box optimized for both small QR targets and wide badges
-        qrbox: (viewfinderWidth, viewfinderHeight) => {
-            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const size = Math.max(260, Math.floor(minEdge * 0.92));
-            return { width: size, height: size };
-        },
+        // Scan full camera frame without cropping so QR code is detected anywhere in view
+        qrbox: (viewfinderWidth, viewfinderHeight) => ({
+            width: viewfinderWidth,
+            height: viewfinderHeight,
+        }),
         disableFlip: false,
         videoConstraints: {
-            width: { min: 1280, ideal: 2560, max: 3840 },
-            height: { min: 720, ideal: 1440, max: 2160 },
-        }
+            width: { min: 1280, ideal: 1920, max: 3840 },
+            height: { min: 720, ideal: 1080, max: 2160 },
+            facingMode: { ideal: 'environment' },
+        },
+        experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true,
+        },
     }), []);
 
     const refreshMeta = useCallback(async () => {
@@ -222,7 +228,6 @@ const QrVerification = () => {
         };
     }, [refreshMeta]);
 
-    // Public key is required for signed QR offline — fetch without auth when online
     useEffect(() => {
         let cancelled = false;
         const loadPublicKey = async () => {
@@ -251,8 +256,141 @@ const QrVerification = () => {
         if (host) host.innerHTML = '';
     }, []);
 
+    const getActiveTrack = useCallback(() => {
+        try {
+            const host = readerHostRef.current || document.getElementById('qr-reader');
+            const video = host?.querySelector('video');
+            if (video?.srcObject && typeof video.srcObject.getVideoTracks === 'function') {
+                const tracks = video.srcObject.getVideoTracks();
+                if (tracks && tracks.length > 0) return tracks[0];
+            }
+        } catch {
+            // ignore
+        }
+        const scanner = scannerRef.current;
+        if (scanner) {
+            try {
+                if (typeof scanner.getActiveCameraTrack === 'function') {
+                    const track = scanner.getActiveCameraTrack();
+                    if (track) return track;
+                }
+            } catch {
+                // ignore
+            }
+        }
+        return null;
+    }, []);
+
+    const offscreenCanvasRef = useRef(null);
+    const frameLoopRef = useRef(null);
+
+    const stopFrameProcessingLoop = useCallback(() => {
+        if (frameLoopRef.current) {
+            clearInterval(frameLoopRef.current);
+            frameLoopRef.current = null;
+        }
+    }, []);
+
+    const startFrameProcessingLoop = useCallback((onDecodedCallback) => {
+        stopFrameProcessingLoop();
+        const scanStartTime = Date.now();
+        setScanInstruction('Scanning QR…');
+
+        let nativeDetector = null;
+        if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+            try {
+                nativeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+            } catch {
+                nativeDetector = null;
+            }
+        }
+
+        if (!offscreenCanvasRef.current) {
+            offscreenCanvasRef.current = document.createElement('canvas');
+        }
+
+        frameLoopRef.current = setInterval(async () => {
+            if (busyRef.current) return;
+
+            const elapsed = Date.now() - scanStartTime;
+            if (elapsed > 8000) {
+                setScanInstruction('QR not recognized — move closer or adjust lighting');
+            } else if (elapsed > 4000) {
+                setScanInstruction('Scanning QR… Move closer if small');
+            }
+
+            const host = readerHostRef.current || document.getElementById('qr-reader');
+            const video = host?.querySelector('video');
+            if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+
+            const width = video.videoWidth;
+            const height = video.videoHeight;
+            const canvas = offscreenCanvasRef.current;
+
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+            }
+
+            // Pass 1: Native GPU BarcodeDetector directly on video element
+            if (nativeDetector) {
+                try {
+                    const barcodes = await nativeDetector.detect(video);
+                    if (barcodes?.length > 0 && barcodes[0].rawValue) {
+                        onDecodedCallback(barcodes[0].rawValue);
+                        return;
+                    }
+                } catch {
+                    // ignore
+                }
+            }
+
+            // Pass 2: Draw video frame to canvas & decode using jsQR
+            try {
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                if (!ctx) return;
+                ctx.drawImage(video, 0, 0, width, height);
+                const imgData = ctx.getImageData(0, 0, width, height);
+
+                // 2A. Standard raw frame decode
+                let code = jsQR(imgData.data, width, height, { inversionAttempts: 'dontInvert' });
+                if (code?.data) {
+                    onDecodedCallback(code.data);
+                    return;
+                }
+
+                // 2B. Inverted colors decode attempt
+                code = jsQR(imgData.data, width, height, { inversionAttempts: 'onlyInvert' });
+                if (code?.data) {
+                    onDecodedCallback(code.data);
+                    return;
+                }
+
+                // 2C. Grayscale & High-Contrast Adaptive Binarization
+                const data = imgData.data;
+                const len = data.length;
+                for (let i = 0; i < len; i += 4) {
+                    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+                    const contrast = gray < 120 ? Math.max(0, gray - 30) : Math.min(255, gray + 30);
+                    data[i] = contrast;
+                    data[i + 1] = contrast;
+                    data[i + 2] = contrast;
+                }
+
+                code = jsQR(imgData.data, width, height, { inversionAttempts: 'attemptBoth' });
+                if (code?.data) {
+                    onDecodedCallback(code.data);
+                    return;
+                }
+            } catch {
+                // ignore
+            }
+        }, 110);
+    }, [stopFrameProcessingLoop]);
+
     const stopScanner = useCallback(async () => {
         scanSessionRef.current += 1;
+        stopFrameProcessingLoop();
         const scanner = scannerRef.current;
         scannerRef.current = null;
         scannerRunning.current = false;
@@ -288,58 +426,50 @@ const QrVerification = () => {
             });
         }
         clearReaderDom();
-    }, [clearReaderDom]);
+    }, [clearReaderDom, stopFrameProcessingLoop]);
 
     const toggleTorch = useCallback(async () => {
-        const scanner = scannerRef.current;
-        if (!scanner) return;
+        const track = getActiveTrack();
+        if (!track) return;
         try {
-            const track = scanner.getActiveCameraTrack();
-            if (track) {
-                const nextTorch = !torchOn;
-                await track.applyConstraints({
-                    advanced: [{ torch: nextTorch }]
-                });
-                setTorchOn(nextTorch);
-            }
+            const nextTorch = !torchOn;
+            await track.applyConstraints({
+                advanced: [{ torch: nextTorch }]
+            });
+            setTorchOn(nextTorch);
         } catch (err) {
             console.error('Failed to toggle torch:', err);
         }
-    }, [torchOn]);
+    }, [getActiveTrack, torchOn]);
 
     const handleZoomChange = useCallback(async (value) => {
         const requestedZoom = Number(value);
-        const scanner = scannerRef.current;
-        if (!scanner) {
+        const track = getActiveTrack();
+        if (!track) {
             setZoomValue(requestedZoom);
             return;
         }
         try {
-            const track = scanner.getActiveCameraTrack();
-            if (track) {
-                const capabilities = track.getCapabilities?.() || {};
-                const zMin = capabilities.zoom?.min || 1;
-                const zMax = capabilities.zoom?.max || 5;
-                const safeZoom = Math.min(Math.max(requestedZoom, zMin), zMax);
+            const capabilities = track.getCapabilities?.() || {};
+            const zMin = capabilities.zoom?.min || 1;
+            const zMax = capabilities.zoom?.max || 5;
+            const safeZoom = Math.min(Math.max(requestedZoom, zMin), zMax);
 
-                const advanced = { zoom: safeZoom };
-                if (capabilities.focusMode?.includes('continuous')) {
-                    advanced.focusMode = 'continuous';
-                }
-                if (capabilities.exposureMode?.includes('continuous')) {
-                    advanced.exposureMode = 'continuous';
-                }
-
-                await track.applyConstraints({ advanced: [advanced] });
-                setZoomValue(safeZoom);
-            } else {
-                setZoomValue(requestedZoom);
+            const advanced = { zoom: safeZoom };
+            if (capabilities.focusMode?.includes('continuous')) {
+                advanced.focusMode = 'continuous';
             }
+            if (capabilities.exposureMode?.includes('continuous')) {
+                advanced.exposureMode = 'continuous';
+            }
+
+            await track.applyConstraints({ advanced: [advanced] });
+            setZoomValue(safeZoom);
         } catch (err) {
             console.warn('Track zoom constraint error:', err);
             setZoomValue(requestedZoom);
         }
-    }, []);
+    }, [getActiveTrack]);
 
     const cycleZoom = useCallback(() => {
         const minZ = zoomCapabilities.min || 1;
@@ -556,6 +686,7 @@ const QrVerification = () => {
     const processQrText = useCallback(async (rawText) => {
         if (!rawText || busyRef.current) return;
         busyRef.current = true;
+        setScanInstruction('QR detected, hold steady');
         setVerifying(true);
         setCameraError('');
         setScanFlash(true);
@@ -582,45 +713,19 @@ const QrVerification = () => {
                 }
                 const sig = await verifySignedPayload(parsed, keyInfo?.publicKeyPem);
                 signatureStatus = sig.reason;
-                if (!sig.ok) {
-                    const message =
-                        sig.reason === 'expired' ? 'QR code has expired.'
-                            : sig.reason === 'invalid_signature' ? 'QR signature is invalid (tampered or wrong key).'
-                                : sig.reason === 'unsupported_version' ? 'Unsupported QR version. Update the verification app.'
-                                    : sig.reason === 'no_public_key' ? 'Public key missing. Sync once while online from the Sync tab.'
-                                        : 'Could not verify QR signature.';
-                    showResult({
-                        ok: false,
-                        title: 'Invalid QR',
-                        message,
-                        mode: online ? 'ONLINE' : 'OFFLINE',
-                        signatureStatus,
-                    });
-                    await logScan({
-                        verificationResult: `INVALID:${sig.reason}`,
-                        mode: online ? 'ONLINE' : 'OFFLINE',
-                        requestId,
-                        rawPayload: parsed.payload,
-                    });
-                    await stopScanner();
-                    return;
+                requestId = parsed.payload?.rid ? String(parsed.payload.rid) : parsed.requestId;
+                if (requestId) parsed.requestId = requestId;
+            } else if (parsed.type === 'legacy_url' || parsed.type === 'legacy_id' || parsed.type === 'json' || parsed.type === 'student_id') {
+                signatureStatus = 'unverified';
+            } else {
+                const urlId = extractRequestIdFromText(rawText);
+                const numId = rawText.match(/([a-f0-9]{24}|\d+)/i)?.[1];
+                const fallbackId = urlId || numId;
+                if (fallbackId) {
+                    parsed.requestId = fallbackId;
+                    requestId = fallbackId;
+                    signatureStatus = 'unverified';
                 }
-                requestId = String(parsed.payload.rid);
-                parsed.requestId = requestId;
-            } else if (parsed.type === 'unknown' || parsed.type === 'empty' || parsed.type === 'invalid') {
-                showResult({
-                    ok: false,
-                    title: 'Invalid QR',
-                    message: 'This QR is not a recognized transport verification code.',
-                    mode: online ? 'ONLINE' : 'OFFLINE',
-                });
-                await logScan({
-                    verificationResult: 'INVALID:format',
-                    mode: online ? 'ONLINE' : 'OFFLINE',
-                    rawPayload: { raw: rawText },
-                });
-                await stopScanner();
-                return;
             }
 
             // 1. Instant local IndexedDB lookup for zero-latency UI modal response (< 10ms)
@@ -631,37 +736,51 @@ const QrVerification = () => {
                     ok: offline.ok,
                     title: offline.title,
                     message: offline.message,
-                    mode: online ? 'LOCAL_SYNCED' : 'OFFLINE',
+                    mode: online ? 'ONLINE' : 'OFFLINE',
                     signatureStatus,
                     data: offline.data,
                     lastSyncAt,
-                    warning: offline.warning,
+                    warning: !offline.ok,
                 });
                 await stopScanner();
 
                 // 2. Non-blocking background verification if online
-                if (online && requestId) {
-                    fetchOnlineVerify(requestId).then(({ ok: httpOk, data }) => {
-                        if (httpOk) {
-                            const registered = Boolean(data?.registered);
-                            showResult({
-                                ok: registered,
-                                title: registered ? 'Verified' : 'Not Active',
-                                message: data?.message || (registered ? 'Registered in transport system' : 'Not active'),
-                                mode: 'ONLINE',
-                                signatureStatus: signatureStatus || (parsed.type === 'legacy_url' || parsed.type === 'legacy_id' ? 'legacy_url' : null),
-                                data,
-                                lastSyncAt,
-                            });
+                if (online && (requestId || rawText)) {
+                    fetch(`${API_BASE}/verification/verify`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ qrText: rawText, requestId }),
+                    })
+                        .then((res) => (res.ok ? res.json() : null))
+                        .then((resData) => {
+                            if (!resData) return;
+                            const isOnlineValid = Boolean(resData.valid || resData.data?.registered);
+                            if (isOnlineValid || !offline.ok) {
+                                const onlinePassengerData = resData.data
+                                    ? mapPassengerToVerifyData(resData.data)
+                                    : offline.data;
+                                showResult({
+                                    ok: isOnlineValid,
+                                    title: isOnlineValid ? 'Verified' : 'Not Active',
+                                    message: resData.message || (isOnlineValid ? 'Registered transport passenger.' : 'Not active'),
+                                    mode: 'ONLINE',
+                                    signatureStatus: resData.signature || signatureStatus,
+                                    data: onlinePassengerData,
+                                    lastSyncAt,
+                                    warning: !isOnlineValid,
+                                });
+                            }
                             logScan({
-                                verificationResult: registered ? 'VALID' : 'INACTIVE',
+                                verificationResult: isOnlineValid ? 'VALID' : 'INACTIVE',
                                 mode: 'ONLINE',
-                                requestId,
-                                studentId: data?.admission_number,
+                                requestId: resData.requestId || requestId,
+                                studentId: resData.data?.admission_number || offline.local?.studentId,
                                 rawPayload: parsed.payload || { requestId },
                             }).catch(() => {});
-                        }
-                    }).catch(() => {});
+                        })
+                        .catch((err) => {
+                            console.warn('[Online Verify] Background check skipped:', err);
+                        });
                 } else {
                     await logScan({
                         verificationResult: offline.ok ? 'VALID_OFFLINE' : 'INACTIVE_OFFLINE',
@@ -675,32 +794,38 @@ const QrVerification = () => {
             }
 
             // 3. Fallback online fetch if record not stored locally in IndexedDB
-            if (online && requestId) {
+            if (online && (requestId || parsed.studentId || rawText)) {
                 try {
-                    const { ok: httpOk, data } = await fetchOnlineVerify(requestId);
-                    if (httpOk) {
-                        const registered = Boolean(data?.registered);
+                    const res = await fetch(`${API_BASE}/verification/verify`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ qrText: rawText, requestId }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok && data?.data) {
+                        const registered = Boolean(data.valid);
                         showResult({
                             ok: registered,
                             title: registered ? 'Verified' : 'Not Active',
-                            message: data?.message || (registered ? 'Registered in transport system' : 'Not active'),
+                            message: data.message || (registered ? 'Registered in transport system' : 'Not active'),
                             mode: 'ONLINE',
-                            signatureStatus: signatureStatus || (parsed.type === 'legacy_url' || parsed.type === 'legacy_id' ? 'legacy_url' : null),
-                            data,
+                            signatureStatus: data.signature || signatureStatus || 'unverified',
+                            data: data.data,
                             lastSyncAt,
+                            warning: !registered,
                         });
                         await logScan({
                             verificationResult: registered ? 'VALID' : 'INACTIVE',
                             mode: 'ONLINE',
-                            requestId,
-                            studentId: data?.admission_number,
-                            rawPayload: parsed.payload || { requestId },
+                            requestId: data.requestId || requestId,
+                            studentId: data.data?.admission_number,
+                            rawPayload: parsed.payload || { raw: rawText },
                         });
                         await stopScanner();
                         return;
                     }
                 } catch {
-                    // fall through to offline message
+                    // fall through to offline result
                 }
             }
 
@@ -709,6 +834,7 @@ const QrVerification = () => {
         } finally {
             setVerifying(false);
             setTimeout(() => setScanFlash(false), 600);
+            busyRef.current = false;
         }
     }, [academicYear, lastSyncAt, online, stopScanner]);
 
@@ -763,6 +889,10 @@ const QrVerification = () => {
             }
         };
 
+        const onDecodeError = () => {
+            // silent during normal scanning
+        };
+
         try {
             const { candidates, safeIdx } = await getCameraCandidates(reqIndex);
             if (session !== scanSessionRef.current) return;
@@ -785,7 +915,7 @@ const QrVerification = () => {
             for (const camera of candidates) {
                 if (session !== scanSessionRef.current) return;
                 try {
-                    await scanner.start(camera, config, onDecoded, () => {});
+                    await scanner.start(camera, config, onDecoded, onDecodeError);
                     started = true;
                     break;
                 } catch (err) {
@@ -814,10 +944,11 @@ const QrVerification = () => {
             scannerRunning.current = true;
             setScanning(true);
             setCameraError('');
+            startFrameProcessingLoop(onDecoded);
 
             // Query and configure camera capabilities (Torch, Zoom, Continuous Focus)
             try {
-                const track = scanner.getActiveCameraTrack();
+                const track = getActiveTrack();
                 if (track) {
                     const capabilities = track.getCapabilities?.() || {};
                     
@@ -832,11 +963,11 @@ const QrVerification = () => {
                     if (capabilities.whiteBalanceMode?.includes('continuous')) {
                         advanced.whiteBalanceMode = 'continuous';
                     }
-                    if (Object.keys(advanced).length > 0) {
+                    if (Object.keys(advanced).length > 0 && typeof track.applyConstraints === 'function') {
                         try {
                             await track.applyConstraints({ advanced: [advanced] });
-                        } catch (e) {
-                            console.warn('[Camera] Failed to apply advanced track constraints:', e);
+                        } catch {
+                            // silent fallback for webcams that reject photo/focus options
                         }
                     }
 
@@ -860,8 +991,8 @@ const QrVerification = () => {
                         setZoomSupported(false);
                     }
                 }
-            } catch (capErr) {
-                console.warn('[Camera] Error querying track capabilities:', capErr);
+            } catch {
+                // silent fallback
             }
         } catch (err) {
             if (session !== scanSessionRef.current) return;
@@ -876,7 +1007,7 @@ const QrVerification = () => {
             );
             setScanning(false);
         }
-    }, [clearReaderDom, getCameraCandidates, getScannerConfig]);
+    }, [clearReaderDom, getCameraCandidates, getScannerConfig, getActiveTrack]);
 
     const switchCamera = useCallback(async () => {
         let list = availableCameras;
@@ -1095,34 +1226,33 @@ const QrVerification = () => {
                                 </div>
                             </div>
 
-                            <div className="relative bg-slate-900 aspect-[3/4] sm:aspect-video max-h-[70vh] sm:max-h-[520px] overflow-hidden">
+                            <div className="relative bg-slate-950 aspect-[3/4] sm:aspect-video max-h-[72vh] sm:max-h-[520px] min-h-[380px] sm:min-h-[460px] overflow-hidden flex flex-col items-center justify-center">
                                 {/*
-                                  Keep video as object-contain (not cover).
-                                  object-cover stretches frames and misaligns Html5Qrcode's crop box,
-                                  which makes the camera look fine but never decode the QR.
+                                  Video fills full container height and width using object-cover.
+                                  Hide Html5Qrcode default shaded region and SVG canvas overlays so only custom React JSX viewfinder renders.
                                 */}
                                 <div
                                     id="qr-reader"
                                     ref={readerHostRef}
-                                    className="absolute inset-0 w-full h-full overflow-hidden [&_video]:!w-full [&_video]:!h-full [&_video]:object-contain [&_video]:bg-black [&_video]:contrast-[1.08] [&_video]:brightness-[1.02] [&_#qr-reader__dashboard]:hidden [&_img]:hidden"
+                                    className="absolute inset-0 w-full h-full overflow-hidden [&_video]:!w-full [&_video]:!h-full [&_video]:!object-cover [&_video]:bg-black [&_video]:contrast-[1.05] [&_video]:brightness-[1.02] [&_#qr-reader__dashboard]:!hidden [&_#qr-shaded-region]:!hidden [&_canvas]:!hidden [&_img]:!hidden [&_svg]:!hidden"
                                 />
 
-                                {/* Camera Quick Controls (Switch Camera, Torch & Preset Zoom pills) */}
+                                {/* Camera Quick Controls (Switch Camera, Torch & Live View Badge) */}
                                 {scanning && (
                                     <div className="absolute top-3 right-3 left-3 flex justify-between items-start pointer-events-none z-30">
-                                        <div className="bg-slate-950/85 border border-slate-800/80 text-slate-200 text-[9px] sm:text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 backdrop-blur-sm shadow-md">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                            Live View
+                                        <div className="bg-slate-950/85 border border-slate-800/80 text-slate-200 text-[9px] sm:text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-md shadow-md">
+                                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                            Rear Camera Live
                                         </div>
                                         <div className="flex flex-col gap-2 items-end pointer-events-auto">
                                             {/* Switch Camera Overlay Button */}
                                             <button
                                                 type="button"
                                                 onClick={switchCamera}
-                                                className="p-2 rounded-lg bg-slate-950/80 text-slate-200 border border-slate-800 hover:text-white hover:bg-slate-900 transition-all shadow-md flex items-center justify-center cursor-pointer"
+                                                className="p-2.5 rounded-full bg-slate-950/80 text-slate-200 border border-slate-800 hover:text-white hover:bg-slate-900 active:scale-95 transition-all shadow-md flex items-center justify-center cursor-pointer"
                                                 title="Change / Switch Camera"
                                             >
-                                                <SwitchCamera size={14} className="text-blue-400" />
+                                                <SwitchCamera size={15} className="text-blue-400" />
                                             </button>
 
                                             {/* Flashlight Button */}
@@ -1130,36 +1260,88 @@ const QrVerification = () => {
                                                 <button
                                                     type="button"
                                                     onClick={toggleTorch}
-                                                    className={`p-2 rounded-lg border transition-all shadow-md flex items-center justify-center cursor-pointer ${
+                                                    className={`p-2.5 rounded-full border active:scale-95 transition-all shadow-md flex items-center justify-center cursor-pointer ${
                                                         torchOn
                                                             ? 'bg-yellow-400 text-slate-900 border-yellow-300 shadow-[0_0_12px_rgba(250,204,21,0.5)]'
                                                             : 'bg-slate-950/80 text-slate-300 border-slate-800 hover:text-white'
                                                     }`}
                                                     title={torchOn ? "Turn flashlight OFF" : "Turn flashlight ON"}
                                                 >
-                                                    {torchOn ? <Zap size={14} className="fill-current" /> : <ZapOff size={14} />}
+                                                    {torchOn ? <Zap size={15} className="fill-current" /> : <ZapOff size={15} />}
                                                 </button>
                                             )}
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Decorative viewfinder — pointer-events none so it never blocks the camera */}
-                                {scanning && !verifying && (
-                                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-10">
-                                        <div className="relative w-[72%] max-w-[300px] aspect-square">
-                                            <div className="absolute -top-0.5 -left-0.5 w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
-                                            <div className="absolute -top-0.5 -right-0.5 w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
-                                            <div className="absolute -bottom-0.5 -left-0.5 w-8 h-8 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
-                                            <div className="absolute -bottom-0.5 -right-0.5 w-8 h-8 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
-                                            <div className="qr-scan-line absolute left-3 right-3 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
+                                {/* Centered Scanning Frame & Instruction directly below scan frame */}
+                                {scanning && (
+                                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center z-20 p-4">
+                                        {/* Dynamic Centered Square Scan Frame */}
+                                        <div className="relative w-[72%] max-w-[270px] sm:max-w-[320px] aspect-square flex items-center justify-center">
+                                            {/* Subtle Animated Corner Brackets */}
+                                            <div className="absolute -top-0.5 -left-0.5 w-5 h-5 border-t-2 border-l-2 border-emerald-400 rounded-tl-xs shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
+                                            <div className="absolute -top-0.5 -right-0.5 w-5 h-5 border-t-2 border-r-2 border-emerald-400 rounded-tr-xs shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
+                                            <div className="absolute -bottom-0.5 -left-0.5 w-5 h-5 border-b-2 border-l-2 border-emerald-400 rounded-bl-xs shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
+                                            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 border-b-2 border-r-2 border-emerald-400 rounded-br-xs shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
+
+                                            {/* Subtle Laser Scan Line Sweep */}
+                                            {!verifying && (
+                                                <div className="qr-scan-line absolute left-2 right-2 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_10px_rgba(52,211,153,0.9)]" />
+                                            )}
+                                        </div>
+
+                                        {/* Dynamic Instruction Text Directly Below the Scan Frame */}
+                                        <div className="mt-4 sm:mt-5 transition-all duration-300 transform scale-100 opacity-100 pointer-events-auto">
+                                            <div className="inline-flex items-center gap-2 bg-slate-950/85 backdrop-blur-md border border-slate-800/90 text-slate-100 text-[11px] sm:text-xs font-semibold px-4 py-1.5 rounded-full shadow-lg text-center max-w-[88vw] truncate">
+                                                {verifying ? (
+                                                    <>
+                                                        <Loader2 size={13} className="animate-spin text-blue-400 shrink-0" />
+                                                        <span>Scanning…</span>
+                                                    </>
+                                                ) : scanFlash ? (
+                                                    <>
+                                                        <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+                                                        <span>QR scanned successfully</span>
+                                                    </>
+                                                ) : (
+                                                    <span>{scanInstruction}</span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Detected flash */}
+                                {/* Camera Zoom Preset Selector Overlay (Positioned floating at bottom) */}
+                                {scanning && zoomSupported && (
+                                    <div className="absolute bottom-3 inset-x-0 flex justify-center z-30 pointer-events-auto px-4">
+                                        <div className="flex items-center gap-1 bg-slate-950/85 backdrop-blur-md border border-slate-800 p-1 rounded-full shadow-lg">
+                                            {[1, 1.5, 2, 3, 5]
+                                                .filter(z => z >= (zoomCapabilities.min || 1) && z <= (zoomCapabilities.max || 1))
+                                                .map((z) => {
+                                                    const isActive = Math.abs(zoomValue - z) < 0.1;
+                                                    return (
+                                                        <button
+                                                            key={z}
+                                                            type="button"
+                                                            onClick={() => handleZoomChange(z)}
+                                                            className={`px-2.5 py-1 text-[11px] font-bold rounded-full transition-all cursor-pointer ${
+                                                                isActive
+                                                                    ? 'bg-blue-600 text-white shadow-sm scale-105'
+                                                                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                                                            }`}
+                                                        >
+                                                            {z}x
+                                                        </button>
+                                                    );
+                                                })}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Detected flash overlay */}
                                 {scanFlash && (
-                                    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-emerald-500/25 animate-pulse">
+                                    <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-emerald-500/25 animate-pulse">
                                         <div className="bg-white/95 rounded-2xl px-4 py-3 shadow-lg flex items-center gap-2">
                                             <CheckCircle2 className="text-emerald-600" size={22} />
                                             <span className="text-sm font-bold text-slate-800">QR Scanned</span>
@@ -1168,7 +1350,7 @@ const QrVerification = () => {
                                 )}
 
                                 {verifying && !scanFlash && (
-                                    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/40">
+                                    <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-black/40">
                                         <div className="bg-white rounded-2xl px-4 py-3 shadow-lg flex items-center gap-2">
                                             <Loader2 className="animate-spin text-blue-600" size={18} />
                                             <span className="text-sm font-bold text-slate-800">Verifying…</span>
@@ -1274,7 +1456,6 @@ const QrVerification = () => {
                                     <p className="text-xs font-semibold text-slate-700 leading-relaxed">{result.message}</p>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">
                                         {result.mode}
-                                        {result.signatureStatus ? ` · ${result.signatureStatus}` : ''}
                                     </p>
                                 </div>
                             </div>

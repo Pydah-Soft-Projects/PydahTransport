@@ -162,21 +162,24 @@ export function buildOfflineLookupKeys(parsed) {
 
 export function mapPassengerToVerifyData(local) {
     if (!local) return null;
-    const active = String(local.transportStatus || '').toLowerCase() === 'approved';
+    const rawStatus = local.transportStatus || local.status || '';
+    const active = String(rawStatus).toLowerCase() === 'approved';
     return {
-        registered: active,
-        student_name: local.studentName,
-        admission_number: local.studentId,
-        route_id: local.routeId,
-        route_name: local.routeName,
-        stage_name: local.stageName,
-        bus_id: local.busId,
-        academic_year: local.academicYear,
-        status: local.transportStatus,
-        user_type: local.userType,
-        application_number: local.applicationNumber || null,
-        student_photo: local.studentPhoto || null,
-        pin_no: local.pinNo || null,
+        registered: local.registered !== undefined ? Boolean(local.registered) : active,
+        student_name: local.studentName || local.student_name || '—',
+        admission_number: local.studentId || local.admission_number || '—',
+        route_id: local.routeId || local.route_id || null,
+        route_name: local.routeName || local.route_name || '',
+        stage_name: local.stageName || local.stage_name || '',
+        bus_id: local.busId || local.bus_id || '',
+        academic_year: local.academicYear || local.academic_year || '',
+        status: rawStatus || 'approved',
+        user_type: local.userType || local.user_type || 'student',
+        application_number: local.applicationNumber || local.application_number || null,
+        student_photo: local.studentPhoto || local.student_photo || null,
+        pin_no: local.pinNo || local.pin_no || null,
+        course: local.course || null,
+        branch: local.branch || null,
     };
 }
 
@@ -186,21 +189,22 @@ export async function verifyOfflinePassenger(parsed, lastSyncAt) {
     if (!local) {
         return {
             ok: false,
-            title: 'Data unavailable offline',
-            message: 'Student not found in local data. Open Sync and download passenger records while online.',
+            title: 'Record Not Found',
+            message: 'Student record not found. Run Sync to update passenger records.',
             warning: true,
             local: null,
         };
     }
 
-    const active = String(local.transportStatus || '').toLowerCase() === 'approved';
+    const rawStatus = local.transportStatus || local.status || '';
+    const active = String(rawStatus).toLowerCase() === 'approved';
     return {
         ok: active,
-        title: active ? 'Offline Verified' : 'Not Active (Offline)',
+        title: active ? 'Verified' : 'Not Active',
         message: active
-            ? `Verified using data synchronized at ${formatSyncTime(lastSyncAt)}.`
-            : `Local status: ${local.transportStatus || 'unknown'}`,
-        warning: true,
+            ? 'Registered transport passenger.'
+            : `Transport record exists but is not active (status: ${rawStatus || 'unknown'}).`,
+        warning: !active,
         local,
         data: mapPassengerToVerifyData(local),
     };
@@ -332,16 +336,19 @@ function fromBase64Url(str) {
 }
 
 function canonicalizePayload(fields) {
-    return JSON.stringify({
-        v: fields.v,
-        kid: fields.kid,
-        rid: fields.rid,
-        sid: fields.sid,
-        ay: fields.ay || null,
-        rid2: fields.rid2 || null,
-        bid: fields.bid || null,
-        exp: fields.exp || null,
-    });
+    if (!fields) return '{}';
+    const ordered = {
+        v: Number(fields.v || 1),
+        kid: fields.kid ? String(fields.kid) : null,
+        rid: fields.rid !== undefined && fields.rid !== null ? String(fields.rid) : null,
+        sid: fields.sid !== undefined && fields.sid !== null ? String(fields.sid) : '',
+    };
+    if (fields.ay) ordered.ay = String(fields.ay);
+    if (fields.rid2 !== undefined && fields.rid2 !== null) ordered.rid2 = String(fields.rid2);
+    if (fields.bid !== undefined && fields.bid !== null) ordered.bid = String(fields.bid);
+    if (fields.exp) ordered.exp = String(fields.exp);
+
+    return JSON.stringify(ordered);
 }
 
 function pemToSpki(pem) {
@@ -388,47 +395,55 @@ export function parseQrText(raw) {
         if (parts.length === 3) {
             try {
                 const payload = JSON.parse(new TextDecoder().decode(fromBase64Url(parts[1])));
+                const rid = payload.rid || payload.requestId || payload.id || requestIdFromUrl;
+                const sid = payload.sid || payload.studentId;
                 return {
                     type: 'signed',
                     token,
                     payload,
                     sig: parts[2],
-                    requestId: payload.rid || requestIdFromUrl,
+                    requestId: rid ? String(rid) : null,
+                    studentId: sid ? String(sid) : null,
                     raw: text,
                 };
             } catch {
-                return { type: 'invalid', raw: text, requestId: requestIdFromUrl };
+                // fall through
             }
         }
     }
 
     if (requestIdFromUrl) {
-        return { type: 'legacy_url', requestId: requestIdFromUrl, raw: text };
+        return { type: 'legacy_url', requestId: String(requestIdFromUrl), raw: text };
     }
 
-    // Plain request id pasted manually
+    // Try parsing as JSON object
+    if (text.startsWith('{') && text.endsWith('}')) {
+        try {
+            const jsonObj = JSON.parse(text);
+            const rid = jsonObj.requestId || jsonObj.rid || jsonObj.id || jsonObj.mongoId;
+            const sid = jsonObj.studentId || jsonObj.sid || jsonObj.admissionNumber;
+            if (rid || sid) {
+                return {
+                    type: 'json',
+                    requestId: rid ? String(rid) : null,
+                    studentId: sid ? String(sid) : null,
+                    payload: jsonObj,
+                    raw: text,
+                };
+            }
+        } catch {
+            // ignore
+        }
+    }
+
+    // Plain request id pasted manually (mongo 24-char hex or integer ID)
     if (/^[a-f0-9]{24}$/i.test(text) || /^\d+$/.test(text)) {
         return { type: 'legacy_id', requestId: text, raw: text };
     }
 
-    // Signed token without URL wrapper
-    if (text.startsWith('TR1.')) {
-        const parts = text.split('.');
-        if (parts.length === 3) {
-            try {
-                const payload = JSON.parse(new TextDecoder().decode(fromBase64Url(parts[1])));
-                return {
-                    type: 'signed',
-                    token: text,
-                    payload,
-                    sig: parts[2],
-                    requestId: payload.rid || null,
-                    raw: text,
-                };
-            } catch {
-                return { type: 'invalid', raw: text };
-            }
-        }
+    // Alphanumeric student id (e.g. 21B91A0501 or admission number)
+    if (/^[A-Za-z0-9\-\/]{3,30}$/.test(text)) {
+        return { type: 'student_id', studentId: text, requestId: text, raw: text };
     }
 
     return { type: 'unknown', raw: text };
