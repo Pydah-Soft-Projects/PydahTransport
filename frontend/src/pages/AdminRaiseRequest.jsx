@@ -73,6 +73,7 @@ const AdminRaiseRequest = () => {
     const [feeEligibilityLoading, setFeeEligibilityLoading] = useState(false);
     const [busesOnRoute, setBusesOnRoute] = useState([]);
     const [busesLoading, setBusesLoading] = useState(false);
+    const [selectedBusId, setSelectedBusId] = useState('');
     const [approveModal, setApproveModal] = useState({ open: false, requestId: null, data: null, selectedBusId: '', loading: true, error: null });
     const [raisedPendingRequestId, setRaisedPendingRequestId] = useState(null);
     const [actionLoading, setActionLoading] = useState(false);
@@ -290,6 +291,7 @@ const AdminRaiseRequest = () => {
         setSelectedStage(null);
         setStageSearchQuery('');
         setBusesOnRoute([]);
+        setSelectedBusId('');
 
         if (activeTab === 'change' && changeType === 'stage' && student.route_id) {
             const currentRoute = routes.find(r => r.routeId === student.route_id);
@@ -330,11 +332,13 @@ const AdminRaiseRequest = () => {
         setSelectedRoute(route);
         setSelectedStage(null);
         setBusesOnRoute([]);
+        setSelectedBusId('');
     };
 
     useEffect(() => {
         if (!selectedRoute?.routeId) {
             setBusesOnRoute([]);
+            setSelectedBusId('');
             return;
         }
 
@@ -346,13 +350,22 @@ const AdminRaiseRequest = () => {
                 );
                 const data = await response.json();
                 if (response.ok) {
-                    setBusesOnRoute(data.busesOnRoute || []);
+                    const list = data.busesOnRoute || [];
+                    setBusesOnRoute(list);
+                    if (list.length > 0) {
+                        const available = list.find((b) => b.seatsAvailable > 0) || list[0];
+                        setSelectedBusId(available ? available.busNumber : '');
+                    } else {
+                        setSelectedBusId('');
+                    }
                 } else {
                     setBusesOnRoute([]);
+                    setSelectedBusId('');
                 }
             } catch (error) {
                 console.error('Error fetching bus vacancy:', error);
                 setBusesOnRoute([]);
+                setSelectedBusId('');
             } finally {
                 setBusesLoading(false);
             }
@@ -498,6 +511,8 @@ const AdminRaiseRequest = () => {
                 new_route_name: selectedRoute.routeName,
                 new_stage_name: selectedStage.stageName,
                 new_fare: selectedStage.fare,
+                bus_id: selectedBusId || undefined,
+                new_bus_id: selectedBusId || undefined,
                 admin_name: admin.name,
                 admin_id: admin.id,
                 user_type: userType,
@@ -534,6 +549,7 @@ const AdminRaiseRequest = () => {
                     setSelectedStage(null);
                     setStageSearchQuery('');
                     setBusesOnRoute([]);
+                    setSelectedBusId('');
                     setChangeType('route');
                 } else {
                     const requestId = resData.id || resData._id;
@@ -827,6 +843,18 @@ const AdminRaiseRequest = () => {
                                                     <span className="text-xs font-bold text-amber-800">{selectedStudent.batch}</span>
                                                 </div>
                                             )}
+                                            {activeTab === 'change' && selectedStudent.bus_id && (
+                                                <div className="px-2.5 py-1 bg-slate-100 rounded-lg shadow-sm border border-slate-200 inline-block text-center">
+                                                    <p className="text-[8px] font-black text-slate-400 uppercase leading-none">Current Bus</p>
+                                                    <span className="text-xs font-bold text-slate-700">{selectedStudent.bus_id}</span>
+                                                </div>
+                                            )}
+                                            {activeTab === 'change' && selectedBusId && (
+                                                <div className="px-2.5 py-1 bg-blue-50 rounded-lg shadow-sm border border-blue-200 inline-block text-center">
+                                                    <p className="text-[8px] font-black text-blue-500 uppercase leading-none">New Bus</p>
+                                                    <span className="text-xs font-bold text-blue-800">{selectedBusId}</span>
+                                                </div>
+                                            )}
                                             {activeTab === 'change' && (
                                                 <div className="px-2.5 py-1 bg-emerald-50 rounded-lg shadow-sm border border-emerald-100 inline-block min-w-[70px] text-center">
                                                     <p className="text-[8px] font-black text-emerald-400 uppercase leading-none">Current Fare</p>
@@ -899,6 +927,7 @@ const AdminRaiseRequest = () => {
                                                     if (changeType !== 'stage') {
                                                         setSelectedRoute(null);
                                                         setBusesOnRoute([]);
+                                                        setSelectedBusId('');
                                                     }
                                                 }}
                                                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
@@ -945,25 +974,58 @@ const AdminRaiseRequest = () => {
 
                                 {selectedRoute && (
                                     <div className="animate-in fade-in slide-in-from-top-2 duration-300 p-4 rounded-2xl border border-blue-100 bg-blue-50/60">
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <Bus size={16} className="text-blue-700" />
-                                            <p className="text-xs font-black text-blue-800 uppercase tracking-widest">Live Route Bus Occupancy</p>
+                                        <div className="flex items-center justify-between gap-2 mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <Bus size={16} className="text-blue-700" />
+                                                <p className="text-xs font-black text-blue-800 uppercase tracking-widest">
+                                                    {activeTab === 'change' ? 'Select Bus on New Route' : 'Live Route Bus Occupancy'}
+                                                </p>
+                                            </div>
+                                            {selectedBusId && (
+                                                <span className="text-[11px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-md shadow-xs">
+                                                    Assigned: {selectedBusId}
+                                                </span>
+                                            )}
                                         </div>
                                         {busesLoading ? (
                                             <p className="text-sm text-blue-600">Loading bus availability...</p>
                                         ) : busesOnRoute.length > 0 ? (
                                             <div className="space-y-2">
-                                                {busesOnRoute.map((b) => (
-                                                    <div
-                                                        key={b.busNumber}
-                                                        className="flex items-center justify-between p-3 bg-white rounded-xl border border-blue-100 text-sm"
-                                                    >
-                                                        <span className="font-bold text-slate-800">{b.busNumber}</span>
-                                                        <span className={`text-xs font-semibold ${b.seatsAvailable > 0 ? 'text-green-700' : 'text-red-600'}`}>
-                                                            Live: {b.seatsFilled}/{b.capacity} filled · {b.seatsAvailable} available
-                                                        </span>
-                                                    </div>
-                                                ))}
+                                                {busesOnRoute.map((b) => {
+                                                    const isSelected = selectedBusId === b.busNumber;
+                                                    const isFull = b.seatsAvailable <= 0;
+                                                    return (
+                                                        <div
+                                                            key={b.busNumber}
+                                                            onClick={() => {
+                                                                if (!isFull) {
+                                                                    setSelectedBusId(b.busNumber);
+                                                                }
+                                                            }}
+                                                            className={`flex items-center justify-between p-3 rounded-xl border text-sm transition-all ${
+                                                                isSelected
+                                                                    ? 'bg-blue-600 text-white border-blue-700 shadow-md ring-2 ring-blue-400'
+                                                                    : isFull
+                                                                        ? 'bg-slate-100 border-slate-200 opacity-60 cursor-not-allowed text-slate-500'
+                                                                        : 'bg-white border-blue-100 hover:border-blue-300 text-slate-800 cursor-pointer'
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center gap-2">
+                                                                <span className={`font-bold ${isSelected ? 'text-white' : 'text-slate-800'}`}>
+                                                                    {b.busNumber}
+                                                                </span>
+                                                                {isSelected && (
+                                                                    <span className="text-[10px] font-black bg-white/20 text-white px-1.5 py-0.5 rounded uppercase">
+                                                                        Selected
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <span className={`text-xs font-semibold ${isSelected ? 'text-blue-100' : isFull ? 'text-red-600' : 'text-green-700'}`}>
+                                                                Live: {b.seatsFilled}/{b.capacity} filled · {b.seatsAvailable} available
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         ) : (
                                             <p className="text-sm text-blue-700">

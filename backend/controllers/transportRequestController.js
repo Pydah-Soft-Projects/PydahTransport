@@ -2669,6 +2669,7 @@ const getApprovedPassengers = async (req, res) => {
                 route_name: r.route_name,
                 stage_name: r.stage_name,
                 fare: r.fare,
+                bus_id: r.bus_id || null,
                 user_type: 'employee'
             })));
         }
@@ -2726,6 +2727,8 @@ const submitRouteChangeRequest = async (req, res) => {
         new_route_name,
         new_stage_name,
         new_fare,
+        bus_id,
+        new_bus_id,
         admin_id,
         admin_name,
         user_type, // Optional, helps distinguish
@@ -2740,6 +2743,22 @@ const submitRouteChangeRequest = async (req, res) => {
         let currentRequest;
         let oldFare = 0;
         let fareDiff = 0;
+
+        // Determine assigned bus for the new route
+        let assignedBusId = new_bus_id || bus_id || null;
+        if (!assignedBusId && new_route_id) {
+            try {
+                const busesOnRoute = await getBusesWithSeatsForRoute(new_route_id);
+                if (busesOnRoute && busesOnRoute.length > 0) {
+                    const available = busesOnRoute.find(b => b.seatsAvailable > 0) || busesOnRoute[0];
+                    if (available && available.busNumber) {
+                        assignedBusId = available.busNumber;
+                    }
+                }
+            } catch (busLookupErr) {
+                console.error('Error resolving bus for new route:', busLookupErr);
+            }
+        }
 
         if (user_type === 'employee') {
             // Find approved employee request, prefer matching academic year
@@ -2757,12 +2776,16 @@ const submitRouteChangeRequest = async (req, res) => {
             fareDiff = new_fare - oldFare;
 
             // Update MongoDB Record
-            await EmployeeTransportRequest.findByIdAndUpdate(currentRequest._id, {
+            const empUpdate = {
                 route_id: new_route_id,
                 route_name: new_route_name,
                 stage_name: new_stage_name,
                 fare: new_fare
-            });
+            };
+            if (assignedBusId) {
+                empUpdate.bus_id = assignedBusId;
+            }
+            await EmployeeTransportRequest.findByIdAndUpdate(currentRequest._id, empUpdate);
         } else {
             // Student route change via MongoDB TransportRequest
             const studentQuery = { admission_number: admission_number, status: 'approved' };
@@ -2852,21 +2875,33 @@ const submitRouteChangeRequest = async (req, res) => {
                 console.error('Error calculating concession route change difference:', err);
             }
 
+            const updateFields = {
+                route_id: new_route_id,
+                route_name: new_route_name,
+                stage_name: new_stage_name,
+                fare: new_fare,
+                updated_at: new Date()
+            };
+            if (assignedBusId) {
+                updateFields.bus_id = assignedBusId;
+            }
+
             if (currentRequest._id) {
                 await TransportRequest.updateOne({ _id: currentRequest._id }, {
-                    $set: {
-                        route_id: new_route_id,
-                        route_name: new_route_name,
-                        stage_name: new_stage_name,
-                        fare: new_fare,
-                        updated_at: new Date()
-                    }
+                    $set: updateFields
                 });
             } else if (mysqlPool && currentRequest.id) {
-                await mysqlPool.query(
-                    'UPDATE transport_requests SET route_id = ?, route_name = ?, stage_name = ?, fare = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                    [new_route_id, new_route_name, new_stage_name, new_fare, currentRequest.id]
-                );
+                if (assignedBusId) {
+                    await mysqlPool.query(
+                        'UPDATE transport_requests SET route_id = ?, route_name = ?, stage_name = ?, fare = ?, bus_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                        [new_route_id, new_route_name, new_stage_name, new_fare, assignedBusId, currentRequest.id]
+                    );
+                } else {
+                    await mysqlPool.query(
+                        'UPDATE transport_requests SET route_id = ?, route_name = ?, stage_name = ?, fare = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                        [new_route_id, new_route_name, new_stage_name, new_fare, currentRequest.id]
+                    );
+                }
             }
         }
 
@@ -2917,20 +2952,25 @@ const submitRouteChangeRequest = async (req, res) => {
             admission_number,
             old_route: currentRequest.route_name,
             old_stage: currentRequest.stage_name,
+            old_bus: currentRequest.bus_id || null,
             new_route: new_route_name,
             new_stage: new_stage_name,
+            new_bus: assignedBusId || currentRequest.bus_id || null,
             fare_diff: fareDiff,
         }, admin_id, admin_name);
 
-        await mysqlPool.query(
-            'INSERT INTO audit_logs (action_type, entity_type, entity_id, admin_id, details) VALUES (?, ?, ?, ?, ?)',
-            ['ROUTE_CHANGE', 'TRANSPORT_REQUEST', String(currentRequest.id || currentRequest._id), null, auditDetails]
-        );
+        if (mysqlPool) {
+            await mysqlPool.query(
+                'INSERT INTO audit_logs (action_type, entity_type, entity_id, admin_id, details) VALUES (?, ?, ?, ?, ?)',
+                ['ROUTE_CHANGE', 'TRANSPORT_REQUEST', String(currentRequest.id || currentRequest._id), null, auditDetails]
+            );
+        }
 
         res.json({
             message: 'Route change request processed successfully.',
             fareDifference: fareDiff,
-            newFare: new_fare
+            newFare: new_fare,
+            bus_id: assignedBusId || currentRequest.bus_id || null,
         });
 
     } catch (error) {
