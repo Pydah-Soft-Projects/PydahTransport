@@ -27,6 +27,7 @@ import {
     Layers,
     GripVertical,
     Printer,
+    X,
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -2493,8 +2494,8 @@ const RouteManagement = () => {
 
     return (
         <Layout>
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-3">
-                <div>
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
+                <div className="hidden md:block">
                     <h2 className="text-xl font-bold text-slate-800 tracking-tight">
                         {activeTab === 'network' ? `Route Network (${filteredRoutes.length})` : activeTab === 'bus-mapping' ? `Bus–Route Mapping` : activeTab === 'transfer' ? 'Stage Migration' : activeTab === 'student-transfer' ? 'Student & Passenger Transfer' : 'Transfer History'}
                     </h2>
@@ -2510,91 +2511,195 @@ const RouteManagement = () => {
                                         : 'Log history of all past stage and passenger transfers.'}
                     </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    {activeTab === 'network' && (
-                        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-sm mr-1 shrink-0">
-                            <button
-                                type="button"
-                                onClick={() => setNetworkViewTab('list')}
-                                className={`px-3 py-1 rounded-md text-[10px] font-extrabold uppercase tracking-wider transition-all ${
-                                    networkViewTab === 'list'
-                                        ? 'bg-white text-blue-900 shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                }`}
-                            >
-                                List
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setNetworkViewTab('map')}
-                                className={`px-3 py-1 rounded-md text-[10px] font-extrabold uppercase tracking-wider transition-all ${
-                                    networkViewTab === 'map'
-                                        ? 'bg-white text-blue-900 shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
-                                }`}
-                            >
-                                Map
-                            </button>
+
+                <div className="flex flex-col gap-2.5 w-full lg:w-auto">
+                    {/* For Bus-Route Mapping: Render Search Bar and Filter Set in a SINGLE ROW on mobile */}
+                    {activeTab === 'bus-mapping' ? (
+                        <div className="flex items-center gap-1.5 sm:gap-2 w-full lg:w-auto overflow-x-auto no-scrollbar">
+                            {/* Search Bar */}
+                            <div className="relative flex-1 min-w-[130px] lg:w-64">
+                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                <input
+                                    type="text"
+                                    placeholder="Search route or bus..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full pl-9 pr-7 py-2 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-xs"
+                                />
+                                {searchQuery && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Campus Filter */}
+                            {allowedCampuses.length > 1 && (
+                                <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 sm:px-2.5 py-1.5 shadow-xs shrink-0 max-w-[125px] sm:max-w-none">
+                                    <span className="text-[9px] sm:text-[10px] font-medium text-slate-500 mr-1 uppercase shrink-0 hidden xs:inline sm:inline">Campus:</span>
+                                    <select
+                                        value={selectedCampusFilter}
+                                        onChange={(e) => setSelectedCampusFilter(e.target.value)}
+                                        className="bg-transparent text-[11px] sm:text-xs font-bold text-slate-800 outline-none cursor-pointer w-full truncate"
+                                    >
+                                        <option value="">All Campuses</option>
+                                        {allowedCampuses.map((campus) => (
+                                            <option key={getCampusId(campus)} value={getCampusId(campus)}>{campus.name} ({campus.code})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            {/* Academic Year Filter */}
+                            <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 sm:px-2.5 py-1.5 shadow-xs shrink-0">
+                                <span className="text-[9px] sm:text-[10px] font-medium text-slate-500 mr-1 uppercase shrink-0 hidden xs:inline sm:inline">AY:</span>
+                                <select
+                                    value={academicYear}
+                                    onChange={(e) => setAcademicYear(e.target.value)}
+                                    className="bg-transparent text-[11px] sm:text-xs font-bold text-slate-800 outline-none cursor-pointer w-auto truncate"
+                                >
+                                    {academicYearOptions.map((year) => (
+                                        <option key={year} value={year}>{year}</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
-                    )}
-                    {(activeTab === 'network' || activeTab === 'bus-mapping') && (
-                        <div className="relative flex-shrink-0 w-64">
-                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                            <input
-                                type="text"
-                                placeholder="Search by route ID or name..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                            />
-                        </div>
-                    )}
-                    {(activeTab === 'network' || activeTab === 'bus-mapping') && allowedCampuses.length > 1 && (
-                        <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
-                            <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Campus</span>
-                            <select
-                                value={selectedCampusFilter}
-                                onChange={(e) => setSelectedCampusFilter(e.target.value)}
-                                className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer outline-none"
-                            >
-                                <option value="">All Campuses</option>
-                                {allowedCampuses.map((campus) => (
-                                    <option key={getCampusId(campus)} value={getCampusId(campus)}>{campus.name} ({campus.code})</option>
-                                ))}
-                            </select>
-                        </div>
-                    )}
-                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
-                        <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Academic Year</span>
-                        <select
-                            value={academicYear}
-                            onChange={(e) => setAcademicYear(e.target.value)}
-                            className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer outline-none"
-                        >
-                            {academicYearOptions.map((year) => (
-                                <option key={year} value={year}>{year}</option>
-                            ))}
-                        </select>
-                    </div>
-                    {activeTab === 'network' && (
+                    ) : (
                         <>
-                            <button
-                                type="button"
-                                onClick={handlePrintRoutes}
-                                disabled={isPrintingRoutes || loading || filteredRoutes.length === 0}
-                                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                title="Print all routes with stages (A4)"
-                            >
-                                <Printer size={14} className={isPrintingRoutes ? 'animate-pulse' : ''} />
-                                {isPrintingRoutes ? 'Preparing…' : 'Print Routes'}
-                            </button>
-                            <button
-                                onClick={() => setIsModalOpen(true)}
-                                className="bg-blue-900 hover:bg-blue-700 text-white px-6 py-3 rounded-lg text-sm font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group"
-                            >
-                                <Plus className="mr-2 group-hover:rotate-90 transition-transform" size={18} />
-                                Create Route
-                            </button>
+                            {/* Search Bar - Full Width on Mobile with Clear Button */}
+                            {activeTab === 'network' && (
+                                <div className="relative w-full lg:w-64">
+                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search by route ID or name..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-700 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-xs"
+                                    />
+                                    {searchQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setSearchQuery('')}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Mobile Action Buttons (Create Route & Print) */}
+                            {activeTab === 'network' && (
+                                <div className="flex items-center gap-2 w-full lg:hidden">
+                                    <button
+                                        onClick={() => setIsModalOpen(true)}
+                                        className="flex-1 bg-blue-900 hover:bg-blue-800 text-white py-2 px-3 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                                    >
+                                        <Plus size={15} />
+                                        <span>Create Route</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handlePrintRoutes}
+                                        disabled={isPrintingRoutes || loading || filteredRoutes.length === 0}
+                                        className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                                        title="Print all routes with stages (A4)"
+                                    >
+                                        <Printer size={14} className={isPrintingRoutes ? 'animate-pulse' : ''} />
+                                        <span>{isPrintingRoutes ? 'Preparing…' : 'Print'}</span>
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* View Switchers & Filters Row (Aligned side-by-side on Mobile) */}
+                            <div className="flex items-center gap-1.5 sm:gap-2 w-full lg:w-auto overflow-x-auto no-scrollbar">
+                                {/* List / Map View Switcher */}
+                                {activeTab === 'network' && (
+                                    <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-xs shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setNetworkViewTab('list')}
+                                            className={`px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                                networkViewTab === 'list'
+                                                    ? 'bg-white text-blue-900 shadow-xs'
+                                                    : 'text-slate-500 hover:text-slate-700'
+                                            }`}
+                                        >
+                                            List
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setNetworkViewTab('map')}
+                                            className={`px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                                networkViewTab === 'map'
+                                                    ? 'bg-white text-blue-900 shadow-xs'
+                                                    : 'text-slate-500 hover:text-slate-700'
+                                            }`}
+                                        >
+                                            Map
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Campus Filter */}
+                                {allowedCampuses.length > 1 && (
+                                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 sm:px-2.5 py-1 shadow-xs flex-1 min-w-0 lg:flex-none">
+                                        <span className="text-[9px] sm:text-[10px] font-medium text-slate-500 mr-1 sm:mr-2 uppercase shrink-0 hidden xs:inline sm:inline">Campus:</span>
+                                        <select
+                                            value={selectedCampusFilter}
+                                            onChange={(e) => setSelectedCampusFilter(e.target.value)}
+                                            className="bg-transparent text-[11px] sm:text-xs font-bold text-slate-800 outline-none cursor-pointer w-full truncate"
+                                        >
+                                            <option value="">All Campuses</option>
+                                            {allowedCampuses.map((campus) => (
+                                                <option key={getCampusId(campus)} value={getCampusId(campus)}>{campus.name} ({campus.code})</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
+                                {/* Academic Year Filter */}
+                                <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 sm:px-2.5 py-1 shadow-xs flex-1 min-w-0 lg:flex-none">
+                                    <span className="text-[9px] sm:text-[10px] font-medium text-slate-500 mr-1 sm:mr-2 uppercase shrink-0 hidden xs:inline sm:inline">AY:</span>
+                                    <select
+                                        value={academicYear}
+                                        onChange={(e) => setAcademicYear(e.target.value)}
+                                        className="bg-transparent text-[11px] sm:text-xs font-bold text-slate-800 outline-none cursor-pointer w-full truncate"
+                                    >
+                                        {academicYearOptions.map((year) => (
+                                            <option key={year} value={year}>{year}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Desktop Create Route & Print Buttons */}
+                                {activeTab === 'network' && (
+                                    <div className="hidden lg:flex items-center gap-2 ml-1">
+                                        <button
+                                            type="button"
+                                            onClick={handlePrintRoutes}
+                                            disabled={isPrintingRoutes || loading || filteredRoutes.length === 0}
+                                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                            title="Print all routes with stages (A4)"
+                                        >
+                                            <Printer size={14} className={isPrintingRoutes ? 'animate-pulse' : ''} />
+                                            {isPrintingRoutes ? 'Preparing…' : 'Print Routes'}
+                                        </button>
+                                        <button
+                                            onClick={() => setIsModalOpen(true)}
+                                            className="bg-blue-900 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group cursor-pointer"
+                                        >
+                                            <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
+                                            Create Route
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </>
                     )}
                 </div>
@@ -2637,7 +2742,91 @@ const RouteManagement = () => {
                         </div>
                     ) : (
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                            <div className="overflow-x-auto">
+                            {/* Mobile Cards View */}
+                            <div className="block md:hidden space-y-3 p-3 bg-slate-50/50">
+                                {filteredRoutes.map((route) => {
+                                    const isExpanded = expandedRouteId === route._id;
+                                    return (
+                                        <div key={route._id} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm space-y-3">
+                                            <div className="flex items-start justify-between gap-2" onClick={() => toggleRoute(route._id)}>
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded border border-blue-200 font-mono">
+                                                            {route.routeId}
+                                                        </span>
+                                                        <span className="font-bold text-slate-800 text-sm">{route.routeName}</span>
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-1.5 items-center mt-1.5">
+                                                        {route.campus && (
+                                                            <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] font-semibold rounded border border-blue-100">
+                                                                Campus: {route.campus.name || route.campus}
+                                                            </span>
+                                                        )}
+                                                        {route.zone && (
+                                                            <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[9px] font-semibold rounded border border-purple-100">
+                                                                Zone: {route.zone}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <ChevronDown size={18} className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                            </div>
+
+                                            <div className="flex items-center justify-between border-t border-b border-slate-100 py-2 text-xs text-slate-600">
+                                                <div className="flex items-center gap-1 font-medium min-w-0 truncate">
+                                                    <span className="truncate">{route.startPoint}</span>
+                                                    <ArrowRight size={12} className="shrink-0 text-slate-400" />
+                                                    <span className="truncate">{route.endPoint}</span>
+                                                </div>
+                                                <div className="shrink-0 text-right font-bold text-slate-700">
+                                                    {route.totalDistance} KM
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-100">
+                                                    {route.stages.length} Stages
+                                                </span>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); openEditModal(route); }}
+                                                        className="px-2.5 py-1 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1"
+                                                    >
+                                                        <Edit size={13} /> Edit
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleDelete(route._id); }}
+                                                        className="px-2.5 py-1 text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors flex items-center gap-1"
+                                                    >
+                                                        <Trash2 size={13} /> Delete
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {isExpanded && (
+                                                <div className="pt-2 border-t border-slate-100 space-y-2">
+                                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Route Stages ({route.stages.length})</p>
+                                                    {route.stages.length === 0 ? (
+                                                        <p className="text-xs text-slate-400 italic">No stages defined.</p>
+                                                    ) : (
+                                                        <div className="space-y-1.5">
+                                                            {route.stages.map((st, sIdx) => (
+                                                                <div key={sIdx} className="flex justify-between items-center bg-slate-50 px-2.5 py-1.5 rounded-lg text-xs">
+                                                                    <span className="font-semibold text-slate-700">{sIdx + 1}. {st.stageName}</span>
+                                                                    <span className="font-bold text-slate-600">₹{resolveStageFareForYear(st, academicYear)}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Desktop View Table */}
+                            <div className="hidden md:block overflow-x-auto">
                                 <table className="w-full text-left border-collapse">
                                     <thead>
                                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
@@ -2701,32 +2890,35 @@ const RouteManagement = () => {
                                                             </span>
                                                         </td>
                                                         <td className="px-3 py-2 text-right">
-                                                            <div className="flex items-center justify-end gap-1">
+                                                            <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                                                 <button
-                                                                    onClick={(e) => handleEdit(route, e)}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        openEditModal(route);
+                                                                    }}
                                                                     className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
-                                                                    title="Edit"
+                                                                    title="Edit Route"
                                                                 >
                                                                     <Edit size={14} />
                                                                 </button>
                                                                 <button
-                                                                    onClick={(e) => handleDelete(route._id, e)}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDelete(route._id);
+                                                                    }}
                                                                     className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
-                                                                    title="Delete"
+                                                                    title="Delete Route"
                                                                 >
                                                                     <Trash2 size={14} />
                                                                 </button>
-                                                                <div className={`p-1 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-blue-600' : ''}`}>
-                                                                    <ChevronDown size={14} />
-                                                                </div>
                                                             </div>
                                                         </td>
                                                     </tr>
                                                     {isExpanded && (
-                                                        <tr>
-                                                            <td colSpan="5" className="px-4 py-4 bg-slate-50/50 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                                                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                                                    {/* Left Side: Stages Block */}
+                                                        <tr className="bg-slate-50/50">
+                                                            <td colSpan={5} className="px-4 py-4">
+                                                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 animate-in fade-in slide-in-from-top-1 duration-200">
+                                                                    {/* Left Side: Stages & Fare List */}
                                                                     <div className="lg:col-span-2 bg-white rounded-xl border border-slate-100 shadow-sm p-5">
                                                                         <div className="flex items-center gap-2 mb-4">
                                                                             <Milestone size={14} className="text-blue-600" />
@@ -2836,8 +3028,80 @@ const RouteManagement = () => {
                         </div>
                     ) : (
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
+                            {/* Mobile View Card List */}
+                            <div className="block md:hidden divide-y divide-slate-100">
+                                {filteredRoutes.map((route) => {
+                                    const assignedBus = buses.find((b) => b.assignedRouteId === route.routeId);
+                                    return (
+                                        <div key={route._id} className="p-4 space-y-3 hover:bg-slate-50/50 transition-colors">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="flex flex-col gap-1 min-w-0">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded border border-blue-200 font-mono shrink-0">
+                                                            {route.routeId}
+                                                        </span>
+                                                        <span className="font-bold text-slate-800 text-xs truncate">{route.routeName}</span>
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-1.5 items-center mt-0.5">
+                                                        {route.campus && (
+                                                            <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] font-semibold rounded border border-blue-100">
+                                                                Campus: {route.campus.name || route.campus}
+                                                            </span>
+                                                        )}
+                                                        {route.zone && (
+                                                            <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[9px] font-semibold rounded border border-purple-100">
+                                                                Zone: {route.zone}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="shrink-0">
+                                                    {assignedBus ? (
+                                                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-800 font-bold border border-blue-200 px-2 py-1 rounded-lg text-xs shadow-xs">
+                                                            <Bus size={12} className="text-blue-600" />
+                                                            Bus {assignedBus.busNumber}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-xs text-slate-400 font-bold italic px-1.5 py-0.5 bg-slate-50 rounded border border-slate-100">Unassigned</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center justify-between text-xs text-slate-600 font-medium">
+                                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Path</span>
+                                                <span className="font-bold text-slate-700 truncate max-w-[200px]" title={`${route.startPoint} ➔ ${route.endPoint}`}>
+                                                    {route.startPoint} ➔ {route.endPoint}
+                                                </span>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setExpandedRouteEditId(route._id);
+                                                    const draftBusId = assignedBus ? assignedBus._id : '';
+                                                    setRouteWiseDrafts(prev => ({
+                                                        ...prev,
+                                                        [route.routeId]: {
+                                                            busId: draftBusId,
+                                                            exitDate: todayDateInput(),
+                                                            entryDate: todayDateInput()
+                                                        }
+                                                    }));
+                                                    fetchMappingPreview(route.routeId, 'route', assignedBus ? assignedBus.busNumber : '', route.routeId);
+                                                }}
+                                                className="w-full flex items-center justify-center text-blue-900 font-bold bg-blue-50/70 hover:bg-blue-100/70 border border-blue-200/80 rounded-xl py-2 gap-1.5 text-xs transition-colors shadow-xs"
+                                            >
+                                                <Edit size={13} />
+                                                Edit Mapping
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Desktop View Table */}
+                            <div className="hidden md:block overflow-x-auto">
+                                <table className="w-full text-left border-collapse min-w-[650px]">
                                     <thead>
                                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
                                             <th className="px-3 py-2">Route Details</th>

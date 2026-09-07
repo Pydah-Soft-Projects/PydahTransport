@@ -129,7 +129,7 @@ const Settings = () => {
     return (
         <Layout>
             <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
+                <div className="hidden md:block">
                     <h2 className="text-2xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
                         <SettingsIcon className="text-blue-600" size={24} />
                         Settings

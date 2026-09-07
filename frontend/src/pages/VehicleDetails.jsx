@@ -195,7 +195,7 @@ const VehicleDetails = () => {
     }
 
     return (
-        <Layout>
+        <Layout title={`Vehicle ${vehicle.vehicleNumber}`}>
             <div className="mb-6 flex items-center justify-between">
                 <Link to="/fleet" className="text-blue-600 hover:underline text-sm font-medium flex items-center gap-1">
                     <span>←</span> Back to Fleet
@@ -207,7 +207,7 @@ const VehicleDetails = () => {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
                     <div>
                         <div className="flex items-center gap-3 mb-2">
-                            <h1 className="text-4xl font-black text-gray-900 tracking-tight">{vehicle.vehicleNumber}</h1>
+                            <h1 className="hidden md:block text-4xl font-black text-gray-900 tracking-tight">{vehicle.vehicleNumber}</h1>
                             <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest ${
                                 vehicle.status === 'Active' ? 'bg-green-100 text-green-700' :
                                 vehicle.status === 'Inactive' ? 'bg-slate-100 text-slate-700' :

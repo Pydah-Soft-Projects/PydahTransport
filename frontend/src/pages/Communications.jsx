@@ -572,7 +572,7 @@ export default function Communications() {
     <Layout>
       <div className="space-y-4 font-sans text-slate-800">
         <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
               <MessageSquare size={18} />
             </div>

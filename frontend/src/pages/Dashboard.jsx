@@ -211,16 +211,16 @@ const Dashboard = () => {
     return (
         <Layout>
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-                <div>
+                <div className="hidden md:block">
                     <h2 className="text-xl font-bold text-slate-900 tracking-tight">Dashboard Overview</h2>
                     <p className="text-slate-500 text-xs mt-0.5">Welcome back, Super Admin! Here's what's happening today.</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+                <div className="flex items-center gap-1.5 sm:gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-sm w-full md:w-auto justify-between sm:justify-start overflow-x-auto no-scrollbar">
+                    <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm shrink-0">
                         <button
                             type="button"
                             onClick={() => setOccupancyMode('live')}
-                            className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'live'
+                            className={`px-2 sm:px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'live'
                                 ? 'bg-blue-600 text-white shadow-sm'
                                 : 'text-slate-500 hover:bg-slate-50'
                                 }`}
@@ -230,7 +230,7 @@ const Dashboard = () => {
                         <button
                             type="button"
                             onClick={() => setOccupancyMode('academicYear')}
-                            className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'academicYear'
+                            className={`px-2 sm:px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'academicYear'
                                 ? 'bg-blue-600 text-white shadow-sm'
                                 : 'text-slate-500 hover:bg-slate-50'
                                 }`}
@@ -238,13 +238,13 @@ const Dashboard = () => {
                             AY
                         </button>
                     </div>
-                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1 shadow-sm">
-                        <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Academic Year</span>
+                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 sm:px-2.5 py-1 shadow-sm flex-1 min-w-0 sm:flex-none">
+                        <span className="text-[9px] sm:text-[10px] font-medium text-slate-500 mr-1 sm:mr-2 uppercase shrink-0 hidden xs:inline sm:inline">AY:</span>
                         <select
                             value={academicYear}
                             onChange={(e) => setAcademicYear(e.target.value)}
                             disabled={occupancyMode === 'live'}
-                            className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer disabled:opacity-50"
+                            className="bg-transparent text-[11px] sm:text-xs font-bold text-slate-800 focus:outline-none cursor-pointer disabled:opacity-50 w-full truncate"
                         >
                             {getAcademicYearOptions().map((option) => (
                                 <option key={option} value={option}>
@@ -253,12 +253,12 @@ const Dashboard = () => {
                             ))}
                         </select>
                     </div>
-                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1 shadow-sm">
-                        <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Campus</span>
+                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 sm:px-2.5 py-1 shadow-sm flex-1 min-w-0 sm:flex-none">
+                        <span className="text-[9px] sm:text-[10px] font-medium text-slate-500 mr-1 sm:mr-2 uppercase shrink-0 hidden sm:inline">Campus:</span>
                         <select
                             value={selectedCampus}
                             onChange={(e) => setSelectedCampus(e.target.value)}
-                            className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                            className="bg-transparent text-[11px] sm:text-xs font-bold text-slate-800 focus:outline-none cursor-pointer w-full truncate"
                         >
                             <option value="">All Campuses</option>
                             {campuses.map((campus) => (

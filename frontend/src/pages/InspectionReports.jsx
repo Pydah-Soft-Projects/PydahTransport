@@ -340,7 +340,7 @@ const InspectionReports = () => {
             <div className="space-y-4 max-w-7xl mx-auto pb-12 print:p-0 print:space-y-3">
                 {/* Header Card */}
                 <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
+                    <div className="hidden md:flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-700 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
                             <FileText size={22} />
                         </div>

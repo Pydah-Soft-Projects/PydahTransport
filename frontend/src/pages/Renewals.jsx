@@ -948,7 +948,7 @@ const Renewals = () => {
         <Layout>
             {/* Header */}
             <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="min-w-0">
+                <div className="min-w-0 hidden md:block">
                     <h2 className="text-2xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
                         <RefreshCw className="text-blue-600 animate-spin-slow" size={24} />
                         Renewals Management
@@ -956,12 +956,12 @@ const Renewals = () => {
                     <p className="text-xs text-slate-400 mt-0.5">Review expired transport passes from previous semesters/years and renew them for upcoming academic sessions.</p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
-                    <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold gap-1">
+                <div className="flex flex-row items-center justify-between sm:justify-end gap-2 shrink-0 w-full lg:w-auto">
+                    <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold gap-1 flex-1 sm:flex-initial">
                         <button
                             type="button"
                             onClick={() => handleTabChange('abstract')}
-                            className={`px-3.5 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                                 activeTab === 'abstract' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
                             }`}
                         >
@@ -970,7 +970,7 @@ const Renewals = () => {
                         <button
                             type="button"
                             onClick={() => handleTabChange('detailed')}
-                            className={`px-3.5 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                                 activeTab === 'detailed' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
                             }`}
                         >
@@ -982,7 +982,7 @@ const Renewals = () => {
                         type="button"
                         onClick={handlePrintToBeRenewed}
                         disabled={isPrinting || loading || printPendingList.length === 0}
-                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0"
                         title="Print passengers still pending renewal"
                     >
                         <Printer size={14} className={isPrinting ? 'animate-pulse' : ''} />
@@ -995,7 +995,7 @@ const Renewals = () => {
             {message.text && (
                 <div className={`mb-6 p-4 rounded-xl border flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300 ${message.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
                     {message.type === 'success' ? <CheckCircle2 className="text-emerald-500 mt-0.5 shrink-0" size={20} /> : <XCircle className="text-red-500 mt-0.5 shrink-0" size={20} />}
-                    <div className="flex-1 font-medium">{message.text}</div>
+                    <div className="flex-1 font-medium text-xs sm:text-sm">{message.text}</div>
                     <button onClick={() => setMessage({ text: '', type: '' })} className="text-slate-400 hover:text-slate-600 transition-colors">
                         <X size={18} />
                     </button>
@@ -1003,65 +1003,65 @@ const Renewals = () => {
             )}
 
             {/* Stats Panel */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 shrink-0 animate-in fade-in zoom-in duration-300">
-                        <Users size={20} />
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 mb-6">
+                <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-2.5 sm:gap-3.5">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
+                        <Users size={18} className="sm:w-5 sm:h-5" />
                     </div>
-                    <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Expired Passengers</p>
-                        <h3 className="text-lg font-bold text-slate-800 mt-0.5">{totalExpired}</h3>
-                        <p className="text-[9px] text-slate-500 mt-0.5 font-semibold">
-                            {renewalStats.allExpired} total expired
+                    <div className="min-w-0">
+                        <p className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase tracking-wider truncate">Expired Passengers</p>
+                        <h3 className="text-base sm:text-lg font-bold text-slate-800 mt-0.5">{totalExpired}</h3>
+                        <p className="text-[8px] sm:text-[9px] text-slate-500 mt-0.5 font-semibold truncate">
+                            {renewalStats.allExpired} total
                             {totalCompleted > 0 && (
-                                <span className="text-slate-400 font-medium"> · {totalCompleted} course completed</span>
+                                <span className="text-slate-400 font-medium"> · {totalCompleted} completed</span>
                             )}
                         </p>
                     </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0 animate-in fade-in zoom-in duration-300">
-                        <CheckCircle2 size={20} />
+                <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-2.5 sm:gap-3.5">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0">
+                        <CheckCircle2 size={18} className="sm:w-5 sm:h-5" />
                     </div>
-                    <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Renewed to {targetYear}</p>
-                        <h3 className="text-lg font-bold text-emerald-700 mt-0.5">{totalRenewed}</h3>
-                        <p className="text-[9px] text-emerald-600 mt-0.5 font-semibold">
-                            {totalExpired > 0 ? `${Math.round((totalRenewed / totalExpired) * 100)}%` : '0%'} renewal rate
+                    <div className="min-w-0">
+                        <p className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase tracking-wider truncate">Renewed to {targetYear}</p>
+                        <h3 className="text-base sm:text-lg font-bold text-emerald-700 mt-0.5">{totalRenewed}</h3>
+                        <p className="text-[8px] sm:text-[9px] text-emerald-600 mt-0.5 font-semibold truncate">
+                            {totalExpired > 0 ? `${Math.round((totalRenewed / totalExpired) * 100)}%` : '0%'} rate
                         </p>
                     </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 shrink-0 animate-in fade-in zoom-in duration-300">
-                        <Clock size={20} />
+                <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-2.5 sm:gap-3.5">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 shrink-0">
+                        <Clock size={18} className="sm:w-5 sm:h-5" />
                     </div>
-                    <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Pending Renewal</p>
-                        <h3 className="text-lg font-bold text-amber-700 mt-0.5">{totalPending}</h3>
-                        <p className="text-[9px] text-amber-500 mt-0.5 font-semibold">Awaiting renewal request</p>
+                    <div className="min-w-0">
+                        <p className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase tracking-wider truncate">Pending Renewal</p>
+                        <h3 className="text-base sm:text-lg font-bold text-amber-700 mt-0.5">{totalPending}</h3>
+                        <p className="text-[8px] sm:text-[9px] text-amber-500 mt-0.5 font-semibold truncate">Awaiting request</p>
                     </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center text-rose-600 shrink-0 animate-in fade-in zoom-in duration-300">
-                        <XCircle size={20} />
+                <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-2.5 sm:gap-3.5">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-rose-50 flex items-center justify-center text-rose-600 shrink-0">
+                        <XCircle size={18} className="sm:w-5 sm:h-5" />
                     </div>
-                    <div>
-                        <p className="text-[9px] font-bold text-rose-400 uppercase tracking-wider">Not Interested</p>
-                        <h3 className="text-lg font-bold text-rose-700 mt-0.5">{totalNotInterested}</h3>
-                        <p className="text-[9px] text-rose-500 mt-0.5 font-semibold">Declared not renewing</p>
+                    <div className="min-w-0">
+                        <p className="text-[8px] sm:text-[9px] font-bold text-rose-400 uppercase tracking-wider truncate">Not Interested</p>
+                        <h3 className="text-base sm:text-lg font-bold text-rose-700 mt-0.5">{totalNotInterested}</h3>
+                        <p className="text-[8px] sm:text-[9px] text-rose-500 mt-0.5 font-semibold truncate">Not renewing</p>
                     </div>
                 </div>
             </div>
 
             {/* Filter controls panel */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 mb-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-3 sm:p-4 mb-6">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3 items-end">
                     {/* Expired Year Filter */}
                     <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Expired Academic Year</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block truncate">Expired Year</label>
                         <select
                             value={expiredYear}
                             onChange={(e) => {
@@ -1069,7 +1069,7 @@ const Renewals = () => {
                                 setExpiredYear(value);
                                 syncFiltersToUrl({ expiredYear: value });
                             }}
-                            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         >
                             {academicYearOptions.map((year) => (
                                 <option key={year} value={year}>{year}</option>
@@ -1079,7 +1079,7 @@ const Renewals = () => {
 
                     {/* Target Year Filter */}
                     <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Target Academic Year</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block truncate">Target Year</label>
                         <select
                             value={targetYear}
                             onChange={(e) => {
@@ -1087,7 +1087,7 @@ const Renewals = () => {
                                 setTargetYear(value);
                                 syncFiltersToUrl({ targetYear: value });
                             }}
-                            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         >
                             {academicYearOptions.map((year) => (
                                 <option key={year} value={year}>{year}</option>
@@ -1097,7 +1097,7 @@ const Renewals = () => {
 
                     {/* Route Filter */}
                     <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Previous Route</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block truncate">Previous Route</label>
                         <select
                             value={routeFilter}
                             onChange={(e) => {
@@ -1105,7 +1105,7 @@ const Renewals = () => {
                                 setRouteFilter(value);
                                 syncFiltersToUrl({ routeFilter: value });
                             }}
-                            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         >
                             <option value="">All Routes</option>
                             {sortedRoutes.map((r) => (
@@ -1116,7 +1116,7 @@ const Renewals = () => {
 
                     {/* Course Filter */}
                     <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Course</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block truncate">Course</label>
                         <select
                             value={courseFilter}
                             onChange={(e) => {
@@ -1124,7 +1124,7 @@ const Renewals = () => {
                                 setCourseFilter(value);
                                 syncFiltersToUrl({ courseFilter: value });
                             }}
-                            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         >
                             <option value="">All Courses</option>
                             {courseFilter && !courses.some((c) => c.name === courseFilter) && (
@@ -1138,7 +1138,7 @@ const Renewals = () => {
 
                     {/* Renewal Status Filter */}
                     <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Renewal Status</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block truncate">Renewal Status</label>
                         <select
                             value={renewalStatusFilter}
                             onChange={(e) => {
@@ -1146,7 +1146,7 @@ const Renewals = () => {
                                 setRenewalStatusFilter(value);
                                 syncFiltersToUrl({ renewalStatusFilter: value });
                             }}
-                            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         >
                             <option value="">All Passengers</option>
                             <option value="not_renewed">Not Renewed</option>
@@ -1156,8 +1156,8 @@ const Renewals = () => {
                     </div>
 
                     {/* Search Bar */}
-                    <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Search Passenger</label>
+                    <div className="space-y-1 col-span-2 sm:col-span-1">
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block truncate">Search Passenger</label>
                         <div className="relative">
                             <input
                                 type="text"
@@ -1168,9 +1168,9 @@ const Renewals = () => {
                                     setSearchQuery(value);
                                     syncFiltersToUrl({ searchQuery: value });
                                 }}
-                                className="w-full bg-slate-50 hover:bg-slate-100 focus:bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs font-semibold text-slate-600 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                className="w-full bg-slate-50 hover:bg-slate-100 focus:bg-white border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs font-semibold text-slate-600 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                             />
-                            <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                            <Search className="absolute left-2.5 top-2.5 text-slate-400" size={13} />
                         </div>
                     </div>
                 </div>
@@ -1202,161 +1202,319 @@ const Renewals = () => {
                             <p className="text-xs text-slate-400 mt-1">Try expanding filters or selecting a different academic year.</p>
                         </div>
                     ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full min-w-[720px] text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                        <th className="px-4 py-3 w-[36%]">College / Course / Year</th>
-                                        <th className="px-3 py-3 text-right w-[12%]">Total</th>
-                                        <th className="px-3 py-3 text-right w-[12%]">Renewed</th>
-                                        <th className="px-3 py-3 text-right w-[12%]">Pending</th>
-                                        <th className="px-3 py-3 text-right w-[16%]">Not Interested</th>
-                                        <th className="px-3 py-3 text-right w-[12%]">Renewal %</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {abstractTree.map((college) => {
-                                        const collegeOpen = expandedColleges.has(college.name);
-                                        const collegeRate = college.total > 0
-                                            ? Math.round((college.renewed / college.total) * 100)
-                                            : 0;
+                        <>
+                            {/* Desktop Abstract Table View */}
+                            <div className="hidden md:block overflow-x-auto">
+                                <table className="w-full min-w-[720px] text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                            <th className="px-4 py-3 w-[36%]">College / Course / Year</th>
+                                            <th className="px-3 py-3 text-right w-[12%]">Total</th>
+                                            <th className="px-3 py-3 text-right w-[12%]">Renewed</th>
+                                            <th className="px-3 py-3 text-right w-[12%]">Pending</th>
+                                            <th className="px-3 py-3 text-right w-[16%]">Not Interested</th>
+                                            <th className="px-3 py-3 text-right w-[12%]">Renewal %</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {abstractTree.map((college) => {
+                                            const collegeOpen = expandedColleges.has(college.name);
+                                            const collegeRate = college.total > 0
+                                                ? Math.round((college.renewed / college.total) * 100)
+                                                : 0;
 
-                                        return (
-                                            <React.Fragment key={college.name}>
-                                                <tr
-                                                    className="bg-white hover:bg-blue-50/40 cursor-pointer transition-colors"
-                                                    onClick={() => toggleCollege(college.name)}
-                                                >
-                                                    <td className="px-4 py-3">
-                                                        <div className="flex items-center gap-2.5 min-w-0">
-                                                            <span className="text-slate-400 shrink-0">
-                                                                {collegeOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                                                            </span>
-                                                            <div className="w-7 h-7 rounded-md bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
-                                                                <Building2 size={14} />
+                                            return (
+                                                <React.Fragment key={college.name}>
+                                                    <tr
+                                                        className="bg-white hover:bg-blue-50/40 cursor-pointer transition-colors"
+                                                        onClick={() => toggleCollege(college.name)}
+                                                    >
+                                                        <td className="px-4 py-3">
+                                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                                <span className="text-slate-400 shrink-0">
+                                                                    {collegeOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                                                                </span>
+                                                                <div className="w-7 h-7 rounded-md bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
+                                                                    <Building2 size={14} />
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-bold text-slate-900 truncate">{college.name}</p>
+                                                                    <p className="text-[10px] font-semibold text-slate-400">
+                                                                        {college.courses.length} course{college.courses.length === 1 ? '' : 's'}
+                                                                    </p>
+                                                                </div>
                                                             </div>
-                                                            <div className="min-w-0">
-                                                                <p className="text-xs font-bold text-slate-900 truncate">{college.name}</p>
-                                                                <p className="text-[10px] font-semibold text-slate-400">
-                                                                    {college.courses.length} course{college.courses.length === 1 ? '' : 's'}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                    <AbstractCountCell value={college.total} />
-                                                    <AbstractCountCell value={college.renewed} tone="emerald" />
-                                                    <AbstractCountCell value={college.pending} tone="amber" />
-                                                    <AbstractCountCell value={college.notInterested} tone="rose" />
-                                                    <td className="px-3 py-3 text-right text-xs font-bold tabular-nums text-slate-600">
-                                                        {collegeRate}%
-                                                    </td>
-                                                </tr>
+                                                        </td>
+                                                        <AbstractCountCell value={college.total} />
+                                                        <AbstractCountCell value={college.renewed} tone="emerald" />
+                                                        <AbstractCountCell value={college.pending} tone="amber" />
+                                                        <AbstractCountCell value={college.notInterested} tone="rose" />
+                                                        <td className="px-3 py-3 text-right text-xs font-bold tabular-nums text-slate-600">
+                                                            {collegeRate}%
+                                                        </td>
+                                                    </tr>
 
-                                                {collegeOpen && college.courses.map((course) => {
-                                                    const courseKey = `${college.name}::${course.name}`;
-                                                    const courseOpen = expandedCourses.has(courseKey);
-                                                    const courseRate = course.total > 0
-                                                        ? Math.round((course.renewed / course.total) * 100)
-                                                        : 0;
+                                                    {collegeOpen && college.courses.map((course) => {
+                                                        const courseKey = `${college.name}::${course.name}`;
+                                                        const courseOpen = expandedCourses.has(courseKey);
+                                                        const courseRate = course.total > 0
+                                                            ? Math.round((course.renewed / course.total) * 100)
+                                                            : 0;
 
-                                                    return (
-                                                        <React.Fragment key={courseKey}>
-                                                            <tr
-                                                                className="bg-slate-50/80 hover:bg-slate-100 cursor-pointer transition-colors"
-                                                                onClick={() => toggleCourse(college.name, course.name)}
-                                                            >
-                                                                <td className="px-4 py-2.5 pl-10">
-                                                                    <div className="flex items-center gap-2.5 min-w-0">
+                                                        return (
+                                                            <React.Fragment key={courseKey}>
+                                                                <tr
+                                                                    className="bg-slate-50/80 hover:bg-slate-100 cursor-pointer transition-colors"
+                                                                    onClick={() => toggleCourse(college.name, course.name)}
+                                                                >
+                                                                    <td className="px-4 py-2.5 pl-10">
+                                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                                            <span className="text-slate-400 shrink-0">
+                                                                                {courseOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                                            </span>
+                                                                            <div className="w-6 h-6 rounded bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                                                                                <GraduationCap size={12} />
+                                                                            </div>
+                                                                            <div className="min-w-0">
+                                                                                <p className="text-xs font-bold text-slate-800 truncate">{course.name}</p>
+                                                                                <p className="text-[10px] font-semibold text-slate-400">
+                                                                                    {course.years.length} year group{course.years.length === 1 ? '' : 's'}
+                                                                                </p>
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                    <AbstractCountCell value={course.total} />
+                                                                    <AbstractCountCell value={course.renewed} tone="emerald" />
+                                                                    <AbstractCountCell value={course.pending} tone="amber" />
+                                                                    <AbstractCountCell value={course.notInterested} tone="rose" />
+                                                                    <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-slate-600">
+                                                                        {courseRate}%
+                                                                    </td>
+                                                                </tr>
+
+                                                                {courseOpen && course.years.map((yearNode) => {
+                                                                    const yearRate = yearNode.total > 0
+                                                                        ? Math.round((yearNode.renewed / yearNode.total) * 100)
+                                                                        : 0;
+                                                                    return (
+                                                                        <tr
+                                                                            key={`${courseKey}::${yearNode.year}`}
+                                                                            className="bg-white hover:bg-amber-50/30 transition-colors"
+                                                                        >
+                                                                            <td className="px-4 py-2 pl-20">
+                                                                                <div className="flex items-center gap-2.5">
+                                                                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-amber-50 text-amber-700 text-[10px] font-black shrink-0">
+                                                                                        Y{yearNode.year}
+                                                                                    </span>
+                                                                                    <p className="text-xs font-semibold text-slate-700">
+                                                                                        Year {yearNode.year}
+                                                                                    </p>
+                                                                                </div>
+                                                                            </td>
+                                                                            <AbstractCountCell value={yearNode.total} />
+                                                                            <AbstractCountCell value={yearNode.renewed} tone="emerald" />
+                                                                            <AbstractCountCell value={yearNode.pending} tone="amber" />
+                                                                            <AbstractCountCell value={yearNode.notInterested} tone="rose" />
+                                                                            <td className="px-3 py-2 text-right text-xs font-bold tabular-nums text-slate-600">
+                                                                                {yearRate}%
+                                                                            </td>
+                                                                        </tr>
+                                                                    );
+                                                                })}
+                                                            </React.Fragment>
+                                                        );
+                                                    })}
+                                                </React.Fragment>
+                                            );
+                                        })}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr className="bg-slate-100 border-t-2 border-slate-200">
+                                            <td className="px-4 py-3 text-xs font-black text-slate-800 uppercase tracking-wide">
+                                                Grand Total
+                                            </td>
+                                            <AbstractCountCell
+                                                value={abstractTree.reduce((sum, c) => sum + c.total, 0)}
+                                            />
+                                            <AbstractCountCell
+                                                value={abstractTree.reduce((sum, c) => sum + c.renewed, 0)}
+                                                tone="emerald"
+                                            />
+                                            <AbstractCountCell
+                                                value={abstractTree.reduce((sum, c) => sum + c.pending, 0)}
+                                                tone="amber"
+                                            />
+                                            <AbstractCountCell
+                                                value={abstractTree.reduce((sum, c) => sum + (c.notInterested || 0), 0)}
+                                                tone="rose"
+                                            />
+                                            <td className="px-3 py-3 text-right text-xs font-black tabular-nums text-slate-700">
+                                                {(() => {
+                                                    const total = abstractTree.reduce((sum, c) => sum + c.total, 0);
+                                                    const renewed = abstractTree.reduce((sum, c) => sum + c.renewed, 0);
+                                                    return total > 0 ? `${Math.round((renewed / total) * 100)}%` : '0%';
+                                                })()}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+
+                            {/* Mobile Abstract Card Tree View */}
+                            <div className="block md:hidden p-3 space-y-3">
+                                {abstractTree.map((college) => {
+                                    const collegeOpen = expandedColleges.has(college.name);
+                                    const collegeRate = college.total > 0
+                                        ? Math.round((college.renewed / college.total) * 100)
+                                        : 0;
+
+                                    return (
+                                        <div key={college.name} className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+                                            {/* College Header */}
+                                            <div
+                                                onClick={() => toggleCollege(college.name)}
+                                                className="p-3 bg-slate-50/80 hover:bg-slate-100 flex items-center justify-between cursor-pointer border-b border-slate-100 transition-colors"
+                                            >
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <span className="text-slate-400 shrink-0">
+                                                        {collegeOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                                    </span>
+                                                    <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                                                        <Building2 size={14} />
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <h4 className="text-xs font-bold text-slate-900 truncate">{college.name}</h4>
+                                                        <p className="text-[10px] font-medium text-slate-400">{college.courses.length} courses</p>
+                                                    </div>
+                                                </div>
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-100 shrink-0">
+                                                    {collegeRate}% Rate
+                                                </span>
+                                            </div>
+
+                                            {/* College Summary Badge Row */}
+                                            <div className="grid grid-cols-4 gap-1 p-2.5 bg-white text-center border-b border-slate-100">
+                                                <div>
+                                                    <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block">Total</span>
+                                                    <span className="text-xs font-bold text-slate-800">{college.total}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[8px] font-bold text-emerald-600 uppercase tracking-wider block">Renewed</span>
+                                                    <span className="text-xs font-bold text-emerald-700">{college.renewed}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[8px] font-bold text-amber-600 uppercase tracking-wider block">Pending</span>
+                                                    <span className="text-xs font-bold text-amber-700">{college.pending}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[8px] font-bold text-rose-600 uppercase tracking-wider block">Declined</span>
+                                                    <span className="text-xs font-bold text-rose-700">{college.notInterested || 0}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Expanded Courses List */}
+                                            {collegeOpen && (
+                                                <div className="p-2 space-y-2 bg-slate-50/40">
+                                                    {college.courses.map((course) => {
+                                                        const courseKey = `${college.name}::${course.name}`;
+                                                        const courseOpen = expandedCourses.has(courseKey);
+                                                        const courseRate = course.total > 0
+                                                            ? Math.round((course.renewed / course.total) * 100)
+                                                            : 0;
+
+                                                        return (
+                                                            <div key={courseKey} className="border border-indigo-100 rounded-xl bg-white overflow-hidden">
+                                                                <div
+                                                                    onClick={() => toggleCourse(college.name, course.name)}
+                                                                    className="p-2.5 flex items-center justify-between cursor-pointer hover:bg-indigo-50/30 transition-colors"
+                                                                >
+                                                                    <div className="flex items-center gap-2 min-w-0">
                                                                         <span className="text-slate-400 shrink-0">
                                                                             {courseOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                                                         </span>
-                                                                        <div className="w-6 h-6 rounded bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-                                                                            <GraduationCap size={12} />
-                                                                        </div>
-                                                                        <div className="min-w-0">
-                                                                            <p className="text-xs font-bold text-slate-800 truncate">{course.name}</p>
-                                                                            <p className="text-[10px] font-semibold text-slate-400">
-                                                                                {course.years.length} year group{course.years.length === 1 ? '' : 's'}
-                                                                            </p>
-                                                                        </div>
+                                                                        <GraduationCap size={13} className="text-indigo-600 shrink-0" />
+                                                                        <span className="text-xs font-bold text-slate-800 truncate">{course.name}</span>
                                                                     </div>
-                                                                </td>
-                                                                <AbstractCountCell value={course.total} />
-                                                                <AbstractCountCell value={course.renewed} tone="emerald" />
-                                                                <AbstractCountCell value={course.pending} tone="amber" />
-                                                                <AbstractCountCell value={course.notInterested} tone="rose" />
-                                                                <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-slate-600">
-                                                                    {courseRate}%
-                                                                </td>
-                                                            </tr>
+                                                                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full shrink-0">
+                                                                        {courseRate}%
+                                                                    </span>
+                                                                </div>
 
-                                                            {courseOpen && course.years.map((yearNode) => {
-                                                                const yearRate = yearNode.total > 0
-                                                                    ? Math.round((yearNode.renewed / yearNode.total) * 100)
-                                                                    : 0;
-                                                                return (
-                                                                    <tr
-                                                                        key={`${courseKey}::${yearNode.year}`}
-                                                                        className="bg-white hover:bg-amber-50/30 transition-colors"
-                                                                    >
-                                                                        <td className="px-4 py-2 pl-20">
-                                                                            <div className="flex items-center gap-2.5">
-                                                                                <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-amber-50 text-amber-700 text-[10px] font-black shrink-0">
-                                                                                    Y{yearNode.year}
-                                                                                </span>
-                                                                                <p className="text-xs font-semibold text-slate-700">
-                                                                                    Year {yearNode.year}
-                                                                                </p>
-                                                                            </div>
-                                                                        </td>
-                                                                        <AbstractCountCell value={yearNode.total} />
-                                                                        <AbstractCountCell value={yearNode.renewed} tone="emerald" />
-                                                                        <AbstractCountCell value={yearNode.pending} tone="amber" />
-                                                                        <AbstractCountCell value={yearNode.notInterested} tone="rose" />
-                                                                        <td className="px-3 py-2 text-right text-xs font-bold tabular-nums text-slate-600">
-                                                                            {yearRate}%
-                                                                        </td>
-                                                                    </tr>
-                                                                );
-                                                            })}
-                                                        </React.Fragment>
-                                                    );
-                                                })}
-                                            </React.Fragment>
-                                        );
-                                    })}
-                                </tbody>
-                                <tfoot>
-                                    <tr className="bg-slate-100 border-t-2 border-slate-200">
-                                        <td className="px-4 py-3 text-xs font-black text-slate-800 uppercase tracking-wide">
-                                            Grand Total
-                                        </td>
-                                        <AbstractCountCell
-                                            value={abstractTree.reduce((sum, c) => sum + c.total, 0)}
-                                        />
-                                        <AbstractCountCell
-                                            value={abstractTree.reduce((sum, c) => sum + c.renewed, 0)}
-                                            tone="emerald"
-                                        />
-                                        <AbstractCountCell
-                                            value={abstractTree.reduce((sum, c) => sum + c.pending, 0)}
-                                            tone="amber"
-                                        />
-                                        <AbstractCountCell
-                                            value={abstractTree.reduce((sum, c) => sum + (c.notInterested || 0), 0)}
-                                            tone="rose"
-                                        />
-                                        <td className="px-3 py-3 text-right text-xs font-black tabular-nums text-slate-700">
+                                                                <div className="grid grid-cols-4 gap-1 px-2.5 py-1.5 bg-indigo-50/20 text-center border-t border-indigo-50 text-[10px]">
+                                                                    <span className="font-semibold text-slate-700">Tot: {course.total}</span>
+                                                                    <span className="font-semibold text-emerald-700">Ren: {course.renewed}</span>
+                                                                    <span className="font-semibold text-amber-700">Pen: {course.pending}</span>
+                                                                    <span className="font-semibold text-rose-700">Dec: {course.notInterested || 0}</span>
+                                                                </div>
+
+                                                                {/* Years List */}
+                                                                {courseOpen && (
+                                                                    <div className="p-2 border-t border-indigo-100 space-y-1.5 bg-white">
+                                                                        {course.years.map((yearNode) => {
+                                                                            const yearRate = yearNode.total > 0
+                                                                                ? Math.round((yearNode.renewed / yearNode.total) * 100)
+                                                                                : 0;
+                                                                            return (
+                                                                                <div key={`${courseKey}::${yearNode.year}`} className="p-2 rounded-lg bg-amber-50/50 border border-amber-100 flex items-center justify-between text-xs">
+                                                                                    <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                                                                                        <span className="w-5 h-5 rounded bg-amber-100 text-amber-800 text-[9px] flex items-center justify-center">
+                                                                                            Y{yearNode.year}
+                                                                                        </span>
+                                                                                        <span>Year {yearNode.year}</span>
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-2 text-[10px] font-bold">
+                                                                                        <span className="text-slate-600">Total: {yearNode.total}</span>
+                                                                                        <span className="text-emerald-700">Renewed: {yearNode.renewed}</span>
+                                                                                        <span className="text-amber-700">Pending: {yearNode.pending}</span>
+                                                                                        <span className="px-1.5 py-0.5 rounded bg-white text-slate-700 border border-slate-200">{yearRate}%</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+
+                                {/* Mobile Grand Total Card */}
+                                <div className="p-4 bg-slate-900 text-white rounded-2xl space-y-2 shadow-sm">
+                                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                                        <span className="text-xs font-black tracking-wide uppercase text-slate-300">Grand Total</span>
+                                        <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-blue-500 text-white">
                                             {(() => {
                                                 const total = abstractTree.reduce((sum, c) => sum + c.total, 0);
                                                 const renewed = abstractTree.reduce((sum, c) => sum + c.renewed, 0);
                                                 return total > 0 ? `${Math.round((renewed / total) * 100)}%` : '0%';
-                                            })()}
-                                        </td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
+                                            })()} Renewal Rate
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-2 text-center text-xs pt-1">
+                                        <div>
+                                            <span className="text-[9px] text-slate-400 block uppercase font-bold">Expired</span>
+                                            <span className="font-extrabold text-white">{abstractTree.reduce((sum, c) => sum + c.total, 0)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[9px] text-emerald-400 block uppercase font-bold">Renewed</span>
+                                            <span className="font-extrabold text-emerald-400">{abstractTree.reduce((sum, c) => sum + c.renewed, 0)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[9px] text-amber-400 block uppercase font-bold">Pending</span>
+                                            <span className="font-extrabold text-amber-400">{abstractTree.reduce((sum, c) => sum + c.pending, 0)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[9px] text-rose-400 block uppercase font-bold">Declined</span>
+                                            <span className="font-extrabold text-rose-400">{abstractTree.reduce((sum, c) => sum + (c.notInterested || 0), 0)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </>
                     )}
                 </div>
             )}
@@ -1376,8 +1534,9 @@ const Renewals = () => {
                     </div>
                 ) : (
                     <>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
+                        {/* Desktop Table View */}
+                        <div className="hidden md:block overflow-x-auto">
+                            <table className="w-full text-left border-collapse min-w-[720px]">
                                 <thead>
                                     <tr className="bg-slate-50/50 border-b border-slate-100 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
                                         <th className="px-4 py-3">Passenger Details</th>
@@ -1543,24 +1702,152 @@ const Renewals = () => {
                             </table>
                         </div>
 
+                        {/* Mobile Detailed Card List View */}
+                        <div className="block md:hidden divide-y divide-slate-100">
+                            {currentRequests.map((req) => {
+                                const isRenewed = renewedSet.has(String(req.admission_number).trim());
+                                const { year, isCompleted } = getTargetYearOfStudy(req, courses);
+
+                                return (
+                                    <div key={req._id || req.id} className="p-3.5 space-y-3">
+                                        {/* Passenger Top Header */}
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                <div className="w-9 h-9 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 font-bold shrink-0 text-xs">
+                                                    <User size={16} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <h4 className="font-bold text-slate-800 text-xs leading-snug truncate">{req.student_name}</h4>
+                                                    <p className="text-[10px] font-semibold text-slate-400">
+                                                        ADM: {req.admission_number}
+                                                        {req.pin_no && req.pin_no !== 'N/A' && ` · Pin: ${req.pin_no}`}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            {/* Status Badge */}
+                                            <div className="shrink-0">
+                                                {isRenewed ? (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                                        <Check size={9} strokeWidth={3} /> Renewed
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-50 text-amber-700 border border-amber-100 animate-pulse">
+                                                        <Clock size={9} /> Expired
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Not Interested Alert Banner */}
+                                        {req.not_interested && (
+                                            <div className="p-2 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-[10px] font-bold flex items-center gap-1.5">
+                                                <XCircle size={12} className="shrink-0" />
+                                                <span>Not Interested{req.not_interested_reason ? `: ${req.not_interested_reason}` : ''}</span>
+                                            </div>
+                                        )}
+
+                                        {/* Info Inset Box */}
+                                        <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50/80 p-3 rounded-xl border border-slate-100">
+                                            <div>
+                                                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block">Course & Year</span>
+                                                <p className="font-bold text-slate-800 mt-0.5 flex items-center gap-1 text-[11px] truncate">
+                                                    <GraduationCap size={12} className="text-slate-400 shrink-0" />
+                                                    {req.course || 'N/A'}
+                                                </p>
+                                                {isCompleted ? (
+                                                    <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[8px] font-bold">
+                                                        Course Completed
+                                                    </span>
+                                                ) : (
+                                                    <p className="text-[10px] font-semibold text-slate-500 mt-0.5">
+                                                        Target: Year {year}
+                                                    </p>
+                                                )}
+                                            </div>
+
+                                            <div>
+                                                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block">Previous Route</span>
+                                                <p className="font-bold text-slate-800 mt-0.5 flex items-center gap-1 text-[11px] truncate">
+                                                    <MapPin size={12} className="text-slate-400 shrink-0" />
+                                                    {req.route_name || 'N/A'}
+                                                </p>
+                                                <p className="text-[10px] font-semibold text-slate-500 mt-0.5 truncate">
+                                                    {req.stage_name} · {formatFare(req.fare)}
+                                                </p>
+                                            </div>
+
+                                            {req.student_mobile && (
+                                                <div className="col-span-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px]">
+                                                    <span className="text-slate-400 font-bold uppercase tracking-wider">Mobile Number:</span>
+                                                    <a href={`tel:${req.student_mobile}`} className="font-mono text-blue-600 font-bold hover:underline">
+                                                        {req.student_mobile}
+                                                    </a>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Card Action Buttons */}
+                                        <div className="flex items-center justify-end gap-2 pt-1">
+                                            {isRenewed ? (
+                                                <button
+                                                    disabled
+                                                    className="w-full py-2 bg-slate-100 text-slate-400 rounded-xl text-xs font-bold border border-slate-200 cursor-not-allowed text-center"
+                                                >
+                                                    Pass Already Renewed
+                                                </button>
+                                            ) : isCompleted ? (
+                                                <button
+                                                    disabled
+                                                    className="w-full py-2 bg-slate-100 text-slate-400 rounded-xl text-xs font-bold border border-slate-200 cursor-not-allowed text-center"
+                                                >
+                                                    Course Completed
+                                                </button>
+                                            ) : (
+                                                <>
+                                                    <button
+                                                        onClick={() => handleToggleInterest(req)}
+                                                        disabled={actionLoading === (req._id || req.id)}
+                                                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                                                            req.not_interested
+                                                                ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+                                                                : 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                                                        }`}
+                                                    >
+                                                        {actionLoading === (req._id || req.id) ? 'Updating...' : req.not_interested ? 'Mark Interested' : 'Not Interested'}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleOpenRenewModal(req)}
+                                                        className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                                    >
+                                                        <RefreshCw size={12} className="animate-spin-slow" />
+                                                        Renew
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
                         {/* Pagination Footer */}
                         {totalPages > 1 && (
-                            <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
+                            <div className="px-4 py-3 sm:px-6 sm:py-4 bg-slate-50/50 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
                                 <p className="text-xs font-semibold text-slate-500">
                                     Showing {indexOfFirstRow + 1} to {Math.min(indexOfLastRow, filteredRequests.length)} of {filteredRequests.length} expired requests
                                 </p>
-                                <div className="flex gap-2">
+                                <div className="flex gap-2 w-full sm:w-auto">
                                     <button
                                         disabled={currentPage === 1}
                                         onClick={() => setCurrentPage(prev => prev - 1)}
-                                        className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                        className="flex-1 sm:flex-initial px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         Previous
                                     </button>
                                     <button
                                         disabled={currentPage === totalPages}
                                         onClick={() => setCurrentPage(prev => prev + 1)}
-                                        className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                        className="flex-1 sm:flex-initial px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         Next
                                     </button>

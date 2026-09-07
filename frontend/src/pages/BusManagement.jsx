@@ -21,7 +21,9 @@ import {
     Truck,
     ChevronLeft,
     ChevronRight,
-    Search
+    Search,
+    MoreVertical,
+    FileText
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -46,6 +48,18 @@ const BusManagement = () => {
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState(TABS.buses);
     const [staffSubTab, setStaffSubTab] = useState('drivers');
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const mobileMenuRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target)) {
+                setIsMobileMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
 
     const [buses, setBuses] = useState([]);
@@ -775,7 +789,7 @@ const BusManagement = () => {
     return (
         <Layout>
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
-                <div>
+                <div className="hidden md:block">
                     <h2 className="text-xl font-bold text-slate-800 tracking-tight">
                         {activeTab === TABS.otherVehicles ? 'Vehicle Management' : 'Bus Management'}
                     </h2>
@@ -783,9 +797,9 @@ const BusManagement = () => {
                         {activeTab === TABS.otherVehicles ? 'Manage other vehicles in the fleet and their taxes.' : 'Manage buses, routes, and staff assignments.'}
                     </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
                     {(activeTab === TABS.buses || activeTab === TABS.otherVehicles || activeTab === TABS.mapping || activeTab === TABS.staffMapping) && (
-                        <div className="relative flex-shrink-0 w-64">
+                        <div className="relative flex-shrink-0 w-full sm:w-64">
                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                             <input
                                 type="text"
@@ -800,7 +814,7 @@ const BusManagement = () => {
                         </div>
                     )}
                     {(activeTab === TABS.buses || activeTab === TABS.otherVehicles || activeTab === TABS.mapping || activeTab === TABS.staffMapping) && allowedCampuses.length > 1 && (
-                        <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
+                        <div className="hidden md:flex items-center bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
                             <span className="text-[10px] font-medium text-slate-500 mr-2 uppercase">Campus</span>
                             <select
                                 value={selectedCampusFilter}
@@ -814,11 +828,11 @@ const BusManagement = () => {
                             </select>
                         </div>
                     )}
-                    <div className="flex gap-2">
+                    <div className="hidden md:flex gap-2">
                         {activeTab === TABS.otherVehicles ? (
                             <button
                                 onClick={() => { setIsOtherVehicleMode(true); setFormData(f => ({ ...f, type: 'Car' })); setIsModalOpen(true); }}
-                                className="bg-blue-900 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group"
+                                className="bg-blue-900 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group cursor-pointer"
                             >
                                 <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
                                 Add New Vehicle
@@ -826,7 +840,7 @@ const BusManagement = () => {
                         ) : (
                             <button
                                 onClick={() => { setIsOtherVehicleMode(false); setIsModalOpen(true); }}
-                                className="bg-blue-900 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group"
+                                className="bg-blue-900 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group cursor-pointer"
                             >
                                 <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
                                 Add New Bus
@@ -834,7 +848,7 @@ const BusManagement = () => {
                         )}
                         <button
                             onClick={() => handleOpenTaxHeaderModal()}
-                            className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group"
+                            className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group cursor-pointer"
                         >
                             <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
                             Add Tax Header
@@ -843,7 +857,158 @@ const BusManagement = () => {
                 </div>
             </div>
 
-            <div className="flex gap-1.5 mb-4 border-b border-gray-200 overflow-x-auto no-scrollbar">
+            {/* Mobile Action Buttons (Shown by default below search bar) */}
+            <div className="grid grid-cols-2 gap-2 w-full md:hidden mb-3">
+                {activeTab === TABS.otherVehicles ? (
+                    <button
+                        onClick={() => { setIsOtherVehicleMode(true); setFormData(f => ({ ...f, type: 'Car' })); setIsModalOpen(true); }}
+                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                    >
+                        <Plus size={14} className="shrink-0" />
+                        <span className="truncate">Add Vehicle</span>
+                    </button>
+                ) : (
+                    <button
+                        onClick={() => { setIsOtherVehicleMode(false); setIsModalOpen(true); }}
+                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                    >
+                        <Plus size={14} className="shrink-0" />
+                        <span className="truncate">Add Bus</span>
+                    </button>
+                )}
+                <button
+                    onClick={() => handleOpenTaxHeaderModal()}
+                    className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                    <Plus size={14} className="shrink-0" />
+                    <span className="truncate">Add Tax Header</span>
+                </button>
+            </div>
+
+            {/* Mobile 3-Tab Switcher + 3-Dot Menu Dropdown */}
+            <div className="block md:hidden mb-4 relative" ref={mobileMenuRef}>
+                <div className="flex items-center justify-between gap-1 w-full bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-xs">
+                    {/* Tab 1: Buses */}
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab(TABS.buses)}
+                        className={`flex-1 flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer truncate ${
+                            activeTab === TABS.buses
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                        }`}
+                    >
+                        <Bus size={13} className="shrink-0" />
+                        <span className="truncate">Buses ({buses.length})</span>
+                    </button>
+
+                    {/* Tab 2: Other Vehicles */}
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab(TABS.otherVehicles)}
+                        className={`flex-1 flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer truncate ${
+                            activeTab === TABS.otherVehicles
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                        }`}
+                    >
+                        <Truck size={13} className="shrink-0" />
+                        <span className="truncate">Other ({otherVehicles.length})</span>
+                    </button>
+
+                    {/* Tab 3: Staff Assignment */}
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab(TABS.staffMapping)}
+                        className={`flex-1 flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer truncate ${
+                            activeTab === TABS.staffMapping
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                        }`}
+                    >
+                        <UserCheck size={13} className="shrink-0" />
+                        <span className="truncate">Mapping</span>
+                    </button>
+
+                    {/* 3-Dot Menu Button */}
+                    <button
+                        type="button"
+                        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                        className={`p-2 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                            (activeTab === TABS.staff || activeTab === TABS.taxHeaders || isMobileMenuOpen)
+                                ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-300'
+                                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                        }`}
+                        title="More Options"
+                    >
+                        <MoreVertical size={15} />
+                    </button>
+                </div>
+
+                {/* 3-Dot Menu Dropdown */}
+                {isMobileMenuOpen && (
+                    <div className="absolute right-0 mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 p-2 space-y-1 animate-in fade-in slide-in-from-top-2 duration-150">
+                        <div className="px-2.5 py-1 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                            More Tabs
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setActiveTab(TABS.staff);
+                                setIsMobileMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer ${
+                                activeTab === TABS.staff ? 'bg-blue-50 text-blue-600' : 'text-slate-700 hover:bg-slate-50'
+                            }`}
+                        >
+                            <Users size={14} className="shrink-0" />
+                            <span>Staff Directory</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setActiveTab(TABS.taxHeaders);
+                                setIsMobileMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer ${
+                                activeTab === TABS.taxHeaders ? 'bg-blue-50 text-blue-600' : 'text-slate-700 hover:bg-slate-50'
+                            }`}
+                        >
+                            <FileText size={14} className="shrink-0" />
+                            <span>Tax Headers</span>
+                        </button>
+
+                        {allowedCampuses.length > 1 && (
+                            <>
+                                <div className="my-1 border-t border-slate-100"></div>
+                                <div className="px-2.5 py-1 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                                    Filter
+                                </div>
+                                <div className="px-2.5 py-1">
+                                    <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Campus</label>
+                                    <select
+                                        value={selectedCampusFilter}
+                                        onChange={(e) => {
+                                            setSelectedCampusFilter(e.target.value);
+                                            setIsMobileMenuOpen(false);
+                                        }}
+                                        className="w-full text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-1.5 outline-none cursor-pointer"
+                                    >
+                                        <option value="">All Campuses</option>
+                                        {allowedCampuses.map((campus) => (
+                                            <option key={getCampusId(campus)} value={getCampusId(campus)}>{campus.name} ({campus.code})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            {/* Desktop Tabs */}
+            <div className="hidden md:flex gap-1.5 mb-4 border-b border-gray-200 overflow-x-auto no-scrollbar">
                 <button
                     type="button"
                     onClick={() => setActiveTab(TABS.buses)}
@@ -1394,8 +1559,95 @@ const BusManagement = () => {
                         </div>
                     ) : (
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
-                            <div className="overflow-x-auto w-full">
-                                <table className="w-full text-left border-collapse">
+                            {/* Mobile View Cards */}
+                            <div className="block md:hidden space-y-3 p-3 bg-slate-50/50">
+                                {getPaginatedData(filteredBuses).map((bus) => (
+                                    <div 
+                                        key={bus._id}
+                                        onClick={() => navigate(`/buses/${bus._id}`)}
+                                        className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm space-y-3 cursor-pointer hover:border-blue-300 transition-colors"
+                                    >
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div>
+                                                <p className="font-black text-slate-900 text-base">{bus.busNumber}</p>
+                                                <p className="text-xs text-slate-500 font-medium">{bus.type}{bus.vehicleModel ? ` • ${bus.vehicleModel}` : ''}</p>
+                                                {bus.campus && (
+                                                    <span className="inline-flex items-center mt-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                                        {bus.campus.name || bus.campus}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border flex items-center shrink-0 ${
+                                                bus.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                                                bus.status === 'In Maintenance' ? 'bg-amber-50 text-amber-700 border-amber-100' :
+                                                'bg-red-50 text-red-700 border-red-100'
+                                            }`}>
+                                                <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${
+                                                    bus.status === 'Active' ? 'bg-emerald-500' :
+                                                    bus.status === 'In Maintenance' ? 'bg-amber-500' :
+                                                    'bg-red-500'
+                                                }`} />
+                                                {bus.status}
+                                            </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-2 text-xs border-t border-b border-slate-100 py-2">
+                                            <div>
+                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Capacity</span>
+                                                <span className="font-semibold text-slate-700 flex items-center gap-1 mt-0.5">
+                                                    <Armchair size={13} className="text-slate-400" /> {bus.capacity} Seats
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Route</span>
+                                                <span className="font-semibold text-slate-700 truncate block mt-0.5">
+                                                    {bus.assignedRouteId ? (
+                                                        routes.find(r => r.routeId === bus.assignedRouteId)?.routeName || bus.assignedRouteId
+                                                    ) : '— Unassigned —'}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Driver</span>
+                                                <span className="font-semibold text-slate-700 truncate block mt-0.5">{bus.driverName || '—'}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Cleaner</span>
+                                                <span className="font-semibold text-slate-700 truncate block mt-0.5">{bus.attendantName || '—'}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handleOpenTaxesModal(bus); }}
+                                                className="px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-all flex items-center gap-1"
+                                            >
+                                                <span className="bg-purple-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-bold">
+                                                    {(bus.taxes && bus.taxes.length) || 0}
+                                                </span>
+                                                Taxes Config
+                                            </button>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={(e) => handleEdit(bus, e)}
+                                                    className="px-3 py-1 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1"
+                                                >
+                                                    <Edit size={13} /> Edit
+                                                </button>
+                                                <button
+                                                    onClick={(e) => handleDelete(bus._id, e)}
+                                                    className="px-3 py-1 text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors flex items-center gap-1"
+                                                >
+                                                    <Trash2 size={13} /> Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Desktop View Table */}
+                            <div className="hidden md:block overflow-x-auto w-full">
+                                <table className="w-full text-left border-collapse min-w-[700px]">
                                     <thead>
                                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
                                             <th className="px-3 py-2 w-44">Bus Details</th>
@@ -1515,8 +1767,8 @@ const BusManagement = () => {
                                         ))}
                                     </tbody>
                                 </table>
-                                {renderPagination(filteredBuses.length)}
                             </div>
+                            {renderPagination(filteredBuses.length)}
                         </div>
                     )}
                 </>

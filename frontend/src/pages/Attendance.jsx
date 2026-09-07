@@ -250,7 +250,7 @@ const Attendance = () => {
             <div className="flex flex-col space-y-5 p-4 sm:p-6 bg-slate-50 min-h-screen">
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
-                    <div>
+                    <div className="hidden md:block">
                         <h1 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
                             <ClipboardList className="text-blue-600" size={24} />
                             Passenger Attendance
@@ -272,67 +272,67 @@ const Attendance = () => {
                     </div>
                 </div>
 
-                {/* Statistics Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Statistics Cards (2x2 on mobile) */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
                     {/* Stats 1 */}
-                    <div className="bg-white p-4 border border-slate-100 rounded-2xl shadow-sm flex items-center space-x-3.5 hover:shadow-md transition-shadow">
-                        <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-                            <Users size={20} />
+                    <div className="bg-white p-3 sm:p-4 border border-slate-100 rounded-2xl shadow-xs flex items-center space-x-2.5 sm:space-x-3.5 hover:shadow-md transition-shadow">
+                        <div className="p-2 sm:p-3 bg-blue-50 text-blue-600 rounded-xl shrink-0">
+                            <Users size={18} className="sm:w-5 sm:h-5" />
                         </div>
-                        <div>
-                            <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Passengers</p>
-                            <h3 className="text-lg font-bold text-slate-800 mt-0.5">{totalStudents}</h3>
-                            <p className="text-[10px] text-slate-400 mt-0.5">Active transport requests</p>
+                        <div className="min-w-0">
+                            <p className="text-[8px] sm:text-[10px] uppercase font-bold text-slate-400 tracking-wider truncate">Total Passengers</p>
+                            <h3 className="text-base sm:text-lg font-bold text-slate-800 mt-0.5">{totalStudents}</h3>
+                            <p className="text-[8px] sm:text-[10px] text-slate-400 mt-0.5 truncate">Active requests</p>
                         </div>
                     </div>
 
                     {/* Stats 2 */}
-                    <div className="bg-white p-4 border border-slate-100 rounded-2xl shadow-sm flex items-center space-x-3.5 hover:shadow-md transition-shadow">
-                        <div className={`p-3 rounded-xl ${avgPercentage >= 75 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                            <BookOpen size={20} />
+                    <div className="bg-white p-3 sm:p-4 border border-slate-100 rounded-2xl shadow-xs flex items-center space-x-2.5 sm:space-x-3.5 hover:shadow-md transition-shadow">
+                        <div className={`p-2 sm:p-3 rounded-xl shrink-0 ${avgPercentage >= 75 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                            <BookOpen size={18} className="sm:w-5 sm:h-5" />
                         </div>
-                        <div>
-                            <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Average Attendance</p>
-                            <h3 className="text-lg font-bold text-slate-800 mt-0.5">{avgPercentage}%</h3>
-                            <p className="text-[10px] text-slate-400 mt-0.5">Present to active ratio</p>
+                        <div className="min-w-0">
+                            <p className="text-[8px] sm:text-[10px] uppercase font-bold text-slate-400 tracking-wider truncate">Average Rate</p>
+                            <h3 className="text-base sm:text-lg font-bold text-slate-800 mt-0.5">{avgPercentage}%</h3>
+                            <p className="text-[8px] sm:text-[10px] text-slate-400 mt-0.5 truncate">Present ratio</p>
                         </div>
                     </div>
 
                     {/* Stats 3 */}
-                    <div className="bg-white p-4 border border-slate-100 rounded-2xl shadow-sm flex items-center space-x-3.5 hover:shadow-md transition-shadow">
-                        <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
-                            <CheckCircle2 size={20} />
+                    <div className="bg-white p-3 sm:p-4 border border-slate-100 rounded-2xl shadow-xs flex items-center space-x-2.5 sm:space-x-3.5 hover:shadow-md transition-shadow">
+                        <div className="p-2 sm:p-3 bg-emerald-50 text-emerald-600 rounded-xl shrink-0">
+                            <CheckCircle2 size={18} className="sm:w-5 sm:h-5" />
                         </div>
-                        <div>
-                            <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Present Markings</p>
-                            <h3 className="text-lg font-bold text-emerald-600 mt-0.5">{totalPresentCount}</h3>
-                            <p className="text-[10px] text-slate-400 mt-0.5">Total present logs</p>
+                        <div className="min-w-0">
+                            <p className="text-[8px] sm:text-[10px] uppercase font-bold text-slate-400 tracking-wider truncate">Present Markings</p>
+                            <h3 className="text-base sm:text-lg font-bold text-emerald-600 mt-0.5">{totalPresentCount}</h3>
+                            <p className="text-[8px] sm:text-[10px] text-slate-400 mt-0.5 truncate">Total present logs</p>
                         </div>
                     </div>
 
                     {/* Stats 4 */}
-                    <div className="bg-white p-4 border border-slate-100 rounded-2xl shadow-sm flex items-center space-x-3.5 hover:shadow-md transition-shadow">
-                        <div className="p-3 bg-rose-50 text-rose-600 rounded-xl">
-                            <XCircle size={20} />
+                    <div className="bg-white p-3 sm:p-4 border border-slate-100 rounded-2xl shadow-xs flex items-center space-x-2.5 sm:space-x-3.5 hover:shadow-md transition-shadow">
+                        <div className="p-2 sm:p-3 bg-rose-50 text-rose-600 rounded-xl shrink-0">
+                            <XCircle size={18} className="sm:w-5 sm:h-5" />
                         </div>
-                        <div>
-                            <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Absent Markings</p>
-                            <h3 className="text-lg font-bold text-rose-600 mt-0.5">{totalAbsentCount}</h3>
-                            <p className="text-[10px] text-slate-400 mt-0.5">Total absent logs</p>
+                        <div className="min-w-0">
+                            <p className="text-[8px] sm:text-[10px] uppercase font-bold text-slate-400 tracking-wider truncate">Absent Markings</p>
+                            <h3 className="text-base sm:text-lg font-bold text-rose-600 mt-0.5">{totalAbsentCount}</h3>
+                            <p className="text-[8px] sm:text-[10px] text-slate-400 mt-0.5 truncate">Total absent logs</p>
                         </div>
                     </div>
                 </div>
 
-                {/* Filter Controls Panel */}
-                <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-col space-y-3">
+                {/* Filter Controls Panel (Compact small area on mobile) */}
+                <div className="bg-white border border-slate-100 rounded-2xl p-2.5 sm:p-4 shadow-xs flex flex-col space-y-2 sm:space-y-3">
                     {/* Top Row: Date Ranges & Months */}
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5 items-end">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3.5 items-end">
                         <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Academic Year</label>
+                            <label className="block text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 sm:mb-1 truncate">Academic Year</label>
                             <select
                                 value={academicYear}
                                 onChange={(e) => setAcademicYear(e.target.value)}
-                                className="w-full text-xs rounded-xl border border-slate-200 px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                                className="w-full text-xs rounded-xl border border-slate-200 px-2 sm:px-3 py-1.5 sm:py-2 text-slate-700 bg-slate-50 hover:bg-slate-100 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold transition-all"
                             >
                                 {academicYearOptions.map((year) => (
                                     <option key={year} value={year}>{year}</option>
@@ -341,13 +341,13 @@ const Attendance = () => {
                         </div>
 
                         <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Quick Month Select</label>
+                            <label className="block text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 sm:mb-1 truncate">Quick Month</label>
                             <select
                                 value={monthSelect}
                                 onChange={handleMonthChange}
-                                className="w-full text-xs rounded-xl border border-slate-200 px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                                className="w-full text-xs rounded-xl border border-slate-200 px-2 sm:px-3 py-1.5 sm:py-2 text-slate-700 bg-slate-50 hover:bg-slate-100 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold transition-all"
                             >
-                                <option value="">Custom Date Range</option>
+                                <option value="">Custom Dates</option>
                                 <option value="current">Current Month</option>
                                 <option value="last">Previous Month</option>
                                 {monthOptions.map((opt) => (
@@ -357,66 +357,62 @@ const Attendance = () => {
                         </div>
 
                         <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">From Date</label>
-                            <div className="relative">
-                                <input
-                                    type="date"
-                                    value={startDate}
-                                    onChange={(e) => {
-                                        setStartDate(e.target.value);
-                                        setMonthSelect('');
-                                        setCurrentPage(1);
-                                    }}
-                                    className="w-full text-xs rounded-xl border border-slate-200 px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
-                                />
-                            </div>
+                            <label className="block text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 sm:mb-1 truncate">From Date</label>
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => {
+                                    setStartDate(e.target.value);
+                                    setMonthSelect('');
+                                    setCurrentPage(1);
+                                }}
+                                className="w-full text-xs rounded-xl border border-slate-200 px-2 sm:px-3 py-1.5 sm:py-2 text-slate-700 bg-slate-50 hover:bg-slate-100 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold transition-all"
+                            />
                         </div>
 
                         <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">To Date</label>
-                            <div className="relative">
-                                <input
-                                    type="date"
-                                    value={endDate}
-                                    onChange={(e) => {
-                                        setEndDate(e.target.value);
-                                        setMonthSelect('');
-                                        setCurrentPage(1);
-                                    }}
-                                    className="w-full text-xs rounded-xl border border-slate-200 px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
-                                />
-                            </div>
+                            <label className="block text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 sm:mb-1 truncate">To Date</label>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => {
+                                    setEndDate(e.target.value);
+                                    setMonthSelect('');
+                                    setCurrentPage(1);
+                                }}
+                                className="w-full text-xs rounded-xl border border-slate-200 px-2 sm:px-3 py-1.5 sm:py-2 text-slate-700 bg-slate-50 hover:bg-slate-100 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold transition-all"
+                            />
                         </div>
                     </div>
 
                     {/* Bottom Row: Search & dropdowns */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-end">
-                        <div className="relative">
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Search Passenger</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3.5 items-end">
+                        <div className="col-span-2 sm:col-span-1">
+                            <label className="block text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 sm:mb-1 truncate">Search Passenger</label>
                             <div className="relative">
-                                <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                                <Search className="absolute left-2.5 top-2.5 sm:top-3 text-slate-400" size={13} />
                                 <input
                                     type="text"
-                                    placeholder="Name or admission number..."
+                                    placeholder="Name or adm no..."
                                     value={searchQuery}
                                     onChange={(e) => {
                                         setSearchQuery(e.target.value);
                                         setCurrentPage(1);
                                     }}
-                                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 bg-white placeholder:text-slate-400 font-semibold"
+                                    className="w-full pl-8 pr-3 py-1.5 sm:py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 bg-slate-50 hover:bg-slate-100 focus:bg-white placeholder:text-slate-400 font-semibold transition-all"
                                 />
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Filter by Route</label>
+                            <label className="block text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 sm:mb-1 truncate">Route</label>
                             <select
                                 value={routeFilter}
                                 onChange={(e) => {
                                     setRouteFilter(e.target.value);
                                     setCurrentPage(1);
                                 }}
-                                className="w-full text-xs rounded-xl border border-slate-200 px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                                className="w-full text-xs rounded-xl border border-slate-200 px-2 sm:px-3 py-1.5 sm:py-2 text-slate-700 bg-slate-50 hover:bg-slate-100 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold transition-all"
                             >
                                 <option value="">All Routes</option>
                                 {routes.map((r) => (
@@ -426,14 +422,14 @@ const Attendance = () => {
                         </div>
 
                         <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Filter by Course</label>
+                            <label className="block text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 sm:mb-1 truncate">Course</label>
                             <select
                                 value={courseFilter}
                                 onChange={(e) => {
                                     setCourseFilter(e.target.value);
                                     setCurrentPage(1);
                                 }}
-                                className="w-full text-xs rounded-xl border border-slate-200 px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                                className="w-full text-xs rounded-xl border border-slate-200 px-2 sm:px-3 py-1.5 sm:py-2 text-slate-700 bg-slate-50 hover:bg-slate-100 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold transition-all"
                             >
                                 <option value="">All Courses</option>
                                 {courses.map((c) => (
@@ -465,8 +461,9 @@ const Attendance = () => {
                         </div>
                     ) : (
                         <>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse text-xs">
+                            {/* Desktop Table View */}
+                            <div className="hidden md:block overflow-x-auto">
+                                <table className="w-full text-left border-collapse text-xs min-w-[720px]">
                                     <thead>
                                         <tr className="bg-slate-50/70 border-b border-slate-100 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                                             <th className="py-3 px-4 text-center w-12">S.No</th>
@@ -528,7 +525,7 @@ const Attendance = () => {
                                                     <td className="py-2.5 px-4 text-center">
                                                         <button
                                                             onClick={() => handleViewDetails(r)}
-                                                            className="px-2.5 py-1 text-[10px] bg-blue-50 text-blue-600 font-bold rounded-lg hover:bg-blue-100 transition-colors shadow-sm"
+                                                            className="px-2.5 py-1 text-[10px] bg-blue-50 text-blue-600 font-bold rounded-lg hover:bg-blue-100 transition-colors shadow-sm cursor-pointer"
                                                         >
                                                             View Logs
                                                         </button>
@@ -540,17 +537,75 @@ const Attendance = () => {
                                 </table>
                             </div>
 
+                            {/* Mobile Card List View */}
+                            <div className="block md:hidden divide-y divide-slate-100">
+                                {currentRows.map((r) => {
+                                    const rate = r.attendance_percentage;
+                                    const rateColor = rate >= 75 
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                        : rate >= 50
+                                            ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                            : 'bg-rose-50 text-rose-700 border-rose-100';
+
+                                    return (
+                                        <div key={r.admission_number} className="p-3.5 space-y-3 bg-white">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0">
+                                                        {r.student_name.charAt(0).toUpperCase()}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <h4 className="font-bold text-slate-800 text-xs truncate">{r.student_name}</h4>
+                                                        <p className="text-[10px] font-semibold text-slate-400 font-mono">ADM: {r.admission_number}</p>
+                                                    </div>
+                                                </div>
+                                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border shrink-0 ${rateColor}`}>
+                                                    {rate}% Rate
+                                                </span>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                                                <div>
+                                                    <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block">Course & Route</span>
+                                                    <p className="font-semibold text-slate-700 text-[11px] truncate flex items-center gap-1 mt-0.5">
+                                                        <BookOpen size={11} className="text-slate-400 shrink-0" /> {r.course}
+                                                    </p>
+                                                    <p className="text-[10px] text-slate-500 font-medium truncate flex items-center gap-1 mt-0.5">
+                                                        <MapPin size={11} className="text-slate-400 shrink-0" /> {r.route_name}
+                                                    </p>
+                                                </div>
+
+                                                <div className="flex flex-col justify-between text-right">
+                                                    <div>
+                                                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block">Logs Breakup</span>
+                                                        <p className="text-[10px] font-bold text-slate-600 mt-0.5">
+                                                            <span className="text-emerald-600">{r.present_days}P</span> · <span className="text-rose-600">{r.absent_days}A</span> · <span className="text-slate-400">{r.holiday_days}H</span>
+                                                        </p>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleViewDetails(r)}
+                                                        className="mt-1 text-[10px] text-blue-600 font-bold bg-blue-50 border border-blue-100 hover:bg-blue-100 py-1 px-2 rounded-lg text-center transition-colors cursor-pointer"
+                                                    >
+                                                        View Logs
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
                             {/* Pagination Controls */}
                             {totalPages > 1 && (
-                                <div className="border-t border-slate-100 px-4 py-3 flex items-center justify-between text-xs text-slate-500 font-medium">
+                                <div className="border-t border-slate-100 px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 font-medium">
                                     <span>
                                         Showing {indexOfFirstRow + 1} to {Math.min(indexOfLastRow, records.length)} of {records.length} entries
                                     </span>
-                                    <div className="flex items-center space-x-1">
+                                    <div className="flex items-center space-x-1 w-full sm:w-auto justify-center">
                                         <button
                                             onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                                             disabled={currentPage === 1}
-                                            className="p-1 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-sm"
+                                            className="p-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-xs"
                                         >
                                             <ChevronLeft size={16} />
                                         </button>
@@ -558,7 +613,7 @@ const Attendance = () => {
                                             <button
                                                 key={idx}
                                                 onClick={() => setCurrentPage(idx + 1)}
-                                                className={`px-2.5 py-1 rounded-lg border font-bold transition-all shadow-sm ${
+                                                className={`px-2.5 py-1 rounded-lg border font-bold transition-all shadow-xs ${
                                                     currentPage === idx + 1
                                                         ? 'bg-blue-600 text-white border-blue-600'
                                                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -570,7 +625,7 @@ const Attendance = () => {
                                         <button
                                             onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                                             disabled={currentPage === totalPages}
-                                            className="p-1 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-sm"
+                                            className="p-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-xs"
                                         >
                                             <ChevronRight size={16} />
                                         </button>

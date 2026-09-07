@@ -1056,35 +1056,35 @@ const TransportRequests = () => {
     return (
         <Layout>
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
-                <div>
+                <div className="hidden md:block">
                     <h2 className="text-xl font-bold text-slate-800 tracking-tight">Transport Requests</h2>
                     <p className="text-slate-500 text-xs mt-0.5">View, approve, or reject student transport requests. Approval creates the transport fee (TRN01) in Fee Management.</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="grid grid-cols-3 gap-1.5 w-full sm:w-auto sm:flex sm:items-center sm:gap-3">
                     <button
                         type="button"
                         onClick={handleDownloadReport}
                         disabled={downloadingReport || loading || currentRequests.length === 0}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 shadow-sm transition-all hover:shadow-md active:scale-95 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed"
+                        className="flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 sm:py-1.5 rounded-xl sm:rounded-lg bg-emerald-600 text-white font-bold sm:font-semibold text-[11px] sm:text-xs hover:bg-emerald-700 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed text-center min-w-0"
                     >
-                        <FileText size={14} />
-                        {downloadingReport ? 'Preparing...' : 'Download Report'}
+                        <FileText size={13} className="shrink-0" />
+                        <span className="truncate">{downloadingReport ? 'Preparing...' : 'Report'}</span>
                     </button>
                     <button
                         type="button"
                         onClick={openIdCardModal}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-900 text-white font-semibold text-xs hover:bg-blue-800 shadow-sm transition-all hover:shadow-md active:scale-95 cursor-pointer"
+                        className="flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 sm:py-1.5 rounded-xl sm:rounded-lg bg-blue-900 text-white font-bold sm:font-semibold text-[11px] sm:text-xs hover:bg-blue-800 shadow-xs transition-all active:scale-95 cursor-pointer text-center min-w-0"
                     >
-                        <Printer size={14} />
-                        Print ID Cards
+                        <Printer size={13} className="shrink-0" />
+                        <span className="truncate">Print Cards</span>
                     </button>
                     <button
                         type="button"
                         onClick={openCourseExpiryModal}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 text-white font-semibold text-xs hover:bg-purple-700 shadow-sm transition-all hover:shadow-md active:scale-95 cursor-pointer"
+                        className="flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 sm:py-1.5 rounded-xl sm:rounded-lg bg-purple-600 text-white font-bold sm:font-semibold text-[11px] sm:text-xs hover:bg-purple-700 shadow-xs transition-all active:scale-95 cursor-pointer text-center min-w-0"
                     >
-                        <Calendar size={14} />
-                        Course Expiry Settings
+                        <Calendar size={13} className="shrink-0" />
+                        <span className="truncate">Expiry Settings</span>
                     </button>
                 </div>
             </div>
@@ -1242,81 +1242,173 @@ const TransportRequests = () => {
                 </div>
             ) : (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    {/* Pagination Controls */}
-                    <div className="p-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4 bg-slate-50/80">
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600 font-medium">Rows per page:</span>
-                            <select
-                                value={rowsPerPage}
-                                onChange={(e) => {
-                                    setRowsPerPage(Number(e.target.value));
-                                    setCurrentPage(1);
-                                }}
-                                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm"
-                            >
-                                <option value={10}>10</option>
-                                <option value={20}>20</option>
-                                <option value={50}>50</option>
-                                <option value={100}>100</option>
-                            </select>
+                    {/* Pagination & Filter Controls */}
+                    <div className="p-3 border-b border-slate-200 bg-slate-50/80 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div className="flex items-center justify-between gap-3 w-full md:w-auto">
+                            {/* User Type Tabs */}
+                            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-xs">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setUserTypeFilter('student');
+                                        setCurrentPage(1);
+                                    }}
+                                    className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'student'
+                                        ? 'bg-blue-900 text-white shadow-xs'
+                                        : 'text-slate-500 hover:bg-slate-50'
+                                        }`}
+                                >
+                                    Students
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setUserTypeFilter('employee');
+                                        setCurrentPage(1);
+                                    }}
+                                    className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'employee'
+                                        ? 'bg-blue-900 text-white shadow-xs'
+                                        : 'text-slate-500 hover:bg-slate-50'
+                                        }`}
+                                >
+                                    Employees
+                                </button>
+                            </div>
+
+                            {/* Rows per page */}
+                            <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium shrink-0">
+                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Rows:</span>
+                                <select
+                                    value={rowsPerPage}
+                                    onChange={(e) => {
+                                        setRowsPerPage(Number(e.target.value));
+                                        setCurrentPage(1);
+                                    }}
+                                    className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-xs text-slate-700 cursor-pointer"
+                                >
+                                    <option value={10}>10</option>
+                                    <option value={20}>20</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                </select>
+                            </div>
                         </div>
 
-                        {/* User Type Tabs */}
-                        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setUserTypeFilter('student');
-                                    setCurrentPage(1);
-                                }}
-                                className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'student'
-                                    ? 'bg-blue-900 text-white shadow-sm'
-                                    : 'text-slate-500 hover:bg-slate-50'
-                                    }`}
-                            >
-                                Students
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setUserTypeFilter('employee');
-                                    setCurrentPage(1);
-                                }}
-                                className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'employee'
-                                    ? 'bg-blue-900 text-white shadow-sm'
-                                    : 'text-slate-500 hover:bg-slate-50'
-                                    }`}
-                            >
-                                Employees
-                            </button>
-                        </div>
-                    </div>
-                        <div className="flex items-center gap-4 text-sm text-gray-600">
-                            <span>
-                                Showing <span className="font-semibold text-gray-900">{indexOfFirstRow + 1}</span> to <span className="font-semibold text-gray-900">{Math.min(indexOfLastRow, requests.length)}</span> of <span className="font-semibold text-gray-900">{requests.length}</span> entries
+                        {/* Entry Count & Page Nav */}
+                        <div className="flex items-center justify-between gap-3 w-full md:w-auto text-xs text-slate-600">
+                            <span className="text-[11px] font-medium text-slate-500">
+                                Showing <span className="font-bold text-slate-800">{indexOfFirstRow + 1}–{Math.min(indexOfLastRow, requests.length)}</span> of <span className="font-bold text-slate-800">{requests.length}</span>
                             </span>
-                            <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg shadow-sm p-1">
+                            <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-xs p-1">
                                 <button
                                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                                     disabled={currentPage === 1}
-                                    className="p-1 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    className="p-1 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                    title="Previous Page"
                                 >
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                                 </button>
-                                <span className="px-3 font-medium text-gray-700 bg-gray-50 py-1 rounded-md border border-gray-100">Page {currentPage} of {totalPages || 1}</span>
+                                <span className="px-2 font-bold text-slate-700 text-[11px]">Page {currentPage} of {totalPages || 1}</span>
                                 <button
                                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                     disabled={currentPage === totalPages || totalPages === 0}
-                                    className="p-1 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    className="p-1 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                    title="Next Page"
                                 >
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                                 </button>
                             </div>
                         </div>
                     </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
+                    {/* Mobile View Card List (< 768px) */}
+                    <div className="block md:hidden divide-y divide-slate-100">
+                        {currentRequests.map((req) => (
+                            <div
+                                key={req.id}
+                                onClick={() => openDetailModal(req)}
+                                className="p-4 space-y-2.5 hover:bg-slate-50/60 transition-colors cursor-pointer"
+                            >
+                                <div className="flex items-start justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0" onClick={(e) => e.stopPropagation()}>
+                                        {(req.status || '').toLowerCase() === 'approved' ? (
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedRequestIds.includes(req.id)}
+                                                onChange={(e) => toggleSelectRequest(req, e)}
+                                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                            />
+                                        ) : (
+                                            <input
+                                                type="checkbox"
+                                                disabled
+                                                className="opacity-20 cursor-not-allowed"
+                                            />
+                                        )}
+                                        <span className="font-bold text-indigo-700 font-mono text-xs bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 shrink-0">
+                                            {req.application_number || '—'}
+                                        </span>
+                                    </div>
+
+                                    <div className="shrink-0 text-right">
+                                        {isExpiredPass(req) ? (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border border-red-200 bg-red-50 text-red-700">
+                                                Expired
+                                            </span>
+                                        ) : (
+                                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${(req.status || '').toLowerCase() === 'approved' ? 'bg-green-50 border-green-200 text-green-700' :
+                                                (req.status || '').toLowerCase() === 'pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                                                (req.status || '').toLowerCase() === 'cancelled' ? 'bg-orange-50 border-orange-200 text-orange-750' :
+                                                    'bg-slate-50 border-slate-200 text-slate-600'
+                                                }`}>
+                                                {statusDisplay(req.status)}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-between items-start gap-2">
+                                    <div className="min-w-0 flex-1">
+                                        <p className="font-bold text-slate-900 text-sm truncate">{req.student_name || req.employee_name}</p>
+                                        <p className="text-xs text-blue-600 font-semibold mt-0.5">
+                                            Adm/Emp: {req.admission_number || req.emp_no}
+                                            {req.pin_no && req.user_type !== 'employee' ? ` • Pin: ${req.pin_no}` : ''}
+                                        </p>
+                                    </div>
+                                    {req.new_id_card_needed && (
+                                        <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200">
+                                            New Card
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center justify-between text-xs">
+                                    <div>
+                                        <p className="text-[9px] font-bold uppercase text-slate-400">Academic Info</p>
+                                        {req.user_type === 'employee' ? (
+                                            <p className="font-bold text-slate-700">Employee</p>
+                                        ) : (
+                                            <p className="font-bold text-slate-800">{req.course || '—'} (Y{req.year_of_study || '—'})</p>
+                                        )}
+                                    </div>
+
+                                    <div className="text-right">
+                                        <p className="text-[9px] font-bold uppercase text-slate-400">Fare</p>
+                                        <FareDisplay request={req} />
+                                    </div>
+                                </div>
+
+                                {req.effective_expiry_date && req.user_type !== 'employee' && (
+                                    <p className="text-[10px] text-slate-400 font-semibold">
+                                        Effective Expiry: {formatDate(req.effective_expiry_date)}
+                                    </p>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Desktop View Table */}
+                    <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[700px]">
                             <thead>
                                 <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider select-none">
                                     <th className="px-3 py-2 w-8">
@@ -1466,7 +1558,6 @@ const TransportRequests = () => {
                 onClose={closeDetailModal}
                 title="Passenger Request"
                 maxWidth="max-w-5xl"
-                noScroll
             >
                 {detailModal.loading && (
                     <div className="flex items-center gap-2 text-sm text-slate-500 py-2 px-1">
@@ -1498,7 +1589,7 @@ const TransportRequests = () => {
                             </div>
                             <div className="min-w-0">
                                 <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">{label}</p>
-                                <p className="text-sm font-semibold text-slate-900 mt-0.5 truncate" title={value}>{value}</p>
+                                <p className="text-xs sm:text-sm font-semibold text-slate-900 mt-0.5 truncate" title={value}>{value}</p>
                             </div>
                         </div>
                     );
@@ -1506,17 +1597,16 @@ const TransportRequests = () => {
                     const photoSrc = normalizeStudentPhoto(req.student_photo);
 
                     return (
-                        <div className="space-y-5">
-
+                        <div className="space-y-4 sm:space-y-5">
                             {/* ── TOP: Photo + Student Details ───────────────────────── */}
-                            <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
-                                {/* decorative blob */}
+                            <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-4 sm:p-5 shadow-xs">
+                                {/* decorative background blob */}
                                 <div className="pointer-events-none absolute -top-6 -right-6 w-36 h-36 rounded-full bg-blue-50" />
 
-                                <div className="relative flex flex-col sm:flex-row gap-5">
+                                <div className="relative flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-5 text-center sm:text-left">
                                     {/* Photo */}
-                                    <div className="shrink-0 self-center sm:self-start">
-                                        <div className="w-28 h-36 sm:w-32 sm:h-40 rounded-2xl border-2 border-slate-200 overflow-hidden bg-slate-50 shadow-md flex items-center justify-center">
+                                    <div className="shrink-0">
+                                        <div className="w-24 h-32 sm:w-32 sm:h-40 rounded-2xl border-2 border-slate-200 overflow-hidden bg-slate-50 shadow-sm flex items-center justify-center">
                                             {photoSrc ? (
                                                 <img
                                                     src={photoSrc}
@@ -1532,11 +1622,10 @@ const TransportRequests = () => {
                                         </div>
                                     </div>
 
-                                    {/* Student Details beside photo */}
-                                    <div className="flex-1 min-w-0 flex flex-col justify-between gap-3">
-                                        {/* Name + ID + badges */}
+                                    {/* Details beside/below photo */}
+                                    <div className="flex-1 min-w-0 flex flex-col justify-between gap-2.5 w-full">
                                         <div>
-                                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                                            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 mb-2">
                                                 <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wide ring-1 ${isEmployee ? 'bg-purple-100 text-purple-700 ring-purple-200' : 'bg-blue-100 text-blue-700 ring-blue-200'}`}>
                                                     {req.user_type || 'student'}
                                                 </span>
@@ -1544,50 +1633,50 @@ const TransportRequests = () => {
                                                     {isExpiredPass(req) ? 'Expired' : statusDisplay(req.status)}
                                                 </span>
                                                 {req.new_id_card_needed && (
-                                                    <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wide bg-amber-150 text-amber-900 ring-1 ring-amber-250 animate-pulse">
-                                                        New ID Card Needed
+                                                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wide bg-amber-150 text-amber-900 ring-1 ring-amber-250 animate-pulse">
+                                                        New Card Needed
                                                     </span>
                                                 )}
                                             </div>
-                                            {/* Name and ID on same line */}
-                                            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                                                <h4 className="text-xl sm:text-2xl font-black leading-tight uppercase tracking-wide text-slate-900">{name}</h4>
-                                                <span className="text-sm font-bold text-blue-600 shrink-0">{idNo}</span>
+
+                                            <div className="flex flex-col sm:flex-row sm:items-baseline justify-center sm:justify-start gap-1 sm:gap-3">
+                                                <h4 className="text-lg sm:text-2xl font-black leading-tight uppercase tracking-wide text-slate-900 truncate">{name}</h4>
+                                                <span className="text-xs sm:text-sm font-bold text-blue-600 shrink-0">{idNo}</span>
                                             </div>
                                         </div>
 
-                                        {/* Key info chips */}
+                                        {/* Key Info Chips */}
                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1">
                                             {!isEmployee && req.course && (
-                                                <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
-                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Course</p>
+                                                <div className="rounded-xl bg-slate-50 border border-slate-100 p-2.5 min-w-0 text-left">
+                                                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wide leading-none">Course</p>
                                                     <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">{req.course}{req.branch ? ` · ${req.branch}` : ''}</p>
                                                 </div>
                                             )}
                                             {!isEmployee && req.year_of_study != null && (
-                                                <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
-                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Year</p>
+                                                <div className="rounded-xl bg-slate-50 border border-slate-100 p-2.5 min-w-0 text-left">
+                                                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wide leading-none">Year</p>
                                                     <p className="text-xs font-bold text-slate-800 mt-0.5">Year {req.year_of_study}</p>
                                                 </div>
                                             )}
                                             {req.academic_year && (
-                                                <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
-                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Academic Year</p>
+                                                <div className="rounded-xl bg-slate-50 border border-slate-100 p-2.5 min-w-0 text-left">
+                                                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wide leading-none">Academic Year</p>
                                                     <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">{req.academic_year}</p>
                                                 </div>
                                             )}
                                             {req.application_number && (
-                                                <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
-                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Application No.</p>
+                                                <div className="rounded-xl bg-slate-50 border border-slate-100 p-2.5 min-w-0 text-left">
+                                                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wide leading-none">Application No.</p>
                                                     <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">{req.application_number}</p>
                                                 </div>
                                             )}
-                                            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
-                                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Requested</p>
+                                            <div className="rounded-xl bg-slate-50 border border-slate-100 p-2.5 min-w-0 text-left">
+                                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wide leading-none">Requested</p>
                                                 <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">{formatDate(req.request_date)}</p>
                                             </div>
-                                            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-0">
-                                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">Raised By</p>
+                                            <div className="rounded-xl bg-slate-50 border border-slate-100 p-2.5 min-w-0 text-left">
+                                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wide leading-none">Raised By</p>
                                                 <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">
                                                     {req.raised_by
                                                         ? `${req.raised_by.charAt(0).toUpperCase() + req.raised_by.slice(1)}${req.raised_by_id ? ` (${req.raised_by_id})` : ''}`
@@ -1599,172 +1688,171 @@ const TransportRequests = () => {
                                 </div>
                             </div>
 
-                            {/* ── BOTTOM: Transport Details + Actions ─────────────────── */}
-                            <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-5 items-start">
-                                {/* Transport Details — full left column */}
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2.5">Transport Details</p>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                        {/* Route — full width so long names never truncate */}
-                                        <div className="col-span-2 md:col-span-3 flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
-                                            <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100 mt-0.5">
-                                                <MapPin size={14} />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Route</p>
-                                                <p className="text-sm font-semibold text-slate-900 mt-0.5 break-words whitespace-normal">
-                                                    {req.route_name || '—'} {req.route_id && <span className="text-slate-400 font-mono text-xs">({req.route_id})</span>}
+                            {/* ── Action Buttons Bar ─────────────────────────────── */}
+                            <div className="bg-slate-50/80 p-3 sm:p-4 rounded-2xl border border-slate-200">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Actions</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                    {isPending(req) && (
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleApprove(req.id)}
+                                                disabled={actionLoading !== null}
+                                                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-emerald-600 text-white text-xs sm:text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 shadow-xs transition-colors cursor-pointer"
+                                            >
+                                                <CheckCircle2 size={16} />
+                                                Approve
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleReject(req.id)}
+                                                disabled={actionLoading !== null}
+                                                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white text-amber-700 text-xs sm:text-sm font-bold border border-amber-200 hover:bg-amber-50 disabled:opacity-50 transition-colors cursor-pointer"
+                                            >
+                                                <XCircle size={16} />
+                                                {actionLoading === req.id ? 'Rejecting…' : 'Reject'}
+                                            </button>
+                                        </>
+                                    )}
+                                    {req.status === 'approved' && (
+                                        <>
+                                            <button
+                                                type="button"
+                                                disabled={fetchingPass || fetchingIdCard}
+                                                onClick={() => handlePrintAdmitCardClick(req)}
+                                                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-slate-900 text-white text-xs sm:text-sm font-bold hover:bg-black disabled:opacity-50 shadow-xs transition-colors cursor-pointer"
+                                            >
+                                                <FileText size={16} />
+                                                {fetchingPass ? 'Preparing…' : 'Print Admit Card'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={fetchingPass || fetchingIdCard}
+                                                onClick={() => handlePrintIdCardClick(req)}
+                                                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-blue-700 text-white text-xs sm:text-sm font-bold hover:bg-blue-800 disabled:opacity-50 shadow-xs transition-colors cursor-pointer"
+                                            >
+                                                <Printer size={16} />
+                                                {fetchingIdCard ? 'Preparing…' : 'Print ID Card'}
+                                            </button>
+                                            {req.new_id_card_needed && (
+                                                <button
+                                                    type="button"
+                                                    disabled={idCardStatusLoading}
+                                                    onClick={() => handleUpdateIdCardStatus(req.id || req._id, false)}
+                                                    className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold disabled:opacity-50 shadow-xs transition-colors border bg-amber-500 text-white hover:bg-amber-600 border-amber-650 cursor-pointer"
+                                                >
+                                                    <CreditCard size={16} />
+                                                    {idCardStatusLoading ? 'Updating…' : 'Mark Card Given'}
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setCancelModalOpen(true);
+                                                    setCancelReason('');
+                                                }}
+                                                disabled={actionLoading !== null}
+                                                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white text-orange-700 text-xs sm:text-sm font-bold border border-orange-200 hover:bg-orange-50 disabled:opacity-50 transition-colors cursor-pointer"
+                                            >
+                                                <Ban size={16} />
+                                                Cancel Request
+                                            </button>
+                                        </>
+                                    )}
+                                    {statusKey === 'cancelled' && (
+                                        <div className="col-span-full rounded-xl border border-orange-200 bg-orange-50/70 p-3 text-xs text-orange-900">
+                                            <p className="text-[10px] font-black uppercase tracking-wider text-orange-600 mb-1">Cancelled</p>
+                                            <p className="font-semibold leading-snug">{req.cancellation_reason || 'No reason recorded'}</p>
+                                            {req.cancelled_at && (
+                                                <p className="text-[10px] text-orange-700 mt-1">
+                                                    {formatDate(req.cancelled_at)}
                                                 </p>
-                                            </div>
+                                            )}
                                         </div>
-                                        <DetailItem icon={Bus} label="Stage" value={req.stage_name || '—'} />
-                                        <DetailItem icon={Bus} label="Bus" value={req.bus_id || 'Not assigned'} />
-                                        <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
-                                            <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100">
-                                                <FileText size={14} />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Fare</p>
-                                                <p className="text-sm font-semibold text-slate-900 mt-0.5">Normal: {fareSummary.normal}</p>
-                                                {fareSummary.hasAdjustment && (
-                                                    <p className="text-[11px] font-bold text-emerald-700">
-                                                        {fareSummary.label}: {fareSummary.adjusted}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        </div>
-                                        {req.effective_expiry_date && !isEmployee && (
-                                            <DetailItem icon={Clock} label="Valid Until" value={formatDate(req.effective_expiry_date)} />
-                                        )}
-                                        {req.is_expired != null && !isEmployee && (
-                                            <DetailItem
-                                                icon={Clock}
-                                                label="Pass Status"
-                                                value={req.is_expired ? 'Expired' : 'Valid'}
-                                            />
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Staff Expiry Reason Notices */}
-                                {isEmployee && req.status === 'expired' && req.expiry_reason === 'employee_left' && (
-                                    <div className="mt-4 p-3 rounded-xl bg-orange-50 border border-orange-200 flex items-start gap-2.5">
-                                        <span className="text-base mt-0.5 shrink-0">🏢</span>
-                                        <div>
-                                            <p className="text-xs font-black text-orange-800 mb-0.5">Auto-Expired: Employee Left Organisation</p>
-                                            <p className="text-[10px] text-orange-700 leading-relaxed">
-                                                This transport request was automatically expired by the nightly HRMS sync because the employee's leaving date was recorded in the HR system.
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
-                                {isEmployee && req.status === 'expired' && req.expiry_reason === 'academic_year_ended' && (
-                                    <div className="mt-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2.5">
-                                        <span className="text-base mt-0.5 shrink-0">📅</span>
-                                        <div>
-                                            <p className="text-xs font-black text-blue-800 mb-0.5">
-                                                Auto-Expired: Academic Year Ended
-                                                {req.academic_year ? ` (${req.academic_year})` : ''}
-                                            </p>
-                                            <p className="text-[10px] text-blue-700 leading-relaxed">
-                                                This transport request was automatically expired at the end of the academic year. A new request must be raised for the next academic year.
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
-                                <div className="lg:border-l lg:pl-5 border-slate-100">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Actions</p>
-                                    <div className="space-y-2">
-                                        {isPending(req) && (
-                                            <>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleApprove(req.id)}
-                                                    disabled={actionLoading !== null}
-                                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 shadow-sm transition-colors"
-                                                >
-                                                    <CheckCircle2 size={17} />
-                                                    Approve
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleReject(req.id)}
-                                                    disabled={actionLoading !== null}
-                                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white text-amber-700 text-sm font-bold border border-amber-200 hover:bg-amber-50 disabled:opacity-50 transition-colors"
-                                                >
-                                                    <XCircle size={17} />
-                                                    {actionLoading === req.id ? 'Rejecting…' : 'Reject'}
-                                                </button>
-                                            </>
-                                        )}
-                                        {req.status === 'approved' && (
-                                            <>
-                                                <button
-                                                    type="button"
-                                                    disabled={fetchingPass || fetchingIdCard}
-                                                    onClick={() => handlePrintAdmitCardClick(req)}
-                                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-black disabled:opacity-50 shadow-sm transition-colors"
-                                                >
-                                                    <FileText size={17} />
-                                                    {fetchingPass ? 'Preparing…' : 'Print Admit Card'}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    disabled={fetchingPass || fetchingIdCard}
-                                                    onClick={() => handlePrintIdCardClick(req)}
-                                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-700 text-white text-sm font-bold hover:bg-blue-800 disabled:opacity-50 shadow-sm transition-colors"
-                                                >
-                                                    <Printer size={17} />
-                                                    {fetchingIdCard ? 'Preparing…' : 'Print ID Card'}
-                                                </button>
-                                                {req.new_id_card_needed && (
-                                                    <button
-                                                        type="button"
-                                                        disabled={idCardStatusLoading}
-                                                        onClick={() => handleUpdateIdCardStatus(req.id || req._id, false)}
-                                                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 shadow-sm transition-colors border bg-amber-500 text-white hover:bg-amber-600 border-amber-650"
-                                                    >
-                                                        <CreditCard size={17} />
-                                                        {idCardStatusLoading ? 'Updating…' : 'Mark ID Card as Given'}
-                                                    </button>
-                                                )}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setCancelModalOpen(true);
-                                                        setCancelReason('');
-                                                    }}
-                                                    disabled={actionLoading !== null}
-                                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white text-orange-700 text-sm font-bold border border-orange-200 hover:bg-orange-50 disabled:opacity-50 transition-colors"
-                                                >
-                                                    <Ban size={17} />
-                                                    Cancel Request
-                                                </button>
-                                            </>
-                                        )}
-                                        {statusKey === 'cancelled' && (
-                                            <div className="rounded-xl border border-orange-200 bg-orange-50/70 p-3 text-sm text-orange-900">
-                                                <p className="text-[10px] font-black uppercase tracking-wider text-orange-600 mb-1">Cancelled</p>
-                                                <p className="font-semibold leading-snug">{req.cancellation_reason || 'No reason recorded'}</p>
-                                                {req.cancelled_at && (
-                                                    <p className="text-[11px] text-orange-700 mt-1">
-                                                        {formatDate(req.cancelled_at)}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        )}
-                                        <button
-                                            type="button"
-                                            onClick={() => handleDelete(req.id, req.academic_year || academicYear)}
-                                            disabled={actionLoading !== null}
-                                            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-red-600 text-xs font-bold hover:bg-red-50 disabled:opacity-50 transition-colors"
-                                        >
-                                            <Trash2 size={14} />
-                                            Delete
-                                        </button>
-                                    </div>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => handleDelete(req.id, req.academic_year || academicYear)}
+                                        disabled={actionLoading !== null}
+                                        className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white text-red-600 text-xs sm:text-sm font-bold border border-red-200 hover:bg-red-50 disabled:opacity-50 transition-colors cursor-pointer"
+                                    >
+                                        <Trash2 size={15} />
+                                        Delete Request
+                                    </button>
                                 </div>
                             </div>
+
+                            {/* ── Transport Details ─────────────────── */}
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Transport Details</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                    {/* Route — full width so long names never truncate */}
+                                    <div className="col-span-1 sm:col-span-2 md:col-span-3 flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
+                                        <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100 mt-0.5">
+                                            <MapPin size={14} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Route</p>
+                                            <p className="text-xs sm:text-sm font-semibold text-slate-900 mt-0.5 break-words whitespace-normal">
+                                                {req.route_name || '—'} {req.route_id && <span className="text-slate-400 font-mono text-xs">({req.route_id})</span>}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <DetailItem icon={Bus} label="Stage" value={req.stage_name || '—'} />
+                                    <DetailItem icon={Bus} label="Bus" value={req.bus_id || 'Not assigned'} />
+                                    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
+                                        <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100">
+                                            <FileText size={14} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Fare</p>
+                                            <p className="text-xs sm:text-sm font-semibold text-slate-900 mt-0.5">Normal: {fareSummary.normal}</p>
+                                            {fareSummary.hasAdjustment && (
+                                                <p className="text-[11px] font-bold text-emerald-700">
+                                                    {fareSummary.label}: {fareSummary.adjusted}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {req.effective_expiry_date && !isEmployee && (
+                                        <DetailItem icon={Clock} label="Valid Until" value={formatDate(req.effective_expiry_date)} />
+                                    )}
+                                    {req.is_expired != null && !isEmployee && (
+                                        <DetailItem
+                                            icon={Clock}
+                                            label="Pass Status"
+                                            value={req.is_expired ? 'Expired' : 'Valid'}
+                                        />
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Staff Expiry Reason Notices */}
+                            {isEmployee && req.status === 'expired' && req.expiry_reason === 'employee_left' && (
+                                <div className="p-3 rounded-xl bg-orange-50 border border-orange-200 flex items-start gap-2.5">
+                                    <span className="text-base mt-0.5 shrink-0">🏢</span>
+                                    <div>
+                                        <p className="text-xs font-black text-orange-800 mb-0.5">Auto-Expired: Employee Left Organisation</p>
+                                        <p className="text-[10px] text-orange-700 leading-relaxed">
+                                            This transport request was automatically expired by the HRMS sync because the employee's leaving date was recorded.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                            {isEmployee && req.status === 'expired' && req.expiry_reason === 'academic_year_ended' && (
+                                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2.5">
+                                    <span className="text-base mt-0.5 shrink-0">📅</span>
+                                    <div>
+                                        <p className="text-xs font-black text-blue-800 mb-0.5">
+                                            Auto-Expired: Academic Year Ended
+                                            {req.academic_year ? ` (${req.academic_year})` : ''}
+                                        </p>
+                                        <p className="text-[10px] text-blue-700 leading-relaxed">
+                                            This transport request was automatically expired at the end of the academic year.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     );
                 })()}

@@ -118,51 +118,91 @@ export default function GpsFinalDestinationModal({ campuses = [] }) {
     });
   }, [savedDestinations]);
 
-  // Init map on mount
+  // Dynamically ensure Leaflet is loaded and init map reliably
   useEffect(() => {
-    const L = window.L;
-    if (!L || !mapContainerRef.current) return;
+    if (!document.getElementById('leaflet-css')) {
+      const css = document.createElement('link');
+      css.id = 'leaflet-css';
+      css.rel = 'stylesheet';
+      css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(css);
+    }
 
-    const timer = setTimeout(() => {
-      if (mapRef.current) return;
+    let isSubscribed = true;
+    let checkInterval = null;
 
-      const map = L.map(mapContainerRef.current, {
-        center: [DEFAULT_CENTER.lat, DEFAULT_CENTER.lng],
-        zoom: 13,
-        zoomControl: false,
-      });
+    const tryInitMap = () => {
+      const L = window.L;
+      if (!L || !mapContainerRef.current) return false;
+      if (mapRef.current) return true;
 
-      L.control.zoom({ position: 'bottomleft' }).addTo(map);
+      try {
+        const map = L.map(mapContainerRef.current, {
+          center: [DEFAULT_CENTER.lat, DEFAULT_CENTER.lng],
+          zoom: 13,
+          zoomControl: false,
+        });
 
-      L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-        maxZoom: 20,
-        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-        attribution: '© Google Maps',
-      }).addTo(map);
+        L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
-      map.on('click', (e) => {
-        const lat = parseFloat(e.latlng.lat.toFixed(6));
-        const lng = parseFloat(e.latlng.lng.toFixed(6));
-        
-        // Auto-open form on map click if not already open
-        setIsFormOpen(true);
-        setLatitude(lat);
-        setLongitude(lng);
-        placeMarker(lat, lng, radius);
-      });
+        L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+          maxZoom: 20,
+          subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+          attribution: '© Google Maps',
+        }).addTo(map);
 
-      mapRef.current = map;
-      loadAllDestinations();
-    }, 250);
+        map.on('click', (e) => {
+          const lat = parseFloat(e.latlng.lat.toFixed(6));
+          const lng = parseFloat(e.latlng.lng.toFixed(6));
+          setIsFormOpen(true);
+          setLatitude(lat);
+          setLongitude(lng);
+          placeMarker(lat, lng, radius);
+        });
+
+        mapRef.current = map;
+
+        setTimeout(() => {
+          if (mapRef.current) {
+            mapRef.current.invalidateSize();
+          }
+        }, 300);
+
+        loadAllDestinations();
+        return true;
+      } catch (err) {
+        console.warn('Leaflet init attempt notice:', err);
+        return false;
+      }
+    };
+
+    if (!window.L && !document.getElementById('leaflet-js')) {
+      const script = document.createElement('script');
+      script.id = 'leaflet-js';
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      script.onload = () => {
+        if (isSubscribed) tryInitMap();
+      };
+      document.head.appendChild(script);
+    } else {
+      if (!tryInitMap()) {
+        checkInterval = setInterval(() => {
+          if (tryInitMap() && checkInterval) {
+            clearInterval(checkInterval);
+          }
+        }, 150);
+      }
+    }
 
     return () => {
-      clearTimeout(timer);
+      isSubscribed = false;
+      if (checkInterval) clearInterval(checkInterval);
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadAllDestinations, placeMarker, radius]);
 
   // Remove editing markers if form is closed
   useEffect(() => {
@@ -513,69 +553,88 @@ export default function GpsFinalDestinationModal({ campuses = [] }) {
         </div>
       )}
 
-      {/* Saved Destinations List */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-            <MapPin size={14} className="text-indigo-500" />
-            Saved Campus Geofences
-          </h3>
-          {destsLoading && <Loader2 size={14} className="animate-spin text-blue-500" />}
+      {/* Saved Destinations Cards Grid - Modern Responsive UI */}
+      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold shadow-xs">
+              <MapPin size={16} />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Saved Campus Geofences</h3>
+              <p className="text-[11px] text-slate-500 font-medium">Configured campus locations ({savedDestinations.length} Active)</p>
+            </div>
+          </div>
+          {destsLoading && <Loader2 size={16} className="animate-spin text-blue-500" />}
         </div>
 
         {savedDestinations.length === 0 && !destsLoading ? (
-          <div className="px-5 py-8 text-center text-sm text-slate-400 italic">
+          <div className="py-8 text-center text-xs text-slate-400 italic">
             No campus destinations configured yet. Click "Create Destination" or click the map below to configure one.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase text-slate-400 font-bold tracking-wider">
-                  <th className="px-5 py-3">Campus</th>
-                  <th className="px-5 py-3">Location Name</th>
-                  <th className="px-5 py-3">Coordinates</th>
-                  <th className="px-5 py-3">Radius</th>
-                  <th className="px-5 py-3">Morning Window</th>
-                  <th className="px-5 py-3">Evening Window</th>
-                  <th className="px-5 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50 text-xs font-semibold text-slate-700">
-                {savedDestinations.map((d) => (
-                  <tr key={d._id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-5 py-3 font-bold text-slate-900">{getCampusName(d.campus)}</td>
-                    <td className="px-5 py-3">{d.name}</td>
-                    <td className="px-5 py-3 font-mono text-slate-500">{d.latitude?.toFixed(5)}, {d.longitude?.toFixed(5)}</td>
-                    <td className="px-5 py-3">{d.radius} m</td>
-                    <td className="px-5 py-3 text-slate-600 bg-blue-50/50 px-2 py-1 rounded border border-blue-100 max-w-fit">{d.morningStart || '07:00'} - {d.morningEnd || '09:30'}</td>
-                    <td className="px-5 py-3 text-slate-600 bg-indigo-50/50 px-2 py-1 rounded border border-indigo-100 max-w-fit">{d.eveningStart || '16:00'} - {d.eveningEnd || '19:00'}</td>
-                    <td className="px-5 py-3 text-right space-x-1">
-                      <button
-                        onClick={() => handleViewOnMap(d)}
-                        className="inline-flex items-center gap-1 px-3 py-1 text-[10px] font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-md transition-all"
-                      >
-                        <Eye size={11} />
-                        Locate
-                      </button>
-                      <button
-                        onClick={() => handleEdit(d)}
-                        className="inline-flex items-center gap-1 px-3 py-1 text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-all"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleOpenReport(d)}
-                        className="inline-flex items-center gap-1 px-3 py-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md transition-all"
-                      >
-                        <Clock size={11} />
-                        In/Out Report
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {savedDestinations.map((d) => (
+              <div key={d._id} className="bg-slate-50/70 hover:bg-white rounded-xl border border-slate-200 hover:border-slate-300 p-4 space-y-3 transition-all hover:shadow-sm flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="inline-block px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-200/60 rounded-md mb-1">
+                        {getCampusName(d.campus)}
+                      </span>
+                      <h4 className="font-bold text-slate-900 text-sm leading-snug">
+                        {d.name}
+                      </h4>
+                    </div>
+                    <span className="px-2 py-1 bg-amber-50 text-amber-800 border border-amber-200/80 rounded-lg text-[10px] font-bold shrink-0">
+                      {d.radius || 200}m radius
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-mono bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/80">
+                    <Crosshair size={12} className="text-slate-400 shrink-0" />
+                    <span>{d.latitude?.toFixed(5)}, {d.longitude?.toFixed(5)}</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
+                    <div className="bg-blue-50/70 border border-blue-100/80 rounded-lg p-2 space-y-0.5">
+                      <span className="text-[9px] font-bold text-blue-600 uppercase block">Morning Window</span>
+                      <span className="font-bold text-blue-900">{d.morningStart || '07:00'} – {d.morningEnd || '09:30'}</span>
+                    </div>
+                    <div className="bg-indigo-50/70 border border-indigo-100/80 rounded-lg p-2 space-y-0.5">
+                      <span className="text-[9px] font-bold text-indigo-600 uppercase block">Evening Window</span>
+                      <span className="font-bold text-indigo-900">{d.eveningStart || '16:00'} – {d.eveningEnd || '19:00'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 pt-3 border-t border-slate-200/60">
+                  <button
+                    type="button"
+                    onClick={() => handleViewOnMap(d)}
+                    className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-all cursor-pointer"
+                  >
+                    <Eye size={12} />
+                    <span>Locate</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleEdit(d)}
+                    className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-all cursor-pointer"
+                  >
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenReport(d)}
+                    className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-all cursor-pointer"
+                  >
+                    <Clock size={12} />
+                    <span>Report</span>
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -591,13 +650,13 @@ export default function GpsFinalDestinationModal({ campuses = [] }) {
             Click map to start placing a new geofence coordinates
           </span>
         </div>
-        <div className="relative rounded-xl overflow-hidden border border-slate-200" style={{ height: '420px' }}>
+        <div className="relative rounded-xl overflow-hidden border border-slate-200 z-0 isolate h-[420px] min-h-[420px] w-full">
           {loading && (
             <div className="absolute inset-0 z-10 bg-white/60 flex items-center justify-center">
               <Loader2 size={24} className="animate-spin text-blue-600" />
             </div>
           )}
-          <div ref={mapContainerRef} className="w-full h-full" />
+          <div ref={mapContainerRef} className="w-full h-full min-h-[420px] z-0" />
         </div>
       </div>
 

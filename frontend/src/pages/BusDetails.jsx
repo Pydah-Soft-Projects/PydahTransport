@@ -1646,7 +1646,7 @@ const BusDetails = () => {
     });
 
     return (
-        <Layout>
+        <Layout title={`Bus ${bus.busNumber}`}>
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm">
                 <div className="flex items-center gap-3">
                     <Link 
@@ -1658,7 +1658,7 @@ const BusDetails = () => {
                     </Link>
                     <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                            <h1 className="text-lg font-black text-slate-900 tracking-tight leading-none">{bus.busNumber}</h1>
+                            <h1 className="hidden md:block text-lg font-black text-slate-900 tracking-tight leading-none">{bus.busNumber}</h1>
                             {route && (
                                 <span className="text-xs font-bold bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100 leading-none">
                                     {route.routeName || route.routeId} ({route.routeId})

@@ -362,13 +362,13 @@ const Fleet = () => {
     return (
         <Layout>
             <div className="mb-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div>
+                <div className="hidden md:block">
                     <h2 className="text-xl font-black text-slate-900 tracking-tight">Fleet & Passengers</h2>
                     <p className="text-xs text-slate-500 font-semibold mt-0.5">Manage transport requests and bus capacity.</p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 justify-end w-full lg:w-auto">
-                    <div className="relative flex-shrink-0 w-64">
+                    <div className="relative flex-shrink-0 w-full sm:w-64">
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                         <input
                             type="text"
@@ -379,39 +379,42 @@ const Fleet = () => {
                         />
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-sm w-full lg:w-auto justify-between lg:justify-start">
-                        <div className="flex flex-wrap items-center gap-2">
-                        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+                    <div className="flex flex-nowrap items-center justify-between gap-1.5 sm:gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-xs w-full lg:w-auto overflow-x-auto no-scrollbar">
+                        {/* Live / AY Mode Toggle */}
+                        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-xs shrink-0 flex-1 justify-center">
                             <button
                                 type="button"
                                 onClick={() => setOccupancyMode('live')}
-                                className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'live'
-                                    ? 'bg-blue-600 text-white shadow-sm'
-                                    : 'text-slate-500 hover:bg-slate-50'
-                                    }`}
+                                className={`flex-1 py-1 px-2 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer text-center ${
+                                    occupancyMode === 'live'
+                                        ? 'bg-blue-600 text-white shadow-xs'
+                                        : 'text-slate-500 hover:bg-slate-50'
+                                }`}
                             >
                                 Live
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setOccupancyMode('academicYear')}
-                                className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'academicYear'
-                                    ? 'bg-blue-600 text-white shadow-sm'
-                                    : 'text-slate-500 hover:bg-slate-50'
-                                    }`}
+                                className={`flex-1 py-1 px-2 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer text-center ${
+                                    occupancyMode === 'academicYear'
+                                        ? 'bg-blue-600 text-white shadow-xs'
+                                        : 'text-slate-500 hover:bg-slate-50'
+                                }`}
                             >
                                 AY
                             </button>
                         </div>
 
-                        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm cursor-pointer">
-                            <label htmlFor="fleet-academic-year" className="text-[10px] font-black text-slate-400 uppercase tracking-wider cursor-pointer">AY</label>
+                        {/* Academic Year Dropdown */}
+                        <div className="flex items-center justify-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-xs shrink-0 flex-1 min-w-[85px] cursor-pointer">
+                            <label htmlFor="fleet-academic-year" className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-wider cursor-pointer shrink-0">AY</label>
                             <select
                                 id="fleet-academic-year"
                                 value={academicYear}
                                 onChange={(e) => setAcademicYear(e.target.value)}
                                 disabled={occupancyMode === 'live'}
-                                className="bg-transparent text-xs font-bold text-slate-700 outline-none disabled:opacity-50 appearance-none pr-1 cursor-pointer"
+                                className="bg-transparent text-[11px] sm:text-xs font-bold text-slate-700 outline-none disabled:opacity-50 appearance-none pr-1 cursor-pointer w-full text-center"
                             >
                                 {academicYearOptions.map((year) => (
                                     <option key={year} value={year}>{year}</option>
@@ -419,14 +422,15 @@ const Fleet = () => {
                             </select>
                         </div>
 
+                        {/* Campus Filter Dropdown */}
                         {allowedCampuses.length > 1 && (
-                            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm cursor-pointer">
-                                <label htmlFor="fleet-campus" className="text-[10px] font-black text-slate-400 uppercase tracking-wider cursor-pointer">Campus</label>
+                            <div className="flex items-center justify-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-xs shrink-0 flex-1 min-w-[100px] cursor-pointer">
+                                <label htmlFor="fleet-campus" className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-wider cursor-pointer hidden xs:inline shrink-0">Campus</label>
                                 <select
                                     id="fleet-campus"
                                     value={selectedCampus}
                                     onChange={(e) => setSelectedCampus(e.target.value)}
-                                    className="bg-transparent text-xs font-bold text-slate-700 outline-none min-w-[120px] appearance-none pr-1 cursor-pointer"
+                                    className="bg-transparent text-[11px] sm:text-xs font-bold text-slate-700 outline-none appearance-none pr-1 cursor-pointer w-full truncate text-center"
                                 >
                                     <option value="">All Campuses</option>
                                     {allowedCampuses.map((campus) => (
@@ -437,18 +441,18 @@ const Fleet = () => {
                                 </select>
                             </div>
                         )}
-                    </div>
 
-                    <button
-                        type="button"
-                        onClick={openReportModal}
-                        disabled={isPrinting}
-                        className="inline-flex items-center justify-center w-full sm:w-auto text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-sm border-none whitespace-nowrap"
-                    >
-                        <Download size={14} className="mr-1.5" />
-                        Download Report
-                    </button>
-                </div>
+                        {/* Download Report Button */}
+                        <button
+                            type="button"
+                            onClick={openReportModal}
+                            disabled={isPrinting}
+                            className="inline-flex items-center justify-center text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-xs border-none whitespace-nowrap shrink-0 flex-1 min-w-[125px] cursor-pointer"
+                        >
+                            <Download size={14} className="mr-1 shrink-0" />
+                            <span className="truncate">Download Report</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -631,8 +635,215 @@ const Fleet = () => {
                 </div>
             ) : (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
-                    <div className="overflow-x-auto w-full">
-                        <table className="w-full text-left border-collapse">
+                    {/* Mobile Card List (< 768px) */}
+                    <div className="block md:hidden divide-y divide-slate-100">
+                        {sortedList.map((item) => {
+                            const isExpanded = expandedRow === item.bus._id;
+                            const cached = passengerCache[item.bus._id];
+                            const passengersLoading = cached?.loading ?? false;
+                            const passengers = cached?.passengers ?? [];
+                            const routeStages = cached?.routeStages ?? [];
+
+                            return (
+                                <div key={item.bus._id} className="p-4 space-y-3 hover:bg-blue-50/30 transition-colors">
+                                    {/* Header: Route + Bus info */}
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="flex flex-col gap-1 min-w-0">
+                                            {item.route ? (
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className="font-bold text-[10px] font-mono text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 shrink-0">
+                                                        {item.route.routeId}
+                                                    </span>
+                                                    <span className="font-bold text-xs text-slate-800 truncate">{item.route.routeName}</span>
+                                                </div>
+                                            ) : (
+                                                <span className="text-slate-400 italic text-xs flex items-center gap-1">
+                                                    <AlertCircle size={12} /> Not assigned
+                                                </span>
+                                            )}
+                                            {item.route?.zone && (
+                                                <div>
+                                                    <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[9px] font-semibold rounded border border-purple-100">
+                                                        Zone: {item.route.zone}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="text-right shrink-0">
+                                            <p className="font-bold text-slate-800 text-xs">Bus {item.bus.busNumber}</p>
+                                            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wide">{item.bus.type}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Metrics Grid */}
+                                    <div className="grid grid-cols-4 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-center">
+                                        <div>
+                                            <p className="text-[8px] font-bold uppercase text-slate-400">Capacity</p>
+                                            <p className="text-xs font-bold text-slate-700 mt-0.5">{item.capacity}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[8px] font-bold uppercase text-slate-400">Filled</p>
+                                            <p className="text-xs font-bold text-slate-700 mt-0.5">{item.seatsFilled}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[8px] font-bold uppercase text-slate-400">Vacant</p>
+                                            <p className={`text-xs font-black mt-0.5 ${item.seatsAvailable <= 5 ? 'text-red-500' : 'text-slate-700'}`}>
+                                                {item.seatsAvailable}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[8px] font-bold uppercase text-slate-400">Renewals</p>
+                                            <p className={`text-xs font-bold mt-0.5 ${(item.expectedRenewals || 0) > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                                                {item.expectedRenewals || 0}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Occupancy bar */}
+                                    <div className="space-y-1">
+                                        <div className="flex items-center justify-between text-xs">
+                                            <span className="text-[10px] font-bold uppercase text-slate-400">Occupancy</span>
+                                            <span className={`text-xs font-bold ${item.occupancyPercent >= 100 ? 'text-red-600' : item.occupancyPercent >= 80 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                                {item.occupancyPercent}%
+                                            </span>
+                                        </div>
+                                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                            <div
+                                                className={`h-full rounded-full transition-all duration-500 ${item.occupancyPercent >= 100 ? 'bg-red-500' : item.occupancyPercent >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                                style={{ width: `${Math.min(100, item.occupancyPercent)}%` }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Mobile Action Buttons */}
+                                    <div className="flex items-center justify-between gap-2 pt-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRowExpand(item.bus._id)}
+                                            className="flex items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200 transition-colors"
+                                        >
+                                            <Users size={13} />
+                                            {isExpanded ? 'Hide Passengers' : 'Passengers'}
+                                        </button>
+
+                                        <div className="flex items-center gap-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => handlePrintSingleBusReport(item.bus.busNumber)}
+                                                disabled={reportLoadingAction === `pdf-${item.bus.busNumber}`}
+                                                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-blue-600 text-xs font-bold hover:bg-blue-50 transition-colors flex items-center gap-1 disabled:opacity-50"
+                                            >
+                                                {reportLoadingAction === `pdf-${item.bus.busNumber}` ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                                                Print
+                                            </button>
+                                            <Link
+                                                to={`/buses/${item.bus._id}`}
+                                                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50 transition-colors"
+                                            >
+                                                Open
+                                            </Link>
+                                        </div>
+                                    </div>
+
+                                    {/* Expandable Mobile Passenger List */}
+                                    {isExpanded && (
+                                        <div className="mt-3 pt-3 border-t border-slate-200 bg-slate-50/70 p-3 rounded-xl space-y-3">
+                                            {passengersLoading ? (
+                                                <p className="text-xs text-slate-400 italic flex items-center gap-1.5">
+                                                    <Loader2 size={12} className="animate-spin" /> Loading passengers...
+                                                </p>
+                                            ) : passengers.length === 0 ? (
+                                                <p className="text-xs text-slate-400 italic">No passengers assigned to this bus.</p>
+                                            ) : (() => {
+                                                const totalStudents = passengers.filter(p => !p.user_type || p.user_type === 'student').length;
+                                                const totalEmployees = passengers.filter(p => p.user_type === 'employee').length;
+
+                                                const stageMap = passengers.reduce((acc, p) => {
+                                                    const key = p.stage_name || 'Unassigned';
+                                                    if (!acc[key]) acc[key] = [];
+                                                    acc[key].push(p);
+                                                    return acc;
+                                                }, {});
+                                                const stageNames = sortStagesByRouteOrder(Object.keys(stageMap), routeStages);
+
+                                                const openStage = stageSelection[item.bus._id] || null;
+
+                                                return (
+                                                    <div className="space-y-2">
+                                                        <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-slate-200 text-[10px]">
+                                                            <span className="font-bold text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
+                                                                Stu: {totalStudents}
+                                                            </span>
+                                                            <span className="font-bold text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">
+                                                                Emp: {totalEmployees}
+                                                            </span>
+                                                            <span className="font-bold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
+                                                                Total: {passengers.length}
+                                                            </span>
+                                                        </div>
+
+                                                        <div className="space-y-1.5">
+                                                            {stageNames.map(stageName => {
+                                                                const stagePassengers = stageMap[stageName];
+                                                                const stuCount = stagePassengers.filter(p => !p.user_type || p.user_type === 'student').length;
+                                                                const empCount = stagePassengers.filter(p => p.user_type === 'employee').length;
+                                                                const isStageOpen = openStage === stageName;
+
+                                                                return (
+                                                                    <div key={stageName} className="space-y-1">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setStageSelection(prev => ({
+                                                                                ...prev,
+                                                                                [item.bus._id]: isStageOpen ? null : stageName,
+                                                                            }))}
+                                                                            className="w-full flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200 text-left text-xs font-semibold text-slate-700"
+                                                                        >
+                                                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                                                <ChevronRight size={13} className={`text-slate-400 shrink-0 transition-transform ${isStageOpen ? 'rotate-90' : ''}`} />
+                                                                                <span className="truncate">{stageName}</span>
+                                                                            </div>
+                                                                            <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
+                                                                                {stagePassengers.length}
+                                                                            </span>
+                                                                        </button>
+
+                                                                        {isStageOpen && (
+                                                                            <div className="pl-2 space-y-1.5">
+                                                                                {stagePassengers
+                                                                                    .slice()
+                                                                                    .sort((a, b) => (a.student_name || '').localeCompare(b.student_name || ''))
+                                                                                    .map((p, idx) => (
+                                                                                        <div key={p.id || p._id || idx} className="bg-white p-2 rounded-lg border border-slate-200 text-xs flex items-center justify-between gap-2">
+                                                                                            <div className="min-w-0">
+                                                                                                <p className="font-bold text-slate-800 truncate">{p.student_name || p.employee_name || '—'}</p>
+                                                                                                <p className="text-[10px] font-mono text-slate-400">{p.admission_number || p.admission_no || p.emp_no || '—'}</p>
+                                                                                            </div>
+                                                                                            <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 ${p.user_type === 'employee' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                                                                {p.user_type === 'employee' ? 'Emp' : 'Stu'}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Desktop View Table */}
+                    <div className="hidden md:block overflow-x-auto w-full">
+                        <table className="w-full text-left border-collapse min-w-[750px]">
                             <thead>
                                 <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
                                     <th

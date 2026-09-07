@@ -792,76 +792,82 @@ export default function GpsTracking() {
     <Layout>
       <div className="space-y-4 font-sans text-slate-800">
         {/* Compact Header matching site style */}
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div className="bg-white rounded-xl p-3.5 sm:p-4 shadow-xs border border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+            <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
               <Navigation size={18} />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-lg font-bold text-slate-900 tracking-tight leading-none">
+                <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-none truncate">
                   GPS Live Fleet Tracking
                 </h1>
-                <span className="px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-md flex items-center gap-1">
+                <span className="px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-md flex items-center gap-1 shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping" /> Live
                 </span>
                 
-                {/* Refresh Button placed right after header text live */}
+                {/* Refresh Button */}
                 <button
                   onClick={loadVehicles}
                   disabled={loading}
                   title="Refresh Vehicles List"
-                  className="p-1 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-md transition-all shrink-0 ml-1"
+                  className="p-1 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-md transition-all shrink-0 ml-auto sm:ml-1 cursor-pointer"
                 >
                   <RefreshCw size={14} className={loading ? 'animate-spin text-blue-600' : ''} />
                 </button>
               </div>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-1 truncate">
                 {selectedVehicle ? `Tracing Vehicle: ${selectedVehicle.name}` : `All Vehicles Fleet Map (${vehicles.length} Vehicles)`} • Updated: {lastUpdated.toLocaleTimeString()}
               </p>
             </div>
           </div>
 
-          {/* Page-level Tab Switching in Main Header */}
-          <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs text-slate-650 font-semibold gap-1 shrink-0">
+          {/* Page-level Tab Switching - Fits 100% Screen Width on Mobile */}
+          <div className="grid grid-cols-3 bg-slate-100 p-1 rounded-xl border border-slate-200 text-[10px] sm:text-xs font-bold gap-1 w-full lg:w-auto shrink-0">
             <button
+              type="button"
               onClick={() => {
                 setActivePageTab('live');
                 sessionStorage.setItem('gps_active_page_tab', 'live');
               }}
-              className={`px-4 py-1.5 rounded-md transition-all ${
+              className={`w-full py-1.5 px-1 rounded-lg transition-all text-center truncate cursor-pointer ${
                 activePageTab === 'live'
-                  ? 'bg-blue-600 text-white font-bold shadow-sm'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50/50'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50/60'
               }`}
             >
-              Live Tracking Map
+              <span className="hidden sm:inline">Live Tracking Map</span>
+              <span className="sm:hidden">Live Map</span>
             </button>
             <button
+              type="button"
               onClick={() => {
                 setActivePageTab('travelled');
                 sessionStorage.setItem('gps_active_page_tab', 'travelled');
               }}
-              className={`px-4 py-1.5 rounded-md transition-all ${
+              className={`w-full py-1.5 px-1 rounded-lg transition-all text-center truncate cursor-pointer ${
                 activePageTab === 'travelled'
-                  ? 'bg-blue-600 text-white font-bold shadow-sm'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50/50'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50/60'
               }`}
             >
-              Distance Travelled Summary
+              <span className="hidden sm:inline">Distance Travelled</span>
+              <span className="sm:hidden">Distance</span>
             </button>
             <button
+              type="button"
               onClick={() => {
                 setActivePageTab('destination');
                 sessionStorage.setItem('gps_active_page_tab', 'destination');
               }}
-              className={`px-4 py-1.5 rounded-md transition-all ${
+              className={`w-full py-1.5 px-1 rounded-lg transition-all text-center truncate cursor-pointer ${
                 activePageTab === 'destination'
-                  ? 'bg-blue-600 text-white font-bold shadow-sm'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50/50'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50/60'
               }`}
             >
-              Final Destination
+              <span className="hidden sm:inline">Final Destination</span>
+              <span className="sm:hidden">Geofence</span>
             </button>
           </div>
         </div>
@@ -870,10 +876,10 @@ export default function GpsTracking() {
           {/* Main 2-Column Split: Compact Left Vehicles List + Right Big Map & Fast Tracing */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
             {/* Left Column: Compact Vehicles & Status List */}
-            <div className="lg:col-span-4 xl:col-span-4 bg-white rounded-xl p-4 shadow-sm border border-slate-200 flex flex-col h-[650px] space-y-3">
+            <div className="lg:col-span-4 xl:col-span-4 bg-white rounded-xl p-3.5 sm:p-4 shadow-xs border border-slate-200 flex flex-col h-[340px] sm:h-[400px] lg:h-[650px] space-y-3">
               {/* Search Box */}
               <div className="relative">
-                <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+                <Search size={14} className="absolute left-3 top-2.5 text-slate-400 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Search vehicle or unit ID..."
@@ -887,9 +893,9 @@ export default function GpsTracking() {
               <div className="space-y-1.5">
                 <button
                   onClick={() => handleSelectVehicle(null)}
-                  className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-between border ${
+                  className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-between border cursor-pointer ${
                     selectedVehicle === null
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
                       : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
@@ -905,24 +911,24 @@ export default function GpsTracking() {
                 <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs text-slate-600 font-medium">
                   <button
                     onClick={() => setStatusFilter('all')}
-                    className={`flex-1 py-1 rounded-md transition-all text-center ${
-                      statusFilter === 'all' ? 'bg-white text-blue-700 font-bold shadow-sm' : 'hover:text-slate-900'
+                    className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
+                      statusFilter === 'all' ? 'bg-white text-blue-700 font-bold shadow-xs' : 'hover:text-slate-900'
                     }`}
                   >
                     All ({vehicles.length})
                   </button>
                   <button
                     onClick={() => setStatusFilter('moving')}
-                    className={`flex-1 py-1 rounded-md transition-all text-center ${
-                      statusFilter === 'moving' ? 'bg-emerald-600 text-white font-bold shadow-sm' : 'hover:text-slate-900'
+                    className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
+                      statusFilter === 'moving' ? 'bg-emerald-600 text-white font-bold shadow-xs' : 'hover:text-slate-900'
                     }`}
                   >
                     Moving ({movingCount})
                   </button>
                   <button
                     onClick={() => setStatusFilter('idle')}
-                    className={`flex-1 py-1 rounded-md transition-all text-center ${
-                      statusFilter === 'idle' ? 'bg-rose-600 text-white font-bold shadow-sm' : 'hover:text-slate-900'
+                    className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
+                      statusFilter === 'idle' ? 'bg-rose-600 text-white font-bold shadow-xs' : 'hover:text-slate-900'
                     }`}
                   >
                     Stopped ({idleCount})
@@ -947,7 +953,7 @@ export default function GpsTracking() {
                         onClick={() => handleSelectVehicle(veh)}
                         className={`p-3 rounded-lg border cursor-pointer transition-all ${
                           isSelected
-                            ? 'bg-blue-50/90 border-blue-500 shadow-sm ring-1 ring-blue-400/30'
+                            ? 'bg-blue-50/90 border-blue-500 shadow-xs ring-1 ring-blue-400/30'
                             : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                         }`}
                       >
@@ -981,7 +987,7 @@ export default function GpsTracking() {
             </div>
 
             {/* Right Column: Big Interactive Map & Fast Trace Points View */}
-            <div className="lg:col-span-8 xl:col-span-8 bg-white rounded-xl p-4 shadow-sm border border-slate-200 flex flex-col h-[650px] space-y-3">
+            <div className="lg:col-span-8 xl:col-span-8 bg-white rounded-xl p-3.5 sm:p-4 shadow-xs border border-slate-200 flex flex-col min-h-[420px] lg:h-[650px] space-y-3">
               {/* Map Header Bar */}
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div className="flex items-center gap-2">
@@ -1027,7 +1033,7 @@ export default function GpsTracking() {
               </div>
 
               {/* Interactive Leaflet Big Map Container */}
-              <div className={`rounded-lg border border-slate-200 overflow-hidden relative w-full transition-all duration-300 ${selectedVehicle && kmTab === 'kilometers' ? 'h-[180px] min-h-[180px]' : 'flex-1 min-h-[380px]'}`}>
+              <div className={`rounded-lg border border-slate-200 overflow-hidden relative w-full transition-all duration-300 z-0 isolate ${selectedVehicle && kmTab === 'kilometers' ? 'h-[180px] min-h-[180px]' : 'flex-1 min-h-[380px]'}`}>
                 <div ref={mapContainerRef} className="w-full h-full z-0" />
               </div>
 
@@ -1198,93 +1204,93 @@ export default function GpsTracking() {
           /* Distance Travelled Summary View */
           <div className="space-y-4">
             {/* Date Filters, Search Box & Export */}
-            <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <div className="bg-white rounded-xl p-3.5 sm:p-4 shadow-xs border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+              <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-3 w-full md:w-auto">
                 <div className="relative w-full sm:w-48">
                   <label className="block text-[8px] font-bold text-slate-500 uppercase mb-1">Search Bus / Route</label>
                   <div className="relative">
-                    <Search size={12} className="absolute left-2.5 top-2.5 text-slate-400" />
+                    <Search size={12} className="absolute left-2.5 top-2.5 text-slate-400 pointer-events-none" />
                     <input 
                       type="text" 
                       placeholder="Search bus, route ID..."
                       value={fleetSearchQuery}
                       onChange={(e) => setFleetSearchQuery(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-705 outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-750 outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-[8px] font-bold text-slate-500 uppercase mb-1">From Date</label>
-                  <input 
-                    type="date" 
-                    value={fleetDateFrom} 
-                    onChange={(e) => {
-                      setFleetDateFrom(e.target.value);
-                      sessionStorage.setItem('gps_fleet_date_from', e.target.value);
-                    }}
-                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-700 font-semibold outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  />
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <div className="flex-1 sm:flex-none">
+                    <label className="block text-[8px] font-bold text-slate-500 uppercase mb-1">From Date</label>
+                    <input 
+                      type="date" 
+                      value={fleetDateFrom} 
+                      onChange={(e) => {
+                        setFleetDateFrom(e.target.value);
+                        sessionStorage.setItem('gps_fleet_date_from', e.target.value);
+                      }}
+                      className="w-full sm:w-auto rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 font-semibold outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    />
+                  </div>
+                  <div className="flex-1 sm:flex-none">
+                    <label className="block text-[8px] font-bold text-slate-500 uppercase mb-1">To Date</label>
+                    <input 
+                      type="date" 
+                      value={fleetDateTo} 
+                      onChange={(e) => {
+                        setFleetDateTo(e.target.value);
+                        sessionStorage.setItem('gps_fleet_date_to', e.target.value);
+                      }}
+                      className="w-full sm:w-auto rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 font-semibold outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-[8px] font-bold text-slate-500 uppercase mb-1">To Date</label>
-                  <input 
-                    type="date" 
-                    value={fleetDateTo} 
-                    onChange={(e) => {
-                      setFleetDateTo(e.target.value);
-                      sessionStorage.setItem('gps_fleet_date_to', e.target.value);
-                    }}
-                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-700 font-semibold outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  />
-                </div>
-                <div className="pt-4 flex items-center gap-2">
+                <div className="pt-1 sm:pt-4 flex items-center gap-2 w-full sm:w-auto">
                   <button 
                     onClick={() => startLoadingFleetKm(true)}
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                    className="w-full sm:w-auto px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
                   >
                     <RefreshCw size={12} />
-                    Refresh Logs
+                    <span>Refresh Logs</span>
                   </button>
-                  <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
-                    Apply date filters
-                  </span>
                 </div>
               </div>
 
               <button 
                 onClick={handleExportFleetCsv}
                 disabled={!vehicles.length}
-                className="w-full md:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full md:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
               >
                 <Download size={13} />
-                Export Fleet Report (CSV)
+                <span>Export Fleet Report (CSV)</span>
               </button>
             </div>
 
-            {/* Summary KPI Cards */}
+            {/* Summary KPI Stat Cards - Compact Single Row Alignment */}
             {vehicles.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between">
-                  <div>
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Total Fleet Distance</span>
-                    <span className="text-xl font-black text-slate-900 mt-1 block">
+              <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                <div className="bg-white rounded-xl border border-slate-200 p-2.5 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-3 min-w-0">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase tracking-wider block truncate">Total Distance</span>
+                    <span className="text-sm sm:text-xl font-black text-slate-900 mt-0.5 block truncate">
                       {(() => {
                         let total = 0;
                         Object.values(fleetKmValues).forEach(val => {
                           total += val.totalKm || 0;
                         });
                         return total.toFixed(1);
-                      })()} <span className="text-xs font-bold text-slate-500">km</span>
+                      })()} <span className="text-[10px] sm:text-xs font-bold text-slate-500">km</span>
                     </span>
                   </div>
-                  <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-lg">
-                    🚚
+                  <div className="w-6 h-6 sm:w-10 sm:h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs sm:text-base shrink-0 self-end sm:self-center">
+                    <Navigation size={15} />
                   </div>
                 </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between">
-                  <div>
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Average per Vehicle</span>
-                    <span className="text-xl font-black text-slate-900 mt-1 block">
+
+                <div className="bg-white rounded-xl border border-slate-200 p-2.5 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-3 min-w-0">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase tracking-wider block truncate">Avg / Vehicle</span>
+                    <span className="text-sm sm:text-xl font-black text-slate-900 mt-0.5 block truncate">
                       {(() => {
                         let total = 0;
                         let count = 0;
@@ -1293,17 +1299,28 @@ export default function GpsTracking() {
                           count++;
                         });
                         return count > 0 ? (total / count).toFixed(1) : '0.0';
-                      })()} <span className="text-xs font-bold text-slate-500">km</span>
+                      })()} <span className="text-[10px] sm:text-xs font-bold text-slate-500">km</span>
                     </span>
                   </div>
-                  <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-lg">
-                    ⚡
+                  <div className="w-6 h-6 sm:w-10 sm:h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-xs sm:text-base shrink-0 self-end sm:self-center">
+                    <Zap size={15} />
                   </div>
                 </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between gap-3 min-w-0">
+
+                <div className="bg-white rounded-xl border border-slate-200 p-2.5 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-3 min-w-0">
                   <div className="min-w-0 flex-1">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Most Active Vehicle</span>
-                    <span className="text-sm font-black text-slate-900 mt-1 block break-words whitespace-normal leading-snug">
+                    <span className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase tracking-wider block truncate">Most Active</span>
+                    <span className="text-xs sm:text-sm font-black text-slate-900 mt-0.5 block truncate" title={(() => {
+                      let maxKm = -1;
+                      let maxVeh = 'None';
+                      Object.keys(fleetKmValues).forEach(key => {
+                        if (fleetKmValues[key].totalKm > maxKm) {
+                          maxKm = fleetKmValues[key].totalKm;
+                          maxVeh = key;
+                        }
+                      });
+                      return maxKm > -1 ? `${maxVeh} (${maxKm.toFixed(1)} km)` : 'N/A';
+                    })()}>
                       {(() => {
                         let maxKm = -1;
                         let maxVeh = 'None';
@@ -1313,168 +1330,339 @@ export default function GpsTracking() {
                             maxVeh = key;
                           }
                         });
-                        return maxKm > -1 ? `${maxVeh} (${maxKm.toFixed(1)} km)` : 'N/A';
+                        return maxKm > -1 ? maxVeh : 'N/A';
                       })()}
                     </span>
                   </div>
-                  <div className="w-10 h-10 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-lg shrink-0">
-                    🏆
+                  <div className="w-6 h-6 sm:w-10 sm:h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-xs sm:text-base shrink-0 self-end sm:self-center">
+                    <Activity size={15} />
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Fleet Table */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase text-slate-400 font-bold tracking-wider select-none">
-                      <th 
+            {/* Fleet Table / Mobile Cards View */}
+            {(() => {
+              const filtered = vehicles.filter(v => {
+                if (!fleetSearchQuery) return true;
+                return v.name.toLowerCase().includes(fleetSearchQuery.toLowerCase()) ||
+                       (v.routeId && v.routeId.toLowerCase().includes(fleetSearchQuery.toLowerCase())) ||
+                       (v.routeName && v.routeName.toLowerCase().includes(fleetSearchQuery.toLowerCase()));
+              });
+
+              const sorted = [...filtered].sort((a, b) => {
+                if (fleetSortField === 'route') {
+                  const valA = a.routeId || '';
+                  const valB = b.routeId || '';
+                  if (fleetSortOrder === 'asc') {
+                    return valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+                  } else {
+                    return valB.localeCompare(valA, undefined, { numeric: true, sensitivity: 'base' });
+                  }
+                } else if (fleetSortField === 'distance') {
+                  const kmA = (fleetKmValues[a.name] || { totalKm: 0 }).totalKm;
+                  const kmB = (fleetKmValues[b.name] || { totalKm: 0 }).totalKm;
+                  return fleetSortOrder === 'asc' ? kmA - kmB : kmB - kmA;
+                }
+                return 0;
+              });
+
+              if (sorted.length === 0) {
+                return (
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-8 text-center text-slate-400 italic text-xs">
+                    No vehicles matched your search filter.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3">
+                  {/* Mobile-only Sort Controls */}
+                  <div className="md:hidden flex items-center justify-between gap-2 px-1 text-[11px] text-slate-500 font-medium">
+                    <span>{sorted.length} vehicles</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase">Sort:</span>
+                      <button
+                        type="button"
                         onClick={() => handleFleetSort('route')}
-                        className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
+                        className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                          fleetSortField === 'route'
+                            ? 'bg-blue-100 text-blue-700 border border-blue-200 shadow-2xs'
+                            : 'bg-slate-100 text-slate-600 border border-slate-200'
+                        }`}
                       >
-                        <div className="flex items-center gap-1">
-                          <span>Route</span>
-                          {fleetSortField === 'route' && (
-                            <span className="text-[10px] text-blue-600 font-bold">{fleetSortOrder === 'asc' ? '▲' : '▼'}</span>
-                          )}
-                        </div>
-                      </th>
-                      <th className="px-6 py-4">Bus / Vehicle</th>
-                      <th 
+                        Route {fleetSortField === 'route' ? (fleetSortOrder === 'asc' ? '↑' : '↓') : ''}
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => handleFleetSort('distance')}
-                        className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
+                        className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                          fleetSortField === 'distance'
+                            ? 'bg-blue-100 text-blue-700 border border-blue-200 shadow-2xs'
+                            : 'bg-slate-100 text-slate-600 border border-slate-200'
+                        }`}
                       >
-                        <div className="flex items-center gap-1">
-                          <span>Distance Travelled</span>
-                          {fleetSortField === 'distance' && (
-                            <span className="text-[10px] text-blue-600 font-bold">{fleetSortOrder === 'asc' ? '▲' : '▼'}</span>
+                        Distance {fleetSortField === 'distance' ? (fleetSortOrder === 'asc' ? '↑' : '↓') : ''}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Mobile Cards View (< md screens) */}
+                  <div className="md:hidden space-y-2.5">
+                    {sorted.map((veh) => {
+                      const kmInfo = fleetKmValues[veh.name] || { totalKm: 0, isMock: false, loading: false, error: false };
+                      const isExpanded = expandedFleetVehicle === veh.name;
+                      const cacheKey = `${veh.name}_${fleetDateFrom}_${fleetDateTo}`;
+                      const gfRows = geofenceData[cacheKey] || [];
+                      const gfLoading = geofenceLoading[veh.name];
+
+                      return (
+                        <div
+                          key={veh.name}
+                          className={`bg-white rounded-xl border transition-all duration-200 shadow-xs overflow-hidden ${
+                            isExpanded ? 'border-blue-300 ring-1 ring-blue-200/60' : 'border-slate-200'
+                          }`}
+                        >
+                          <div
+                            onClick={() => toggleGeofenceAccordion(veh.name)}
+                            className={`p-3.5 flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+                              isExpanded ? 'bg-blue-50/40' : 'hover:bg-slate-50/50'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-slate-100 text-slate-800 border border-slate-200">
+                                  {veh.routeId || 'Unassigned'}
+                                </span>
+                                {veh.routeName && (
+                                  <span className="text-[11px] text-slate-500 truncate max-w-[150px]">
+                                    {veh.routeName}
+                                  </span>
+                                )}
+                              </div>
+                              <h3 className="text-sm font-bold text-slate-900 tracking-tight truncate">
+                                {veh.name}
+                              </h3>
+                            </div>
+
+                            <div className="flex items-center gap-2.5 shrink-0 text-right">
+                              <div>
+                                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block">Distance</span>
+                                {kmInfo.loading ? (
+                                  <span className="flex items-center justify-end gap-1 text-[11px] text-slate-400 font-medium">
+                                    <Loader2 size={11} className="animate-spin text-blue-500" /> loading...
+                                  </span>
+                                ) : kmInfo.error ? (
+                                  <span className="text-xs font-bold text-rose-600">Retry</span>
+                                ) : (
+                                  <span className="text-sm font-extrabold text-blue-700">
+                                    {(kmInfo.totalKm || 0).toFixed(1)} <span className="text-[10px] font-semibold text-slate-500">km</span>
+                                  </span>
+                                )}
+                              </div>
+                              <ChevronDown
+                                size={16}
+                                className={`text-slate-400 transition-transform duration-200 ${
+                                  isExpanded ? 'rotate-180 text-blue-600' : ''
+                                }`}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Mobile Expanded Geofence Section */}
+                          {isExpanded && (
+                            <div className="border-t border-slate-100 bg-slate-50/90 p-3 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                  Geofence In / Out Report
+                                </p>
+                                {gfRows.length > 0 && (
+                                  <span className="text-[10px] text-slate-400 font-semibold">{gfRows.length} logs</span>
+                                )}
+                              </div>
+
+                              {gfLoading ? (
+                                <div className="flex items-center gap-2 py-4 justify-center text-xs text-slate-400">
+                                  <Loader2 size={14} className="animate-spin text-blue-500" /> Loading geofence data...
+                                </div>
+                              ) : gfRows.length === 0 ? (
+                                <p className="text-xs text-slate-400 italic py-3 text-center">
+                                  No geofence records found for this date range.
+                                </p>
+                              ) : (
+                                <div className="space-y-2">
+                                  {gfRows.map((row, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="bg-white rounded-lg p-2.5 border border-slate-200/80 shadow-2xs space-y-1.5"
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-500 text-[9px] font-bold flex items-center justify-center shrink-0">
+                                            {idx + 1}
+                                          </span>
+                                          <span className="text-xs font-bold text-slate-800 truncate">
+                                            {row.geofence || row.Geofence || row.name || '—'}
+                                          </span>
+                                        </div>
+                                        {(row.mileage || row.Mileage) && (
+                                          <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100 shrink-0">
+                                            {row.mileage || row.Mileage}
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <div className="grid grid-cols-2 gap-2 text-[10px] pt-1 border-t border-slate-100 text-slate-600">
+                                        <div>
+                                          <span className="text-[8px] font-bold uppercase text-slate-400 block">Time In</span>
+                                          <span className="font-semibold text-emerald-700 block truncate">
+                                            {formatGeofenceTime(row.time_in || row['Time in'] || row.timeIn)}
+                                          </span>
+                                        </div>
+                                        <div>
+                                          <span className="text-[8px] font-bold uppercase text-slate-400 block">Time Out</span>
+                                          <span className="font-semibold text-rose-600 block truncate">
+                                            {formatGeofenceTime(row.time_out || row['Time out'] || row.timeOut)}
+                                          </span>
+                                        </div>
+                                        {(row.duration_in || row['Duration in'] || row.duration) && (
+                                          <div className="col-span-2 text-[9px] text-slate-500">
+                                            <span className="font-bold text-slate-400">Duration: </span>
+                                            {row.duration_in || row['Duration in'] || row.duration}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
-                      </th>
-                      <th className="px-4 py-4 w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50 text-xs text-slate-700">
-                    {(() => {
-                      const filtered = vehicles.filter(v => {
-                        if (!fleetSearchQuery) return true;
-                        return v.name.toLowerCase().includes(fleetSearchQuery.toLowerCase()) ||
-                               (v.routeId && v.routeId.toLowerCase().includes(fleetSearchQuery.toLowerCase())) ||
-                               (v.routeName && v.routeName.toLowerCase().includes(fleetSearchQuery.toLowerCase()));
-                      });
+                      );
+                    })}
+                  </div>
 
-                      const sorted = [...filtered].sort((a, b) => {
-                        if (fleetSortField === 'route') {
-                          const valA = a.routeId || '';
-                          const valB = b.routeId || '';
-                          if (fleetSortOrder === 'asc') {
-                            return valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
-                          } else {
-                            return valB.localeCompare(valA, undefined, { numeric: true, sensitivity: 'base' });
-                          }
-                        } else if (fleetSortField === 'distance') {
-                          const kmA = (fleetKmValues[a.name] || { totalKm: 0 }).totalKm;
-                          const kmB = (fleetKmValues[b.name] || { totalKm: 0 }).totalKm;
-                          return fleetSortOrder === 'asc' ? kmA - kmB : kmB - kmA;
-                        }
-                        return 0;
-                      });
-
-                      if (sorted.length === 0) {
-                        return (
-                          <tr>
-                            <td colSpan="4" className="px-6 py-12 text-center text-slate-400 italic">
-                              No vehicles matched your search filter.
-                            </td>
+                  {/* Desktop Table View (>= md screens) */}
+                  <div className="hidden md:block bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase text-slate-400 font-bold tracking-wider select-none">
+                            <th 
+                              onClick={() => handleFleetSort('route')}
+                              className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
+                            >
+                              <div className="flex items-center gap-1">
+                                <span>Route</span>
+                                {fleetSortField === 'route' && (
+                                  <span className="text-[10px] text-blue-600 font-bold">{fleetSortOrder === 'asc' ? '▲' : '▼'}</span>
+                                )}
+                              </div>
+                            </th>
+                            <th className="px-6 py-4">Bus / Vehicle</th>
+                            <th 
+                              onClick={() => handleFleetSort('distance')}
+                              className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
+                            >
+                              <div className="flex items-center gap-1">
+                                <span>Distance Travelled</span>
+                                {fleetSortField === 'distance' && (
+                                  <span className="text-[10px] text-blue-600 font-bold">{fleetSortOrder === 'asc' ? '▲' : '▼'}</span>
+                                )}
+                              </div>
+                            </th>
+                            <th className="px-4 py-4 w-10"></th>
                           </tr>
-                        );
-                      }
-
-                      return sorted.map((veh) => {
-                        const kmInfo = fleetKmValues[veh.name] || { totalKm: 0, isMock: false, loading: false, error: false };
-                        const isExpanded = expandedFleetVehicle === veh.name;
-                        const cacheKey = `${veh.name}_${fleetDateFrom}_${fleetDateTo}`;
-                        const gfRows = geofenceData[cacheKey] || [];
-                        const gfLoading = geofenceLoading[veh.name];
-                        return (
-                          <React.Fragment key={veh.name}>
-                          <tr
-                            onClick={() => toggleGeofenceAccordion(veh.name)}
-                            className={`hover:bg-slate-50/50 transition-colors cursor-pointer select-none ${isExpanded ? 'bg-blue-50/40' : ''}`}
-                          >
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className="text-slate-900 font-semibold">{veh.routeId || 'Unassigned'}</span>
-                              <span className="text-[10px] text-slate-400 ml-1.5">{veh.routeName || 'No Route'}</span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-slate-900 font-semibold">{veh.name}</td>
-                            <td className="px-6 py-4">
-                              {kmInfo.loading ? (
-                                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                                  <Loader2 size={12} className="animate-spin text-blue-500" /> loading...
-                                </span>
-                              ) : kmInfo.error ? (
-                                <span className="text-sm font-semibold text-rose-600">Retry needed</span>
-                              ) : (
-                                <span className="text-sm font-semibold text-blue-700">
-                                  {(kmInfo.totalKm || 0).toFixed(1)} km
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-4 text-center">
-                              <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
-                            </td>
-                          </tr>
-                          {isExpanded && (
-                            <tr>
-                              <td colSpan="4" className="px-6 py-0 bg-slate-50/80">
-                                <div className="py-3">
-                                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Geofence In / Out Report</p>
-                                  {gfLoading ? (
-                                    <div className="flex items-center gap-2 py-4 justify-center text-xs text-slate-400">
-                                      <Loader2 size={14} className="animate-spin text-blue-500" /> Loading geofence data...
-                                    </div>
-                                  ) : gfRows.length === 0 ? (
-                                    <p className="text-xs text-slate-400 italic py-3 text-center">No geofence records found for this date range.</p>
-                                  ) : (
-                                    <table className="w-full text-left border border-slate-200 rounded-lg overflow-hidden">
-                                      <thead>
-                                        <tr className="bg-slate-100 text-[9px] uppercase text-slate-400 font-bold tracking-wider">
-                                          <th className="px-4 py-2">#</th>
-                                          <th className="px-4 py-2">Geofence</th>
-                                          <th className="px-4 py-2">Time In</th>
-                                          <th className="px-4 py-2">Time Out</th>
-                                          <th className="px-4 py-2">Duration</th>
-                                          <th className="px-4 py-2">Mileage</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-slate-100 text-[11px] text-slate-700 font-semibold">
-                                        {gfRows.map((row, idx) => (
-                                          <tr key={idx} className="hover:bg-white/60">
-                                            <td className="px-4 py-2 text-slate-400">{idx + 1}</td>
-                                            <td className="px-4 py-2 font-bold text-slate-800">{row.geofence || row.Geofence || row.name || '—'}</td>
-                                            <td className="px-4 py-2 text-emerald-700">{formatGeofenceTime(row.time_in || row['Time in'] || row.timeIn)}</td>
-                                            <td className="px-4 py-2 text-rose-600">{formatGeofenceTime(row.time_out || row['Time out'] || row.timeOut)}</td>
-                                            <td className="px-4 py-2">{row.duration_in || row['Duration in'] || row.duration || '—'}</td>
-                                            <td className="px-4 py-2">{row.mileage || row.Mileage || '—'}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                          </React.Fragment>
-                        );
-                      });
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50 text-xs text-slate-700">
+                          {sorted.map((veh) => {
+                            const kmInfo = fleetKmValues[veh.name] || { totalKm: 0, isMock: false, loading: false, error: false };
+                            const isExpanded = expandedFleetVehicle === veh.name;
+                            const cacheKey = `${veh.name}_${fleetDateFrom}_${fleetDateTo}`;
+                            const gfRows = geofenceData[cacheKey] || [];
+                            const gfLoading = geofenceLoading[veh.name];
+                            return (
+                              <React.Fragment key={veh.name}>
+                                <tr
+                                  onClick={() => toggleGeofenceAccordion(veh.name)}
+                                  className={`hover:bg-slate-50/50 transition-colors cursor-pointer select-none ${isExpanded ? 'bg-blue-50/40' : ''}`}
+                                >
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <span className="text-slate-900 font-semibold">{veh.routeId || 'Unassigned'}</span>
+                                    <span className="text-[10px] text-slate-400 ml-1.5">{veh.routeName || 'No Route'}</span>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-slate-900 font-semibold">{veh.name}</td>
+                                  <td className="px-6 py-4">
+                                    {kmInfo.loading ? (
+                                      <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                                        <Loader2 size={12} className="animate-spin text-blue-500" /> loading...
+                                      </span>
+                                    ) : kmInfo.error ? (
+                                      <span className="text-sm font-semibold text-rose-600">Retry needed</span>
+                                    ) : (
+                                      <span className="text-sm font-semibold text-blue-700">
+                                        {(kmInfo.totalKm || 0).toFixed(1)} km
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-4 text-center">
+                                    <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                                  </td>
+                                </tr>
+                                {isExpanded && (
+                                  <tr>
+                                    <td colSpan="4" className="px-6 py-0 bg-slate-50/80">
+                                      <div className="py-3">
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Geofence In / Out Report</p>
+                                        {gfLoading ? (
+                                          <div className="flex items-center gap-2 py-4 justify-center text-xs text-slate-400">
+                                            <Loader2 size={14} className="animate-spin text-blue-500" /> Loading geofence data...
+                                          </div>
+                                        ) : gfRows.length === 0 ? (
+                                          <p className="text-xs text-slate-400 italic py-3 text-center">No geofence records found for this date range.</p>
+                                        ) : (
+                                          <div className="overflow-x-auto rounded-lg border border-slate-200">
+                                            <table className="w-full text-left bg-white">
+                                              <thead>
+                                                <tr className="bg-slate-100 text-[9px] uppercase text-slate-400 font-bold tracking-wider">
+                                                  <th className="px-4 py-2">#</th>
+                                                  <th className="px-4 py-2">Geofence</th>
+                                                  <th className="px-4 py-2">Time In</th>
+                                                  <th className="px-4 py-2">Time Out</th>
+                                                  <th className="px-4 py-2">Duration</th>
+                                                  <th className="px-4 py-2">Mileage</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody className="divide-y divide-slate-100 text-[11px] text-slate-700 font-semibold">
+                                                {gfRows.map((row, idx) => (
+                                                  <tr key={idx} className="hover:bg-slate-50/70">
+                                                    <td className="px-4 py-2 text-slate-400">{idx + 1}</td>
+                                                    <td className="px-4 py-2 font-bold text-slate-800">{row.geofence || row.Geofence || row.name || '—'}</td>
+                                                    <td className="px-4 py-2 text-emerald-700">{formatGeofenceTime(row.time_in || row['Time in'] || row.timeIn)}</td>
+                                                    <td className="px-4 py-2 text-rose-600">{formatGeofenceTime(row.time_out || row['Time out'] || row.timeOut)}</td>
+                                                    <td className="px-4 py-2">{row.duration_in || row['Duration in'] || row.duration || '—'}</td>
+                                                    <td className="px-4 py-2">{row.mileage || row.Mileage || '—'}</td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         ) : activePageTab === 'destination' ? (
           <GpsFinalDestinationModal

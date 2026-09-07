@@ -35,7 +35,7 @@ const TransportDues = () => {
 
     return (
         <Layout>
-            <div className="mb-8">
+            <div className="mb-8 hidden md:block">
                 <h2 className="text-3xl font-bold text-gray-800 tracking-tight">Transport Dues</h2>
                 <p className="text-gray-500 mt-1">Students who have not paid transport fee for the selected academic year (data from Fee Management portal).</p>
             </div>

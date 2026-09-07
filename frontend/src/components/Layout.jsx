@@ -32,12 +32,20 @@ const Layout = ({ children, title }) => {
     const location = useLocation();
     const navigate = useNavigate();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-    const [isCollapsed, setIsCollapsed] = useState(false);
+    const [isCollapsed, setIsCollapsed] = useState(() => localStorage.getItem('sidebar_collapsed') === 'true');
     const [openGroups, setOpenGroups] = useState(() => ({
         inventory: location.pathname.startsWith('/inventory'),
         route_management: location.pathname.startsWith('/routes'),
         qr_verification: location.pathname.startsWith('/verify') || location.pathname.startsWith('/inspection-reports'),
     }));
+
+    const toggleSidebarCollapse = () => {
+        setIsCollapsed((prev) => {
+            const next = !prev;
+            localStorage.setItem('sidebar_collapsed', String(next));
+            return next;
+        });
+    };
 
     const handleLogout = () => {
         const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
@@ -191,7 +199,7 @@ const Layout = ({ children, title }) => {
     const renderNavItem = (item, { mobile = false, collapsed = false } = {}) => {
         if (item.children) {
             const groupActive = isGroupActive(item);
-            const expanded = mobile || (!collapsed && !!openGroups[item.key]);
+            const expanded = !!openGroups[item.key];
 
             return (
                 <div key={item.key || item.label} className="space-y-1">
@@ -199,7 +207,7 @@ const Layout = ({ children, title }) => {
                         type="button"
                         title={collapsed ? item.label : undefined}
                         onClick={() => {
-                            if (collapsed) {
+                            if (collapsed && !mobile) {
                                 navigate(item.children[0].path);
                                 return;
                             }
@@ -277,6 +285,8 @@ const Layout = ({ children, title }) => {
         if (basePath === '/inspection-reports') return 'Inspection Reports';
         if (basePath === '/dashboard') return 'Dashboard';
         if (basePath === '/buses') return 'Vehicle Management';
+        if (basePath.startsWith('/buses/')) return 'Bus Details';
+        if (basePath.startsWith('/other-vehicles/')) return 'Vehicle Details';
         if (basePath === '/fleet') return 'Fleet & Passengers';
         if (basePath === '/routes') {
             if (tabParam === 'bus-mapping') return 'Bus–Route Mapping';
@@ -304,7 +314,7 @@ const Layout = ({ children, title }) => {
         <div className="flex h-screen bg-[#EAF3FF] font-sans overflow-hidden">
             <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-[#071B45] bg-gradient-to-b from-[#0A2558] to-[#051632] shadow-lg hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-visible`}>
                 <button 
-                    onClick={() => setIsCollapsed(!isCollapsed)}
+                    onClick={toggleSidebarCollapse}
                     className="absolute -right-3 top-24 bg-white border border-slate-200 rounded-full p-1 shadow-md z-50 hover:bg-slate-50 text-blue-600 cursor-pointer"
                 >
                     {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
@@ -378,12 +388,12 @@ const Layout = ({ children, title }) => {
 
             {isMobileMenuOpen && (
                 <div
-                    className="fixed inset-0 bg-slate-900/80 z-30 md:hidden backdrop-blur-sm"
+                    className="fixed inset-0 bg-slate-900/80 z-[100] md:hidden backdrop-blur-sm"
                     onClick={() => setIsMobileMenuOpen(false)}
                 ></div>
             )}
 
-            <aside className={`fixed inset-y-0 left-0 w-64 bg-[#071B45] bg-gradient-to-b from-[#0A2558] to-[#051632] shadow-xl flex flex-col z-40 transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            <aside className={`fixed inset-y-0 left-0 w-64 bg-[#071B45] bg-gradient-to-b from-[#0A2558] to-[#051632] shadow-xl flex flex-col z-[110] transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                 <div className="min-h-24 flex justify-between items-center px-6 relative z-10">
                     <div className="flex items-center gap-3 min-w-0">
                         <img

@@ -565,8 +565,8 @@ const Inventory = () => {
     return (
         <Layout>
             {/* Header section */}
-            <div className="mb-8 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
+            <div className="mb-6 sm:mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="hidden md:flex items-center gap-3">
                     <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 shadow-sm shrink-0">
                         <Package size={24} />
                     </div>
@@ -577,28 +577,22 @@ const Inventory = () => {
                         <p className="text-slate-550 text-xs font-semibold mt-0.5">Manage parts, supplies and raise bills for purchased items.</p>
                     </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                     <button 
                         onClick={() => { setEditingItem(null); setItemFormData(emptyItemFormData); setIsModalOpen(true); }}
-                        className="bg-[#071B45] hover:bg-[#0A2558] text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95 cursor-pointer"
+                        className="flex-1 md:flex-none justify-center bg-[#071B45] hover:bg-[#0A2558] text-white px-3.5 sm:px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95 cursor-pointer whitespace-nowrap"
                     >
                         <Plus size={15} /> Add Item / Variant
                     </button>
-                    {/* <button
-                        onClick={() => navigate('/inventory/raise-bill')}
-                        className="bg-[#10B981] hover:bg-[#059669] text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95 cursor-pointer"
-                    >
-                        <Truck size={15} /> Raise Bill
-                    </button> */}
                     <button 
                         onClick={() => setActiveTab(TABS.tyreRegistry)}
-                        className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95 cursor-pointer"
+                        className="flex-1 md:flex-none justify-center bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-3.5 sm:px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95 cursor-pointer whitespace-nowrap"
                     >
                         <Disc size={15} /> Tyre Registry
                     </button>
                     <button 
                         onClick={() => { setEditingVendor(null); setVendorFormData({ name: '', contactPerson: '', phone: '', email: '', address: '' }); setIsVendorModalOpen(true); }}
-                        className="bg-white hover:bg-slate-50 text-slate-705 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border border-slate-205 shadow-sm cursor-pointer"
+                        className="w-full sm:w-auto sm:flex-none justify-center bg-white hover:bg-slate-50 text-slate-705 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border border-slate-205 shadow-sm cursor-pointer whitespace-nowrap"
                     >
                         <User size={15} /> Manage Vendors
                     </button>
@@ -606,61 +600,61 @@ const Inventory = () => {
             </div>
 
             {/* Dynamic statistics metrics row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6 mb-6 sm:mb-8">
                 {/* Metric 1: TOTAL ITEMS */}
-                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all duration-300">
-                    <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 shrink-0">
-                        <Package size={22} />
+                <div className="bg-white rounded-2xl p-3 sm:p-5 border border-slate-100 shadow-sm flex items-center gap-2.5 sm:gap-4 hover:shadow-md transition-all duration-300">
+                    <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 shrink-0">
+                        <Package className="w-4 h-4 sm:w-5 sm:h-5" />
                     </div>
                     <div className="min-w-0">
-                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Total Items</p>
-                        <h3 className="text-xl font-bold text-slate-800 mt-1 leading-none">{totalItemGroupsCount}</h3>
-                        <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">All Item Groups</p>
+                        <p className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-wider truncate">Total Items</p>
+                        <h3 className="text-base sm:text-xl font-bold text-slate-800 mt-0.5 sm:mt-1 leading-none truncate">{totalItemGroupsCount}</h3>
+                        <p className="text-[9px] sm:text-[10px] text-slate-500 mt-1 sm:mt-1.5 font-semibold truncate hidden sm:block">All Item Groups</p>
                     </div>
                 </div>
 
                 {/* Metric 2: TOTAL VARIANTS */}
-                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all duration-300">
-                    <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-100 shrink-0">
-                        <Tag size={22} />
+                <div className="bg-white rounded-2xl p-3 sm:p-5 border border-slate-100 shadow-sm flex items-center gap-2.5 sm:gap-4 hover:shadow-md transition-all duration-300">
+                    <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-100 shrink-0">
+                        <Tag className="w-4 h-4 sm:w-5 sm:h-5" />
                     </div>
                     <div className="min-w-0">
-                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Total Variants</p>
-                        <h3 className="text-xl font-bold text-[#10B981] mt-1 leading-none">{totalVariantsCount}</h3>
-                        <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">Across all items</p>
+                        <p className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-wider truncate">Total Variants</p>
+                        <h3 className="text-base sm:text-xl font-bold text-[#10B981] mt-0.5 sm:mt-1 leading-none truncate">{totalVariantsCount}</h3>
+                        <p className="text-[9px] sm:text-[10px] text-slate-500 mt-1 sm:mt-1.5 font-semibold truncate hidden sm:block">Across all items</p>
                     </div>
                 </div>
 
                 {/* Metric 3: TOTAL BILLS */}
-                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all duration-300">
-                    <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600 border border-purple-100 shrink-0">
-                        <FileText size={22} />
+                <div className="bg-white rounded-2xl p-3 sm:p-5 border border-slate-100 shadow-sm flex items-center gap-2.5 sm:gap-4 hover:shadow-md transition-all duration-300">
+                    <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600 border border-purple-100 shrink-0">
+                        <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
                     </div>
                     <div className="min-w-0">
-                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Total Bills</p>
-                        <h3 className="text-xl font-bold text-slate-800 mt-1 leading-none">{totalBillsCountDynamic}</h3>
-                        <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">This Academic Year</p>
+                        <p className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-wider truncate">Total Bills</p>
+                        <h3 className="text-base sm:text-xl font-bold text-slate-800 mt-0.5 sm:mt-1 leading-none truncate">{totalBillsCountDynamic}</h3>
+                        <p className="text-[9px] sm:text-[10px] text-slate-500 mt-1 sm:mt-1.5 font-semibold truncate hidden sm:block">This Academic Year</p>
                     </div>
                 </div>
 
                 {/* Metric 4: TOTAL AMOUNT */}
-                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all duration-300">
-                    <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 border border-amber-100 shrink-0">
-                        <span className="text-lg font-black leading-none">₹</span>
+                <div className="bg-white rounded-2xl p-3 sm:p-5 border border-slate-100 shadow-sm flex items-center gap-2.5 sm:gap-4 hover:shadow-md transition-all duration-300">
+                    <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 border border-amber-100 shrink-0">
+                        <span className="text-sm sm:text-lg font-black leading-none">₹</span>
                     </div>
                     <div className="min-w-0">
-                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Total Amount</p>
-                        <h3 className="text-xl font-bold text-slate-850 mt-1 leading-none">₹ {formatCurrencyIndian(totalAmountSpentDynamic)}</h3>
-                        <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">This Academic Year</p>
+                        <p className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-wider truncate">Total Amount</p>
+                        <h3 className="text-base sm:text-xl font-bold text-slate-850 mt-0.5 sm:mt-1 leading-none truncate">₹ {formatCurrencyIndian(totalAmountSpentDynamic)}</h3>
+                        <p className="text-[9px] sm:text-[10px] text-slate-500 mt-1 sm:mt-1.5 font-semibold truncate hidden sm:block">This Academic Year</p>
                     </div>
                 </div>
             </div>
 
             {/* Switcher capsule tabs */}
-            <div className="flex flex-wrap gap-2 mb-6">
+            <div className="flex flex-wrap sm:flex-nowrap gap-2 mb-6 overflow-x-auto pb-1">
                 <button
                     onClick={() => { setActiveTab(TABS.inventory); setCurrentPage(1); }}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                    className={`flex-1 sm:flex-none justify-center flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer whitespace-nowrap ${
                         activeTab === TABS.inventory
                             ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20'
                             : 'bg-white text-slate-650 hover:text-slate-900 border border-slate-100 hover:bg-slate-50 shadow-sm'
@@ -670,7 +664,7 @@ const Inventory = () => {
                 </button>
                 <button
                     onClick={() => { setActiveTab(TABS.vendors); }}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                    className={`flex-1 sm:flex-none justify-center flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer whitespace-nowrap ${
                         activeTab === TABS.vendors
                             ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20'
                             : 'bg-white text-slate-650 hover:text-slate-900 border border-slate-100 hover:bg-slate-50 shadow-sm'
@@ -680,7 +674,7 @@ const Inventory = () => {
                 </button>
                 <button
                     onClick={() => setActiveTab(TABS.tyreRegistry)}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                    className={`flex-1 sm:flex-none justify-center flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer whitespace-nowrap ${
                         activeTab === TABS.tyreRegistry
                             ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20'
                             : 'bg-white text-slate-650 hover:text-slate-900 border border-slate-100 hover:bg-slate-50 shadow-sm'
@@ -694,9 +688,9 @@ const Inventory = () => {
 
             {/* TAB: Master Items */}
             {activeTab === TABS.inventory && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-6">
                     {/* Controls row */}
-                    <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
+                    <div className="flex flex-col md:flex-row gap-3 md:gap-4 justify-between items-stretch md:items-center mb-6">
                         {/* Search input */}
                         <div className="relative w-full md:flex-1 max-w-md group">
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={16} />
@@ -712,9 +706,9 @@ const Inventory = () => {
                             />
                         </div>
                         {/* Dropdown Filters & Grid/List switcher */}
-                        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto justify-between md:justify-end">
                             {/* Category Filter */}
-                            <div className="relative flex items-center bg-white border border-slate-200 rounded-xl shadow-sm px-3 py-2 shrink-0">
+                            <div className="relative flex-1 sm:flex-none flex items-center bg-white border border-slate-200 rounded-xl shadow-sm px-3 py-2 shrink-0">
                                 <Package size={15} className="text-slate-400 absolute left-3 pointer-events-none" />
                                 <select
                                     value={selectedGroupFilter}
@@ -722,7 +716,7 @@ const Inventory = () => {
                                         setSelectedGroupFilter(e.target.value);
                                         setCurrentPage(1);
                                     }}
-                                    className="pl-7 pr-6 bg-transparent border-none outline-none text-xs font-bold text-slate-705 cursor-pointer appearance-none"
+                                    className="w-full pl-7 pr-6 bg-transparent border-none outline-none text-xs font-bold text-slate-705 cursor-pointer appearance-none"
                                 >
                                     <option value="all">All Groups</option>
                                     {CATEGORIES.map(cat => (
@@ -803,136 +797,206 @@ const Inventory = () => {
                         <div className="py-20 flex justify-center"><Loader text="Loading inventory..." /></div>
                     ) : totalItemsCount > 0 ? (
                         inventoryView === 'table' ? (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr className="border-b border-slate-100 text-[11px] uppercase text-slate-400 font-black tracking-widest bg-slate-50/50">
-                                            <th className="px-6 py-4 rounded-l-xl">Item Name</th>
-                                            <th className="px-6 py-4">Group</th>
-                                            <th className="px-6 py-4">Unit</th>
-                                            <th className="px-6 py-4">Variants</th>
-                                            <th className="px-6 py-4">Description</th>
-                                            <th className="px-6 py-4 text-right rounded-r-xl">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-50">
-                                        {paginatedGroups.map(group => {
-                                            const categoryDetails = getCategoryDetails(group.category);
-                                            const isExpanded = expandedInventoryGroup === group.key;
-                                            
-                                            return (
-                                                <React.Fragment key={group.key}>
-                                                    <tr
-                                                        onClick={() => setExpandedInventoryGroup(isExpanded ? null : group.key)}
-                                                        className="hover:bg-slate-50/40 transition-colors group cursor-pointer"
-                                                    >
-                                                        <td className="px-6 py-4 font-bold text-slate-800 text-xs">
-                                                            <div className="flex items-center gap-3">
-                                                                {getCategoryIcon(group.category)}
-                                                                <span className="truncate">{group.itemName}</span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            {getCategoryBadge(group.category)}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-xs font-bold text-slate-600">
-                                                            {group.unit || 'PCS'}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-xs font-bold text-slate-750">
-                                                            {group.variants.length}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-xs text-slate-500 max-w-xs truncate font-medium">
-                                                            {group.description || 'No description provided.'}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                                                            <div className="flex justify-end items-center gap-1.5">
-                                                                {canEditItems && (
-                                                                    <button 
-                                                                        onClick={() => openEditModal(group.primaryItem, group)} 
-                                                                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 rounded-lg transition-all bg-white shadow-sm cursor-pointer"
-                                                                        title="Edit Item"
-                                                                    >
-                                                                        <Edit size={13} />
-                                                                    </button>
-                                                                )}
-                                                                {canDeleteItems && (
-                                                                    <div className="relative">
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                setActiveRowActionsDropdown(activeRowActionsDropdown === group.key ? null : group.key);
-                                                                            }}
-                                                                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 hover:text-slate-900 transition-colors text-slate-400 bg-white shadow-sm cursor-pointer"
+                            <>
+                                {/* Table view for medium & larger screens */}
+                                <div className="hidden md:block overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 text-[11px] uppercase text-slate-400 font-black tracking-widest bg-slate-50/50">
+                                                <th className="px-6 py-4 rounded-l-xl">Item Name</th>
+                                                <th className="px-6 py-4">Group</th>
+                                                <th className="px-6 py-4">Unit</th>
+                                                <th className="px-6 py-4">Variants</th>
+                                                <th className="px-6 py-4">Description</th>
+                                                <th className="px-6 py-4 text-right rounded-r-xl">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-50">
+                                            {paginatedGroups.map(group => {
+                                                const isExpanded = expandedInventoryGroup === group.key;
+                                                
+                                                return (
+                                                    <React.Fragment key={group.key}>
+                                                        <tr
+                                                            onClick={() => setExpandedInventoryGroup(isExpanded ? null : group.key)}
+                                                            className="hover:bg-slate-50/40 transition-colors group cursor-pointer"
+                                                        >
+                                                            <td className="px-6 py-4 font-bold text-slate-800 text-xs">
+                                                                <div className="flex items-center gap-3">
+                                                                    {getCategoryIcon(group.category)}
+                                                                    <span className="truncate">{group.itemName}</span>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-4">
+                                                                {getCategoryBadge(group.category)}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-xs font-bold text-slate-600">
+                                                                {group.unit || 'PCS'}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-xs font-bold text-slate-750">
+                                                                {group.variants.length}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-xs text-slate-500 max-w-xs truncate font-medium">
+                                                                {group.description || 'No description provided.'}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                                                <div className="flex justify-end items-center gap-1.5">
+                                                                    {canEditItems && (
+                                                                        <button 
+                                                                            onClick={() => openEditModal(group.primaryItem, group)} 
+                                                                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 rounded-lg transition-all bg-white shadow-sm cursor-pointer"
+                                                                            title="Edit Item"
                                                                         >
-                                                                            <MoreVertical size={13} />
+                                                                            <Edit size={13} />
                                                                         </button>
-                                                                        {activeRowActionsDropdown === group.key && (
-                                                                            <>
-                                                                                <div 
-                                                                                    className="fixed inset-0 z-40" 
-                                                                                    onClick={(e) => { e.stopPropagation(); setActiveRowActionsDropdown(null); }}
-                                                                                ></div>
-                                                                                <div className="absolute right-0 mt-1.5 w-32 bg-white border border-slate-100 rounded-xl shadow-lg py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
-                                                                                    <button
-                                                                                        onClick={(e) => {
-                                                                                            e.stopPropagation();
-                                                                                            setActiveRowActionsDropdown(null);
-                                                                                            handleDeleteItem(group.primaryItem._id);
-                                                                                        }}
-                                                                                        className="w-full text-left px-3 py-1.5 text-xs text-red-650 hover:bg-red-50 hover:text-red-700 transition-colors font-bold flex items-center gap-1.5"
-                                                                                    >
-                                                                                        <Trash2 size={12} /> Delete Item
-                                                                                    </button>
-                                                                                </div>
-                                                                            </>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                    {isExpanded && group.variants.length > 0 && (
-                                                        <tr>
-                                                            <td colSpan={6} className="bg-slate-50/50 px-12 py-3 border-b border-slate-100">
-                                                                <div className="flex flex-col gap-1.5">
-                                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-0.5">Item Variants</span>
-                                                                    <div className="flex flex-wrap gap-1.5">
-                                                                        {group.variants.map((variant) => (
-                                                                            <span 
-                                                                                key={variant.name} 
-                                                                                className="inline-flex items-center text-[10px] font-bold bg-white text-slate-650 px-2.5 py-1 rounded-lg border border-slate-150 shadow-sm"
+                                                                    )}
+                                                                    {canDeleteItems && (
+                                                                        <div className="relative">
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setActiveRowActionsDropdown(activeRowActionsDropdown === group.key ? null : group.key);
+                                                                                }}
+                                                                                className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 hover:text-slate-900 transition-colors text-slate-400 bg-white shadow-sm cursor-pointer"
                                                                             >
-                                                                                {variant.name}
-                                                                            </span>
-                                                                        ))}
-                                                                    </div>
+                                                                                <MoreVertical size={13} />
+                                                                            </button>
+                                                                            {activeRowActionsDropdown === group.key && (
+                                                                                <>
+                                                                                    <div 
+                                                                                        className="fixed inset-0 z-40" 
+                                                                                        onClick={(e) => { e.stopPropagation(); setActiveRowActionsDropdown(null); }}
+                                                                                    ></div>
+                                                                                    <div className="absolute right-0 mt-1.5 w-32 bg-white border border-slate-100 rounded-xl shadow-lg py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
+                                                                                        <button
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                setActiveRowActionsDropdown(null);
+                                                                                                handleDeleteItem(group.primaryItem._id);
+                                                                                            }}
+                                                                                            className="w-full text-left px-3 py-1.5 text-xs text-red-650 hover:bg-red-50 hover:text-red-700 transition-colors font-bold flex items-center gap-1.5"
+                                                                                        >
+                                                                                            <Trash2 size={12} /> Delete Item
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             </td>
                                                         </tr>
+                                                        {isExpanded && group.variants.length > 0 && (
+                                                            <tr>
+                                                                <td colSpan={6} className="bg-slate-50/50 px-12 py-3 border-b border-slate-100">
+                                                                    <div className="flex flex-col gap-1.5">
+                                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-0.5">Item Variants</span>
+                                                                        <div className="flex flex-wrap gap-1.5">
+                                                                            {group.variants.map((variant) => (
+                                                                                <span 
+                                                                                    key={variant.name} 
+                                                                                    className="inline-flex items-center text-[10px] font-bold bg-white text-slate-650 px-2.5 py-1 rounded-lg border border-slate-150 shadow-sm"
+                                                                                >
+                                                                                    {variant.name}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* Mobile card list view for small screens */}
+                                <div className="block md:hidden space-y-3">
+                                    {paginatedGroups.map(group => (
+                                        <div
+                                            key={group.key}
+                                            onClick={() => setExpandedInventoryGroup(expandedInventoryGroup === group.key ? null : group.key)}
+                                            className="bg-white rounded-xl border border-slate-150 p-4 shadow-sm hover:border-blue-200 transition-all cursor-pointer"
+                                        >
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    {getCategoryIcon(group.category)}
+                                                    <div className="min-w-0">
+                                                        <h4 className="text-xs font-bold text-slate-800 truncate">{group.itemName}</h4>
+                                                        <span className="text-[10px] text-slate-400 font-medium">Unit: {group.unit || 'PCS'}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="shrink-0 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                                    {getCategoryBadge(group.category)}
+                                                    {canEditItems && (
+                                                        <button 
+                                                            onClick={() => openEditModal(group.primaryItem, group)} 
+                                                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 rounded-lg bg-white cursor-pointer"
+                                                        >
+                                                            <Edit size={13} />
+                                                        </button>
                                                     )}
-                                                </React.Fragment>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
+                                                </div>
+                                            </div>
+
+                                            {group.description && (
+                                                <p className="mt-2 text-[11px] text-slate-500 line-clamp-2 italic font-medium">
+                                                    {group.description}
+                                                </p>
+                                            )}
+
+                                            <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                                                <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
+                                                    {group.variants.length} variant(s)
+                                                </span>
+                                                {canDeleteItems && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteItem(group.primaryItem._id);
+                                                        }}
+                                                        className="text-[11px] font-bold text-red-500 hover:text-red-650 flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded-lg transition-colors"
+                                                    >
+                                                        <Trash2 size={12} /> Delete
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {expandedInventoryGroup === group.key && group.variants.length > 0 && (
+                                                <div className="mt-3 pt-2.5 border-t border-slate-100">
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">Variants:</span>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {group.variants.map((v) => (
+                                                            <span key={v.name} className="text-[10px] font-bold bg-slate-50 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
+                                                                {v.name}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                                 {paginatedGroups.map(group => (
                                     <div
                                         key={group.key}
                                         onClick={() => setExpandedInventoryGroup(expandedInventoryGroup === group.key ? null : group.key)}
-                                        className="group relative bg-white rounded-2xl border border-slate-150 shadow-sm hover:shadow-md transition-all p-5 flex flex-col justify-between overflow-hidden cursor-pointer"
+                                        className="group relative bg-white rounded-2xl border border-slate-150 shadow-sm hover:shadow-md transition-all p-4 sm:p-5 flex flex-col justify-between overflow-hidden cursor-pointer"
                                     >
                                         <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
                                         
                                         <div>
-                                            <div className="flex justify-between items-start mb-4">
+                                            <div className="flex justify-between items-start mb-3 sm:mb-4">
                                                 {getCategoryIcon(group.category)}
                                                 {getCategoryBadge(group.category)}
                                             </div>
                                             
-                                            <h3 className="text-sm font-bold text-slate-800 transition-colors line-clamp-1">{group.itemName}</h3>
+                                            <h3 className="text-xs sm:text-sm font-bold text-slate-800 transition-colors line-clamp-1">{group.itemName}</h3>
                                             
                                             {expandedInventoryGroup === group.key && group.variants.length > 0 && (
                                                 <div className="mt-2.5 flex flex-wrap gap-1">
@@ -948,12 +1012,12 @@ const Inventory = () => {
                                                 Measured In: <span className="text-slate-700">{group.unit || 'PCS'}</span>
                                             </div>
                                             
-                                            <p className="mt-3 text-xs text-slate-500 line-clamp-2 italic leading-relaxed h-8 font-medium">
+                                            <p className="mt-2.5 text-xs text-slate-500 line-clamp-2 italic leading-relaxed h-8 font-medium">
                                                 {group.description || 'No detailed description provided for this item.'}
                                             </p>
                                         </div>
 
-                                        <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between">
+                                        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
                                             <div className="flex gap-2">
                                                 {canEditItems && (
                                                     <button 
@@ -989,8 +1053,8 @@ const Inventory = () => {
 
                     {/* Pagination footer */}
                     {totalPages > 1 && (
-                        <div className="flex flex-col md:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t border-slate-100 text-xs font-semibold text-slate-500">
-                            <div>
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t border-slate-100 text-xs font-semibold text-slate-500">
+                            <div className="text-center sm:text-left">
                                 Showing {totalItemsCount > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} to {Math.min(currentPage * itemsPerPage, totalItemsCount)} of {totalItemsCount} items
                             </div>
                             
@@ -1053,7 +1117,7 @@ const Inventory = () => {
 
             {/* TAB: Vendors */}
             {activeTab === TABS.vendors && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 animate-in fade-in duration-200">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-6 animate-in fade-in duration-200">
                     {/* Controls row */}
                     <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
                         <div className="relative w-full md:w-96 group">
@@ -1071,60 +1135,102 @@ const Inventory = () => {
                     {vendorsLoading ? (
                         <div className="py-20 flex justify-center"><Loader text="Fetching vendors..." /></div>
                     ) : filteredVendors.length > 0 ? (
-                        <div className="overflow-x-auto border border-slate-100 rounded-2xl">
-                            <table className="w-full text-left border-collapse text-xs">
-                                <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase text-slate-450 font-black tracking-wider">
-                                        <th className="px-6 py-4 rounded-l-xl">Vendor</th>
-                                        <th className="px-6 py-4">Contact Person</th>
-                                        <th className="px-6 py-4">Phone & Email</th>
-                                        <th className="px-6 py-4">Address</th>
-                                        <th className="px-6 py-4 text-right rounded-r-xl">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {filteredVendors.map(v => (
-                                        <tr key={v._id} className="hover:bg-slate-50/50 transition-colors">
-                                            <td className="px-6 py-4">
-                                                <div className="font-bold text-slate-800">{v.name}</div>
-                                            </td>
-                                            <td className="px-6 py-4 text-slate-700 font-bold">
-                                                {v.contactPerson || 'N/A'}
-                                            </td>
-                                            <td className="px-6 py-4 text-slate-600 font-semibold">
-                                                <div>{v.phone || 'N/A'}</div>
-                                                <div className="text-[10px] opacity-60 mt-0.5">{v.email || ''}</div>
-                                            </td>
-                                            <td className="px-6 py-4 text-slate-500 font-medium max-w-xs truncate">
-                                                {v.address || 'N/A'}
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <div className="flex justify-end gap-1.5">
-                                                    <button 
-                                                        onClick={() => {
-                                                            setEditingVendor(v);
-                                                            setVendorFormData(v);
-                                                            setIsVendorModalOpen(true);
-                                                        }} 
-                                                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-150 bg-white rounded-lg transition-all cursor-pointer"
-                                                        title="Edit Vendor"
-                                                    >
-                                                        <Edit size={13} />
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => handleDeleteVendor(v._id)} 
-                                                        className="p-1.5 text-slate-400 hover:text-red-650 hover:bg-red-50 border border-slate-150 bg-white rounded-lg transition-all cursor-pointer"
-                                                        title="Delete Vendor"
-                                                    >
-                                                        <Trash2 size={13} />
-                                                    </button>
-                                                </div>
-                                            </td>
+                        <>
+                            {/* Table view for medium & larger screens */}
+                            <div className="hidden md:block overflow-x-auto border border-slate-100 rounded-2xl">
+                                <table className="w-full text-left border-collapse text-xs">
+                                    <thead>
+                                        <tr className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase text-slate-450 font-black tracking-wider">
+                                            <th className="px-6 py-4 rounded-l-xl">Vendor</th>
+                                            <th className="px-6 py-4">Contact Person</th>
+                                            <th className="px-6 py-4">Phone & Email</th>
+                                            <th className="px-6 py-4">Address</th>
+                                            <th className="px-6 py-4 text-right rounded-r-xl">Actions</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {filteredVendors.map(v => (
+                                            <tr key={v._id} className="hover:bg-slate-50/50 transition-colors">
+                                                <td className="px-6 py-4">
+                                                    <div className="font-bold text-slate-800">{v.name}</div>
+                                                </td>
+                                                <td className="px-6 py-4 text-slate-700 font-bold">
+                                                    {v.contactPerson || 'N/A'}
+                                                </td>
+                                                <td className="px-6 py-4 text-slate-600 font-semibold">
+                                                    <div>{v.phone || 'N/A'}</div>
+                                                    <div className="text-[10px] opacity-60 mt-0.5">{v.email || ''}</div>
+                                                </td>
+                                                <td className="px-6 py-4 text-slate-500 font-medium max-w-xs truncate">
+                                                    {v.address || 'N/A'}
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <div className="flex justify-end gap-1.5">
+                                                        <button 
+                                                            onClick={() => {
+                                                                setEditingVendor(v);
+                                                                setVendorFormData(v);
+                                                                setIsVendorModalOpen(true);
+                                                            }} 
+                                                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-150 bg-white rounded-lg transition-all cursor-pointer"
+                                                            title="Edit Vendor"
+                                                        >
+                                                            <Edit size={13} />
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleDeleteVendor(v._id)} 
+                                                            className="p-1.5 text-slate-400 hover:text-red-650 hover:bg-red-50 border border-slate-150 bg-white rounded-lg transition-all cursor-pointer"
+                                                            title="Delete Vendor"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Mobile card view for small screens */}
+                            <div className="block md:hidden space-y-3">
+                                {filteredVendors.map(v => (
+                                    <div key={v._id} className="bg-white rounded-xl border border-slate-150 p-4 shadow-sm">
+                                        <div className="flex justify-between items-start gap-2 mb-2">
+                                            <div>
+                                                <h4 className="text-xs font-bold text-slate-800">{v.name}</h4>
+                                                {v.contactPerson && (
+                                                    <span className="text-[10px] text-slate-500 font-semibold">Contact: {v.contactPerson}</span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <button 
+                                                    onClick={() => {
+                                                        setEditingVendor(v);
+                                                        setVendorFormData(v);
+                                                        setIsVendorModalOpen(true);
+                                                    }} 
+                                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 bg-white rounded-lg transition-all cursor-pointer"
+                                                >
+                                                    <Edit size={13} />
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleDeleteVendor(v._id)} 
+                                                    className="p-1.5 text-slate-400 hover:text-red-650 hover:bg-red-50 border border-slate-200 bg-white rounded-lg transition-all cursor-pointer"
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="text-[11px] text-slate-600 space-y-1 pt-2 border-t border-slate-100">
+                                            {v.phone && <div className="font-semibold">Phone: {v.phone}</div>}
+                                            {v.email && <div className="text-slate-500">Email: {v.email}</div>}
+                                            {v.address && <div className="text-slate-500">Address: {v.address}</div>}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
                     ) : (
                         <div className="py-20 text-center text-slate-400 bg-slate-50 rounded-lg border-2 border-dashed border-slate-100">
                             <AlertCircle className="mx-auto mb-3 opacity-20" size={48} />
@@ -1136,12 +1242,12 @@ const Inventory = () => {
 
             {/* TAB: Tyre Registry */}
             {activeTab === TABS.tyreRegistry && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 animate-in fade-in duration-200">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-6 animate-in fade-in duration-200">
                     <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
-                        <div className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 shrink-0">
+                        <div className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 shrink-0 w-full sm:w-auto">
                             <Filter size={15} className="text-slate-400 absolute left-3 pointer-events-none" />
                             <select 
-                                className="pl-7 pr-6 bg-transparent border-none outline-none text-xs font-bold text-slate-705 cursor-pointer appearance-none"
+                                className="w-full pl-7 pr-6 bg-transparent border-none outline-none text-xs font-bold text-slate-705 cursor-pointer appearance-none"
                                 value={selectedBusFilter}
                                 onChange={(e) => setSelectedBusFilter(e.target.value)}
                             >
@@ -1164,38 +1270,64 @@ const Inventory = () => {
                     {registryLoading ? (
                         <div className="py-20 flex justify-center"><Loader text="Fetching registry..." /></div>
                     ) : tyreRegistry.length > 0 ? (
-                        <div className="overflow-x-auto border border-slate-100 rounded-2xl">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="border-b border-slate-100 text-[11px] uppercase text-slate-450 font-black tracking-widest bg-slate-50/50">
-                                        <th className="px-6 py-4 rounded-l-xl">Vehicle</th>
-                                        <th className="px-6 py-4">Position</th>
-                                        <th className="px-6 py-4">Type</th>
-                                        <th className="px-6 py-4">Install KM</th>
-                                        <th className="px-6 py-4 text-right rounded-r-xl">Last Updated</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {tyreRegistry.map(reg => (
-                                        <tr key={reg._id} className="hover:bg-slate-50/50 transition-colors">
-                                            <td className="px-6 py-4 font-bold text-slate-800 text-xs">
-                                                <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg border border-slate-200">
-                                                    {reg.busId?.vehicleNumber || reg.busId?.busNumber || 'N/A'}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 uppercase font-bold text-xs text-blue-600">{reg.position}</td>
-                                            <td className="px-6 py-4 text-xs font-semibold">
-                                                <span className={`px-2.5 py-1 rounded-lg border ${reg.tyreType === 'new tyre' ? 'bg-green-50 text-green-705 border-green-100' : 'bg-amber-50 text-amber-705 border-amber-105'}`}>
-                                                    {reg.tyreType}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 text-xs font-bold text-slate-750">{reg.installKm} KM</td>
-                                            <td className="px-6 py-4 text-xs text-slate-400 text-right font-medium">{new Date(reg.updatedAt).toLocaleString()}</td>
+                        <>
+                            {/* Table view for medium & larger screens */}
+                            <div className="hidden md:block overflow-x-auto border border-slate-100 rounded-2xl">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="border-b border-slate-100 text-[11px] uppercase text-slate-450 font-black tracking-widest bg-slate-50/50">
+                                            <th className="px-6 py-4 rounded-l-xl">Vehicle</th>
+                                            <th className="px-6 py-4">Position</th>
+                                            <th className="px-6 py-4">Type</th>
+                                            <th className="px-6 py-4">Install KM</th>
+                                            <th className="px-6 py-4 text-right rounded-r-xl">Last Updated</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {tyreRegistry.map(reg => (
+                                            <tr key={reg._id} className="hover:bg-slate-50/50 transition-colors">
+                                                <td className="px-6 py-4 font-bold text-slate-800 text-xs">
+                                                    <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg border border-slate-200">
+                                                        {reg.busId?.vehicleNumber || reg.busId?.busNumber || 'N/A'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 uppercase font-bold text-xs text-blue-600">{reg.position}</td>
+                                                <td className="px-6 py-4 text-xs font-semibold">
+                                                    <span className={`px-2.5 py-1 rounded-lg border ${reg.tyreType === 'new tyre' ? 'bg-green-50 text-green-705 border-green-100' : 'bg-amber-50 text-amber-705 border-amber-105'}`}>
+                                                        {reg.tyreType}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-xs font-bold text-slate-750">{reg.installKm} KM</td>
+                                                <td className="px-6 py-4 text-xs text-slate-400 text-right font-medium">{new Date(reg.updatedAt).toLocaleString()}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Mobile card view for small screens */}
+                            <div className="block md:hidden space-y-3">
+                                {tyreRegistry.map(reg => (
+                                    <div key={reg._id} className="bg-white rounded-xl border border-slate-150 p-4 shadow-sm">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="bg-slate-100 text-slate-800 text-xs font-bold px-2.5 py-1 rounded-lg border border-slate-200">
+                                                {reg.busId?.vehicleNumber || reg.busId?.busNumber || 'N/A'}
+                                            </span>
+                                            <span className="uppercase font-bold text-xs text-blue-600">{reg.position}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center pt-2 border-t border-slate-100 text-xs">
+                                            <span className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold ${reg.tyreType === 'new tyre' ? 'bg-green-50 text-green-705 border-green-100' : 'bg-amber-50 text-amber-705 border-amber-105'}`}>
+                                                {reg.tyreType}
+                                            </span>
+                                            <span className="font-bold text-slate-750">{reg.installKm} KM</span>
+                                        </div>
+                                        <div className="mt-2 text-[10px] text-slate-400 text-right font-medium">
+                                            Updated: {new Date(reg.updatedAt).toLocaleDateString()}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
                     ) : (
                         <div className="py-20 text-center text-slate-400 bg-slate-50 rounded-lg border-2 border-dashed border-slate-100">
                             <AlertCircle className="mx-auto mb-3 opacity-20" size={48} />
