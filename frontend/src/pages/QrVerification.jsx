@@ -122,6 +122,7 @@ const QrVerification = () => {
     const [inspectionFilter, setInspectionFilter] = useState('all'); // 'all' | 'students' | 'faculty' | 'inspected' | 'pending'
     const [inspectionStageFilter, setInspectionStageFilter] = useState('all');
     const [inspectionNotification, setInspectionNotification] = useState(null);
+    const [inspectionSuccessModal, setInspectionSuccessModal] = useState(null); // { passenger, isAlreadyInspected, isOverride }
     const [wrongBusModal, setWrongBusModal] = useState({
         isOpen: false,
         passenger: null,
@@ -1013,14 +1014,7 @@ const QrVerification = () => {
                 // Direct match on this bus/route -> Check In Student!
                 markPassengerInspected(passenger, false);
                 playBeepFeedback(true);
-                setInspectionNotification({
-                    type: 'success',
-                    title: isAlreadyInspected ? 'Already Checked In' : 'Boarded Successfully',
-                    passengerKey: pKey,
-                    message: isAlreadyInspected
-                        ? `${passenger.studentName || 'Student'} (${passenger.studentId || 'ID'}) was already scanned and checked in.`
-                        : `✅ ${passenger.studentName || 'Student'} (${passenger.studentId || 'ID'}) checked in for Stage: ${passenger.stageName || 'assigned stage'}.`,
-                });
+                setInspectionSuccessModal({ passenger, isAlreadyInspected, isOverride: false });
             } else {
                 // ROUTE / BUS MISMATCH -> Open Wrong Bus Alert Popup Warning!
                 playBeepFeedback(false);
@@ -2177,44 +2171,20 @@ const QrVerification = () => {
                                         </div>
                                     )}
 
-                                    {/* Recent Inspection Notification Toast */}
-                                    {inspectionNotification && (
-                                        <div
-                                            className={`p-3 text-xs flex items-center justify-between gap-2 border-t ${
-                                                inspectionNotification.type === 'success'
-                                                    ? 'bg-emerald-50 text-emerald-900 border-emerald-100'
-                                                    : 'bg-rose-50 text-rose-900 border-rose-100'
-                                            }`}
-                                        >
+                                    {/* Inspection notification kept for error-only usage */}
+                                    {inspectionNotification && inspectionNotification.type !== 'success' && (
+                                        <div className="p-3 text-xs flex items-center justify-between gap-2 border-t bg-rose-50 text-rose-900 border-rose-100">
                                             <div className="flex items-center gap-2">
-                                                {inspectionNotification.type === 'success' ? (
-                                                    <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                                                ) : (
-                                                    <AlertTriangle size={16} className="text-rose-600 shrink-0" />
-                                                )}
+                                                <AlertTriangle size={16} className="text-rose-600 shrink-0" />
                                                 <span className="font-semibold">{inspectionNotification.message}</span>
                                             </div>
-                                            <div className="flex items-center gap-2 shrink-0">
-                                                {inspectionNotification.passengerKey && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            undoPassengerInspected(inspectionNotification.passengerKey);
-                                                            setInspectionNotification(null);
-                                                        }}
-                                                        className="underline font-bold text-slate-700 hover:text-slate-900 cursor-pointer"
-                                                    >
-                                                        Undo
-                                                    </button>
-                                                )}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setInspectionNotification(null)}
-                                                    className="p-1 hover:bg-black/5 rounded cursor-pointer"
-                                                >
-                                                    <X size={14} />
-                                                </button>
-                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setInspectionNotification(null)}
+                                                className="p-1 hover:bg-black/5 rounded cursor-pointer shrink-0"
+                                            >
+                                                <X size={14} />
+                                            </button>
                                         </div>
                                     )}
                                 </div>
@@ -2566,6 +2536,114 @@ const QrVerification = () => {
             </Modal>
 
             {/* ========================================================================= */}
+            {/* POPUP: INSPECTION SCAN SUCCESS MODAL                                       */}
+            {/* ========================================================================= */}
+            <Modal
+                isOpen={Boolean(inspectionSuccessModal)}
+                onClose={() => setInspectionSuccessModal(null)}
+                title={inspectionSuccessModal?.isOverride ? 'Boarding Override Allowed' : inspectionSuccessModal?.isAlreadyInspected ? 'Already Checked In' : 'Scan Successful'}
+                maxWidth="max-w-sm"
+            >
+                {inspectionSuccessModal?.passenger && (
+                    <div className="space-y-4">
+                        {/* Success Banner */}
+                        <div className={`rounded-2xl p-4 flex items-center gap-4 ${inspectionSuccessModal.isOverride ? 'bg-amber-50 border border-amber-200' : inspectionSuccessModal.isAlreadyInspected ? 'bg-blue-50 border border-blue-200' : 'bg-emerald-50 border border-emerald-200'}`}>
+                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-md ${inspectionSuccessModal.isOverride ? 'bg-amber-500' : inspectionSuccessModal.isAlreadyInspected ? 'bg-blue-500' : 'bg-emerald-500'}`}>
+                                {inspectionSuccessModal.isOverride ? (
+                                    <ShieldAlert size={28} className="text-white" />
+                                ) : inspectionSuccessModal.isAlreadyInspected ? (
+                                    <CheckCheck size={28} className="text-white" />
+                                ) : (
+                                    <CheckCircle2 size={28} className="text-white" />
+                                )}
+                            </div>
+                            <div className="min-w-0">
+                                <p className={`text-xs font-bold uppercase tracking-wider ${inspectionSuccessModal.isOverride ? 'text-amber-600' : inspectionSuccessModal.isAlreadyInspected ? 'text-blue-600' : 'text-emerald-600'}`}>
+                                    {inspectionSuccessModal.isOverride ? 'Override' : inspectionSuccessModal.isAlreadyInspected ? 'Duplicate Scan' : 'Boarded ✓'}
+                                </p>
+                                <h3 className={`text-base font-black leading-tight mt-0.5 ${inspectionSuccessModal.isOverride ? 'text-amber-900' : inspectionSuccessModal.isAlreadyInspected ? 'text-blue-900' : 'text-emerald-900'}`}>
+                                    {inspectionSuccessModal.passenger.studentName || 'Passenger'}
+                                </h3>
+                                <p className={`text-xs mt-0.5 font-semibold ${inspectionSuccessModal.isOverride ? 'text-amber-700' : inspectionSuccessModal.isAlreadyInspected ? 'text-blue-700' : 'text-emerald-700'}`}>
+                                    ID: {inspectionSuccessModal.passenger.studentId || inspectionSuccessModal.passenger.admission_number || '—'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Passenger Detail Card */}
+                        <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-2">
+                            {inspectionSuccessModal.passenger.stageName && (
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
+                                        <MapPin size={11} /> Stop / Stage
+                                    </span>
+                                    <span className="text-xs font-bold text-slate-800 text-right">{inspectionSuccessModal.passenger.stageName}</span>
+                                </div>
+                            )}
+                            {inspectionSuccessModal.passenger.routeName && (
+                                <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
+                                    <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
+                                        <Bus size={11} /> Route
+                                    </span>
+                                    <span className="text-xs font-bold text-slate-800 text-right">{inspectionSuccessModal.passenger.routeName}</span>
+                                </div>
+                            )}
+                            {inspectionSuccessModal.passenger.userType && (
+                                <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
+                                    <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
+                                        <User size={11} /> Type
+                                    </span>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${inspectionSuccessModal.passenger.userType === 'faculty' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                        {String(inspectionSuccessModal.passenger.userType).charAt(0).toUpperCase() + String(inspectionSuccessModal.passenger.userType).slice(1)}
+                                    </span>
+                                </div>
+                            )}
+                            {inspectionSuccessModal.isOverride && (
+                                <div className="mt-2 pt-2 border-t border-amber-200 flex items-start gap-2 text-amber-700">
+                                    <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                                    <p className="text-[10px] font-semibold leading-relaxed">Boarded on a different route via override. Logged for review.</p>
+                                </div>
+                            )}
+                            {inspectionSuccessModal.isAlreadyInspected && (
+                                <div className="mt-2 pt-2 border-t border-blue-200 flex items-start gap-2 text-blue-700">
+                                    <CheckCheck size={13} className="shrink-0 mt-0.5" />
+                                    <p className="text-[10px] font-semibold leading-relaxed">This passenger was already scanned and checked in earlier.</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Undo + Scan Next Actions */}
+                        <div className="flex flex-col gap-2 pt-1">
+                            <button
+                                type="button"
+                                onClick={() => setInspectionSuccessModal(null)}
+                                className={`w-full py-3 rounded-xl text-white text-sm font-black transition-all cursor-pointer shadow-lg active:scale-95 ${inspectionSuccessModal.isOverride ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30' : inspectionSuccessModal.isAlreadyInspected ? 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30'}`}
+                            >
+                                Scan Next →
+                            </button>
+                            {!inspectionSuccessModal.isOverride && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const pKey = String(
+                                            inspectionSuccessModal.passenger.requestId
+                                            || inspectionSuccessModal.passenger.studentId
+                                            || inspectionSuccessModal.passenger.mongoId
+                                        );
+                                        undoPassengerInspected(pKey);
+                                        setInspectionSuccessModal(null);
+                                    }}
+                                    className="w-full py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold transition-colors cursor-pointer"
+                                >
+                                    Undo Check-In
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
+            {/* ========================================================================= */}
             {/* POPUP 2: WRONG BUS / ROUTE MISMATCH ALERT MODAL                           */}
             {/* ========================================================================= */}
             <Modal
@@ -2659,12 +2737,7 @@ const QrVerification = () => {
                                 onClick={() => {
                                     markPassengerInspected(wrongBusModal.passenger, true);
                                     setWrongBusModal((prev) => ({ ...prev, isOpen: false }));
-                                    setInspectionNotification({
-                                        type: 'success',
-                                        title: 'Boarding Allowed (Override)',
-                                        passengerKey: String(wrongBusModal.passenger.requestId || wrongBusModal.passenger.studentId),
-                                        message: `Allowed boarding for ${wrongBusModal.passenger.studentName || 'Passenger'} (Assigned to Route ${wrongBusModal.scannedRouteId}).`,
-                                    });
+                                    setInspectionSuccessModal({ passenger: wrongBusModal.passenger, isAlreadyInspected: false, isOverride: true });
                                 }}
                                 className="flex-1 py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-colors cursor-pointer text-center shadow-sm"
                             >
