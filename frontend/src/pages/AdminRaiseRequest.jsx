@@ -68,6 +68,7 @@ const AdminRaiseRequest = () => {
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear);
     const [academicYearOptions, setAcademicYearOptions] = useState(buildFallbackAcademicYearOptions);
     const [academicValidation, setAcademicValidation] = useState(null);
+    const [isDetained, setIsDetained] = useState(false);
     const [validationLoading, setValidationLoading] = useState(false);
     const [feeEligibility, setFeeEligibility] = useState(null);
     const [feeEligibilityLoading, setFeeEligibilityLoading] = useState(false);
@@ -284,6 +285,7 @@ const AdminRaiseRequest = () => {
 
     const handleSelectStudent = async (student) => {
         setFormError('');
+        setIsDetained(false);
         setAcademicValidation(null);
         setFeeEligibility(null);
         setSelectedStudent(student);
@@ -487,7 +489,7 @@ const AdminRaiseRequest = () => {
             return;
         }
 
-        if (activeTab === 'new' && userType === 'student' && academicValidation && !academicValidation.valid) {
+        if (activeTab === 'new' && userType === 'student' && academicValidation && !academicValidation.valid && !isDetained) {
             setFormError(academicValidation.message || 'Student batch, year, and academic year do not match.');
             return;
         }
@@ -529,6 +531,7 @@ const AdminRaiseRequest = () => {
                 raised_by_id: admin.id,
                 user_type: userType,
                 academic_year: academicYear,
+                is_detained: isDetained,
             };
 
             const response = await apiFetch(endpoint, {
@@ -606,13 +609,13 @@ const AdminRaiseRequest = () => {
                 
                 <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200 shadow-sm w-full md:w-auto justify-center">
                     <button
-                        onClick={() => { setActiveTab('new'); setFormError(''); setSelectedStudent(null); setStudents([]); setApprovedStudents([]); setSearchQuery(''); setStageSearchQuery(''); }}
+                        onClick={() => { setActiveTab('new'); setFormError(''); setIsDetained(false); setSelectedStudent(null); setStudents([]); setApprovedStudents([]); setSearchQuery(''); setStageSearchQuery(''); }}
                         className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${activeTab === 'new' ? 'bg-white text-blue-900 shadow-md ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         New Enrollment
                     </button>
                     <button
-                        onClick={() => { setActiveTab('change'); setFormError(''); setSelectedStudent(null); setStudents([]); setApprovedStudents([]); setSearchQuery(''); setStageSearchQuery(''); }}
+                        onClick={() => { setActiveTab('change'); setFormError(''); setIsDetained(false); setSelectedStudent(null); setStudents([]); setApprovedStudents([]); setSearchQuery(''); setStageSearchQuery(''); }}
                         className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${activeTab === 'change' ? 'bg-white text-blue-900 shadow-md ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         Route/Stage Change
@@ -638,6 +641,7 @@ const AdminRaiseRequest = () => {
                             <button
                                 onClick={() => {
                                     setUserType('student');
+                                    setIsDetained(false);
                                     setStudents([]);
                                     setApprovedStudents([]);
                                     setSelectedStudent(null);
@@ -651,6 +655,7 @@ const AdminRaiseRequest = () => {
                             <button
                                 onClick={() => {
                                     setUserType('employee');
+                                    setIsDetained(false);
                                     setStudents([]);
                                     setApprovedStudents([]);
                                     setSelectedStudent(null);
@@ -815,7 +820,7 @@ const AdminRaiseRequest = () => {
                                                     </label>
                                                     <select
                                                         value={academicYear}
-                                                        onChange={(e) => { setAcademicYear(e.target.value); setFormError(''); }}
+                                                        onChange={(e) => { setAcademicYear(e.target.value); setFormError(''); setIsDetained(false); }}
                                                         className="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold text-slate-700 bg-white"
                                                         required
                                                     >
@@ -889,7 +894,7 @@ const AdminRaiseRequest = () => {
                                                                 }`}
                                                             >
                                                                 <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${academicValidation.reason === 'request_exists' ? 'bg-red-500' : 'bg-amber-500'}`}></span>
-                                                                {getShortValidationText(academicValidation)}
+                                                                {isDetained ? 'Mismatch (Detained Student Accepted)' : getShortValidationText(academicValidation)}
                                                             </span>
                                                         )
                                                     ) : null
@@ -1105,6 +1110,31 @@ const AdminRaiseRequest = () => {
                                     );
                                  })()}
 
+                                {activeTab === 'new' && userType === 'student' && academicValidation && !academicValidation.valid && academicValidation.reason !== 'request_exists' && (
+                                    <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm leading-relaxed space-y-3">
+                                        <div>
+                                            <p className="font-bold text-amber-950 text-xs uppercase tracking-wide mb-1">
+                                                Academic Year Mismatch
+                                            </p>
+                                            <p className="text-xs text-amber-800">{academicValidation.message}</p>
+                                        </div>
+                                        <label className="flex items-center gap-2.5 pt-2 border-t border-amber-200/70 cursor-pointer select-none font-bold text-xs text-amber-950">
+                                            <input
+                                                type="checkbox"
+                                                checked={isDetained}
+                                                onChange={(e) => {
+                                                    setIsDetained(e.target.checked);
+                                                    if (e.target.checked) {
+                                                        setFormError('');
+                                                    }
+                                                }}
+                                                className="w-4 h-4 text-blue-600 rounded border-amber-300 focus:ring-blue-500 cursor-pointer"
+                                            />
+                                            <span>Is this a detained student? (Check to accept request despite mismatch)</span>
+                                        </label>
+                                    </div>
+                                )}
+
                                 {formError && (
                                     <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-800 text-sm leading-relaxed animate-in fade-in slide-in-from-top-1 duration-200">
                                         <p className="font-bold text-red-900 text-xs uppercase tracking-wide mb-1">
@@ -1137,7 +1167,7 @@ const AdminRaiseRequest = () => {
                                 disabled={
                                     submitting
                                     || !selectedStage
-                                    || (activeTab === 'new' && userType === 'student' && academicValidation && !academicValidation.valid)
+                                    || (activeTab === 'new' && userType === 'student' && academicValidation && !academicValidation.valid && !isDetained)
                                     || (activeTab === 'new' && userType === 'student' && feeEligibility && feeEligibility.enabled && !feeEligibility.ok)
                                     || (activeTab === 'new' && userType === 'student' && (validationLoading || feeEligibilityLoading))
                                 }

@@ -1777,6 +1777,8 @@ const createTransportRequest = async (req, res) => {
         user_type = 'student',
         academic_year,
         academicYear,
+        is_detained,
+        isDetained,
     } = req.body;
 
     const resolvedAcademicYear = resolveAcademicYear({ academic_year, academicYear });
@@ -1880,12 +1882,13 @@ const createTransportRequest = async (req, res) => {
             return res.status(404).json({ message: 'Student not found in the student database.' });
         }
 
+        const isDetainedCandidate = Boolean(is_detained || isDetained);
         const validation = await validateStudentAcademicContext(
             mysqlPool,
             studentRecord,
             resolvedAcademicYear
         );
-        if (!validation.valid) {
+        if (!validation.valid && !isDetainedCandidate) {
             return res.status(400).json({
                 message: validation.message,
                 validation,
@@ -1934,6 +1937,7 @@ const createTransportRequest = async (req, res) => {
             raised_by_id: resolvedRaisedById ? String(resolvedRaisedById) : null,
             year_of_study: yearOfStudy,
             academic_year: resolvedAcademicYear,
+            is_detained: isDetainedCandidate,
         };
 
         const newReq = new TransportRequest(docData);

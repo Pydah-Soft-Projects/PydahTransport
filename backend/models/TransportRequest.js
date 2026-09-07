@@ -139,6 +139,10 @@ const transportRequestSchema = new mongoose.Schema({
     not_interested_reason: {
         type: String,
         default: null
+    },
+    is_detained: {
+        type: Boolean,
+        default: false
     }
 }, {
     timestamps: { createdAt: 'request_date', updatedAt: 'updated_at' },
