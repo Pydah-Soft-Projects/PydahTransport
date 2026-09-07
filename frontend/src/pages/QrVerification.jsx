@@ -172,6 +172,9 @@ const QrVerification = () => {
     const camerasFetchedRef = useRef(false);
     const availableCamerasRef = useRef([]);
     const scanResultTokenRef = useRef(0);
+    // Ref mirror of inspectedMap so processInspectionScan (useCallback) always reads current value
+    const inspectedMapRef = useRef(inspectedMap);
+    useEffect(() => { inspectedMapRef.current = inspectedMap; }, [inspectedMap]);
 
     const SCAN_COOLDOWN_MS = 1800;
 
@@ -982,9 +985,9 @@ const QrVerification = () => {
                 return;
             }
 
-            // Check if student was already inspected/checked in
+            // Check if student was already inspected/checked in (read from ref to avoid stale closure)
             const pKey = String(passenger.requestId || passenger.studentId || passenger.mongoId);
-            const isAlreadyInspected = Boolean(inspectedMap[pKey]);
+            const isAlreadyInspected = Boolean(inspectedMapRef.current[pKey]);
 
             // Exact Route comparison
             const normalizeRouteNumber = (id) => {
@@ -2552,8 +2555,8 @@ const QrVerification = () => {
                 {inspectionSuccessModal?.passenger && (
                     <div className="space-y-4">
                         {/* Success Banner */}
-                        <div className={`rounded-2xl p-4 flex items-center gap-4 ${inspectionSuccessModal.isOverride ? 'bg-amber-50 border border-amber-200' : inspectionSuccessModal.isAlreadyInspected ? 'bg-blue-50 border border-blue-200' : 'bg-emerald-50 border border-emerald-200'}`}>
-                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-md ${inspectionSuccessModal.isOverride ? 'bg-amber-500' : inspectionSuccessModal.isAlreadyInspected ? 'bg-blue-500' : 'bg-emerald-500'}`}>
+                        <div className={`rounded-2xl p-4 flex items-center gap-4 ${inspectionSuccessModal.isOverride ? 'bg-amber-50 border border-amber-200' : inspectionSuccessModal.isAlreadyInspected ? 'bg-yellow-50 border border-yellow-300' : 'bg-emerald-50 border border-emerald-200'}`}>
+                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-md ${inspectionSuccessModal.isOverride ? 'bg-amber-500' : inspectionSuccessModal.isAlreadyInspected ? 'bg-yellow-500' : 'bg-emerald-500'}`}>
                                 {inspectionSuccessModal.isOverride ? (
                                     <ShieldAlert size={28} className="text-white" />
                                 ) : inspectionSuccessModal.isAlreadyInspected ? (
@@ -2563,13 +2566,13 @@ const QrVerification = () => {
                                 )}
                             </div>
                             <div className="min-w-0">
-                                <p className={`text-xs font-bold uppercase tracking-wider ${inspectionSuccessModal.isOverride ? 'text-amber-600' : inspectionSuccessModal.isAlreadyInspected ? 'text-blue-600' : 'text-emerald-600'}`}>
+                                <p className={`text-xs font-bold uppercase tracking-wider ${inspectionSuccessModal.isOverride ? 'text-amber-600' : inspectionSuccessModal.isAlreadyInspected ? 'text-yellow-700' : 'text-emerald-600'}`}>
                                     {inspectionSuccessModal.isOverride ? 'Override' : inspectionSuccessModal.isAlreadyInspected ? 'Already Boarded ⚠️' : 'Boarded ✓'}
                                 </p>
-                                <h3 className={`text-base font-black leading-tight mt-0.5 ${inspectionSuccessModal.isOverride ? 'text-amber-900' : inspectionSuccessModal.isAlreadyInspected ? 'text-blue-900' : 'text-emerald-900'}`}>
+                                <h3 className={`text-base font-black leading-tight mt-0.5 ${inspectionSuccessModal.isOverride ? 'text-amber-900' : inspectionSuccessModal.isAlreadyInspected ? 'text-yellow-900' : 'text-emerald-900'}`}>
                                     {inspectionSuccessModal.passenger.studentName || 'Passenger'}
                                 </h3>
-                                <p className={`text-xs mt-0.5 font-semibold ${inspectionSuccessModal.isOverride ? 'text-amber-700' : inspectionSuccessModal.isAlreadyInspected ? 'text-blue-700' : 'text-emerald-700'}`}>
+                                <p className={`text-xs mt-0.5 font-semibold ${inspectionSuccessModal.isOverride ? 'text-amber-700' : inspectionSuccessModal.isAlreadyInspected ? 'text-yellow-700' : 'text-emerald-700'}`}>
                                     ID: {inspectionSuccessModal.passenger.studentId || inspectionSuccessModal.passenger.admission_number || '—'}
                                 </p>
                             </div>
@@ -2610,9 +2613,9 @@ const QrVerification = () => {
                                 </div>
                             )}
                             {inspectionSuccessModal.isAlreadyInspected && (
-                                <div className="mt-2 pt-2 border-t border-blue-200 flex items-start gap-2 text-blue-700">
+                                <div className="mt-2 pt-2 border-t border-yellow-300 flex items-start gap-2 text-yellow-800">
                                     <CheckCheck size={13} className="shrink-0 mt-0.5" />
-                                    <p className="text-[10px] font-semibold leading-relaxed">This passenger was already scanned and checked in earlier.</p>
+                                    <p className="text-[10px] font-semibold leading-relaxed">This passenger was already scanned and checked in earlier today.</p>
                                 </div>
                             )}
                         </div>
@@ -2625,7 +2628,7 @@ const QrVerification = () => {
                                     lastScanRef.current = { text: '', at: 0 };
                                     setInspectionSuccessModal(null);
                                 }}
-                                className={`w-full py-3 rounded-xl text-white text-sm font-black transition-all cursor-pointer shadow-lg active:scale-95 ${inspectionSuccessModal.isOverride ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30' : inspectionSuccessModal.isAlreadyInspected ? 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30'}`}
+                                className={`w-full py-3 rounded-xl text-white text-sm font-black transition-all cursor-pointer shadow-lg active:scale-95 ${inspectionSuccessModal.isOverride ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30' : inspectionSuccessModal.isAlreadyInspected ? 'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-500/30' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30'}`}
                             >
                                 Scan Next →
                             </button>
