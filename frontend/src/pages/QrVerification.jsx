@@ -117,7 +117,10 @@ const QrVerification = () => {
     const [allCachedPassengers, setAllCachedPassengers] = useState([]);
     const [loadingInspectionData, setLoadingInspectionData] = useState(false);
     const [selectedRoute, setSelectedRoute] = useState(null);
-    const [routeSearchQuery, setRouteSearchQuery] = useState('');
+    const [selectedBus, setSelectedBus] = useState(null);
+    const [inspectionSelection, setInspectionSelection] = useState('');
+    const [inspectionSession, setInspectionSession] = useState(null);
+    const [inspectionSessions, setInspectionSessions] = useState([]);
     const [inspectionSearchQuery, setInspectionSearchQuery] = useState('');
     const [inspectionFilter, setInspectionFilter] = useState('all'); // 'all' | 'students' | 'faculty' | 'inspected' | 'pending'
     const [inspectionStageFilter, setInspectionStageFilter] = useState('all');
@@ -150,6 +153,20 @@ const QrVerification = () => {
             return {};
         }
     });
+
+    const loadInspectionSessions = useCallback(async () => {
+        if (!online || !isAuthenticated()) return;
+        try {
+            const response = await apiFetch(`${API_BASE}/inspection-sessions?academicYear=${encodeURIComponent(academicYear)}`);
+            if (response.ok) setInspectionSessions(await response.json());
+        } catch {
+            // Local passenger progress remains available when the API is offline.
+        }
+    }, [academicYear, online]);
+
+    useEffect(() => {
+        loadInspectionSessions();
+    }, [loadInspectionSessions]);
 
     // Sync inspection storage whenever map or academicYear changes
     useEffect(() => {
@@ -1435,19 +1452,127 @@ const QrVerification = () => {
     // Active Route Selected Details
     const activeRouteData = useMemo(() => {
         if (!selectedRoute) return null;
-        return routesWithMetrics.find((r) => r.routeId.toLowerCase() === selectedRoute.routeId.toLowerCase()) || selectedRoute;
-    }, [selectedRoute, routesWithMetrics]);
+        const baseRoute = routesWithMetrics.find((r) => r.routeId.toLowerCase() === selectedRoute.routeId.toLowerCase()) || selectedRoute;
+        if (!selectedBus) return baseRoute;
+        const passengers = (baseRoute.passengers || []).filter((passenger) => {
+            const passengerBus = String(passenger.busId || passenger.bus_id || '').trim();
+            return !passengerBus || passengerBus === String(selectedBus).trim();
+        });
+        const inspectedCount = passengers.filter((passenger) => (
+            inspectedMap[String(passenger.requestId || passenger.studentId || passenger.mongoId)]
+        )).length;
+        return {
+            ...baseRoute,
+            passengers,
+            assignedBuses: [selectedBus],
+            totalCount: passengers.length,
+            inspectedCount,
+            inspectedPercent: passengers.length ? Math.round((inspectedCount / passengers.length) * 100) : 0,
+        };
+    }, [selectedBus, selectedRoute, routesWithMetrics, inspectedMap]);
 
-    // Filtered routes list for overview tab
-    const filteredRoutes = useMemo(() => {
-        if (!routeSearchQuery.trim()) return routesWithMetrics;
-        const q = routeSearchQuery.toLowerCase().trim();
-        return routesWithMetrics.filter((r) =>
-            r.routeId.toLowerCase().includes(q)
-            || r.routeName.toLowerCase().includes(q)
-            || r.assignedBuses.some((b) => b.toLowerCase().includes(q))
-        );
-    }, [routesWithMetrics, routeSearchQuery]);
+    const inspectionBuses = useMemo(() => {
+        const buses = [];
+        routesWithMetrics.forEach((route) => {
+            route.assignedBuses.forEach((busNumber) => {
+                const passengers = (route.passengers || []).filter((passenger) => {
+                    const passengerBus = String(passenger.busId || passenger.bus_id || '').trim();
+                    return !passengerBus || passengerBus === String(busNumber).trim();
+                });
+                const inspectedCount = passengers.filter((passenger) => (
+                    inspectedMap[String(passenger.requestId || passenger.studentId || passenger.mongoId)]
+                )).length;
+                buses.push({
+                    ...route,
+                    busNumber: String(busNumber),
+                    passengers,
+                    totalCount: passengers.length,
+                    studentsCount: passengers.filter((p) => (p.userType || p.user_type || 'student') === 'student').length,
+                    facultyCount: passengers.filter((p) => (p.userType || p.user_type) === 'employee').length,
+                    inspectedCount,
+                    inspectedPercent: passengers.length ? Math.round((inspectedCount / passengers.length) * 100) : 0,
+                });
+            });
+        });
+        return buses;
+    }, [routesWithMetrics, inspectedMap]);
+
+    const selectedInspectionBus = useMemo(
+        () => inspectionBuses.find((bus) => `${bus.routeId}::${bus.busNumber}` === inspectionSelection),
+        [inspectionBuses, inspectionSelection]
+    );
+
+    const startInspection = useCallback(async (route, busNumber) => {
+        const startedAt = new Date().toISOString();
+        let session = {
+            id: `local-${Date.now()}`,
+            startedAt,
+            status: 'in_progress',
+            busNumber,
+            routeId: route.routeId,
+            routeName: route.routeName,
+            totalCount: route.totalCount,
+        };
+        if (online && isAuthenticated()) {
+            try {
+                const response = await apiFetch(`${API_BASE}/inspection-sessions`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        academicYear,
+                        inspectionDate: new Date().toISOString().slice(0, 10),
+                        busNumber,
+                        routeId: route.routeId,
+                        routeName: route.routeName,
+                        totalCount: route.totalCount,
+                    }),
+                });
+                if (response.ok) session = await response.json();
+            } catch {
+                // Continue with a local session so inspection remains usable offline.
+            }
+        }
+        setInspectionSession(session);
+        setSelectedBus(String(busNumber));
+        setSelectedRoute(route);
+        setInspectionFilter('all');
+        setInspectionStageFilter('all');
+        setInspectionSearchQuery('');
+    }, [academicYear, online]);
+
+    const openPreviousInspection = useCallback((session) => {
+        const routeBus = inspectionBuses.find((bus) => (
+            String(bus.routeId).toLowerCase() === String(session.routeId).toLowerCase()
+            && String(bus.busNumber).toLowerCase() === String(session.busNumber).toLowerCase()
+        ));
+        if (!routeBus) return;
+        setInspectionSession(session);
+        setSelectedBus(String(session.busNumber));
+        setSelectedRoute(routeBus);
+        setInspectionFilter('all');
+        setInspectionStageFilter('all');
+        setInspectionSearchQuery('');
+    }, [inspectionBuses]);
+
+    const finishInspection = useCallback(async () => {
+        if (!inspectionSession) return;
+        const inspectedCount = activeRouteData?.passengers?.filter((p) => (
+            inspectedMap[String(p.requestId || p.studentId || p.mongoId)]
+        )).length || 0;
+        if (online && isAuthenticated() && inspectionSession.status === 'in_progress' && !String(inspectionSession.id || inspectionSession._id).startsWith('local-')) {
+            try {
+            await apiFetch(`${API_BASE}/inspection-sessions/${inspectionSession._id || inspectionSession.id}/complete`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ inspectedCount, totalCount: activeRouteData?.totalCount || 0 }),
+                });
+                await loadInspectionSessions();
+            } catch {
+                // Keep the completed progress visible locally if the network drops.
+            }
+        }
+        setInspectionSession(null);
+        setSelectedBus(null);
+        setSelectedRoute(null);
+    }, [activeRouteData, inspectedMap, inspectionSession, loadInspectionSessions, online]);
 
     // Overall summary counts for inspection tab
     const overallStats = useMemo(() => {
@@ -1539,7 +1664,7 @@ const QrVerification = () => {
 
     return (
         <Shell title={pageHeaderTitle}>
-            <div className="space-y-4 max-w-5xl mx-auto pb-12">
+            <div className="w-full min-w-0 space-y-4 max-w-5xl mx-auto pb-12">
                 {!loggedIn && (
                     <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900 shadow-2xs">
                         <p className="font-bold flex items-center gap-1.5">
@@ -1742,7 +1867,7 @@ const QrVerification = () => {
                     <div className="space-y-4">
                         {/* VIEW A: OVERVIEW - LIST OF ALL ROUTES WITH ASSIGNED BUSES */}
                         {!selectedRoute ? (
-                            <div className="space-y-4">
+                            <div className="space-y-4 min-w-0">
                                 {/* Inspection Metrics Banner */}
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
                                     <div className="bg-white rounded-xl p-3.5 border border-slate-200 shadow-2xs">
@@ -1791,152 +1916,113 @@ const QrVerification = () => {
                                     </div>
                                 </div>
 
-                                {/* Search Bar for Routes */}
-                                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center gap-2">
-                                    <Search size={16} className="text-slate-400 shrink-0 ml-1" />
-                                    <input
-                                        type="text"
-                                        value={routeSearchQuery}
-                                        onChange={(e) => setRouteSearchQuery(e.target.value)}
-                                        placeholder="Search routes by ID, route name, or bus number…"
-                                        className="w-full text-xs font-semibold text-slate-800 placeholder-slate-400 outline-none bg-transparent"
-                                    />
-                                    {routeSearchQuery && (
+                                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 sm:p-5 space-y-3">
+                                    <div>
+                                        <h2 className="text-sm font-black text-slate-900">Start a bus inspection</h2>
+                                        <p className="text-xs text-slate-500 mt-1">Select a route and bus. The start time is recorded when inspection begins.</p>
+                                    </div>
+                                    <div className="flex min-w-0 flex-col sm:flex-row gap-2">
+                                        <select
+                                            value={inspectionSelection}
+                                            onChange={(event) => setInspectionSelection(event.target.value)}
+                                            className="block w-full min-w-0 max-w-full flex-1 px-3 py-2.5 text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-xl outline-none cursor-pointer"
+                                        >
+                                            <option value="">Select route and bus</option>
+                                            {inspectionBuses.map((bus) => (
+                                                <option key={`${bus.routeId}-${bus.busNumber}`} value={`${bus.routeId}::${bus.busNumber}`}>
+                                                    Route {bus.routeId} • Bus {bus.busNumber}
+                                                </option>
+                                            ))}
+                                        </select>
                                         <button
                                             type="button"
-                                            onClick={() => setRouteSearchQuery('')}
-                                            className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                                            disabled={!selectedInspectionBus}
+                                            onClick={() => startInspection(selectedInspectionBus, selectedInspectionBus.busNumber)}
+                                            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                                         >
-                                            <X size={14} />
+                                            <Bus size={14} /> Start Inspection
                                         </button>
-                                    )}
+                                    </div>
                                 </div>
 
-                                {/* Routes Cards Grid */}
-                                {filteredRoutes.length === 0 ? (
-                                    <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-2">
-                                        <Bus size={32} className="mx-auto text-slate-300" />
-                                        <p className="text-sm font-bold text-slate-700">No matching routes found</p>
-                                        <p className="text-xs text-slate-500">
-                                            {routeSearchQuery ? 'Try another search term or clear the filter.' : 'Run Sync to download registered routes and passenger data.'}
-                                        </p>
+                                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                                    <div className="p-4 border-b border-slate-100">
+                                        <h2 className="text-sm font-bold text-slate-900">Previous inspections</h2>
+                                        <p className="text-xs text-slate-500 mt-0.5">Return here to see progress and start another bus.</p>
                                     </div>
-                                ) : (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                                        {filteredRoutes.map((route) => {
-                                            const isDone = route.totalCount > 0 && route.inspectedCount === route.totalCount;
-                                            return (
-                                                <div
-                                                    key={route.routeId}
-                                                    onClick={() => {
-                                                        setSelectedRoute(route);
-                                                        setInspectionFilter('all');
-                                                        setInspectionStageFilter('all');
-                                                        setInspectionSearchQuery('');
-                                                    }}
-                                                    className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                                    <div className="overflow-x-auto">
+                                        <div className="sm:hidden p-3 space-y-2">
+                                            {inspectionSessions.length === 0 ? (
+                                                <p className="px-1 py-4 text-center text-xs text-slate-400">No previous inspections today.</p>
+                                            ) : inspectionSessions.slice(0, 10).map((session) => (
+                                                <button
+                                                    key={session._id || session.id}
+                                                    type="button"
+                                                    onClick={() => openPreviousInspection(session)}
+                                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:border-blue-300 hover:bg-blue-50/60 active:bg-blue-50"
                                                 >
-                                                    <div>
-                                                        {/* Top Row: Route ID & Status */}
-                                                        <div className="flex items-start justify-between gap-2">
-                                                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-extrabold text-xs border border-blue-100">
-                                                                <Bus size={13} className="text-blue-600" />
-                                                                <span>Route {route.routeId}</span>
-                                                            </div>
-                                                            {isDone ? (
-                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                                                                    <CheckCheck size={11} /> Completed
-                                                                </span>
-                                                            ) : route.inspectedCount > 0 ? (
-                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-                                                                    <Clock size={11} /> In Progress
-                                                                </span>
-                                                            ) : (
-                                                                <span className="inline-flex items-center text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full">
-                                                                    Pending
-                                                                </span>
-                                                            )}
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-xs font-black text-slate-800">
+                                                                Route {session.routeId} / Bus {session.busNumber}
+                                                            </p>
+                                                            <p className="mt-1 text-[10px] font-medium text-slate-500">
+                                                                {new Date(session.startedAt).toLocaleString()}
+                                                            </p>
                                                         </div>
-
-                                                        {/* Route Name */}
-                                                        <h3 className="text-sm font-bold text-slate-900 mt-2.5 group-hover:text-blue-600 transition-colors line-clamp-1">
-                                                            {route.routeName}
-                                                        </h3>
-
-                                                        {/* Assigned Buses Badges */}
-                                                        <div className="flex items-center gap-1.5 flex-wrap mt-2">
-                                                            {route.assignedBuses.length > 0 ? (
-                                                                route.assignedBuses.map((busNo) => (
-                                                                    <span
-                                                                        key={busNo}
-                                                                        className="inline-flex items-center gap-1 text-[11px] font-bold bg-amber-50 text-amber-900 border border-amber-200/80 px-2 py-0.5 rounded-md"
-                                                                    >
-                                                                        🚌 {busNo}
-                                                                    </span>
-                                                                ))
-                                                            ) : (
-                                                                <span className="text-[10px] font-medium text-slate-400 italic">
-                                                                    No bus assigned
-                                                                </span>
-                                                            )}
-                                                        </div>
+                                                        <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold ${session.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                            {session.status === 'completed' ? 'Completed' : 'In progress'}
+                                                        </span>
                                                     </div>
-
-                                                    {/* Bottom Section: Passenger Stats & Progress */}
-                                                    <div className="pt-3 border-t border-slate-100 space-y-2">
-                                                        <div className="flex items-center justify-between text-xs text-slate-600 font-semibold">
-                                                            <span>Students: <strong className="text-slate-900">{route.studentsCount}</strong></span>
-                                                            <span>Faculty: <strong className="text-slate-900">{route.facultyCount}</strong></span>
-                                                            <span>Total: <strong className="text-blue-700">{route.totalCount}</strong></span>
-                                                        </div>
-
-                                                        {/* Visual Progress Bar */}
-                                                        <div>
-                                                            <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 mb-1">
-                                                                <span>Boarded / Inspected</span>
-                                                                <span className="text-slate-700 font-bold tabular-nums">
-                                                                    {route.inspectedCount} / {route.totalCount} ({route.inspectedPercent}%)
-                                                                </span>
-                                                            </div>
-                                                            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                                                                <div
-                                                                    className={`h-full transition-all duration-300 ${
-                                                                        isDone
-                                                                            ? 'bg-emerald-500'
-                                                                            : route.inspectedCount > 0
-                                                                            ? 'bg-blue-600'
-                                                                            : 'bg-slate-300'
-                                                                    }`}
-                                                                    style={{ width: `${route.inspectedPercent}%` }}
-                                                                />
-                                                            </div>
-                                                        </div>
-
-                                                        <button
-                                                            type="button"
-                                                            className="w-full mt-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-slate-50 hover:bg-blue-600 text-slate-700 hover:text-white border border-slate-200 hover:border-blue-600 transition-all flex items-center justify-center gap-1 cursor-pointer"
-                                                        >
-                                                            <span>Inspect Route</span>
-                                                            <ChevronRight size={14} />
-                                                        </button>
+                                                    <div className="mt-3 flex items-center justify-between text-[10px] font-bold text-slate-500">
+                                                        <span>Inspection progress</span>
+                                                        <span className="text-blue-700">{session.inspectedCount || 0} / {session.totalCount || 0}</span>
                                                     </div>
-                                                </div>
-                                            );
-                                        })}
+                                                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                                                        <div
+                                                            className="h-full rounded-full bg-emerald-500"
+                                                            style={{ width: `${session.totalCount ? Math.min(100, Math.round(((session.inspectedCount || 0) / session.totalCount) * 100)) : 0}%` }}
+                                                        />
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <table className="hidden w-full min-w-[560px] text-left text-xs sm:table">
+                                            <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400">
+                                                <tr><th className="px-4 py-3">Route / Bus</th><th className="px-4 py-3">Started</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Progress</th></tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {inspectionSessions.length === 0 ? (
+                                                    <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">No previous inspections today.</td></tr>
+                                                ) : inspectionSessions.slice(0, 10).map((session) => (
+                                                    <tr
+                                                        key={session._id || session.id}
+                                                        onClick={() => openPreviousInspection(session)}
+                                                        className="cursor-pointer hover:bg-blue-50/60"
+                                                        title="Open inspection progress"
+                                                    >
+                                                        <td className="px-4 py-3 font-bold text-slate-800">Route {session.routeId} / Bus {session.busNumber}</td>
+                                                        <td className="px-4 py-3 text-slate-600">{new Date(session.startedAt).toLocaleString()}</td>
+                                                        <td className="px-4 py-3"><span className="font-bold text-emerald-700">{session.status === 'completed' ? 'Completed' : 'In progress'}</span></td>
+                                                        <td className="px-4 py-3 font-semibold text-blue-700">{session.inspectedCount || 0} / {session.totalCount || 0}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
                                     </div>
-                                )}
+                                </div>
                             </div>
                         ) : (
                             /* VIEW B: ACTIVE ROUTE PASSENGER INSPECTION DASHBOARD */
-                            <div className="space-y-4">
+                            <div className="space-y-4 min-w-0">
                                 {/* Route Header Card */}
                                 <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs space-y-3">
                                     <div className="flex items-center justify-between gap-3 flex-wrap">
                                         <button
                                             type="button"
-                                            onClick={() => {
+                                            onClick={async () => {
                                                 if (scanning) stopScanner();
-                                                setSelectedRoute(null);
+                                                await finishInspection();
                                             }}
                                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors"
                                         >
@@ -1976,7 +2062,7 @@ const QrVerification = () => {
                                                 </h2>
                                             </div>
                                             <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                                <span className="text-xs text-slate-500 font-semibold">Assigned Bus(es):</span>
+                                                <span className="text-xs text-slate-500 font-semibold">Inspecting Bus:</span>
                                                 {activeRouteData.assignedBuses?.length > 0 ? (
                                                     activeRouteData.assignedBuses.map((busNo) => (
                                                         <span key={busNo} className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
@@ -1990,18 +2076,18 @@ const QrVerification = () => {
                                         </div>
 
                                         {/* Route Stats Box */}
-                                        <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-100">
-                                            <div className="text-center px-2">
+                                        <div className="grid grid-cols-3 gap-1.5 w-full sm:w-auto sm:flex sm:items-center sm:gap-3 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                                            <div className="text-center px-1 sm:px-2">
                                                 <p className="text-[10px] font-bold text-slate-400 uppercase">Assigned</p>
                                                 <p className="text-sm font-black text-slate-800">{activeRouteData.totalCount}</p>
                                             </div>
-                                            <div className="w-px h-6 bg-slate-200" />
-                                            <div className="text-center px-2">
+                                            <div className="hidden sm:block w-px h-6 bg-slate-200" />
+                                            <div className="text-center px-1 sm:px-2">
                                                 <p className="text-[10px] font-bold text-slate-400 uppercase">Boarded</p>
                                                 <p className="text-sm font-black text-emerald-600">{activeRouteData.inspectedCount}</p>
                                             </div>
-                                            <div className="w-px h-6 bg-slate-200" />
-                                            <div className="text-center px-2">
+                                            <div className="hidden sm:block w-px h-6 bg-slate-200" />
+                                            <div className="text-center px-1 sm:px-2">
                                                 <p className="text-[10px] font-bold text-slate-400 uppercase">Remaining</p>
                                                 <p className="text-sm font-black text-rose-600">
                                                     {Math.max(0, activeRouteData.totalCount - activeRouteData.inspectedCount)}
@@ -2009,25 +2095,44 @@ const QrVerification = () => {
                                             </div>
                                         </div>
                                     </div>
+
+                                    <div className="pt-3 border-t border-slate-100">
+                                        <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-500">
+                                            <span>Inspection progress</span>
+                                            <span className="text-slate-800 tabular-nums">
+                                                {activeRouteData.inspectedCount} of {activeRouteData.totalCount} ({activeRouteData.inspectedPercent || 0}%)
+                                            </span>
+                                        </div>
+                                        <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+                                            <div
+                                                className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                                                style={{ width: `${activeRouteData.inspectedPercent || 0}%` }}
+                                            />
+                                        </div>
+                                        <div className="mt-1 flex justify-between text-[10px] font-semibold text-slate-400">
+                                            <span>{activeRouteData.inspectedCount} inspected</span>
+                                            <span>{Math.max(0, activeRouteData.totalCount - activeRouteData.inspectedCount)} remaining</span>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {/* Route QR Scanner Card (Identical to QR Scanner Tab) */}
                                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                                     {/* Scanner Top Toolbar */}
-                                    <div className="px-3 sm:px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                                    <div className="px-3 sm:px-4 py-3 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                         <div className="flex items-center gap-2 min-w-0">
                                             <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${scanning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
                                             <p className="text-xs font-bold text-slate-700 truncate">
                                                 {verifying ? 'QR detected — verifying route…' : scanning ? `Point camera at student / faculty QR pass (Route ${activeRouteData.routeId})` : `Route ${activeRouteData.routeId} Scanner ready`}
                                             </p>
                                         </div>
-                                        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                                        <div className="flex items-center gap-2 shrink-0 flex-wrap w-full sm:w-auto">
                                             {availableCameras.length > 0 && (
                                                 <select
                                                     value={activeCameraIndex}
                                                     onChange={(e) => handleCameraSelect(e.target.value)}
                                                     disabled={modalOpen}
-                                                    className="px-2.5 py-1.5 text-[11px] font-semibold rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 cursor-pointer disabled:opacity-50 max-w-[150px] sm:max-w-[190px] truncate shadow-2xs"
+                                                    className="min-w-0 flex-1 sm:flex-none px-2.5 py-1.5 text-[11px] font-semibold rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 cursor-pointer disabled:opacity-50 max-w-[190px] truncate shadow-2xs"
                                                 >
                                                     {availableCameras.map((cam, idx) => (
                                                         <option key={cam.id || idx} value={idx}>
@@ -2040,7 +2145,7 @@ const QrVerification = () => {
                                                 type="button"
                                                 onClick={switchCamera}
                                                 disabled={modalOpen}
-                                                className="px-2.5 py-1.5 text-[11px] font-bold rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 active:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-2xs"
+                                                className="px-2.5 py-1.5 text-[11px] font-bold rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 active:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-2xs shrink-0"
                                             >
                                                 <SwitchCamera size={13} className="text-blue-600" />
                                                 <span className="hidden sm:inline">Switch</span>
@@ -2049,7 +2154,7 @@ const QrVerification = () => {
                                                 type="button"
                                                 onClick={() => (scanning ? stopScanner() : startScanner())}
                                                 disabled={modalOpen}
-                                                className={`px-4 py-1.5 text-[11px] font-bold rounded-lg border cursor-pointer disabled:opacity-50 transition-all shadow-sm ${
+                                                className={`px-3 sm:px-4 py-1.5 text-[11px] font-bold rounded-lg border cursor-pointer disabled:opacity-50 transition-all shadow-sm shrink-0 ${
                                                     scanning
                                                         ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
                                                         : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700 shadow-blue-600/20'
@@ -2061,7 +2166,7 @@ const QrVerification = () => {
                                     </div>
 
                                     {/* Viewfinder Area */}
-                                    <div className="relative bg-slate-950 aspect-[3/4] sm:aspect-video max-h-[72vh] sm:max-h-[500px] min-h-[380px] sm:min-h-[440px] overflow-hidden flex flex-col items-center justify-center">
+                                    <div className="relative bg-slate-950 aspect-[3/4] sm:aspect-video max-h-[68vh] sm:max-h-[500px] min-h-[300px] sm:min-h-[440px] overflow-hidden flex flex-col items-center justify-center">
                                         <div
                                             id="qr-reader"
                                             ref={readerHostRef}
@@ -2281,7 +2386,7 @@ const QrVerification = () => {
                                             return (
                                                 <div
                                                     key={pKey}
-                                                    className={`bg-white rounded-2xl border p-3 sm:p-3.5 shadow-2xs transition-all flex items-center justify-between gap-3 ${
+                                                    className={`bg-white rounded-2xl border p-3 sm:p-3.5 shadow-2xs transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                                                         isInspected
                                                             ? 'border-emerald-200/80 bg-emerald-50/20'
                                                             : 'border-slate-200 hover:border-slate-300'
@@ -2336,7 +2441,7 @@ const QrVerification = () => {
                                                     </div>
 
                                                     {/* Right Action: Check-in / Inspected button */}
-                                                    <div className="shrink-0 flex items-center gap-2">
+                                                    <div className="shrink-0 flex items-center justify-end gap-2 w-full sm:w-auto">
                                                         {isInspected ? (
                                                             <button
                                                                 type="button"

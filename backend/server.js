@@ -38,6 +38,7 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/transport-requests', protect, require('./routes/transportRequestRoutes'));
 app.use('/api/transport-dues', protect, require('./routes/transportDuesRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/inspection-sessions', require('./routes/inspectionRoutes'));
 app.use('/api/students', protect, require('./routes/studentRoutes'));
 app.use('/api/inventory', protect, require('./routes/inventoryRoutes'));
 app.use('/api/print', require('./routes/print.routes'));

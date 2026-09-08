@@ -38,6 +38,7 @@ const InspectionReports = () => {
     const [routes, setRoutes] = useState([]);
     const [buses, setBuses] = useState([]);
     const [allPassengers, setAllPassengers] = useState([]);
+    const [inspectionSessions, setInspectionSessions] = useState([]);
     const [loading, setLoading] = useState(false);
 
     // Filter states
@@ -71,9 +72,10 @@ const InspectionReports = () => {
 
             if (isAuthenticated()) {
                 try {
-                    const [routesRes, busesRes] = await Promise.all([
+                    const [routesRes, busesRes, sessionsRes] = await Promise.all([
                         apiFetch(`${API_BASE}/routes?academicYear=${encodeURIComponent(academicYear)}`).catch(() => null),
                         apiFetch(`${API_BASE}/buses`).catch(() => null),
+                        apiFetch(`${API_BASE}/inspection-sessions?date=${selectedDate}&academicYear=${encodeURIComponent(academicYear)}`).catch(() => null),
                     ]);
 
                     if (routesRes && routesRes.ok) {
@@ -84,6 +86,10 @@ const InspectionReports = () => {
                         const bData = await busesRes.json().catch(() => []);
                         setBuses(Array.isArray(bData) ? bData : []);
                     }
+                    if (sessionsRes && sessionsRes.ok) {
+                        const sessionData = await sessionsRes.json().catch(() => []);
+                        setInspectionSessions(Array.isArray(sessionData) ? sessionData : []);
+                    }
                 } catch {
                     // ignore
                 }
@@ -91,7 +97,50 @@ const InspectionReports = () => {
         } finally {
             setLoading(false);
         }
-    }, [academicYear, loadInspectedData]);
+    }, [academicYear, loadInspectedData, selectedDate]);
+
+    const inspectorSummary = useMemo(() => {
+        const summary = new Map();
+        inspectionSessions.forEach((session) => {
+            const key = session.inspectorName || session.inspectorUsername || 'Unknown user';
+            const current = summary.get(key) || {
+                inspectorName: key,
+                inspectionCount: 0,
+                inspectedCount: 0,
+                latestStartedAt: null,
+                buses: new Map(),
+            };
+            current.inspectionCount += 1;
+            current.inspectedCount += Number(session.inspectedCount) || 0;
+            const busKey = `${session.routeId || '—'}::${session.busNumber || '—'}`;
+            const bus = current.buses.get(busKey) || {
+                routeId: session.routeId || '—',
+                routeName: session.routeName || '',
+                busNumber: session.busNumber || '—',
+                occupied: 0,
+                scanned: 0,
+                sessions: 0,
+            };
+            bus.occupied += Number(session.totalCount) || 0;
+            bus.scanned += Number(session.inspectedCount) || 0;
+            bus.sessions += 1;
+            if (!bus.routeName && session.routeName) bus.routeName = session.routeName;
+            current.buses.set(busKey, bus);
+            if (!current.latestStartedAt || new Date(session.startedAt) > new Date(current.latestStartedAt)) {
+                current.latestStartedAt = session.startedAt;
+            }
+            summary.set(key, current);
+        });
+        return Array.from(summary.values())
+            .map((row) => ({
+                ...row,
+                buses: Array.from(row.buses.values()).map((bus) => ({
+                    ...bus,
+                    notScanned: Math.max(0, bus.occupied - bus.scanned),
+                })),
+            }))
+            .sort((a, b) => b.inspectionCount - a.inspectionCount);
+    }, [inspectionSessions]);
 
     useEffect(() => {
         loadReportData();
@@ -338,8 +387,16 @@ const InspectionReports = () => {
     return (
         <Layout title="Inspection Reports">
             <div className="space-y-4 max-w-7xl mx-auto pb-12 print:p-0 print:space-y-3">
+                <div className="hidden print:block border-b-2 border-slate-900 pb-3 text-center">
+                    <h1 className="text-xl font-black uppercase tracking-wide text-slate-900">Pydah Group Of Institutions</h1>
+                    <h2 className="mt-1 text-base font-bold text-slate-800">Inspector-wise Transport Inspection Report</h2>
+                    <p className="mt-1 text-xs text-slate-600">
+                        Inspection Date: {new Date(`${selectedDate}T00:00:00`).toLocaleDateString()} | Academic Year: {academicYear}
+                    </p>
+                </div>
+
                 {/* Header Card */}
-                <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="print:hidden bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="hidden md:flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-700 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
                             <FileText size={22} />
@@ -402,7 +459,7 @@ const InspectionReports = () => {
                 </div>
 
                 {/* KPI Metrics Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+                <div className="print:hidden grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
                     <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs">
                         <div className="flex items-center justify-between text-slate-400">
                             <span className="text-[10px] font-bold uppercase tracking-wider">Total Expected</span>
@@ -451,8 +508,101 @@ const InspectionReports = () => {
                     </div>
                 </div>
 
+                {/* Inspector-wise session summary */}
+                <div className="print:hidden bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                    <div className="p-4 sm:p-5 border-b border-slate-100">
+                        <h2 className="text-sm font-bold text-slate-900">Inspector-wise Inspection Summary</h2>
+                        <p className="text-xs text-slate-500 mt-0.5">Buses inspected and passenger scan progress for {selectedDate}.</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                                <tr className="bg-slate-50/80 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                    <th className="py-3 px-4">Inspector</th>
+                                    <th className="py-3 px-4">Buses</th>
+                                    <th className="py-3 px-4">Inspection Details</th>
+                                    <th className="py-3 px-4">Inspections Done</th>
+                                    <th className="py-3 px-4">Latest Start</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {inspectorSummary.length === 0 ? (
+                                    <tr><td colSpan={5} className="py-6 px-4 text-center text-slate-400">No inspection sessions recorded for this date.</td></tr>
+                                ) : inspectorSummary.map((row) => (
+                                    <tr key={row.inspectorName} className="hover:bg-slate-50/60">
+                                        <td className="py-3 px-4 font-bold text-slate-900">{row.inspectorName}</td>
+                                        <td className="py-3 px-4 align-top">
+                                            <p className="font-black text-blue-700">{row.buses.length}</p>
+                                            <p className="mt-1 text-[10px] font-semibold text-slate-500">
+                                                {row.buses.map((bus) => `Bus ${bus.busNumber}`).join(', ')}
+                                            </p>
+                                        </td>
+                                        <td className="py-3 px-4 align-top">
+                                            <div className="space-y-1.5 min-w-[280px]">
+                                                {row.buses.map((bus) => (
+                                                    <div key={`${bus.routeId}-${bus.busNumber}`} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="font-bold text-slate-800">Route {bus.routeId} / Bus {bus.busNumber}</span>
+                                                            <span className="text-[10px] font-bold text-slate-500">{bus.routeName}</span>
+                                                        </div>
+                                                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] font-semibold">
+                                                            <span className="text-slate-600">Occupied: {bus.occupied}</span>
+                                                            <span className="text-emerald-700">Scanned: {bus.scanned}</span>
+                                                            <span className="text-rose-700">Not scanned: {bus.notScanned}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </td>
+                                        <td className="py-3 px-4 align-top font-black text-blue-700">{row.inspectionCount}</td>
+                                        <td className="py-3 px-4 text-slate-600">
+                                            {row.latestStartedAt ? new Date(row.latestStartedAt).toLocaleString() : '—'}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div className="hidden print:block print:break-inside-auto">
+                    <div className="mb-3 border-b border-slate-400 pb-2">
+                        <h2 className="text-sm font-black uppercase tracking-wide text-slate-900">Inspector-wise Inspection Summary</h2>
+                        <p className="mt-0.5 text-[10px] text-slate-600">Bus occupancy and QR scan status by inspector</p>
+                    </div>
+                    <table className="w-full table-fixed border-collapse text-[9px] text-slate-900">
+                        <thead>
+                            <tr className="bg-slate-100">
+                                <th className="w-[16%] border border-slate-400 px-2 py-2 text-left font-black uppercase">Inspector</th>
+                                <th className="w-[11%] border border-slate-400 px-2 py-2 text-left font-black uppercase">Route</th>
+                                <th className="w-[20%] border border-slate-400 px-2 py-2 text-left font-black uppercase">Bus</th>
+                                <th className="w-[13%] border border-slate-400 px-2 py-2 text-right font-black uppercase">Occupied</th>
+                                <th className="w-[13%] border border-slate-400 px-2 py-2 text-right font-black uppercase">Scanned</th>
+                                <th className="w-[14%] border border-slate-400 px-2 py-2 text-right font-black uppercase">Not Scanned</th>
+                                <th className="w-[13%] border border-slate-400 px-2 py-2 text-right font-black uppercase">Sessions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {inspectorSummary.flatMap((row) => row.buses.map((bus) => (
+                                <tr key={`${row.inspectorName}-${bus.routeId}-${bus.busNumber}`} className="break-inside-avoid">
+                                    <td className="border border-slate-300 px-2 py-2 align-top font-bold">{row.inspectorName}</td>
+                                    <td className="border border-slate-300 px-2 py-2 align-top">{bus.routeId}</td>
+                                    <td className="border border-slate-300 px-2 py-2 align-top font-semibold">{bus.busNumber}</td>
+                                    <td className="border border-slate-300 px-2 py-2 text-right align-top">{bus.occupied}</td>
+                                    <td className="border border-slate-300 px-2 py-2 text-right align-top font-bold">{bus.scanned}</td>
+                                    <td className="border border-slate-300 px-2 py-2 text-right align-top">{bus.notScanned}</td>
+                                    <td className="border border-slate-300 px-2 py-2 text-right align-top">{bus.sessions}</td>
+                                </tr>
+                            ))) }
+                            {inspectorSummary.length === 0 && (
+                                <tr><td colSpan={7} className="border border-slate-300 px-2 py-4 text-center">No inspection sessions recorded for this date.</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+
                 {/* Route-Wise Inspection Summary Breakdown */}
-                <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-2xs space-y-3">
+                <div className="print:hidden bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-2xs space-y-3">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                         <div>
                             <h2 className="text-sm font-bold text-slate-900">Route Inspection Summary</h2>
@@ -496,8 +646,8 @@ const InspectionReports = () => {
                     </div>
                 </div>
 
-                {/* Filter & Detailed Logs Table Card */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden space-y-3 p-4 sm:p-5">
+                {/* Passenger-level student list intentionally omitted from the reports view. */}
+                <div className="hidden bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden space-y-3 p-4 sm:p-5">
                     {/* Filters Row */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
                         {/* Search Input */}

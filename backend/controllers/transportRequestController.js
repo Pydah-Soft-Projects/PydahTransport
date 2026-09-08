@@ -3412,6 +3412,37 @@ const verifyTransportPassenger = async (req, res) => {
             });
         }
 
+        // 1.5 Check MongoDB for Student Transport Requests by physical_card_qr alias
+        const physicalQrStudent = await TransportRequest.findOne({
+            physical_card_qr: requestId,
+            status: 'approved',
+        }).sort({ academic_year: -1, updated_at: -1 }).lean();
+
+        if (physicalQrStudent) {
+            return res.json({
+                registered: true,
+                user_type: 'student',
+                student_name: physicalQrStudent.student_name,
+                admission_number: physicalQrStudent.admission_number,
+                pin_no: null,
+                course: physicalQrStudent.application_course_code || 'BTECH',
+                branch: null,
+                route_id: physicalQrStudent.route_id,
+                route_name: physicalQrStudent.route_name,
+                stage_name: physicalQrStudent.stage_name,
+                bus_id: physicalQrStudent.bus_id,
+                fare: physicalQrStudent.fare,
+                academic_year: physicalQrStudent.academic_year,
+                application_number: physicalQrStudent.application_number,
+                application_serial: physicalQrStudent.application_serial,
+                status: physicalQrStudent.status,
+                student_photo: null,
+                student_mobile: null,
+                effective_expiry_date: physicalQrStudent.expiry_date,
+                is_expired: false,
+            });
+        }
+
         // 2. Check MySQL for Student Transport Requests
         if (!mysqlPool) {
             return res.status(500).json({ message: 'Service unavailable' });
@@ -3443,11 +3474,12 @@ const verifyTransportPassenger = async (req, res) => {
                  WHERE tr.id = ? 
                     OR tr.admission_number = ? 
                     OR tr.application_number = ? 
+                    OR tr.physical_card_qr = ? 
                     OR s1.pin_no = ? 
                     OR s2.pin_no = ?
-                 ORDER BY (tr.id = ?) DESC, (tr.admission_number = ?) DESC, (LOWER(tr.status) = 'approved') DESC, tr.academic_year DESC, tr.id DESC
+                 ORDER BY (tr.physical_card_qr = ?) DESC, (tr.id = ?) DESC, (tr.admission_number = ?) DESC, (LOWER(tr.status) = 'approved') DESC, tr.academic_year DESC, tr.id DESC
                  LIMIT 1`,
-                [...parts.expiryParams, requestId, requestId, requestId, requestId, requestId, isNumericId ? Number(requestId) : 0, requestId]
+                [...parts.expiryParams, requestId, requestId, requestId, requestId, requestId, requestId, requestId, isNumericId ? Number(requestId) : 0, requestId]
             );
             if (rows && rows.length > 0) {
                 row = rows[0];

@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'pydah_qr_verify';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_PASSENGERS = 'passengers';
 const STORE_META = 'syncMetadata';
 const STORE_SCANS = 'offlineScans';
@@ -23,10 +23,14 @@ function openDb() {
                 passengerStore.createIndex('busId', 'busId', { unique: false });
                 passengerStore.createIndex('routeId', 'routeId', { unique: false });
                 passengerStore.createIndex('mongoId', 'mongoId', { unique: false });
-            } else if (event.oldVersion < 2) {
+                passengerStore.createIndex('physicalCardQr', 'physicalCardQr', { unique: false });
+            } else {
                 passengerStore = tx.objectStore(STORE_PASSENGERS);
                 if (!passengerStore.indexNames.contains('mongoId')) {
                     passengerStore.createIndex('mongoId', 'mongoId', { unique: false });
+                }
+                if (!passengerStore.indexNames.contains('physicalCardQr')) {
+                    passengerStore.createIndex('physicalCardQr', 'physicalCardQr', { unique: false });
                 }
             }
             if (!db.objectStoreNames.contains(STORE_META)) {
@@ -64,6 +68,7 @@ export async function idbPutAllPassengers(records) {
             requestId: String(record.requestId),
             mongoId: record.mongoId ? String(record.mongoId) : null,
             studentId: record.studentId ? String(record.studentId) : null,
+            physicalCardQr: record.physicalCardQr || record.physical_card_qr || null,
         });
     }
     await txDone(tx);
@@ -132,11 +137,14 @@ function selectLatestPassenger(records) {
     })[0];
 }
 
-/** Lookup passenger by request id, mongo id, or admission/emp number. */
+/** Lookup passenger by request id, mongo id, physical card QR alias, or admission/emp number. */
 export async function idbFindPassenger({ requestId, mongoId, studentId } = {}) {
     let baseRecord = null;
     if (requestId) {
         baseRecord = await idbGetPassenger(requestId);
+    }
+    if (!baseRecord && requestId) {
+        baseRecord = await idbGetByIndex(STORE_PASSENGERS, 'physicalCardQr', requestId);
     }
     if (!baseRecord && mongoId) {
         baseRecord = await idbGetByIndex(STORE_PASSENGERS, 'mongoId', mongoId);

@@ -32,6 +32,7 @@ function mapStudentRecord(r, pinNo) {
         busId: r.bus_id || null,
         academicYear: r.academic_year || null,
         applicationNumber: r.application_number || null,
+        physicalCardQr: r.physical_card_qr || null,
         fare: r.fare != null ? Number(r.fare) : null,
         validUntil: r.expiry_date || r.semester_end_date || null,
         updatedAt: r.updated_at || r.request_date || null,

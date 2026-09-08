@@ -111,6 +111,11 @@ const transportRequestSchema = new mongoose.Schema({
         trim: true,
         default: null
     },
+    physical_card_qr: {
+        type: String,
+        trim: true,
+        default: null
+    },
     semester_number: {
         type: Number,
         default: null
@@ -179,6 +184,7 @@ transportRequestSchema.index({ route_id: 1 });
 transportRequestSchema.index({ bus_id: 1 });
 transportRequestSchema.index({ academic_year: 1 });
 transportRequestSchema.index({ application_number: 1 });
+transportRequestSchema.index({ physical_card_qr: 1 });
 transportRequestSchema.index({ academic_year: 1, application_college_code: 1, application_course_code: 1, application_serial: -1 });
 
 const TransportRequest = mongoose.model('TransportRequest', transportRequestSchema, 'transport_requests');
