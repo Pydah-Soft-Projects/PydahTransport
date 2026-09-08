@@ -71,6 +71,34 @@ const Fleet = () => {
     // Map of busId → selected stage name
     const [stageSelection, setStageSelection] = useState({});
 
+    // Read active draft queue from localStorage
+    const [draftQueue, setDraftQueue] = useState([]);
+    useEffect(() => {
+        const fetchDrafts = () => {
+            try {
+                const saved = localStorage.getItem('pydah_route_transfer_drafts');
+                setDraftQueue(saved ? JSON.parse(saved) : []);
+            } catch {
+                setDraftQueue([]);
+            }
+        };
+        fetchDrafts();
+        window.addEventListener('storage', fetchDrafts);
+        return () => window.removeEventListener('storage', fetchDrafts);
+    }, []);
+
+    const getRouteDraftImpact = (routeId) => {
+        if (!routeId || !draftQueue.length) return { passengersIn: 0, passengersOut: 0, netChange: 0 };
+        let passengersIn = 0;
+        let passengersOut = 0;
+        for (const item of draftQueue) {
+            const count = Number(item.passengerCount || (item.passengers ? item.passengers.length : 0));
+            if (item.destinationRouteId === routeId) passengersIn += count;
+            if (item.sourceRouteId === routeId) passengersOut += count;
+        }
+        return { passengersIn, passengersOut, netChange: passengersIn - passengersOut };
+    };
+
     const handleSort = (field) => {
         if (sortField === field) {
             setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
@@ -943,16 +971,38 @@ const Fleet = () => {
                                                     </div>
                                                 </td>
                                                 <td className="px-3 py-2 text-slate-600 font-medium text-xs">{item.capacity}</td>
+                                                {/* Seats Filled */}
                                                 <td className="px-3 py-2">
-                                                    <div className="flex items-center font-bold text-slate-700 text-xs">
-                                                        <Users size={12} className="text-slate-400 mr-1.5" />
-                                                        {item.seatsFilled}
-                                                    </div>
+                                                    {(() => {
+                                                        const { netChange } = getRouteDraftImpact(item.route?.routeId);
+                                                        const projectedFilled = Math.max(0, item.seatsFilled + netChange);
+                                                        return (
+                                                            <div className="flex items-center font-bold text-slate-700 text-xs flex-wrap gap-1">
+                                                                <div className="flex items-center">
+                                                                    <Users size={12} className="text-slate-400 mr-1.5" />
+                                                                    {projectedFilled}
+                                                                </div>
+                                                                {netChange !== 0 && (
+                                                                    <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${netChange > 0 ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-blue-100 text-blue-900 border-blue-200'}`}>
+                                                                        {netChange > 0 ? `+${netChange} Draft` : `${netChange} Draft`}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </td>
+                                                {/* Vacant Seats */}
                                                 <td className="px-3 py-2">
-                                                    <span className={`text-xs font-black ${item.seatsAvailable <= 5 ? 'text-red-500' : 'text-slate-700'}`}>
-                                                        {item.seatsAvailable}
-                                                    </span>
+                                                    {(() => {
+                                                        const { netChange } = getRouteDraftImpact(item.route?.routeId);
+                                                        const projectedFilled = Math.max(0, item.seatsFilled + netChange);
+                                                        const projectedVacant = Math.max(0, item.capacity - projectedFilled);
+                                                        return (
+                                                            <span className={`text-xs font-black ${projectedVacant <= 5 ? 'text-red-500' : 'text-slate-700'}`}>
+                                                                {projectedVacant}
+                                                            </span>
+                                                        );
+                                                    })()}
                                                 </td>
                                                 <td className="px-3 py-2">
                                                     <span className={`text-xs font-bold ${(item.expectedRenewals || 0) > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
@@ -960,17 +1010,24 @@ const Fleet = () => {
                                                     </span>
                                                 </td>
                                                 <td className="px-3 py-2">
-                                                    <div className="flex flex-col gap-0.5 w-24">
-                                                        <span className={`text-[9px] font-bold ${item.occupancyPercent >= 100 ? 'text-red-600' : item.occupancyPercent >= 80 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                                                            {item.occupancyPercent}%
-                                                        </span>
-                                                        <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
-                                                            <div
-                                                                className={`h-full rounded-full transition-all duration-500 ${item.occupancyPercent >= 100 ? 'bg-red-500' : item.occupancyPercent >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                                                                style={{ width: `${Math.min(100, item.occupancyPercent)}%` }}
-                                                            />
-                                                        </div>
-                                                    </div>
+                                                    {(() => {
+                                                        const { netChange } = getRouteDraftImpact(item.route?.routeId);
+                                                        const projectedFilled = Math.max(0, item.seatsFilled + netChange);
+                                                        const projectedPercent = item.capacity > 0 ? Math.min(100, Math.round((projectedFilled / item.capacity) * 100)) : 0;
+                                                        return (
+                                                            <div className="flex flex-col gap-0.5 w-24">
+                                                                <span className={`text-[9px] font-bold ${projectedPercent >= 100 ? 'text-red-600' : projectedPercent >= 80 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                                                    {projectedPercent}%
+                                                                </span>
+                                                                <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                                                                    <div
+                                                                        className={`h-full rounded-full transition-all duration-500 ${projectedPercent >= 100 ? 'bg-red-500' : projectedPercent >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                                                        style={{ width: `${Math.min(100, projectedPercent)}%` }}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </td>
                                                 <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                                                     <div className="flex justify-end gap-1.5">

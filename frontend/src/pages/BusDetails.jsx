@@ -1347,7 +1347,10 @@ const BusDetails = () => {
                 method: 'POST',
                 body: JSON.stringify({
                     template: 'transport-admit',
-                    data: { requestId: p.id }
+                    data: {
+                        requestId: p._id || p.id,
+                        userType: p.user_type || (p.emp_no && !p.admission_number ? 'employee' : 'student')
+                    }
                 })
             });
             if (response.ok) {

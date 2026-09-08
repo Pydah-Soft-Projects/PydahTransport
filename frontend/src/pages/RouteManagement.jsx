@@ -937,6 +937,94 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
                 </div>
             </div>
 
+            {/* Persistent Draft Transfers Banner */}
+            {draftQueue.length > 0 && (
+                <div className="mb-6 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-amber-500/10 border-2 border-amber-400 rounded-2xl p-4 shadow-sm animate-in fade-in slide-in-from-top-3 duration-300">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center font-black text-lg shadow-md shrink-0">
+                                ⚡
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="font-bold text-amber-950 text-base">Draft Mode Active</h3>
+                                    <span className="bg-amber-500 text-white font-black text-[10px] uppercase px-2.5 py-0.5 rounded-full shadow-xs">
+                                        {draftQueue.length} {draftQueue.length === 1 ? 'Transfer Pending' : 'Transfers Pending'}
+                                    </span>
+                                </div>
+                                <p className="text-amber-800 text-xs mt-0.5 font-medium">
+                                    Draft changes are saved in your browser localStorage. Review queued transfers below and click Finalize All to execute.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2.5 w-full md:w-auto">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (window.confirm(`Are you sure you want to discard all ${draftQueue.length} pending draft transfer(s)?`)) {
+                                        clearDraftQueue();
+                                    }
+                                }}
+                                className="px-4 py-2.5 rounded-xl border border-amber-300 bg-white hover:bg-amber-50 text-amber-900 text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer flex-1 md:flex-initial"
+                            >
+                                <Trash2 size={14} className="text-amber-700" />
+                                <span>Discard Draft</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsFinalizeModalOpen(true)}
+                                disabled={batchSubmitting}
+                                className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer flex-1 md:flex-initial active:scale-95 disabled:opacity-50"
+                            >
+                                {batchSubmitting ? (
+                                    <span>Finalizing...</span>
+                                ) : (
+                                    <>
+                                        <span>Finalize All ({draftQueue.length})</span>
+                                        <ArrowRight size={15} />
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Queued Draft Items Preview */}
+                    <div className="mt-4 pt-3 border-t border-amber-300/50 space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                        {draftQueue.map((item, index) => (
+                            <div key={item.id} className="flex items-center justify-between bg-white/90 border border-amber-200 p-2.5 rounded-xl text-xs shadow-xs">
+                                <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                    <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-black flex items-center justify-center shrink-0">
+                                        {index + 1}
+                                    </span>
+                                    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${item.type === 'stage' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>
+                                        {item.type === 'stage' ? 'Stage Transfer' : 'Passenger Transfer'}
+                                    </span>
+                                    <span className="font-bold text-slate-800 truncate">
+                                        {item.type === 'stage' ? `Stage "${item.stageName}"` : `${item.passengerCount} Passenger(s)`}
+                                    </span>
+                                    <span className="text-slate-400 font-bold shrink-0 truncate">({item.sourceRouteName} ➔ {item.destinationRouteName})</span>
+                                </div>
+
+                                <div className="flex items-center gap-3 shrink-0">
+                                    <span className="font-bold text-amber-900 text-[11px]">
+                                        {item.passengerCount} passengers
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => removeDraftItem(item.id)}
+                                        className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors cursor-pointer"
+                                        title="Remove draft item"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Right: Map view */}
             <div className="lg:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden h-[500px] lg:h-full relative">
                 <div ref={mapContainerRef} className="w-full h-full z-0" />
@@ -1870,6 +1958,259 @@ const RouteManagement = () => {
     const [expandedHistoryId, setExpandedHistoryId] = useState(null);
     const [historySubTab, setHistorySubTab] = useState('transfers'); // 'transfers' | 'mappings'
 
+    // Draft Mode State & Persistence
+    const DRAFT_STORAGE_KEY = 'pydah_route_transfer_drafts';
+    const [draftQueue, setDraftQueue] = useState(() => {
+        try {
+            const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
+        }
+    });
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftQueue));
+            window.dispatchEvent(new Event('pydah_draft_updated'));
+            window.dispatchEvent(new Event('storage'));
+        } catch (err) {
+            console.error('Failed to save draft queue to localStorage:', err);
+        }
+    }, [draftQueue]);
+
+    useEffect(() => {
+        const handleOpenModal = () => setIsFinalizeModalOpen(true);
+        window.addEventListener('pydah_open_finalize_modal', handleOpenModal);
+        return () => window.removeEventListener('pydah_open_finalize_modal', handleOpenModal);
+    }, []);
+    
+    const [batchSubmitting, setBatchSubmitting] = useState(false);
+    const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState(false);
+
+    // Draggable Floating Draft Widget state
+    const [draftWidgetPos, setDraftWidgetPos] = useState({ x: null, y: null });
+    const [isDraftDragging, setIsDraftDragging] = useState(false);
+    const [draftDragOffset, setDraftDragOffset] = useState({ x: 0, y: 0 });
+    const [isDraftMinimized, setIsDraftMinimized] = useState(false);
+
+    const handleDraftDragStart = (e) => {
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const rect = e.currentTarget.closest('.draggable-draft-widget')?.getBoundingClientRect();
+        if (rect) {
+            setDraftDragOffset({
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            });
+            setIsDraftDragging(true);
+        }
+    };
+
+    useEffect(() => {
+        const handleDragMove = (e) => {
+            if (!isDraftDragging) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            setDraftWidgetPos({
+                x: Math.max(10, Math.min(window.innerWidth - 340, clientX - draftDragOffset.x)),
+                y: Math.max(10, Math.min(window.innerHeight - 100, clientY - draftDragOffset.y))
+            });
+        };
+
+        const handleDragEnd = () => setIsDraftDragging(false);
+
+        if (isDraftDragging) {
+            window.addEventListener('mousemove', handleDragMove);
+            window.addEventListener('mouseup', handleDragEnd);
+            window.addEventListener('touchmove', handleDragMove);
+            window.addEventListener('touchend', handleDragEnd);
+        }
+        return () => {
+            window.removeEventListener('mousemove', handleDragMove);
+            window.removeEventListener('mouseup', handleDragEnd);
+            window.removeEventListener('touchmove', handleDragMove);
+            window.removeEventListener('touchend', handleDragEnd);
+        };
+    }, [isDraftDragging, draftDragOffset]);
+
+    const clearDraftQueue = () => {
+        setDraftQueue([]);
+        try {
+            localStorage.removeItem(DRAFT_STORAGE_KEY);
+        } catch { /* ignore */ }
+    };
+
+    const removeDraftItem = (id) => {
+        setDraftQueue((prev) => prev.filter((item) => item.id !== id));
+    };
+
+    // Calculate net draft passenger changes per route
+    const getRouteDraftImpact = useCallback((routeId) => {
+        if (!routeId || !draftQueue.length) return { passengersIn: 0, passengersOut: 0, netChange: 0 };
+        let passengersIn = 0;
+        let passengersOut = 0;
+        for (const item of draftQueue) {
+            const count = Number(item.passengerCount || (item.passengers ? item.passengers.length : 0));
+            if (item.destinationRouteId === routeId) passengersIn += count;
+            if (item.sourceRouteId === routeId) passengersOut += count;
+        }
+        return {
+            passengersIn,
+            passengersOut,
+            netChange: passengersIn - passengersOut
+        };
+    }, [draftQueue]);
+
+    // Validate if destination route can accommodate additional incoming passengers considering live + draft
+    const validateNetVacancy = (destinationRouteId, incomingCount) => {
+        const destRouteObj = routes.find(r => r.routeId === destinationRouteId);
+        if (!destRouteObj) return { valid: false, message: `Destination route ${destinationRouteId} not found.` };
+
+        const destRouteBuses = buses.filter(b => b.assignedRouteId === destinationRouteId);
+        const totalCapacity = destRouteBuses.reduce((sum, b) => sum + Number(b.capacity || 0), 0);
+
+        if (totalCapacity === 0) {
+            return { valid: true, warning: 'No buses assigned to destination route yet.' };
+        }
+
+        const liveOccupancy = destRouteBuses.reduce((sum, b) => sum + Number(b.seatsFilled || 0), 0);
+        const { passengersIn, passengersOut } = getRouteDraftImpact(destinationRouteId);
+        const projectedOccupancy = liveOccupancy - passengersOut + passengersIn + incomingCount;
+
+        if (projectedOccupancy > totalCapacity) {
+            const excess = projectedOccupancy - totalCapacity;
+            return {
+                valid: false,
+                message: `Cannot add transfer! Destination route "${destRouteObj.routeName}" (${destinationRouteId}) bus capacity will be exceeded by ${excess} seat(s). (Bus Capacity: ${totalCapacity}, Live + Draft Projected Occupancy: ${projectedOccupancy})`
+            };
+        }
+
+        return { valid: true, projectedOccupancy, totalCapacity };
+    };
+
+    const handleAddStageToDraft = () => {
+        const { sourceRouteId, stageName, destinationRouteId } = transferData;
+        if (!sourceRouteId || !stageName || !destinationRouteId) {
+            setTransferMessage({ text: 'Please select source route, stage, and destination route.', type: 'error' });
+            return;
+        }
+
+        const incomingCount = (transferPreview.studentCount || 0) + (transferPreview.employeeCount || 0);
+        const vacancyCheck = validateNetVacancy(destinationRouteId, incomingCount);
+
+        if (!vacancyCheck.valid) {
+            setTransferMessage({ text: vacancyCheck.message, type: 'error' });
+            return;
+        }
+
+        const sourceRouteObj = routes.find(r => r.routeId === sourceRouteId);
+        const destRouteObj = routes.find(r => r.routeId === destinationRouteId);
+
+        const newDraftItem = {
+            id: `draft-stage-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            type: 'stage',
+            sourceRouteId,
+            sourceRouteName: sourceRouteObj?.routeName || sourceRouteId,
+            stageName,
+            destinationRouteId,
+            destinationRouteName: destRouteObj?.routeName || destinationRouteId,
+            destinationStageName: stageName,
+            passengerCount: incomingCount,
+            studentCount: transferPreview.studentCount || 0,
+            employeeCount: transferPreview.employeeCount || 0,
+            passengers: transferPreview.passengers || [],
+            createdAt: new Date().toISOString()
+        };
+
+        setDraftQueue(prev => [...prev, newDraftItem]);
+        setTransferMessage({ text: `Stage "${stageName}" (${incomingCount} passengers) added to draft queue!`, type: 'success' });
+        setTransferData({ sourceRouteId: '', stageName: '', destinationRouteId: '' });
+    };
+
+    const handleAddStudentsToDraft = () => {
+        const { sourceRouteId, destinationRouteId, destinationStageName } = studentTransferData;
+        if (!sourceRouteId || !destinationRouteId || !destinationStageName) {
+            setStudentTransferMessage({ text: 'Please select source route, destination route and destination stage.', type: 'error' });
+            return;
+        }
+        if (selectedPassengers.length === 0) {
+            setStudentTransferMessage({ text: 'Please select at least one passenger to transfer.', type: 'error' });
+            return;
+        }
+
+        const incomingCount = selectedPassengers.length;
+        const vacancyCheck = validateNetVacancy(destinationRouteId, incomingCount);
+
+        if (!vacancyCheck.valid) {
+            setStudentTransferMessage({ text: vacancyCheck.message, type: 'error' });
+            return;
+        }
+
+        const sourceRouteObj = routes.find(r => r.routeId === sourceRouteId);
+        const destRouteObj = routes.find(r => r.routeId === destinationRouteId);
+
+        const selectedObjects = selectedPassengers.map(id => {
+            const found = passengerList.find(p => p._id === id);
+            return { id: found._id, name: found.name, admissionNumber: found.admissionNumber, type: found.type, status: found.status };
+        });
+
+        const newDraftItem = {
+            id: `draft-passenger-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            type: 'passenger',
+            sourceRouteId,
+            sourceRouteName: sourceRouteObj?.routeName || sourceRouteId,
+            sourceStageName: studentTransferData.stageName || 'Selected Stages',
+            destinationRouteId,
+            destinationRouteName: destRouteObj?.routeName || destinationRouteId,
+            destinationStageName,
+            passengerCount: incomingCount,
+            passengers: selectedObjects,
+            createdAt: new Date().toISOString()
+        };
+
+        setDraftQueue(prev => [...prev, newDraftItem]);
+        setStudentTransferMessage({ text: `${incomingCount} passenger(s) added to draft queue!`, type: 'success' });
+        setSelectedPassengers([]);
+    };
+
+    const executeFinalizeAll = async () => {
+        if (draftQueue.length === 0) return;
+        setIsFinalizeModalOpen(false);
+        setBatchSubmitting(true);
+
+        try {
+            const response = await apiFetch(`${API}/routes/batch-transfer`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    draftQueue,
+                    academicYear
+                })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                clearDraftQueue();
+                await fetchRoutes(academicYear);
+                setSaveMessage({
+                    text: data.message || 'All pending transfers finalized successfully.',
+                    type: 'success'
+                });
+            } else {
+                setSaveMessage({
+                    text: data.message || 'Failed to finalize batch transfers.',
+                    type: 'error'
+                });
+            }
+        } catch (error) {
+            console.error('Error finalizing batch transfers:', error);
+            setSaveMessage({ text: 'Error finalizing batch transfers. Please try again.', type: 'error' });
+        } finally {
+            setBatchSubmitting(false);
+        }
+    };
+
     const fetchCampuses = async () => {
         try {
             const response = await apiFetch(`${API}/campuses`);
@@ -2494,6 +2835,8 @@ const RouteManagement = () => {
 
     return (
         <Layout>
+
+
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
                 <div className="hidden md:block">
                     <h2 className="text-xl font-bold text-slate-800 tracking-tight">
@@ -3273,39 +3616,63 @@ const RouteManagement = () => {
                                         <p className="text-xs text-red-600 font-semibold italic">No buses assigned to destination route yet.</p>
                                     ) : (
                                         <div className="space-y-2.5">
-                                            {destBuses.map((bus) => (
-                                                <div key={bus.busNumber} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-xs">
-                                                    <div>
-                                                        <span className="font-bold text-slate-800">Bus {bus.busNumber}</span>
-                                                        <span className="ml-2 text-[10px] text-slate-400 font-bold bg-slate-100 px-1.5 py-0.5 rounded">
-                                                            {bus.seatsAvailable} / {bus.capacity} seats free
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5">
-                                                        <div className="w-20 bg-slate-100 h-2 rounded-full overflow-hidden">
-                                                            <div 
-                                                                className={`h-full ${bus.seatsAvailable === 0 ? 'bg-red-500' : (bus.seatsAvailable < 5 ? 'bg-yellow-500' : 'bg-emerald-500')}`} 
-                                                                style={{ width: `${(bus.seatsFilled / bus.capacity) * 100}%` }}
-                                                            />
-                                                        </div>
-                                                        <span className="font-black text-[10px] text-slate-500">
-                                                            {Math.round((bus.seatsFilled / bus.capacity) * 100)}% filled
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                            {destBuses.map((bus) => {
+                                                 const { passengersIn, passengersOut } = getRouteDraftImpact(transferData.destinationRouteId);
+                                                 const draftNet = passengersIn - passengersOut;
+                                                 const projectedFilled = Math.max(0, Number(bus.seatsFilled || 0) + draftNet);
+                                                 const projectedFree = Math.max(0, Number(bus.capacity || 0) - projectedFilled);
+                                                 const fillPercent = bus.capacity > 0 ? Math.min(100, Math.round((projectedFilled / bus.capacity) * 100)) : 0;
+
+                                                 return (
+                                                     <div key={bus.busNumber} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-xs">
+                                                         <div>
+                                                             <span className="font-bold text-slate-800">Bus {bus.busNumber}</span>
+                                                             <span className="ml-2 text-[10px] text-slate-600 font-bold bg-slate-100 px-1.5 py-0.5 rounded">
+                                                                 {projectedFree} / {bus.capacity} seats free
+                                                             </span>
+                                                             {draftNet !== 0 && (
+                                                                 <span className={`ml-1.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${draftNet > 0 ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-blue-100 text-blue-900 border-blue-200'}`}>
+                                                                     {draftNet > 0 ? `+${draftNet} Draft` : `${draftNet} Draft`}
+                                                                 </span>
+                                                             )}
+                                                         </div>
+                                                         <div className="flex items-center gap-1.5">
+                                                             <div className="w-20 bg-slate-100 h-2 rounded-full overflow-hidden">
+                                                                 <div 
+                                                                     className={`h-full ${projectedFree === 0 ? 'bg-red-500' : (projectedFree < 5 ? 'bg-yellow-500' : 'bg-emerald-500')}`} 
+                                                                     style={{ width: `${fillPercent}%` }}
+                                                                 />
+                                                             </div>
+                                                             <span className="font-black text-[10px] text-slate-500">
+                                                                 {fillPercent}% filled
+                                                             </span>
+                                                         </div>
+                                                     </div>
+                                                 );
+                                            })}
                                         </div>
                                     )}
                                 </div>
                             )}
 
-                            <button
-                                type="submit"
-                                disabled={transferSubmitting || !transferData.sourceRouteId || !transferData.stageName || !transferData.destinationRouteId}
-                                className="w-full bg-slate-900 hover:bg-black text-white font-bold py-4 rounded-xl disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2"
-                            >
-                                {transferSubmitting ? 'Transferring...' : 'Execute Stage Migration'}
-                            </button>
+                            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={handleAddStageToDraft}
+                                    disabled={transferSubmitting || !transferData.sourceRouteId || !transferData.stageName || !transferData.destinationRouteId || transferPreview.loading}
+                                    className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-bold py-3.5 px-4 rounded-xl disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2 text-xs cursor-pointer active:scale-95"
+                                >
+                                    <Plus size={16} />
+                                    <span>Add to Draft Queue</span>
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={transferSubmitting || !transferData.sourceRouteId || !transferData.stageName || !transferData.destinationRouteId}
+                                    className="flex-1 bg-slate-900 hover:bg-black text-white font-bold py-3.5 px-4 rounded-xl disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2 text-xs cursor-pointer active:scale-95"
+                                >
+                                    {transferSubmitting ? 'Transferring...' : 'Transfer Immediately'}
+                                </button>
+                            </div>
                         </form>
                     </div>
 
@@ -3477,20 +3844,37 @@ const RouteManagement = () => {
                                 </div>
                             )}
 
-                            <button
-                                type="submit"
-                                disabled={
-                                    studentTransferSubmitting || 
-                                    !studentTransferData.sourceRouteId || 
-                                    !studentTransferData.destinationRouteId || 
-                                    !studentTransferData.destinationStageName || 
-                                    selectedPassengers.length === 0 ||
-                                    (studentDestBuses.length > 0 && selectedPassengers.length > studentDestBuses.reduce((sum, b) => sum + (b.seatsAvailable || 0), 0))
-                                }
-                                className="w-full bg-slate-900 hover:bg-black text-white font-bold py-4 rounded-xl disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2"
-                            >
-                                {studentTransferSubmitting ? 'Transferring...' : `Transfer Selected Passengers (${selectedPassengers.length})`}
-                            </button>
+                            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={handleAddStudentsToDraft}
+                                    disabled={
+                                        studentTransferSubmitting || 
+                                        !studentTransferData.sourceRouteId || 
+                                        !studentTransferData.destinationRouteId || 
+                                        !studentTransferData.destinationStageName || 
+                                        selectedPassengers.length === 0
+                                    }
+                                    className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-bold py-3.5 px-4 rounded-xl disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2 text-xs cursor-pointer active:scale-95"
+                                >
+                                    <Plus size={16} />
+                                    <span>Add {selectedPassengers.length > 0 ? `(${selectedPassengers.length}) ` : ''}to Draft Queue</span>
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={
+                                        studentTransferSubmitting || 
+                                        !studentTransferData.sourceRouteId || 
+                                        !studentTransferData.destinationRouteId || 
+                                        !studentTransferData.destinationStageName || 
+                                        selectedPassengers.length === 0 ||
+                                        (studentDestBuses.length > 0 && selectedPassengers.length > studentDestBuses.reduce((sum, b) => sum + (b.seatsAvailable || 0), 0))
+                                    }
+                                    className="flex-1 bg-slate-900 hover:bg-black text-white font-bold py-3.5 px-4 rounded-xl disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2 text-xs cursor-pointer active:scale-95"
+                                >
+                                    {studentTransferSubmitting ? 'Transferring...' : `Transfer Passengers Immediately (${selectedPassengers.length})`}
+                                </button>
+                            </div>
                         </form>
                     </div>
 
@@ -4572,6 +4956,55 @@ const RouteManagement = () => {
                     </button>
                 </div>
             </Modal>
+            {/* Finalize All Draft Transfers Modal */}
+            <Modal
+                isOpen={isFinalizeModalOpen}
+                onClose={() => setIsFinalizeModalOpen(false)}
+                title={`Finalize All Pending Transfers (${draftQueue.length})`}
+            >
+                <div className="space-y-4 text-xs">
+                    <p className="text-slate-600 font-medium leading-relaxed">
+                        You are about to execute <strong>{draftQueue.length} queued transfer(s)</strong> in batch. This will update student and employee route assignments in the database and issue ID card reprint requests.
+                    </p>
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+                        {draftQueue.map((item, idx) => (
+                            <div key={item.id} className="p-2.5 bg-white border border-slate-100 rounded-lg text-xs space-y-1">
+                                <div className="flex justify-between font-bold text-slate-800">
+                                    <span>{idx + 1}. {item.type === 'stage' ? `Stage Transfer: "${item.stageName}"` : `Passenger Transfer (${item.passengerCount} passengers)`}</span>
+                                    <span className="text-blue-700">{item.passengerCount} passengers</span>
+                                </div>
+                                <p className="text-[11px] text-slate-500 font-medium">
+                                    From: <span className="font-semibold text-slate-700">{item.sourceRouteName}</span> ➔ To: <span className="font-semibold text-slate-700">{item.destinationRouteName}</span> {item.destinationStageName ? `(${item.destinationStageName})` : ''}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-900 font-medium text-[11px]">
+                        ⚠️ <strong>Capacity Verification:</strong> All destination routes will be re-validated against live + cumulative draft passenger movements.
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-2">
+                        <button
+                            type="button"
+                            onClick={() => setIsFinalizeModalOpen(false)}
+                            className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold hover:bg-slate-50 transition-all cursor-pointer"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={executeFinalizeAll}
+                            disabled={batchSubmitting}
+                            className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                            {batchSubmitting ? 'Finalizing...' : 'Confirm & Finalize All'}
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+
         </Layout>
     );
 };

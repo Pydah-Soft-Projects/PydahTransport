@@ -10,7 +10,8 @@ const {
     getRoutePassengers,
     transferPassengers,
     getTransferHistory,
-    getGlobalMappingHistory
+    getGlobalMappingHistory,
+    batchTransfer
 } = require('../controllers/routeController');
 
 router.route('/').get(getRoutes).post(createRoute);
@@ -18,6 +19,7 @@ router.route('/passengers').get(getRoutePassengers);
 router.route('/transfer-preview').get(getTransferPreview);
 router.route('/transfer-stage').post(transferStage);
 router.route('/transfer-passengers').post(transferPassengers);
+router.route('/batch-transfer').post(batchTransfer);
 router.route('/transfer-history').get(getTransferHistory);
 router.route('/mapping-history').get(getGlobalMappingHistory);
 router.route('/:id').put(updateRoute).delete(deleteRoute);

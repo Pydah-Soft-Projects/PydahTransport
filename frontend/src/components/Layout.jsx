@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import DraftFloatingWidget from './DraftFloatingWidget';
 import {
     LayoutDashboard,
     Bus,
@@ -467,6 +468,7 @@ const Layout = ({ children, title }) => {
                         {children}
                     </div>
                 </main>
+                <DraftFloatingWidget />
             </div>
         </div>
     );

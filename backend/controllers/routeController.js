@@ -658,6 +658,289 @@ const getGlobalMappingHistory = async (req, res) => {
     }
 };
 
+// @desc    Execute batch draft transfers (stage migrations and passenger transfers)
+// @route   POST /api/routes/batch-transfer
+// @access  Private/Admin
+const batchTransfer = async (req, res) => {
+    const { draftQueue, academicYear } = req.body;
+    if (!draftQueue || !Array.isArray(draftQueue) || draftQueue.length === 0) {
+        return res.status(400).json({ message: 'draftQueue array is required and must not be empty' });
+    }
+
+    try {
+        const TransferHistory = require('../models/TransferHistory');
+        const { fireAutoNotification } = require('../services/autoNotificationService');
+        const performedBy = req.user
+            ? (req.user.employee_name || req.user.name || req.user.username || 'admin')
+            : 'admin';
+
+        // 1. Perform overall capacity re-validation before executing any transfer
+        const destRouteIds = [...new Set(draftQueue.map(item => item.destinationRouteId).filter(Boolean))];
+        const routeCapacityErrors = [];
+
+        for (const destRouteId of destRouteIds) {
+            const destRoute = await Route.findOne({ routeId: destRouteId });
+            if (!destRoute) {
+                routeCapacityErrors.push(`Destination route "${destRouteId}" not found`);
+                continue;
+            }
+
+            // Total bus capacity on destination route
+            const destBuses = await Bus.find({ assignedRouteId: destRouteId }).lean();
+            const totalCapacity = destBuses.reduce((sum, b) => sum + Number(b.capacity || 0), 0);
+
+            // Current live passenger count on destination route
+            const liveStudentsCount = await TransportRequest.countDocuments({
+                route_id: destRouteId,
+                status: { $in: ['approved', 'pending'] },
+                ...(academicYear ? { academic_year: academicYear } : {})
+            });
+            const liveEmployeesCount = await EmployeeTransportRequest.countDocuments({
+                route_id: destRouteId,
+                status: { $in: ['approved', 'pending'] },
+                ...(academicYear ? { academic_year: academicYear } : {})
+            });
+            let projectedCount = liveStudentsCount + liveEmployeesCount;
+
+            // Compute net change across draft items
+            for (const item of draftQueue) {
+                if (item.destinationRouteId === destRouteId) {
+                    projectedCount += Number(item.passengerCount || (item.passengers ? item.passengers.length : 0));
+                }
+                if (item.sourceRouteId === destRouteId) {
+                    projectedCount -= Number(item.passengerCount || (item.passengers ? item.passengers.length : 0));
+                }
+            }
+
+            if (totalCapacity > 0 && projectedCount > totalCapacity) {
+                routeCapacityErrors.push(
+                    `Destination route "${destRoute.routeName}" (${destRouteId}) capacity exceeded! (Capacity: ${totalCapacity}, Projected Passengers: ${projectedCount})`
+                );
+            }
+        }
+
+        if (routeCapacityErrors.length > 0) {
+            return res.status(400).json({
+                message: `Batch validation failed: ${routeCapacityErrors.join('; ')}`,
+                errors: routeCapacityErrors
+            });
+        }
+
+        // 2. Execute all transfers in sequence
+        let totalStagesTransferred = 0;
+        let totalStudentsTransferred = 0;
+        let totalEmployeesTransferred = 0;
+        const executionLogs = [];
+
+        for (const item of draftQueue) {
+            if (item.type === 'stage') {
+                const { sourceRouteId, stageName, destinationRouteId } = item;
+                const sourceRoute = await Route.findOne({ routeId: sourceRouteId });
+                const destRoute = await Route.findOne({ routeId: destinationRouteId });
+
+                if (!sourceRoute || !destRoute) continue;
+
+                // Move stage subdocument if present in source
+                const stageIndex = sourceRoute.stages.findIndex(s => s.stageName.trim().toLowerCase() === stageName.trim().toLowerCase());
+                if (stageIndex !== -1) {
+                    const [stageToTransfer] = sourceRoute.stages.splice(stageIndex, 1);
+                    sourceRoute.markModified('stages');
+
+                    const destStageExists = destRoute.stages.some(s => s.stageName.trim().toLowerCase() === stageName.trim().toLowerCase());
+                    if (!destStageExists) {
+                        destRoute.stages.push(stageToTransfer);
+                        destRoute.markModified('stages');
+                    }
+
+                    await sourceRoute.save();
+                    await destRoute.save();
+                }
+
+                // Target bus for dest route
+                const availableBuses = await Bus.find({ assignedRouteId: destinationRouteId }).select('busNumber').lean();
+                const targetBusId = availableBuses.length > 0 ? availableBuses[0].busNumber : null;
+
+                // Fetch passengers
+                const queryApproved = { route_id: sourceRouteId, stage_name: stageName, status: 'approved' };
+                const queryPending = { route_id: sourceRouteId, stage_name: stageName, status: 'pending' };
+                if (academicYear) {
+                    queryApproved.academic_year = academicYear;
+                    queryPending.academic_year = academicYear;
+                }
+
+                const approvedSts = await TransportRequest.find(queryApproved, 'student_name admission_number status');
+                const pendingSts = await TransportRequest.find(queryPending, 'student_name admission_number status');
+                const approvedEmps = await EmployeeTransportRequest.find(queryApproved, 'employee_name emp_no status');
+                const pendingEmps = await EmployeeTransportRequest.find(queryPending, 'employee_name emp_no status');
+
+                const passengersList = [
+                    ...approvedSts.map(s => ({ passengerId: s._id.toString(), name: s.student_name, admissionNumber: s.admission_number, type: 'student', status: s.status })),
+                    ...pendingSts.map(s => ({ passengerId: s._id.toString(), name: s.student_name, admissionNumber: s.admission_number, type: 'student', status: s.status })),
+                    ...approvedEmps.map(e => ({ passengerId: e._id.toString(), name: e.employee_name, admissionNumber: e.emp_no, type: 'employee', status: e.status })),
+                    ...pendingEmps.map(e => ({ passengerId: e._id.toString(), name: e.employee_name, admissionNumber: e.emp_no, type: 'employee', status: e.status }))
+                ];
+
+                // Update passenger database records
+                const approvedUpdateQuery = { route_id: sourceRouteId, stage_name: stageName, status: 'approved' };
+                const pendingUpdateQuery = { route_id: sourceRouteId, stage_name: stageName, status: 'pending' };
+                if (academicYear) {
+                    approvedUpdateQuery.academic_year = academicYear;
+                    pendingUpdateQuery.academic_year = academicYear;
+                }
+
+                const stApprovedRes = await TransportRequest.updateMany(approvedUpdateQuery, {
+                    $set: { route_id: destinationRouteId, route_name: destRoute.routeName, stage_name: stageName, bus_id: targetBusId, new_id_card_needed: true }
+                });
+                const stPendingRes = await TransportRequest.updateMany(pendingUpdateQuery, {
+                    $set: { route_id: destinationRouteId, route_name: destRoute.routeName, stage_name: stageName, bus_id: targetBusId }
+                });
+                const empApprovedRes = await EmployeeTransportRequest.updateMany(approvedUpdateQuery, {
+                    $set: { route_id: destinationRouteId, route_name: destRoute.routeName, stage_name: stageName, bus_id: targetBusId, new_id_card_needed: true }
+                });
+                const empPendingRes = await EmployeeTransportRequest.updateMany(pendingUpdateQuery, {
+                    $set: { route_id: destinationRouteId, route_name: destRoute.routeName, stage_name: stageName, bus_id: targetBusId }
+                });
+
+                totalStagesTransferred++;
+                totalStudentsTransferred += (stApprovedRes.modifiedCount || 0) + (stPendingRes.modifiedCount || 0);
+                totalEmployeesTransferred += (empApprovedRes.modifiedCount || 0) + (empPendingRes.modifiedCount || 0);
+
+                if (passengersList.length > 0) {
+                    await TransferHistory.create({
+                        type: 'stage',
+                        sourceRouteId,
+                        sourceRouteName: sourceRoute.routeName,
+                        sourceStageName: stageName,
+                        destinationRouteId,
+                        destinationRouteName: destRoute.routeName,
+                        destinationStageName: stageName,
+                        academicYear,
+                        passengersCount: passengersList.length,
+                        passengers: passengersList,
+                        performedBy
+                    });
+
+                    fireAutoNotification('transfer_stage', () => ({
+                        students: passengersList.filter(p => p.type === 'student').map(p => ({
+                            name: p.name, admissionNumber: p.admissionNumber, new_route_id: destinationRouteId, new_route_name: destRoute.routeName, new_stage_name: stageName, new_bus_id: targetBusId || '', old_route_id: sourceRouteId, old_route_name: sourceRoute.routeName, old_stage_name: stageName
+                        })),
+                        employees: passengersList.filter(p => p.type === 'employee').map(p => ({
+                            name: p.name, admissionNumber: p.admissionNumber, new_route_id: destinationRouteId, new_route_name: destRoute.routeName, new_stage_name: stageName, new_bus_id: targetBusId || '', old_route_id: sourceRouteId, old_route_name: sourceRoute.routeName, old_stage_name: stageName
+                        })),
+                        extraParams: { old_route_id: sourceRouteId, new_route_id: destinationRouteId, old_route_name: sourceRoute.routeName, new_route_name: destRoute.routeName, old_stage_name: stageName, new_stage_name: stageName, new_bus_id: targetBusId || '' }
+                    }));
+                }
+
+                executionLogs.push(`Transferred stage "${stageName}" from ${sourceRoute.routeName} to ${destRoute.routeName}.`);
+            } else if (item.type === 'passenger') {
+                const { passengers, destinationRouteId, destinationStageName } = item;
+                const destRoute = await Route.findOne({ routeId: destinationRouteId });
+                if (!destRoute || !passengers || passengers.length === 0) continue;
+
+                const destStage = destRoute.stages.find(s => s.stageName.trim().toLowerCase() === destinationStageName.trim().toLowerCase());
+                const newFare = destStage ? (destStage.fare || 0) : 0;
+
+                let stCount = 0;
+                let empCount = 0;
+                const passengersList = [];
+                let sourceRouteId = '';
+                let sourceRouteName = '';
+                let sourceStageName = '';
+
+                for (const p of passengers) {
+                    const pId = p.id || p._id || p.passengerId;
+                    if (!pId || !p.type) continue;
+
+                    if (p.type === 'student') {
+                        const doc = await TransportRequest.findById(pId);
+                        if (doc) {
+                            if (!sourceRouteId) {
+                                sourceRouteId = doc.route_id;
+                                sourceRouteName = doc.route_name;
+                                sourceStageName = doc.stage_name;
+                            }
+                            passengersList.push({ passengerId: doc._id.toString(), name: doc.student_name, admissionNumber: doc.admission_number, type: 'student', status: doc.status });
+
+                            doc.route_id = destinationRouteId;
+                            doc.route_name = destRoute.routeName;
+                            doc.stage_name = destinationStageName;
+                            doc.bus_id = null;
+                            if (doc.status === 'approved') {
+                                doc.fare = newFare;
+                                doc.new_id_card_needed = true;
+                            }
+                            await doc.save();
+                            stCount++;
+                        }
+                    } else if (p.type === 'employee') {
+                        const doc = await EmployeeTransportRequest.findById(pId);
+                        if (doc) {
+                            if (!sourceRouteId) {
+                                sourceRouteId = doc.route_id;
+                                sourceRouteName = doc.route_name;
+                                sourceStageName = doc.stage_name;
+                            }
+                            passengersList.push({ passengerId: doc._id.toString(), name: doc.employee_name, admissionNumber: doc.emp_no, type: 'employee', status: doc.status });
+
+                            doc.route_id = destinationRouteId;
+                            doc.route_name = destRoute.routeName;
+                            doc.stage_name = destinationStageName;
+                            doc.bus_id = null;
+                            if (doc.status === 'approved') {
+                                doc.new_id_card_needed = true;
+                            }
+                            await doc.save();
+                            empCount++;
+                        }
+                    }
+                }
+
+                totalStudentsTransferred += stCount;
+                totalEmployeesTransferred += empCount;
+
+                if (passengersList.length > 0) {
+                    await TransferHistory.create({
+                        type: 'passenger',
+                        sourceRouteId: sourceRouteId || 'unknown',
+                        sourceRouteName: sourceRouteName || 'unknown',
+                        sourceStageName: sourceStageName || 'unknown',
+                        destinationRouteId,
+                        destinationRouteName: destRoute.routeName,
+                        destinationStageName,
+                        academicYear,
+                        passengersCount: passengersList.length,
+                        passengers: passengersList,
+                        performedBy
+                    });
+
+                    fireAutoNotification('transfer_passengers', () => ({
+                        students: passengersList.filter(p => p.type === 'student').map(p => ({
+                            name: p.name, admissionNumber: p.admissionNumber, new_route_id: destinationRouteId, new_route_name: destRoute.routeName, new_stage_name: destinationStageName, old_route_id: sourceRouteId || '', old_route_name: sourceRouteName || '', old_stage_name: sourceStageName || ''
+                        })),
+                        employees: passengersList.filter(p => p.type === 'employee').map(p => ({
+                            name: p.name, admissionNumber: p.admissionNumber, new_route_id: destinationRouteId, new_route_name: destRoute.routeName, new_stage_name: destinationStageName, old_route_id: sourceRouteId || '', old_route_name: sourceRouteName || '', old_stage_name: sourceStageName || ''
+                        })),
+                        extraParams: { old_route_id: sourceRouteId || '', new_route_id: destinationRouteId, old_route_name: sourceRouteName || '', new_route_name: destRoute.routeName, old_stage_name: sourceStageName || '', new_stage_name: destinationStageName }
+                    }));
+                }
+
+                executionLogs.push(`Transferred ${stCount + empCount} passenger(s) to ${destRoute.routeName}, stage "${destinationStageName}".`);
+            }
+        }
+
+        res.json({
+            message: `Batch transfer completed successfully! Finalized ${draftQueue.length} queued transfer(s). (${totalStagesTransferred} stage(s), ${totalStudentsTransferred} student(s), ${totalEmployeesTransferred} employee(s) moved). Note: ID cards must be reprinted for approved passengers.`,
+            transferredStages: totalStagesTransferred,
+            transferredStudents: totalStudentsTransferred,
+            transferredEmployees: totalEmployeesTransferred,
+            logs: executionLogs
+        });
+    } catch (error) {
+        console.error('Error executing batch transfer:', error);
+        res.status(500).json({ message: error.message || 'Batch transfer execution failed' });
+    }
+};
+
 module.exports = {
     getRoutes,
     createRoute,
@@ -668,6 +951,7 @@ module.exports = {
     getRoutePassengers,
     transferPassengers,
     getTransferHistory,
-    getGlobalMappingHistory
+    getGlobalMappingHistory,
+    batchTransfer
 };
 
