@@ -3412,9 +3412,29 @@ const verifyTransportPassenger = async (req, res) => {
             });
         }
 
-        // 1.5 Check MongoDB for Student Transport Requests by physical_card_qr alias
+        // 1.5 Check MongoDB for Student Transport Requests by physical_card_qr alias or ID candidate
+        const isNumeric = /^\d+$/.test(requestId);
+        let physicalQrQueryIds = [requestId];
+        try {
+            const oldRef = await TransportRequest.findOne({
+                $or: [
+                    { application_number: requestId },
+                    { id: isNumeric ? Number(requestId) : -1 },
+                    { _id: isMongoId(requestId) ? requestId : null },
+                ]
+            }).select('application_number id _id').lean();
+
+            if (oldRef) {
+                if (oldRef.application_number) physicalQrQueryIds.push(oldRef.application_number);
+                if (oldRef.id != null) physicalQrQueryIds.push(String(oldRef.id));
+                if (oldRef._id) physicalQrQueryIds.push(String(oldRef._id));
+            }
+        } catch {
+            // ignore
+        }
+
         const physicalQrStudent = await TransportRequest.findOne({
-            physical_card_qr: requestId,
+            physical_card_qr: { $in: physicalQrQueryIds },
             status: 'approved',
         }).sort({ academic_year: -1, updated_at: -1 }).lean();
 

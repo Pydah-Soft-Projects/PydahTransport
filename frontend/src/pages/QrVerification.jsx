@@ -334,7 +334,6 @@ const QrVerification = () => {
         setRecordCount(count);
         setStoredAcademicYear(storedYear);
         setHasPublicKey(Boolean(keyInfo?.publicKeyPem));
-        if (storedYear) setAcademicYear(storedYear);
     }, []);
 
     // Load Inspection Data (Routes, Buses, Cached Passengers)

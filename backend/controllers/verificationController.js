@@ -85,7 +85,7 @@ const syncVerificationData = async (req, res) => {
         const busId = req.query.busId || req.query.bus_id || null;
 
         const studentQuery = { status: 'approved' };
-        if (academicYear) {
+        if (academicYear && String(academicYear).toLowerCase() !== 'all') {
             studentQuery.$or = [
                 { academic_year: academicYear },
                 { academic_year: null },
@@ -99,7 +99,7 @@ const syncVerificationData = async (req, res) => {
         }
 
         const employeeQuery = { status: 'approved' };
-        if (academicYear) {
+        if (academicYear && String(academicYear).toLowerCase() !== 'all') {
             employeeQuery.$or = [
                 { academic_year: academicYear },
                 { academic_year: null },
