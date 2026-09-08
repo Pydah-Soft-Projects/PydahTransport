@@ -106,7 +106,48 @@ function getTranspiledComponent(filePath) {
 }
 
 /**
- * Fetch data for Transport Admit Card
+ * Format an employee transport request for admit/ID-card print payloads.
+ */
+const formatEmployeeAdmitCardData = async (reqRow) => {
+    let profilePhoto = null;
+    if (reqRow.emp_no) {
+        try {
+            const { getEmployeeConnection } = require('../config/db');
+            const empConn = getEmployeeConnection();
+            if (empConn) {
+                const empCollection = empConn.collection('employees');
+                const empRecord = await empCollection.findOne(
+                    { emp_no: reqRow.emp_no },
+                    { projection: { profilePhoto: 1, dynamicFields: 1 } }
+                );
+                if (empRecord) {
+                    profilePhoto =
+                        empRecord.profilePhoto ||
+                        empRecord.dynamicFields?.profilePhoto ||
+                        null;
+                }
+            }
+        } catch (err) {
+            console.error(`Error fetching employee photo for ${reqRow.emp_no}:`, err.message);
+        }
+    }
+    return {
+        ...reqRow,
+        id: reqRow._id ? reqRow._id.toString() : String(reqRow.id),
+        admission_number: reqRow.emp_no,
+        student_name: reqRow.employee_name,
+        user_type: 'employee',
+        course: 'Employee',
+        student_photo: profilePhoto
+    };
+};
+
+/**
+ * Fetch data for Transport Admit Card / ID card.
+ *
+ * Numeric transport request ids can collide with employee emp_no values
+ * (e.g. student request id 2308 vs employee emp_no "2308"). Prefer a matching
+ * student TransportRequest by numeric id before treating the value as emp_no.
  */
 const fetchAdmitCardData = async (data) => {
     const id = data.studentId || data.requestId || data.admissionNumber || data.passengerId || data.empNo;
@@ -116,52 +157,71 @@ const fetchAdmitCardData = async (data) => {
         throw error;
     }
 
+    const userTypeHint = String(data.userType || data.user_type || '').toLowerCase();
+    const preferEmployee = userTypeHint === 'employee';
+    const preferStudent = userTypeHint === 'student';
+
     const isMongoId = mongoose.Types.ObjectId.isValid(id)
         && String(new mongoose.Types.ObjectId(id)) === String(id);
-    
-    let reqRow = null;
+
     if (isMongoId) {
-        reqRow = await EmployeeTransportRequest.findById(id).lean();
-    }
-    if (!reqRow && !isNaN(id)) {
-        reqRow = await EmployeeTransportRequest.findOne({ id: Number(id) }).lean();
-    }
-    if (!reqRow) {
-        reqRow = await EmployeeTransportRequest.findOne({ emp_no: String(id) }).sort({ request_date: -1 }).lean();
+        const empByMongoId = await EmployeeTransportRequest.findById(id).lean();
+        if (empByMongoId) {
+            return formatEmployeeAdmitCardData(empByMongoId);
+        }
+        return fetchStudentTransportPrintData(id);
     }
 
-    if (reqRow) {
-        let profilePhoto = null;
-        if (reqRow.emp_no) {
-            try {
-                const { getEmployeeConnection } = require('../config/db');
-                const empConn = getEmployeeConnection();
-                if (empConn) {
-                    const empCollection = empConn.collection('employees');
-                    const empRecord = await empCollection.findOne(
-                        { emp_no: reqRow.emp_no },
-                        { projection: { profilePhoto: 1, dynamicFields: 1 } }
-                    );
-                    if (empRecord) {
-                        profilePhoto =
-                            empRecord.profilePhoto ||
-                            empRecord.dynamicFields?.profilePhoto ||
-                            null;
-                    }
-                }
-            } catch (err) {
-                console.error(`Error fetching employee photo for ${reqRow.emp_no}:`, err.message);
+    const numericId = !isNaN(id) && id !== '' && id !== null ? Number(id) : null;
+
+    if (numericId != null) {
+        const [empByNumericId, studentByNumericId] = await Promise.all([
+            EmployeeTransportRequest.findOne({ id: numericId }).lean(),
+            TransportRequest.findOne({ id: numericId }).lean(),
+        ]);
+
+        // Explicit employee hint: resolve emp request-id / emp_no before any student id match.
+        if (preferEmployee) {
+            if (empByNumericId) {
+                return formatEmployeeAdmitCardData(empByNumericId);
+            }
+            const empByNo = await EmployeeTransportRequest.findOne({ emp_no: String(id) })
+                .sort({ request_date: -1 })
+                .lean();
+            if (empByNo) {
+                return formatEmployeeAdmitCardData(empByNo);
             }
         }
-        return {
-            ...reqRow,
-            id: reqRow._id ? reqRow._id.toString() : String(reqRow.id),
-            admission_number: reqRow.emp_no,
-            student_name: reqRow.employee_name,
-            user_type: 'employee',
-            course: 'Employee',
-            student_photo: profilePhoto
-        };
+
+        if (preferStudent && studentByNumericId) {
+            return fetchStudentTransportPrintData(id);
+        }
+
+        // Prefer student request-id match over emp_no collision (common case from Transport Requests UI).
+        if (studentByNumericId) {
+            return fetchStudentTransportPrintData(id);
+        }
+        if (empByNumericId) {
+            return formatEmployeeAdmitCardData(empByNumericId);
+        }
+
+        // Only treat the number as emp_no when no student request uses that id.
+        const empByNo = await EmployeeTransportRequest.findOne({ emp_no: String(id) })
+            .sort({ request_date: -1 })
+            .lean();
+        if (empByNo) {
+            return formatEmployeeAdmitCardData(empByNo);
+        }
+
+        return fetchStudentTransportPrintData(id);
+    }
+
+    // Non-numeric string: emp_no, then admission number.
+    const empByNo = await EmployeeTransportRequest.findOne({ emp_no: String(id) })
+        .sort({ request_date: -1 })
+        .lean();
+    if (empByNo) {
+        return formatEmployeeAdmitCardData(empByNo);
     }
 
     return fetchStudentTransportPrintData(id);
@@ -422,7 +482,10 @@ const fetchIdCardSheetData = async (data) => {
     if (ids.length > 0) {
         for (const id of ids) {
             try {
-                const passenger = await fetchAdmitCardData({ requestId: id });
+                const passenger = await fetchAdmitCardData({
+                    requestId: id,
+                    userType: data.userType || data.user_type,
+                });
                 passengers.push(passenger);
             } catch (err) {
                 console.error(`Error fetching ID card data for ID ${id}:`, err.message);

@@ -220,7 +220,10 @@ const TransportRequests = () => {
                 method: 'POST',
                 body: JSON.stringify({
                     template: 'transport-admit',
-                    data: { requestId: p.id }
+                    data: {
+                        requestId: p._id || p.id,
+                        userType: p.user_type || (p.emp_no && !p.admission_number ? 'employee' : 'student')
+                    }
                 })
             });
             if (response.ok) {
@@ -265,7 +268,9 @@ const TransportRequests = () => {
                 body: JSON.stringify({
                     template: 'transport-bus-idcard-sheet',
                     data: {
-                        requestIds: [req.id],
+                        // Prefer Mongo _id — numeric request id can collide with employee emp_no
+                        requestIds: [req._id || req.id],
+                        userType: req.user_type || (req.emp_no && !req.admission_number ? 'employee' : 'student'),
                         academicYear: req.academic_year || academicYear,
                         cardsPerPage: 6,
                         padToFullPage: false
@@ -492,7 +497,7 @@ const TransportRequests = () => {
                 setMessage({ text: 'No approved passengers found for the selected filters.', type: 'error' });
                 return;
             }
-            requestIds = selectedRangePassengers.map(p => p.id || p._id);
+            requestIds = selectedRangePassengers.map(p => p._id || p.id);
         }
 
         setIdCardPrintLoading(true);
