@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const inspectionSessionSchema = new mongoose.Schema({
+    sessionId: { type: String, default: () => `INSP-${Date.now()}-${Math.floor(Math.random() * 1000)}` },
     inspectorId: { type: mongoose.Schema.Types.ObjectId, default: null },
     inspectorName: { type: String, required: true, trim: true },
     inspectorUsername: { type: String, default: null, trim: true },
@@ -13,7 +14,8 @@ const inspectionSessionSchema = new mongoose.Schema({
     completedAt: { type: Date, default: null },
     inspectedCount: { type: Number, default: 0, min: 0 },
     totalCount: { type: Number, default: 0, min: 0 },
-    status: { type: String, enum: ['in_progress', 'completed'], default: 'in_progress' },
+    status: { type: String, enum: ['in_progress', 'completed', 'submitted'], default: 'in_progress' },
+    scannedPassengers: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, {
     timestamps: true,
     collection: 'inspection_sessions',
@@ -21,5 +23,9 @@ const inspectionSessionSchema = new mongoose.Schema({
 
 inspectionSessionSchema.index({ inspectionDate: 1, academicYear: 1 });
 inspectionSessionSchema.index({ inspectorId: 1, inspectionDate: 1 });
+inspectionSessionSchema.index({ inspectionDate: 1, status: 1 });
 
-module.exports = mongoose.model('InspectionSession', inspectionSessionSchema);
+const InspectionSession = mongoose.model('InspectionSession', inspectionSessionSchema);
+InspectionSession.collection.dropIndex('sessionId_1').catch(() => {});
+
+module.exports = InspectionSession;
