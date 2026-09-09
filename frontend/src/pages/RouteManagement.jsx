@@ -866,9 +866,18 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
                     </div>
 
                     {routes.map((route) => {
-                        const bus = buses.find(b => b.assignedRouteId === route.routeId);
+                        const { bus, status } = getEffectiveRouteBus(route.routeId);
                         const isSelected = selectedRouteIds.includes(route._id);
-                        
+
+                        let busText = 'Unassigned';
+                        if (status === 'draft_detached') {
+                            busText = `Bus ${bus?.busNumber} (Draft Detaching)`;
+                        } else if (status === 'draft_attached') {
+                            busText = `Bus ${bus?.busNumber} (Draft Assigned)`;
+                        } else if (bus) {
+                            busText = `Bus ${bus.busNumber || bus.registrationNumber}`;
+                        }
+
                         return (
                             <div key={route._id} className="space-y-1.5">
                                 <div
@@ -894,7 +903,7 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
                                         />
                                         <div className="min-w-0 flex-1">
                                             <p className={`truncate text-[11px] ${isSelected ? 'text-blue-800 font-extrabold' : 'text-slate-800 font-semibold'}`}>
-                                                {route.routeId} - {bus ? `Bus ${bus.busNumber || bus.registrationNumber}` : 'Unassigned'}
+                                                {route.routeId} - {busText}
                                             </p>
                                             <p className="text-[9px] text-slate-400 truncate font-medium">
                                                 {route.routeName}
@@ -1750,7 +1759,7 @@ const RouteManagement = () => {
     };
 
     const buildRouteWiseDraft = (routeId) => {
-        const currentBus = buses.find((b) => b.assignedRouteId === routeId);
+        const { bus: currentBus } = getEffectiveRouteBus(routeId);
         return {
             busId: currentBus ? currentBus._id : '',
             exitDate: todayDateInput(),
@@ -1971,13 +1980,40 @@ const RouteManagement = () => {
 
     useEffect(() => {
         try {
-            localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftQueue));
-            window.dispatchEvent(new Event('pydah_draft_updated'));
-            window.dispatchEvent(new Event('storage'));
+            const currentStored = localStorage.getItem(DRAFT_STORAGE_KEY);
+            const newStringified = JSON.stringify(draftQueue);
+            if (currentStored !== newStringified) {
+                localStorage.setItem(DRAFT_STORAGE_KEY, newStringified);
+                window.dispatchEvent(new Event('pydah_draft_updated'));
+            }
         } catch (err) {
             console.error('Failed to save draft queue to localStorage:', err);
         }
     }, [draftQueue]);
+
+    useEffect(() => {
+        const syncDraftQueue = () => {
+            try {
+                const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
+                const parsed = saved ? JSON.parse(saved) : [];
+                setDraftQueue((prev) => {
+                    if (JSON.stringify(prev) !== JSON.stringify(parsed)) {
+                        return parsed;
+                    }
+                    return prev;
+                });
+            } catch {
+                setDraftQueue([]);
+            }
+        };
+
+        window.addEventListener('storage', syncDraftQueue);
+        window.addEventListener('pydah_draft_updated', syncDraftQueue);
+        return () => {
+            window.removeEventListener('storage', syncDraftQueue);
+            window.removeEventListener('pydah_draft_updated', syncDraftQueue);
+        };
+    }, []);
 
     useEffect(() => {
         const handleOpenModal = () => setIsFinalizeModalOpen(true);
@@ -2062,13 +2098,71 @@ const RouteManagement = () => {
         };
     }, [draftQueue]);
 
+    // Calculate draft-aware assigned bus for a route
+    const getEffectiveRouteBus = useCallback((routeId) => {
+        if (!routeId) return { bus: null, status: 'unassigned', draftItem: null };
+
+        // 1. Check if there is a draft attach for this route
+        const draftAttach = draftQueue.find(item => item.type === 'bus_attach' && item.destinationRouteId === routeId);
+        if (draftAttach) {
+            const busObj = buses.find(b => String(b._id) === String(draftAttach.busId) || b.busNumber === draftAttach.busNumber) || {
+                _id: draftAttach.busId,
+                busNumber: draftAttach.busNumber,
+                capacity: draftAttach.capacity,
+                type: 'Bus'
+            };
+            return {
+                bus: busObj,
+                status: 'draft_attached',
+                draftItem: draftAttach
+            };
+        }
+
+        // 2. Check live assigned bus
+        const liveBus = buses.find(b => b.assignedRouteId === routeId);
+        if (liveBus) {
+            const draftDetach = draftQueue.find(item => item.type === 'bus_detach' && (item.sourceRouteId === routeId || String(item.busId) === String(liveBus._id)));
+            const draftAttachElsewhere = draftQueue.find(item => item.type === 'bus_attach' && String(item.busId) === String(liveBus._id) && item.destinationRouteId !== routeId);
+
+            if (draftDetach || draftAttachElsewhere) {
+                return {
+                    bus: liveBus,
+                    status: 'draft_detached',
+                    draftItem: draftDetach || draftAttachElsewhere
+                };
+            }
+
+            return {
+                bus: liveBus,
+                status: 'assigned',
+                draftItem: null
+            };
+        }
+
+        return {
+            bus: null,
+            status: 'unassigned',
+            draftItem: null
+        };
+    }, [buses, draftQueue]);
+
     // Validate if destination route can accommodate additional incoming passengers considering live + draft
     const validateNetVacancy = (destinationRouteId, incomingCount) => {
         const destRouteObj = routes.find(r => r.routeId === destinationRouteId);
         if (!destRouteObj) return { valid: false, message: `Destination route ${destinationRouteId} not found.` };
 
         const destRouteBuses = buses.filter(b => b.assignedRouteId === destinationRouteId);
-        const totalCapacity = destRouteBuses.reduce((sum, b) => sum + Number(b.capacity || 0), 0);
+        let totalCapacity = destRouteBuses.reduce((sum, b) => sum + Number(b.capacity || 0), 0);
+
+        // Adjust capacity for draft bus attach/detach items
+        for (const item of draftQueue) {
+            if (item.type === 'bus_attach' && item.destinationRouteId === destinationRouteId) {
+                totalCapacity += Number(item.capacity || 0);
+            }
+            if (item.type === 'bus_detach' && (item.sourceRouteId === destinationRouteId || destRouteBuses.some(b => String(b._id) === String(item.busId)))) {
+                totalCapacity -= Number(item.capacity || 0);
+            }
+        }
 
         if (totalCapacity === 0) {
             return { valid: true, warning: 'No buses assigned to destination route yet.' };
@@ -2087,6 +2181,63 @@ const RouteManagement = () => {
         }
 
         return { valid: true, projectedOccupancy, totalCapacity };
+    };
+
+    const handleAddBusAttachToDraft = (route) => {
+        const draft = routeWiseDrafts[route.routeId] || buildRouteWiseDraft(route.routeId);
+        const newBusId = draft.busId || '';
+
+        if (!newBusId) {
+            alert('Please select a bus to attach.');
+            return;
+        }
+
+        const preview = mappingPreview[route.routeId];
+        const isOverCapacity = preview?.busCapacityAlerts?.some(alert => alert.isOverCapacity) || false;
+        if (isOverCapacity) {
+            alert('Cannot add to draft: Proposed assignment exceeds the bus seating capacity limit.');
+            return;
+        }
+
+        const selectedBus = buses.find(b => String(b._id) === String(newBusId));
+        if (!selectedBus) {
+            alert('Selected bus not found.');
+            return;
+        }
+
+        const newDraftItem = {
+            id: `draft-bus-attach-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            type: 'bus_attach',
+            busId: selectedBus._id,
+            busNumber: selectedBus.busNumber,
+            capacity: Number(selectedBus.capacity || 0),
+            destinationRouteId: route.routeId,
+            destinationRouteName: route.routeName,
+            entryDate: draft.entryDate || new Date().toISOString().split('T')[0],
+            createdAt: new Date().toISOString()
+        };
+
+        setDraftQueue(prev => [...prev, newDraftItem]);
+        setExpandedRouteEditId(null);
+    };
+
+    const handleAddBusDetachToDraft = (route, assignedBus) => {
+        const draft = routeWiseDrafts[route.routeId] || buildRouteWiseDraft(route.routeId);
+
+        const newDraftItem = {
+            id: `draft-bus-detach-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            type: 'bus_detach',
+            busId: assignedBus._id,
+            busNumber: assignedBus.busNumber,
+            capacity: Number(assignedBus.capacity || 0),
+            sourceRouteId: route.routeId,
+            sourceRouteName: route.routeName,
+            exitDate: draft.exitDate || new Date().toISOString().split('T')[0],
+            createdAt: new Date().toISOString()
+        };
+
+        setDraftQueue(prev => [...prev, newDraftItem]);
+        setExpandedRouteEditId(null);
     };
 
     const handleAddStageToDraft = () => {
@@ -2124,7 +2275,7 @@ const RouteManagement = () => {
         };
 
         setDraftQueue(prev => [...prev, newDraftItem]);
-        setTransferMessage({ text: `Stage "${stageName}" (${incomingCount} passengers) added to draft queue!`, type: 'success' });
+        setTransferMessage({ text: `⚡ Stage "${stageName}" (${incomingCount} passengers) added to draft queue!`, type: 'success' });
         setTransferData({ sourceRouteId: '', stageName: '', destinationRouteId: '' });
     };
 
@@ -2152,7 +2303,7 @@ const RouteManagement = () => {
 
         const selectedObjects = selectedPassengers.map(id => {
             const found = passengerList.find(p => p._id === id);
-            return { id: found._id, name: found.name, admissionNumber: found.admissionNumber, type: found.type, status: found.status };
+            return { id: found?._id, name: found?.name, admissionNumber: found?.admissionNumber, type: found?.type, status: found?.status };
         });
 
         const newDraftItem = {
@@ -2170,22 +2321,25 @@ const RouteManagement = () => {
         };
 
         setDraftQueue(prev => [...prev, newDraftItem]);
-        setStudentTransferMessage({ text: `${incomingCount} passenger(s) added to draft queue!`, type: 'success' });
+        setStudentTransferMessage({ text: `⚡ ${incomingCount} passenger(s) added to draft queue!`, type: 'success' });
         setSelectedPassengers([]);
     };
 
     const executeFinalizeAll = async () => {
         if (draftQueue.length === 0) return;
-        setIsFinalizeModalOpen(false);
         setBatchSubmitting(true);
 
         try {
+            const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+            const performedBy = adminInfo.username || adminInfo.name || 'Administrator';
+
             const response = await apiFetch(`${API}/routes/batch-transfer`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     draftQueue,
-                    academicYear
+                    academicYear,
+                    performedBy
                 })
             });
 
@@ -2193,10 +2347,10 @@ const RouteManagement = () => {
             if (response.ok) {
                 clearDraftQueue();
                 await fetchRoutes(academicYear);
-                setSaveMessage({
-                    text: data.message || 'All pending transfers finalized successfully.',
-                    type: 'success'
-                });
+                await fetchBuses();
+                setIsFinalizeModalOpen(false);
+                setSuccessModalMessage(data.message || 'All pending draft actions finalized successfully.');
+                setIsSuccessModalOpen(true);
             } else {
                 setSaveMessage({
                     text: data.message || 'Failed to finalize batch transfers.',
@@ -3374,7 +3528,7 @@ const RouteManagement = () => {
                             {/* Mobile View Card List */}
                             <div className="block md:hidden divide-y divide-slate-100">
                                 {filteredRoutes.map((route) => {
-                                    const assignedBus = buses.find((b) => b.assignedRouteId === route.routeId);
+                                    const { bus: assignedBus, status: busDraftStatus } = getEffectiveRouteBus(route.routeId);
                                     return (
                                         <div key={route._id} className="p-4 space-y-3 hover:bg-slate-50/50 transition-colors">
                                             <div className="flex items-start justify-between gap-2">
@@ -3399,7 +3553,19 @@ const RouteManagement = () => {
                                                     </div>
                                                 </div>
                                                 <div className="shrink-0">
-                                                    {assignedBus ? (
+                                                    {busDraftStatus === 'draft_detached' ? (
+                                                        <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-900 font-bold border border-rose-200 px-2 py-1 rounded-lg text-xs shadow-xs" title="Queued for Detachment in Draft">
+                                                            <Bus size={12} className="text-rose-600" />
+                                                            <span className="line-through text-slate-500">Bus {assignedBus.busNumber}</span>
+                                                            <span className="text-[9px] bg-rose-100 text-rose-800 px-1 rounded font-extrabold border border-rose-300 ml-1">Draft Detaching</span>
+                                                        </span>
+                                                    ) : busDraftStatus === 'draft_attached' ? (
+                                                        <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-900 font-bold border border-emerald-300 px-2 py-1 rounded-lg text-xs shadow-xs" title="Queued for Attachment in Draft">
+                                                            <Bus size={12} className="text-emerald-600" />
+                                                            <span>Bus {assignedBus.busNumber}</span>
+                                                            <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1 rounded font-extrabold border border-emerald-200 ml-1">Draft Assigned</span>
+                                                        </span>
+                                                    ) : assignedBus ? (
                                                         <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-800 font-bold border border-blue-200 px-2 py-1 rounded-lg text-xs shadow-xs">
                                                             <Bus size={12} className="text-blue-600" />
                                                             Bus {assignedBus.busNumber}
@@ -3455,7 +3621,7 @@ const RouteManagement = () => {
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                         {filteredRoutes.map((route) => {
-                                            const assignedBus = buses.find((b) => b.assignedRouteId === route.routeId);
+                                            const { bus: assignedBus, status: busDraftStatus } = getEffectiveRouteBus(route.routeId);
                                             return (
                                                 <tr key={route._id} className="hover:bg-slate-50/50 transition-colors text-xs">
                                                     <td className="px-3 py-3">
@@ -3484,7 +3650,19 @@ const RouteManagement = () => {
                                                         {route.startPoint} ➔ {route.endPoint}
                                                     </td>
                                                     <td className="px-3 py-3">
-                                                        {assignedBus ? (
+                                                        {busDraftStatus === 'draft_detached' ? (
+                                                            <span className="inline-flex items-center gap-1.5 bg-rose-50 text-rose-900 font-bold border border-rose-200 px-2.5 py-1 rounded-lg text-xs shadow-xs" title="Queued for Detachment in Draft">
+                                                                <Bus size={13} className="text-rose-600" />
+                                                                <span className="line-through text-slate-500">Bus {assignedBus.busNumber} ({assignedBus.type})</span>
+                                                                <span className="text-[9px] bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded font-extrabold border border-rose-300 ml-1">Draft Detaching</span>
+                                                            </span>
+                                                        ) : busDraftStatus === 'draft_attached' ? (
+                                                            <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-900 font-bold border border-emerald-300 px-2.5 py-1 rounded-lg text-xs shadow-xs" title="Queued for Attachment in Draft">
+                                                                <Bus size={13} className="text-emerald-600" />
+                                                                <span>Bus {assignedBus.busNumber} ({assignedBus.type})</span>
+                                                                <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-extrabold border border-emerald-200 ml-1">Draft Assigned</span>
+                                                            </span>
+                                                        ) : assignedBus ? (
                                                             <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-800 font-bold border border-blue-200 px-2.5 py-1 rounded-lg text-xs shadow-sm">
                                                                 <Bus size={13} className="text-blue-600" />
                                                                 Bus {assignedBus.busNumber} ({assignedBus.type})
@@ -4705,7 +4883,7 @@ const RouteManagement = () => {
             {expandedRouteEditId && (() => {
                 const route = routes.find(r => r._id === expandedRouteEditId);
                 if (!route) return null;
-                const assignedBus = buses.find((b) => b.assignedRouteId === route.routeId);
+                const { bus: assignedBus, status: busDraftStatus, draftItem: activeBusDraft } = getEffectiveRouteBus(route.routeId);
                 const draft = routeWiseDrafts[route.routeId] || buildRouteWiseDraft(route.routeId);
                 const routeWiseChanged = (draft.busId || '') !== (assignedBus ? assignedBus._id : '');
                 const preview = mappingPreview[route.routeId];
@@ -4720,6 +4898,38 @@ const RouteManagement = () => {
                         maxWidth="max-w-2xl"
                     >
                         <div className="space-y-5">
+                            {/* Draft Status Banners */}
+                            {busDraftStatus === 'draft_detached' && activeBusDraft && (
+                                <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-900 text-xs font-bold shadow-xs">
+                                    <div className="flex items-center gap-2">
+                                        <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+                                        <span>⚡ Bus {assignedBus?.busNumber} is queued for detachment in Draft Mode.</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => removeDraftItem(activeBusDraft.id)}
+                                        className="px-3 py-1.5 bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 rounded-lg text-xs font-extrabold transition-all cursor-pointer shadow-xs shrink-0"
+                                    >
+                                        Remove Detach Draft
+                                    </button>
+                                </div>
+                            )}
+                            {busDraftStatus === 'draft_attached' && activeBusDraft && (
+                                <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 text-xs font-bold shadow-xs">
+                                    <div className="flex items-center gap-2">
+                                        <Bus size={16} className="text-emerald-600 shrink-0" />
+                                        <span>⚡ Bus {assignedBus?.busNumber} is queued for attachment in Draft Mode.</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => removeDraftItem(activeBusDraft.id)}
+                                        className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-extrabold transition-all cursor-pointer shadow-xs shrink-0"
+                                    >
+                                        Remove Attach Draft
+                                    </button>
+                                </div>
+                            )}
+
                             {/* Preview & Loading State */}
                             {preview && preview.loading ? (
                                 <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 py-10">
@@ -4731,7 +4941,7 @@ const RouteManagement = () => {
                                     {isOverCapacity && (
                                         <div className="flex items-center gap-2.5 p-3.5 rounded-xl border border-red-200 bg-red-50 text-red-800 text-xs font-bold shadow-sm">
                                             <AlertTriangle size={16} className="text-red-500 shrink-0" />
-                                            <span>❌ Capacity Exceeded: Proposed assignment exceeds the bus seating capacity limit. Saving is blocked.</span>
+                                            <span>❌ Capacity Exceeded: Proposed assignment exceeds the bus seating capacity limit. Saving and Draft queueing are blocked.</span>
                                         </div>
                                     )}
 
@@ -4833,45 +5043,76 @@ const RouteManagement = () => {
                             )}
 
                             {/* Form Input fields */}
-                            {assignedBus ? (
-                                <div className="rounded-xl border border-red-200 bg-red-50/30 p-5 space-y-4 shadow-sm">
+                            {busDraftStatus === 'assigned' || busDraftStatus === 'draft_attached' ? (
+                                <div className={`rounded-xl border p-5 space-y-4 shadow-sm ${busDraftStatus === 'draft_attached' ? 'border-emerald-200 bg-emerald-50/30' : 'border-red-200 bg-red-50/30'}`}>
                                     <div className="flex justify-between items-start">
                                         <div>
-                                            <p className="text-[10px] font-bold text-red-700 uppercase tracking-wider">Currently Assigned Bus</p>
+                                            <p className={`text-[10px] font-bold uppercase tracking-wider ${busDraftStatus === 'draft_attached' ? 'text-emerald-700' : 'text-red-700'}`}>
+                                                {busDraftStatus === 'draft_attached' ? 'Draft Assigned Bus' : 'Currently Assigned Bus'}
+                                            </p>
                                             <h4 className="text-base font-black text-slate-800 mt-1">Bus {assignedBus.busNumber}</h4>
                                             <p className="text-xs text-slate-500 font-medium mt-0.5">{assignedBus.type} • {assignedBus.capacity} seats</p>
                                         </div>
-                                        <div className="bg-red-100 text-red-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-red-200">
-                                            Assigned
+                                        <div className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                            busDraftStatus === 'draft_attached' 
+                                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
+                                                : 'bg-red-100 text-red-800 border-red-200'
+                                        }`}>
+                                            {busDraftStatus === 'draft_attached' ? 'Draft Attached' : 'Assigned'}
                                         </div>
                                     </div>
 
-                                    <div className="pt-2 max-w-xs">
-                                        <label className="block text-xs font-semibold text-slate-750 mb-1">Exit Date (Detachment Date)</label>
-                                        <input
-                                            type="date"
-                                            value={draft.exitDate}
-                                            onChange={(e) => handleRouteWiseDraftDateChange(route.routeId, 'exitDate', e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-slate-350 bg-white text-xs focus:ring-2 focus:ring-red-500 outline-none"
-                                        />
-                                    </div>
+                                    {busDraftStatus === 'draft_attached' ? (
+                                        <div className="flex justify-end items-center gap-2 pt-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => activeBusDraft && removeDraftItem(activeBusDraft.id)}
+                                                className="px-4 py-2.5 rounded-xl text-xs font-bold bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-xs transition-all cursor-pointer"
+                                            >
+                                                Remove Attach Draft
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="pt-2 max-w-xs">
+                                                <label className="block text-xs font-semibold text-slate-750 mb-1">Exit Date (Detachment Date)</label>
+                                                <input
+                                                    type="date"
+                                                    value={draft.exitDate}
+                                                    onChange={(e) => handleRouteWiseDraftDateChange(route.routeId, 'exitDate', e.target.value)}
+                                                    className="w-full px-3 py-2 rounded-lg border border-slate-350 bg-white text-xs focus:ring-2 focus:ring-red-500 outline-none"
+                                                />
+                                            </div>
 
-                                    <div className="flex justify-end pt-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleRouteWiseDetachClick(route, assignedBus)}
-                                            disabled={assigningBusId === route._id}
-                                            className="px-5 py-2.5 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-1.5"
-                                        >
-                                            {assigningBusId === route._id ? 'Detaching…' : 'Detach Bus from Route'}
-                                        </button>
-                                    </div>
+                                            <div className="flex justify-end items-center gap-2 pt-2 flex-wrap">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleAddBusDetachToDraft(route, assignedBus)}
+                                                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                                                >
+                                                    ⚡ Add Detach to Draft
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRouteWiseDetachClick(route, assignedBus)}
+                                                    disabled={assigningBusId === route._id}
+                                                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-1.5 cursor-pointer"
+                                                >
+                                                    {assigningBusId === route._id ? 'Detaching…' : 'Detach Bus Now'}
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="rounded-xl border border-blue-200 bg-white p-5 space-y-4 shadow-sm">
                                     <div>
                                         <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Assign Bus to Route</p>
-                                        <p className="text-xs text-slate-500 font-medium mt-0.5 font-bold">Choose an unassigned eligible bus for this route network.</p>
+                                        <p className="text-xs text-slate-500 font-medium mt-0.5 font-bold">
+                                            {busDraftStatus === 'draft_detached' 
+                                                ? `Bus ${assignedBus?.busNumber} detachment is queued in draft. Choose a new bus to attach.` 
+                                                : 'Choose an unassigned eligible bus for this route network.'}
+                                        </p>
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -4884,11 +5125,20 @@ const RouteManagement = () => {
                                                 className="w-full text-xs rounded-lg border border-slate-355 py-2.5 px-3 focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium text-slate-800 cursor-pointer"
                                             >
                                                 <option value="">— Select Bus —</option>
-                                                {buses.filter((b) => !b.assignedRouteId).map((b) => {
+                                                {buses.filter((b) => {
+                                                    const isLiveAssignedToOther = !!b.assignedRouteId && b.assignedRouteId !== route.routeId;
+                                                    const isDraftAttachedToOther = draftQueue.some(item => item.type === 'bus_attach' && String(item.busId) === String(b._id) && item.destinationRouteId !== route.routeId);
+                                                    const isDraftDetachedFromOther = draftQueue.some(item => item.type === 'bus_detach' && String(item.busId) === String(b._id));
+
+                                                    if (isDraftAttachedToOther) return false;
+                                                    if (isLiveAssignedToOther && !isDraftDetachedFromOther) return false;
+                                                    return true;
+                                                }).map((b) => {
                                                     const isInactive = b.status === 'Inactive';
+                                                    const isDetachedInDraft = draftQueue.some(item => item.type === 'bus_detach' && String(item.busId) === String(b._id));
                                                     return (
                                                         <option key={b._id} value={b._id} disabled={isInactive}>
-                                                            {b.busNumber} ({b.type} - {b.capacity} seats) {isInactive ? ' [Inactive]' : ''}
+                                                            {b.busNumber} ({b.type} - {b.capacity} seats) {isInactive ? ' [Inactive]' : ''} {isDetachedInDraft ? ' [Draft Detached]' : ''}
                                                         </option>
                                                     );
                                                 })}
@@ -4908,14 +5158,22 @@ const RouteManagement = () => {
                                         )}
                                     </div>
 
-                                    <div className="flex justify-end pt-2">
+                                    <div className="flex justify-end items-center gap-2 pt-2 flex-wrap">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleAddBusAttachToDraft(route)}
+                                            disabled={!draft.busId || isOverCapacity}
+                                            className="px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                            ⚡ Add Attach to Draft
+                                        </button>
                                         <button
                                             type="button"
                                             onClick={() => handleRouteWiseAttachClick(route)}
                                             disabled={assigningBusId === route._id || !draft.busId || isOverCapacity}
-                                            className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-900 hover:bg-blue-800 text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                            className="px-4 py-2.5 rounded-xl text-xs font-bold bg-blue-900 hover:bg-blue-800 text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
                                         >
-                                            {assigningBusId === route._id ? 'Saving…' : 'Attach Bus to Route'}
+                                            {assigningBusId === route._id ? 'Saving…' : 'Attach Bus Now'}
                                         </button>
                                     </div>
                                 </div>
@@ -4964,21 +5222,45 @@ const RouteManagement = () => {
             >
                 <div className="space-y-4 text-xs">
                     <p className="text-slate-600 font-medium leading-relaxed">
-                        You are about to execute <strong>{draftQueue.length} queued transfer(s)</strong> in batch. This will update student and employee route assignments in the database and issue ID card reprint requests.
+                        You are about to execute <strong>{draftQueue.length} queued action(s)</strong> in batch. This will update bus assignments, passenger route allocations, and trigger automated notifications.
                     </p>
 
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
-                        {draftQueue.map((item, idx) => (
-                            <div key={item.id} className="p-2.5 bg-white border border-slate-100 rounded-lg text-xs space-y-1">
-                                <div className="flex justify-between font-bold text-slate-800">
-                                    <span>{idx + 1}. {item.type === 'stage' ? `Stage Transfer: "${item.stageName}"` : `Passenger Transfer (${item.passengerCount} passengers)`}</span>
-                                    <span className="text-blue-700">{item.passengerCount} passengers</span>
+                        {draftQueue.map((item, idx) => {
+                            const isBusAttach = item.type === 'bus_attach';
+                            const isBusDetach = item.type === 'bus_detach';
+                            const isStage = item.type === 'stage';
+
+                            let title = '';
+                            let subtitle = '';
+
+                            if (isBusAttach) {
+                                title = `Bus Attachment: Bus ${item.busNumber} (+${item.capacity} seats)`;
+                                subtitle = `Target Route: ${item.destinationRouteName || item.destinationRouteId}`;
+                                if (item.entryDate) subtitle += ` (Effective: ${item.entryDate})`;
+                            } else if (isBusDetach) {
+                                title = `Bus Detachment: Bus ${item.busNumber} (-${item.capacity} seats)`;
+                                subtitle = `Detaching From: ${item.sourceRouteName || item.sourceRouteId}`;
+                                if (item.exitDate) subtitle += ` (Effective: ${item.exitDate})`;
+                            } else if (isStage) {
+                                title = `Stage Transfer: "${item.stageName}" (${item.passengerCount} passengers)`;
+                                subtitle = `From: ${item.sourceRouteName} ➔ To: ${item.destinationRouteName}`;
+                            } else {
+                                title = `Passenger Transfer (${item.passengerCount} passengers)`;
+                                subtitle = `From: ${item.sourceRouteName} ➔ To: ${item.destinationRouteName}${item.destinationStageName ? ` (${item.destinationStageName})` : ''}`;
+                            }
+
+                            return (
+                                <div key={item.id || idx} className="p-2.5 bg-white border border-slate-100 rounded-lg text-xs space-y-1">
+                                    <div className="flex justify-between font-bold text-slate-800">
+                                        <span>{idx + 1}. {title}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 font-medium">
+                                        {subtitle}
+                                    </p>
                                 </div>
-                                <p className="text-[11px] text-slate-500 font-medium">
-                                    From: <span className="font-semibold text-slate-700">{item.sourceRouteName}</span> ➔ To: <span className="font-semibold text-slate-700">{item.destinationRouteName}</span> {item.destinationStageName ? `(${item.destinationStageName})` : ''}
-                                </p>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
 
                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-900 font-medium text-[11px]">
@@ -4997,9 +5279,16 @@ const RouteManagement = () => {
                             type="button"
                             onClick={executeFinalizeAll}
                             disabled={batchSubmitting}
-                            className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
                         >
-                            {batchSubmitting ? 'Finalizing...' : 'Confirm & Finalize All'}
+                            {batchSubmitting ? (
+                                <>
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
+                                    <span>Finalizing Actions...</span>
+                                </>
+                            ) : (
+                                <span>Confirm & Finalize All</span>
+                            )}
                         </button>
                     </div>
                 </div>

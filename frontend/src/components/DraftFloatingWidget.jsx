@@ -206,39 +206,79 @@ const DraftFloatingWidget = ({ onFinalizeAllClick }) => {
 
                         {/* Queued Action Cards Scrollable List — NO TEXT TRUNCATION */}
                         <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar pr-1">
-                            {draftQueue.map((item, index) => (
-                                <div
-                                    key={item.id || index}
-                                    className="bg-white border border-blue-200/90 rounded-xl p-2.5 text-xs flex items-start justify-between gap-2 shadow-xs"
-                                >
-                                    <div className="min-w-0 flex-1 space-y-1">
-                                        <div className="flex items-center gap-1.5 text-[10px]">
-                                            <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 font-mono text-[9px] uppercase font-bold border border-blue-200">
-                                                {item.type === 'stage' ? 'Stage Migration' : 'Passenger Transfer'}
-                                            </span>
-                                            <span className="font-extrabold text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
-                                                {item.passengerCount} pass.
-                                            </span>
-                                        </div>
-                                        <p className="font-bold text-slate-900 text-[11px] whitespace-normal leading-tight">
-                                            {item.type === 'stage' ? `Stage: "${item.stageName}"` : `${item.passengerCount} Selected Passenger(s)`}
-                                        </p>
-                                        <div className="text-[10px] text-slate-600 font-medium whitespace-normal leading-tight">
-                                            <span className="text-slate-400">From:</span> <span className="font-semibold text-slate-800">{item.sourceRouteName || item.sourceRouteId}</span>
-                                            <br />
-                                            <span className="text-slate-400">To:</span> <span className="font-semibold text-blue-900">{item.destinationRouteName || item.destinationRouteId}</span> {item.destinationStageName ? `(${item.destinationStageName})` : ''}
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => removeDraftItem(item.id)}
-                                        className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1 rounded-lg transition-colors cursor-pointer shrink-0 mt-0.5"
-                                        title="Remove item"
+                            {draftQueue.map((item, index) => {
+                                const isStage = item.type === 'stage';
+                                const isPassenger = item.type === 'passenger';
+                                const isBusAttach = item.type === 'bus_attach';
+                                const isBusDetach = item.type === 'bus_detach';
+
+                                return (
+                                    <div
+                                        key={item.id || index}
+                                        className="bg-white border border-blue-200/90 rounded-xl p-2.5 text-xs flex items-start justify-between gap-2 shadow-xs"
                                     >
-                                        <X size={14} />
-                                    </button>
-                                </div>
-                            ))}
+                                        <div className="min-w-0 flex-1 space-y-1">
+                                            <div className="flex items-center gap-1.5 text-[10px] flex-wrap">
+                                                <span className={`px-1.5 py-0.2 rounded font-mono text-[9px] uppercase font-bold border ${
+                                                    isBusAttach ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                                                    isBusDetach ? 'bg-rose-100 text-rose-800 border-rose-300' :
+                                                    isStage ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                                                    'bg-purple-100 text-purple-800 border-purple-200'
+                                                }`}>
+                                                    {isBusAttach ? 'Bus Attachment' : isBusDetach ? 'Bus Detachment' : isStage ? 'Stage Migration' : 'Passenger Transfer'}
+                                                </span>
+                                                {(isStage || isPassenger) && (
+                                                    <span className="font-extrabold text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
+                                                        {item.passengerCount} pass.
+                                                    </span>
+                                                )}
+                                                {isBusAttach && (
+                                                    <span className="font-extrabold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                                        +{item.capacity} Seats
+                                                    </span>
+                                                )}
+                                                {isBusDetach && (
+                                                    <span className="font-extrabold text-rose-800 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200">
+                                                        -{item.capacity} Seats
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="font-bold text-slate-900 text-[11px] whitespace-normal leading-tight">
+                                                {isBusAttach || isBusDetach ? `Bus ${item.busNumber}` : isStage ? `Stage: "${item.stageName}"` : `${item.passengerCount} Selected Passenger(s)`}
+                                            </p>
+                                            <div className="text-[10px] text-slate-600 font-medium whitespace-normal leading-tight">
+                                                {isBusAttach && (
+                                                    <>
+                                                        <span className="text-slate-400">Attach To:</span> <span className="font-semibold text-blue-900">{item.destinationRouteName || item.destinationRouteId}</span>
+                                                        {item.entryDate && <span className="text-slate-500 ml-1">({item.entryDate})</span>}
+                                                    </>
+                                                )}
+                                                {isBusDetach && (
+                                                    <>
+                                                        <span className="text-slate-400">Detach From:</span> <span className="font-semibold text-rose-900">{item.sourceRouteName || item.sourceRouteId}</span>
+                                                        {item.exitDate && <span className="text-slate-500 ml-1">({item.exitDate})</span>}
+                                                    </>
+                                                )}
+                                                {(isStage || isPassenger) && (
+                                                    <>
+                                                        <span className="text-slate-400">From:</span> <span className="font-semibold text-slate-800">{item.sourceRouteName || item.sourceRouteId}</span>
+                                                        <br />
+                                                        <span className="text-slate-400">To:</span> <span className="font-semibold text-blue-900">{item.destinationRouteName || item.destinationRouteId}</span> {item.destinationStageName ? `(${item.destinationStageName})` : ''}
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => removeDraftItem(item.id)}
+                                            className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1 rounded-lg transition-colors cursor-pointer shrink-0 mt-0.5"
+                                            title="Remove item"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                );
+                            })}
                         </div>
 
                         {/* Panel Action Buttons */}
@@ -267,7 +307,7 @@ const DraftFloatingWidget = ({ onFinalizeAllClick }) => {
             <Modal
                 isOpen={isConfirmModalOpen}
                 onClose={() => setIsConfirmModalOpen(false)}
-                title={`Finalize All Pending Transfers (${draftQueue.length})`}
+                title={`Finalize All Pending Draft Actions (${draftQueue.length})`}
             >
                 <div className="space-y-4 text-xs">
                     {statusMessage.text && (
@@ -276,21 +316,43 @@ const DraftFloatingWidget = ({ onFinalizeAllClick }) => {
                         </div>
                     )}
                     <p className="text-slate-600 font-medium leading-relaxed">
-                        You are about to execute <strong>{draftQueue.length} queued transfer(s)</strong> in batch. This will update passenger route assignments and trigger ID card reprint requests.
+                        You are about to execute <strong>{draftQueue.length} queued action(s)</strong> in batch. This will update bus assignments, passenger route allocations, and trigger automated notifications.
                     </p>
 
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 max-h-52 overflow-y-auto custom-scrollbar">
-                        {draftQueue.map((item, idx) => (
-                            <div key={item.id || idx} className="p-2.5 bg-white border border-slate-100 rounded-lg text-xs space-y-1">
-                                <div className="flex justify-between font-bold text-slate-800">
-                                    <span>{idx + 1}. {item.type === 'stage' ? `Stage Transfer: "${item.stageName}"` : `Passenger Transfer (${item.passengerCount} passengers)`}</span>
-                                    <span className="text-blue-700">{item.passengerCount} passengers</span>
+                        {draftQueue.map((item, idx) => {
+                            const isBusAttach = item.type === 'bus_attach';
+                            const isBusDetach = item.type === 'bus_detach';
+                            const isStage = item.type === 'stage';
+
+                            let title = '';
+                            let subtitle = '';
+
+                            if (isBusAttach) {
+                                title = `Bus Attachment: Bus ${item.busNumber} (+${item.capacity} seats)`;
+                                subtitle = `Target Route: ${item.destinationRouteName || item.destinationRouteId}`;
+                            } else if (isBusDetach) {
+                                title = `Bus Detachment: Bus ${item.busNumber} (-${item.capacity} seats)`;
+                                subtitle = `Detaching From: ${item.sourceRouteName || item.sourceRouteId}`;
+                            } else if (isStage) {
+                                title = `Stage Transfer: "${item.stageName}" (${item.passengerCount} passengers)`;
+                                subtitle = `From: ${item.sourceRouteName} ➔ To: ${item.destinationRouteName}`;
+                            } else {
+                                title = `Passenger Transfer (${item.passengerCount} passengers)`;
+                                subtitle = `From: ${item.sourceRouteName} ➔ To: ${item.destinationRouteName} (${item.destinationStageName})`;
+                            }
+
+                            return (
+                                <div key={item.id || idx} className="p-2.5 bg-white border border-slate-100 rounded-lg text-xs space-y-1">
+                                    <div className="flex justify-between font-bold text-slate-800">
+                                        <span>{idx + 1}. {title}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 font-medium">
+                                        {subtitle}
+                                    </p>
                                 </div>
-                                <p className="text-[11px] text-slate-500 font-medium">
-                                    From: <span className="font-semibold text-slate-700">{item.sourceRouteName}</span> ➔ To: <span className="font-semibold text-slate-700">{item.destinationRouteName}</span>
-                                </p>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
 
                     <div className="flex justify-end gap-3 pt-2">
@@ -305,9 +367,16 @@ const DraftFloatingWidget = ({ onFinalizeAllClick }) => {
                             type="button"
                             onClick={executeBatchTransferDirectly}
                             disabled={isSubmitting}
-                            className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
                         >
-                            {isSubmitting ? 'Finalizing...' : 'Confirm & Finalize All'}
+                            {isSubmitting ? (
+                                <>
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
+                                    <span>Finalizing Actions...</span>
+                                </>
+                            ) : (
+                                <span>Confirm & Finalize All</span>
+                            )}
                         </button>
                     </div>
                 </div>

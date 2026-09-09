@@ -1304,5 +1304,7 @@ module.exports = {
     deleteBus,
     addBusTax,
     updateBusTax,
-    deleteBusTax
+    deleteBusTax,
+    syncPassengersToBusMapping,
+    recordRouteHistory
 };

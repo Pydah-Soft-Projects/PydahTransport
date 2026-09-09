@@ -84,19 +84,43 @@ const Fleet = () => {
         };
         fetchDrafts();
         window.addEventListener('storage', fetchDrafts);
-        return () => window.removeEventListener('storage', fetchDrafts);
+        window.addEventListener('pydah_draft_updated', fetchDrafts);
+        return () => {
+            window.removeEventListener('storage', fetchDrafts);
+            window.removeEventListener('pydah_draft_updated', fetchDrafts);
+        };
     }, []);
 
     const getRouteDraftImpact = (routeId) => {
-        if (!routeId || !draftQueue.length) return { passengersIn: 0, passengersOut: 0, netChange: 0 };
+        if (!routeId || !draftQueue.length) return { passengersIn: 0, passengersOut: 0, netChange: 0, capacityAdded: 0, capacityRemoved: 0, netCapacityChange: 0 };
         let passengersIn = 0;
         let passengersOut = 0;
+        let capacityAdded = 0;
+        let capacityRemoved = 0;
+
         for (const item of draftQueue) {
-            const count = Number(item.passengerCount || (item.passengers ? item.passengers.length : 0));
-            if (item.destinationRouteId === routeId) passengersIn += count;
-            if (item.sourceRouteId === routeId) passengersOut += count;
+            if (item.type === 'stage' || item.type === 'passenger') {
+                const count = Number(item.passengerCount || (item.passengers ? item.passengers.length : 0));
+                if (item.destinationRouteId === routeId) passengersIn += count;
+                if (item.sourceRouteId === routeId) passengersOut += count;
+            } else if (item.type === 'bus_attach') {
+                if (item.destinationRouteId === routeId) {
+                    capacityAdded += Number(item.capacity || 0);
+                }
+            } else if (item.type === 'bus_detach') {
+                if (item.sourceRouteId === routeId) {
+                    capacityRemoved += Number(item.capacity || 0);
+                }
+            }
         }
-        return { passengersIn, passengersOut, netChange: passengersIn - passengersOut };
+        return {
+            passengersIn,
+            passengersOut,
+            netChange: passengersIn - passengersOut,
+            capacityAdded,
+            capacityRemoved,
+            netCapacityChange: capacityAdded - capacityRemoved
+        };
     };
 
     const handleSort = (field) => {
@@ -970,7 +994,22 @@ const Fleet = () => {
                                                         <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wide">{item.bus.type}</p>
                                                     </div>
                                                 </td>
-                                                <td className="px-3 py-2 text-slate-600 font-medium text-xs">{item.capacity}</td>
+                                                <td className="px-3 py-2">
+                                                    {(() => {
+                                                        const { netCapacityChange } = getRouteDraftImpact(item.route?.routeId);
+                                                        const projectedCap = Math.max(0, item.capacity + netCapacityChange);
+                                                        return (
+                                                            <div className="flex items-center gap-1">
+                                                                <span className="text-slate-600 font-medium text-xs">{projectedCap}</span>
+                                                                {netCapacityChange !== 0 && (
+                                                                    <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${netCapacityChange > 0 ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-rose-100 text-rose-900 border-rose-200'}`}>
+                                                                        {netCapacityChange > 0 ? `+${netCapacityChange} Cap` : `${netCapacityChange} Cap`}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </td>
                                                 {/* Seats Filled */}
                                                 <td className="px-3 py-2">
                                                     {(() => {
@@ -994,9 +1033,10 @@ const Fleet = () => {
                                                 {/* Vacant Seats */}
                                                 <td className="px-3 py-2">
                                                     {(() => {
-                                                        const { netChange } = getRouteDraftImpact(item.route?.routeId);
+                                                        const { netChange, netCapacityChange } = getRouteDraftImpact(item.route?.routeId);
+                                                        const projectedCap = Math.max(0, item.capacity + netCapacityChange);
                                                         const projectedFilled = Math.max(0, item.seatsFilled + netChange);
-                                                        const projectedVacant = Math.max(0, item.capacity - projectedFilled);
+                                                        const projectedVacant = Math.max(0, projectedCap - projectedFilled);
                                                         return (
                                                             <span className={`text-xs font-black ${projectedVacant <= 5 ? 'text-red-500' : 'text-slate-700'}`}>
                                                                 {projectedVacant}
@@ -1011,9 +1051,10 @@ const Fleet = () => {
                                                 </td>
                                                 <td className="px-3 py-2">
                                                     {(() => {
-                                                        const { netChange } = getRouteDraftImpact(item.route?.routeId);
+                                                        const { netChange, netCapacityChange } = getRouteDraftImpact(item.route?.routeId);
+                                                        const projectedCap = Math.max(0, item.capacity + netCapacityChange);
                                                         const projectedFilled = Math.max(0, item.seatsFilled + netChange);
-                                                        const projectedPercent = item.capacity > 0 ? Math.min(100, Math.round((projectedFilled / item.capacity) * 100)) : 0;
+                                                        const projectedPercent = projectedCap > 0 ? Math.min(100, Math.round((projectedFilled / projectedCap) * 100)) : 0;
                                                         return (
                                                             <div className="flex flex-col gap-0.5 w-24">
                                                                 <span className={`text-[9px] font-bold ${projectedPercent >= 100 ? 'text-red-600' : projectedPercent >= 80 ? 'text-amber-600' : 'text-emerald-600'}`}>
