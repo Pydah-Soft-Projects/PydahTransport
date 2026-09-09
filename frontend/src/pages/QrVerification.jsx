@@ -230,6 +230,32 @@ const QrVerification = () => {
         }
     }, [inspectionSessions, academicYear, getSessionsStorageKey]);
 
+    // Keep the active session's inspectedCount in inspectionSessions in sync with live inspectedMap
+    // This ensures the "Previous inspections" cards show the same count as the active inspection view.
+    useEffect(() => {
+        if (!inspectionSession) return;
+        const sessionId = inspectionSession._id || inspectionSession.id;
+        if (!sessionId) return;
+
+        // Count how many passengers in the active route are currently inspected
+        const liveCount = activeRouteData?.passengers
+            ? activeRouteData.passengers.filter(
+                (p) => Boolean(inspectedMap[String(p.requestId || p.studentId || p.mongoId)])
+              ).length
+            : Object.keys(inspectedMap).length;
+
+        setInspectionSessions((prev) => {
+            // Check if update is actually needed to avoid infinite loops
+            const existing = prev.find((s) => (s._id || s.id) === sessionId);
+            if (!existing || existing.inspectedCount === liveCount) return prev;
+            return prev.map((s) =>
+                (s._id || s.id) === sessionId
+                    ? { ...s, inspectedCount: liveCount }
+                    : s
+            );
+        });
+    }, [inspectionSession, inspectedMap, activeRouteData]);
+
     const scannerRef = useRef(null);
     const scannerRunning = useRef(false);
     const handleScanRef = useRef(null);
