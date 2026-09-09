@@ -669,10 +669,11 @@ const batchTransfer = async (req, res) => {
 
     try {
         const TransferHistory = require('../models/TransferHistory');
-        const { fireAutoNotification } = require('../services/autoNotificationService');
+        const { fireAutoNotification, fireBusMappingNotification } = require('../services/autoNotificationService');
+        const { syncPassengersToBusMapping, recordRouteHistory } = require('./busController');
         const performedBy = req.user
             ? (req.user.employee_name || req.user.name || req.user.username || 'admin')
-            : 'admin';
+            : (req.body.performedBy || 'admin');
 
         // 1. Perform overall capacity re-validation before executing any transfer
         const destRouteIds = [...new Set(draftQueue.map(item => item.destinationRouteId).filter(Boolean))];
@@ -687,7 +688,17 @@ const batchTransfer = async (req, res) => {
 
             // Total bus capacity on destination route
             const destBuses = await Bus.find({ assignedRouteId: destRouteId }).lean();
-            const totalCapacity = destBuses.reduce((sum, b) => sum + Number(b.capacity || 0), 0);
+            let totalCapacity = destBuses.reduce((sum, b) => sum + Number(b.capacity || 0), 0);
+
+            // Adjust capacity for draft bus attachments and detachments
+            for (const item of draftQueue) {
+                if (item.type === 'bus_attach' && item.destinationRouteId === destRouteId) {
+                    totalCapacity += Number(item.capacity || 0);
+                }
+                if (item.type === 'bus_detach' && (item.sourceRouteId === destRouteId || destBuses.some(b => String(b._id) === String(item.busId)))) {
+                    totalCapacity -= Number(item.capacity || 0);
+                }
+            }
 
             // Current live passenger count on destination route
             const liveStudentsCount = await TransportRequest.countDocuments({
@@ -704,11 +715,13 @@ const batchTransfer = async (req, res) => {
 
             // Compute net change across draft items
             for (const item of draftQueue) {
-                if (item.destinationRouteId === destRouteId) {
-                    projectedCount += Number(item.passengerCount || (item.passengers ? item.passengers.length : 0));
-                }
-                if (item.sourceRouteId === destRouteId) {
-                    projectedCount -= Number(item.passengerCount || (item.passengers ? item.passengers.length : 0));
+                if (item.type === 'stage' || item.type === 'passenger') {
+                    if (item.destinationRouteId === destRouteId) {
+                        projectedCount += Number(item.passengerCount || (item.passengers ? item.passengers.length : 0));
+                    }
+                    if (item.sourceRouteId === destRouteId) {
+                        projectedCount -= Number(item.passengerCount || (item.passengers ? item.passengers.length : 0));
+                    }
                 }
             }
 
@@ -730,6 +743,8 @@ const batchTransfer = async (req, res) => {
         let totalStagesTransferred = 0;
         let totalStudentsTransferred = 0;
         let totalEmployeesTransferred = 0;
+        let totalBusesAttached = 0;
+        let totalBusesDetached = 0;
         const executionLogs = [];
 
         for (const item of draftQueue) {
@@ -925,14 +940,68 @@ const batchTransfer = async (req, res) => {
                 }
 
                 executionLogs.push(`Transferred ${stCount + empCount} passenger(s) to ${destRoute.routeName}, stage "${destinationStageName}".`);
+            } else if (item.type === 'bus_attach') {
+                const { busId, busNumber, destinationRouteId, entryDate } = item;
+                const bus = await Bus.findOne({ $or: [{ _id: busId }, { busNumber: busNumber }] });
+                if (bus) {
+                    const previousRouteId = bus.assignedRouteId || null;
+                    const newRouteIdVal = destinationRouteId || null;
+                    if (newRouteIdVal !== previousRouteId) {
+                        bus.assignedRouteId = newRouteIdVal;
+                        if (typeof recordRouteHistory === 'function') {
+                            await recordRouteHistory(bus, previousRouteId, newRouteIdVal, performedBy, {
+                                entryDate: entryDate || new Date()
+                            });
+                        }
+                        await bus.save();
+                        fireBusMappingNotification({
+                            routeIds: [previousRouteId, newRouteIdVal].filter(Boolean),
+                            busNumber: bus.busNumber,
+                            previousRouteId,
+                            newRouteId: newRouteIdVal
+                        });
+                        totalBusesAttached++;
+                        executionLogs.push(`Attached Bus ${bus.busNumber} to route ${destinationRouteId}.`);
+                    }
+                }
+            } else if (item.type === 'bus_detach') {
+                const { busId, busNumber, sourceRouteId, exitDate } = item;
+                const bus = await Bus.findOne({ $or: [{ _id: busId }, { busNumber: busNumber }] });
+                if (bus) {
+                    const previousRouteId = bus.assignedRouteId || sourceRouteId || null;
+                    if (previousRouteId) {
+                        bus.assignedRouteId = null;
+                        if (typeof recordRouteHistory === 'function') {
+                            await recordRouteHistory(bus, previousRouteId, null, performedBy, {
+                                exitDate: exitDate || new Date()
+                            });
+                        }
+                        await bus.save();
+                        fireBusMappingNotification({
+                            routeIds: [previousRouteId].filter(Boolean),
+                            busNumber: bus.busNumber,
+                            previousRouteId,
+                            newRouteId: null
+                        });
+                        totalBusesDetached++;
+                        executionLogs.push(`Detached Bus ${bus.busNumber} from route ${previousRouteId}.`);
+                    }
+                }
             }
         }
 
+        // 3. Re-sync active student and employee transport request bus allocations after bus mapping updates
+        if (typeof syncPassengersToBusMapping === 'function') {
+            await syncPassengersToBusMapping();
+        }
+
         res.json({
-            message: `Batch transfer completed successfully! Finalized ${draftQueue.length} queued transfer(s). (${totalStagesTransferred} stage(s), ${totalStudentsTransferred} student(s), ${totalEmployeesTransferred} employee(s) moved). Note: ID cards must be reprinted for approved passengers.`,
+            message: `Batch transfer completed successfully! Finalized ${draftQueue.length} queued action(s). (${totalStagesTransferred} stage(s), ${totalStudentsTransferred} student(s), ${totalEmployeesTransferred} employee(s) moved, ${totalBusesAttached} bus(es) attached, ${totalBusesDetached} bus(es) detached).`,
             transferredStages: totalStagesTransferred,
             transferredStudents: totalStudentsTransferred,
             transferredEmployees: totalEmployeesTransferred,
+            attachedBuses: totalBusesAttached,
+            detachedBuses: totalBusesDetached,
             logs: executionLogs
         });
     } catch (error) {
