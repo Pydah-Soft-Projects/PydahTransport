@@ -144,6 +144,12 @@ const QrVerification = () => {
         return `pydah_inspected_${year || 'curr'}_${today}`;
     }, []);
 
+    // Offline session persistence key
+    const getSessionsStorageKey = useCallback((year) => {
+        const today = new Date().toISOString().slice(0, 10);
+        return `pydah_sessions_${year || 'curr'}_${today}`;
+    }, []);
+
     const [inspectedMap, setInspectedMap] = useState(() => {
         try {
             const today = new Date().toISOString().slice(0, 10);
@@ -156,6 +162,20 @@ const QrVerification = () => {
     });
 
     const loadInspectionSessions = useCallback(async () => {
+        // Always load local sessions first so offline mode works
+        try {
+            const localKey = getSessionsStorageKey(academicYear);
+            const localStored = localStorage.getItem(localKey);
+            if (localStored) {
+                const localSessions = JSON.parse(localStored);
+                if (Array.isArray(localSessions) && localSessions.length > 0) {
+                    setInspectionSessions(localSessions);
+                }
+            }
+        } catch {
+            // ignore localStorage errors
+        }
+
         if (!online || !isAuthenticated()) return;
         try {
             const today = new Date().toLocaleDateString('en-CA');
@@ -163,6 +183,11 @@ const QrVerification = () => {
             if (response.ok) {
                 const sessions = await response.json();
                 setInspectionSessions(sessions);
+                // Persist server sessions offline too
+                try {
+                    const localKey = getSessionsStorageKey(academicYear);
+                    localStorage.setItem(localKey, JSON.stringify(sessions));
+                } catch { /* ignore */ }
                 setInspectedMap((prev) => {
                     const merged = { ...prev };
                     if (Array.isArray(sessions)) {
@@ -178,13 +203,13 @@ const QrVerification = () => {
         } catch {
             // Local passenger progress remains available when the API is offline.
         }
-    }, [academicYear, online]);
+    }, [academicYear, online, getSessionsStorageKey]);
 
     useEffect(() => {
         loadInspectionSessions();
     }, [loadInspectionSessions]);
 
-    // Sync inspection storage whenever map or academicYear changes
+    // Sync inspectedMap to localStorage whenever it changes
     useEffect(() => {
         try {
             const key = getInspectionStorageKey(academicYear);
@@ -193,6 +218,17 @@ const QrVerification = () => {
             console.error('Failed to save inspectedMap to localStorage', e);
         }
     }, [inspectedMap, academicYear, getInspectionStorageKey]);
+
+    // Persist inspectionSessions to localStorage whenever they change
+    useEffect(() => {
+        if (inspectionSessions.length === 0) return;
+        try {
+            const key = getSessionsStorageKey(academicYear);
+            localStorage.setItem(key, JSON.stringify(inspectionSessions));
+        } catch (e) {
+            console.error('Failed to save inspectionSessions to localStorage', e);
+        }
+    }, [inspectionSessions, academicYear, getSessionsStorageKey]);
 
     const scannerRef = useRef(null);
     const scannerRunning = useRef(false);
@@ -1600,6 +1636,7 @@ const QrVerification = () => {
             routeId: route.routeId,
             routeName: route.routeName,
             totalCount: route.totalCount,
+            inspectedCount: 0,
         };
 
         // Optimistically transition immediately for zero latency
@@ -1609,6 +1646,12 @@ const QrVerification = () => {
         setInspectionFilter('all');
         setInspectionStageFilter('all');
         setInspectionSearchQuery('');
+
+        // Always store the session locally so it appears in offline Previous inspections list
+        setInspectionSessions((prev) => {
+            const filtered = prev.filter((s) => s.id !== localId && s._id !== localId);
+            return [session, ...filtered];
+        });
 
         if (online && isAuthenticated()) {
             try {
