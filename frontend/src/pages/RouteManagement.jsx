@@ -3706,9 +3706,6 @@ const RouteManagement = () => {
                 <div className="flex flex-col lg:flex-row gap-6 items-start animate-in fade-in slide-in-from-top-2 duration-300 w-full">
                     {/* Left: Form */}
                     <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8">
-                        <h3 className="text-lg font-bold text-slate-800 mb-2">Stage Migration Panel</h3>
-                        <p className="text-slate-500 text-xs mb-6">Relocate a stage from a source route to a destination route. Passengers currently assigned to this stage will be automatically updated.</p>
-
                         {transferMessage.text && (
                             <div className={`mb-6 p-4 rounded-xl border text-xs font-semibold ${transferMessage.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
                                 {transferMessage.text}
@@ -3897,9 +3894,6 @@ const RouteManagement = () => {
                 <div className="flex flex-col lg:flex-row gap-6 items-start animate-in fade-in slide-in-from-top-2 duration-300 w-full">
                     {/* Left: Student Transfer Form */}
                     <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8">
-                        <h3 className="text-lg font-bold text-slate-800 mb-2">Student & Passenger Transfer Panel</h3>
-                        <p className="text-slate-500 text-xs mb-6">Select a source route and stage to view passengers, select the ones to move, and select the destination route and stage.</p>
-
                         {studentTransferMessage.text && (
                             <div className={`mb-6 p-4 rounded-xl border text-xs font-semibold ${studentTransferMessage.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
                                 {studentTransferMessage.text}
@@ -4149,13 +4143,6 @@ const RouteManagement = () => {
                 </div>
             ) : (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8 animate-in fade-in slide-in-from-top-2 duration-300 w-full">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
-                        <div>
-                            <h3 className="text-lg font-bold text-slate-800">Transfer Logs & History</h3>
-                            <p className="text-slate-500 text-xs mt-0.5">Audit log of all past stage migrations and passenger transfers.</p>
-                        </div>
-                    </div>
-
                     {/* Sub-tab selection */}
                     <div className="flex border-b border-slate-200 mb-6 text-xs gap-6 font-bold">
                         <button
