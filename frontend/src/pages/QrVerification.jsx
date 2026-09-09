@@ -2041,6 +2041,13 @@ const QrVerification = () => {
                         {/* VIEW A: OVERVIEW - LIST OF ALL ROUTES WITH ASSIGNED BUSES */}
                         {!selectedRoute ? (
                             <div className="space-y-4 min-w-0">
+                                {/* Offline Banner */}
+                                {!online && (
+                                    <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700">
+                                        <WifiOff size={14} className="shrink-0" />
+                                        <span className="text-xs font-bold">You're offline — showing cached data. Scan results will sync when reconnected.</span>
+                                    </div>
+                                )}
                                 {/* Inspection Metrics Banner */}
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
                                     <div className="bg-white rounded-xl p-3.5 border border-slate-200 shadow-2xs">
@@ -2247,6 +2254,12 @@ const QrVerification = () => {
                                                 <h2 className="text-base sm:text-lg font-black text-slate-900">
                                                     {activeRouteData.routeName}
                                                 </h2>
+                                                {!online && (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-rose-100 text-rose-700 border border-rose-300 animate-pulse shrink-0">
+                                                        <WifiOff size={9} />
+                                                        Offline
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="flex items-center gap-2 mt-1 flex-wrap">
                                                 <span className="text-xs text-slate-500 font-semibold">Inspecting Bus:</span>

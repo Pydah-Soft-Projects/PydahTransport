@@ -26,6 +26,7 @@ import {
     ChevronUp,
     ChevronLeft,
     ChevronRight,
+    WifiOff,
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
@@ -86,6 +87,19 @@ const InspectionReports = () => {
 
     // Inspected map from localStorage for the selected date
     const [inspectedMap, setInspectedMap] = useState({});
+
+    // Network connectivity tracking
+    const [online, setOnline] = useState(navigator.onLine);
+    useEffect(() => {
+        const onOnline = () => setOnline(true);
+        const onOffline = () => setOnline(false);
+        window.addEventListener('online', onOnline);
+        window.addEventListener('offline', onOffline);
+        return () => {
+            window.removeEventListener('online', onOnline);
+            window.removeEventListener('offline', onOffline);
+        };
+    }, []);
 
     // Load inspection records for the chosen date & academic year
     const loadInspectedData = useCallback(() => {
@@ -839,6 +853,12 @@ const InspectionReports = () => {
                                     ? 'Submitted'
                                     : 'In Progress'}
                             </span>
+                            {!online && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold uppercase bg-rose-100 text-rose-700 border border-rose-300 shrink-0 animate-pulse">
+                                    <WifiOff size={9} />
+                                    Offline
+                                </span>
+                            )}
                         </div>
 
                         {/* On Mobile: Inline Date Picker & Academic Year in Row 1 */}
@@ -1111,7 +1131,15 @@ const InspectionReports = () => {
                                                                 <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-black text-[9px]">
                                                                     Route {bus.routeId}
                                                                 </span>
-                                                                <h5 className="font-extrabold text-slate-900 text-xs mt-1">Bus {bus.busNumber}</h5>
+                                                                <div className="flex items-center gap-2 mt-1">
+                                                                    <h5 className="font-extrabold text-slate-900 text-xs">Bus {bus.busNumber}</h5>
+                                                                    {!online && (
+                                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[7px] font-extrabold uppercase bg-rose-100 text-rose-700 border border-rose-300">
+                                                                            <WifiOff size={9} />
+                                                                            Offline
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                                 <p className="text-[10px] text-slate-500 truncate max-w-[180px]">{bus.routeName}</p>
                                                             </div>
                                                         </div>
@@ -1284,8 +1312,14 @@ const InspectionReports = () => {
                                                                                                 Route {bus.routeId}
                                                                                             </span>
                                                                                         </td>
-                                                                                        <td className="py-2.5 px-3.5 font-extrabold text-slate-900">
+                                                                                        <td className="py-2.5 px-3.5 font-extrabold text-slate-900 flex items-center gap-2">
                                                                                             Bus {bus.busNumber}
+                                                                                            {!online && (
+                                                                                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-rose-100 text-rose-700 border border-rose-300">
+                                                                                                    <WifiOff size={10} />
+                                                                                                    Offline
+                                                                                                </span>
+                                                                                            )}
                                                                                         </td>
                                                                                         <td className="py-2.5 px-3.5 text-slate-600 text-[11px] truncate max-w-[220px]">
                                                                                             {bus.routeName || '—'}
