@@ -2,12 +2,87 @@ const Route = require('../models/Route');
 const Bus = require('../models/Bus');
 const TransportRequest = require('../models/TransportRequest');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
+const GpsFinalDestination = require('../models/GpsFinalDestination');
 const {
     resolveStageForAcademicYear,
     normalizeStagesForSave,
     normalizeAcademicYear,
+    calculateDistanceKm,
 } = require('../utils/stageFare');
 const campusService = require('../services/campusService');
+
+async function enrichStagesDistanceToDestination(stages, campusId, routeTotalDistance = 0) {
+    if (!Array.isArray(stages) || stages.length === 0) return stages;
+
+    let destLat = null;
+    let destLng = null;
+
+    if (campusId != null) {
+        const parsedCampus = typeof campusId === 'object' ? (campusId._id || campusId.code) : campusId;
+        const dest = await GpsFinalDestination.findOne({ campus: Number(parsedCampus), isActive: true }).lean();
+        if (dest && Number.isFinite(dest.latitude) && Number.isFinite(dest.longitude)) {
+            destLat = dest.latitude;
+            destLng = dest.longitude;
+        }
+    }
+
+    if (!Number.isFinite(destLat) || !Number.isFinite(destLng)) {
+        for (let i = stages.length - 1; i >= 0; i--) {
+            const st = stages[i];
+            if (Number.isFinite(st?.latitude) && Number.isFinite(st?.longitude)) {
+                destLat = st.latitude;
+                destLng = st.longitude;
+                break;
+            }
+        }
+    }
+
+    const lastStageFromStart = Number(stages[stages.length - 1]?.distanceFromStart) || 0;
+    const totalDist = Number(routeTotalDistance) || lastStageFromStart;
+
+    // Precalculate cumulative distances along stage coordinates (or linear fallback)
+    let cumulativeDistances = [0];
+    let runningDist = 0;
+    for (let i = 1; i < stages.length; i++) {
+        const prev = stages[i - 1];
+        const curr = stages[i];
+        const pLat = Number(prev?.latitude);
+        const pLng = Number(prev?.longitude);
+        const cLat = Number(curr?.latitude);
+        const cLng = Number(curr?.longitude);
+
+        if (Number.isFinite(pLat) && Number.isFinite(pLng) && Number.isFinite(cLat) && Number.isFinite(cLng)) {
+            runningDist += calculateDistanceKm(pLat, pLng, cLat, cLng);
+        } else if (totalDist > 0 && stages.length > 1) {
+            runningDist += totalDist / (stages.length - 1);
+        }
+        cumulativeDistances.push(Math.round(runningDist * 100) / 100);
+    }
+
+    return stages.map((st, index) => {
+        const lat = Number(st.latitude);
+        const lng = Number(st.longitude);
+
+        const fromStart = index === 0 ? 0 : (cumulativeDistances[index] ?? Number(st.distanceFromStart) ?? 0);
+
+        let computedDist = null;
+        if (Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(destLat) && Number.isFinite(destLng)) {
+            computedDist = calculateDistanceKm(lat, lng, destLat, destLng);
+        }
+
+        if (computedDist === null) {
+            if (Number.isFinite(totalDist) && Number.isFinite(fromStart)) {
+                computedDist = Math.max(0, Math.round((totalDist - fromStart) * 100) / 100);
+            }
+        }
+
+        return {
+            ...st,
+            distanceFromStart: fromStart,
+            distanceToDestination: computedDist != null ? computedDist : st.distanceToDestination,
+        };
+    });
+}
 
 function serializeRoute(route, academicYear = null) {
     const plain = route.toObject ? route.toObject() : route;
@@ -51,10 +126,14 @@ const createRoute = async (req, res) => {
         const editingAcademicYear = normalizeAcademicYear(
             req.body.editingAcademicYear || req.body.academicYear || ''
         );
+        const campusId = campusService.normalizeCampusId(req.body.campus);
+        const normalizedStages = normalizeStagesForSave(req.body.stages, editingAcademicYear);
+        const enrichedStages = await enrichStagesDistanceToDestination(normalizedStages, campusId, req.body.totalDistance);
+
         const payload = {
             ...req.body,
-            campus: campusService.normalizeCampusId(req.body.campus),
-            stages: normalizeStagesForSave(req.body.stages, editingAcademicYear),
+            campus: campusId,
+            stages: enrichedStages,
         };
         delete payload.editingAcademicYear;
         delete payload.academicYear;
@@ -94,7 +173,8 @@ const updateRoute = async (req, res) => {
                 : route.campus;
             route.zone = req.body.zone !== undefined ? req.body.zone : route.zone;
             if (req.body.stages) {
-                route.stages = normalizeStagesForSave(req.body.stages, editingAcademicYear);
+                const normalizedStages = normalizeStagesForSave(req.body.stages, editingAcademicYear);
+                route.stages = await enrichStagesDistanceToDestination(normalizedStages, route.campus, route.totalDistance);
                 route.markModified('stages');
             }
 

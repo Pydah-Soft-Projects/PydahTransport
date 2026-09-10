@@ -39,6 +39,60 @@ const resolveStageFareForYear = (stage, year) => {
     return Number(stage.baseFare ?? stage.fare ?? 0);
 };
 
+const calculateHaversineDistance = (lat1, lon1, lat2, lon2) => {
+    if (!Number.isFinite(Number(lat1)) || !Number.isFinite(Number(lon1)) || !Number.isFinite(Number(lat2)) || !Number.isFinite(Number(lon2))) return null;
+    const R = 6371; // Earth radius in km
+    const dLat = ((Number(lat2) - Number(lat1)) * Math.PI) / 180;
+    const dLon = ((Number(lon2) - Number(lon1)) * Math.PI) / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((Number(lat1) * Math.PI) / 180) *
+            Math.cos((Number(lat2) * Math.PI) / 180) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c * 100) / 100;
+};
+
+const resolveStageDistances = (route) => {
+    const stages = Array.isArray(route?.stages) ? route.stages : [];
+    if (stages.length === 0) return [];
+
+    const totalDist = Number(route?.totalDistance) || (Number(stages[stages.length - 1]?.distanceFromStart) || 0);
+
+    let stageFromStartList = [0];
+    let cumulativeRunning = 0;
+    for (let i = 1; i < stages.length; i++) {
+        const prev = stages[i - 1];
+        const curr = stages[i];
+        const pLat = Number(prev?.latitude);
+        const pLng = Number(prev?.longitude);
+        const cLat = Number(curr?.latitude);
+        const cLng = Number(curr?.longitude);
+
+        if (Number.isFinite(pLat) && Number.isFinite(pLng) && Number.isFinite(cLat) && Number.isFinite(cLng)) {
+            cumulativeRunning += calculateHaversineDistance(pLat, pLng, cLat, cLng);
+        } else if (totalDist > 0) {
+            cumulativeRunning += totalDist / (stages.length - 1);
+        }
+        stageFromStartList.push(Math.round(cumulativeRunning * 100) / 100);
+    }
+
+    return stages.map((stage, index) => {
+        const resolvedFromStart = index === 0 ? 0 : (stageFromStartList[index] ?? Number(stage.distanceFromStart || 0));
+
+        const computedDistToDest = totalDist > 0
+            ? Math.max(0, Math.round((totalDist - resolvedFromStart) * 100) / 100)
+            : (stage.distanceToDestination ?? null);
+
+        return {
+            stage,
+            fromStart: resolvedFromStart,
+            toDest: computedDistToDest,
+        };
+    });
+};
+
 const hasStageCoordinateValue = (value) => (
     value !== '' && value !== null && value !== undefined
 );
@@ -328,9 +382,57 @@ const snapToRoadAlternatives = async (coords, maxAlts = 3) => {
 
 /** Draw a styled route polyline (glow + inner line) onto a Leaflet map */
 const drawRouteLine = (map, L, coords, options = {}) => {
+    if (!map || !map._container || !L || !Array.isArray(coords) || coords.length === 0) return;
     const { color = '#2563eb', weight = 3, opacity = 0.85, dashArray } = options;
-    L.polyline(coords, { color, weight: weight + 4, opacity: 0.22, lineCap: 'round', lineJoin: 'round' }).addTo(map);
-    L.polyline(coords, { color, weight, opacity, lineCap: 'round', lineJoin: 'round', ...(dashArray ? { dashArray } : {}) }).addTo(map);
+    try {
+        L.polyline(coords, { color, weight: weight + 4, opacity: 0.22, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+        L.polyline(coords, { color, weight, opacity, lineCap: 'round', lineJoin: 'round', ...(dashArray ? { dashArray } : {}) }).addTo(map);
+    } catch (_) {
+        /* ignore unmounted map errors */
+    }
+};
+
+const getCampusFinalDestCoords = (campusId, finalDestinations = [], stages = []) => {
+    const campusDest = (finalDestinations || []).find(d => String(d.campus) === String(campusId));
+    if (campusDest && Number.isFinite(Number(campusDest.latitude)) && Number.isFinite(Number(campusDest.longitude))) {
+        return { lat: Number(campusDest.latitude), lng: Number(campusDest.longitude), name: campusDest.name || 'Campus Gate' };
+    }
+    if (Array.isArray(stages) && stages.length > 0) {
+        for (let i = stages.length - 1; i >= 0; i--) {
+            const st = stages[i];
+            const lat = Number(st?.latitude ?? st?.lat);
+            const lng = Number(st?.longitude ?? st?.lng);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                return { lat, lng, name: st.stageName || 'Final Stage' };
+            }
+        }
+    }
+    return null;
+};
+
+const getComputedStageDistToDest = (stage, campusId, finalDestinations = [], stages = [], routeTotalDistance = 0) => {
+    if (stage?.distanceToDestination != null && Number.isFinite(Number(stage.distanceToDestination))) {
+        return Number(stage.distanceToDestination);
+    }
+    const dest = getCampusFinalDestCoords(campusId, finalDestinations, stages);
+    const lat = Number(stage?.latitude ?? stage?.lat);
+    const lng = Number(stage?.longitude ?? stage?.lng);
+
+    if (dest && Number.isFinite(lat) && Number.isFinite(lng)) {
+        return calculateHaversineDistance(lat, lng, dest.lat, dest.lng);
+    }
+
+    const lastStageFromStart = Array.isArray(stages) && stages.length > 0
+        ? Number(stages[stages.length - 1]?.distanceFromStart) || 0
+        : 0;
+    const totalDist = Number(routeTotalDistance) || lastStageFromStart;
+    const fromStart = Number(stage?.distanceFromStart);
+
+    if (Number.isFinite(totalDist) && Number.isFinite(fromStart)) {
+        return Math.max(0, Math.round((totalDist - fromStart) * 100) / 100);
+    }
+
+    return null;
 };
 
 const RouteSummaryMap = ({ stages, finalDestinations = [], campusId }) => {
@@ -1127,12 +1229,21 @@ const RouteManagement = () => {
         setFormData(prev => {
             const nextStages = [...prev.stages];
             if (nextStages[selectedStageIndex]) {
-                nextStages[selectedStageIndex].latitude = parseFloat(lat.toFixed(6));
-                nextStages[selectedStageIndex].longitude = parseFloat(lng.toFixed(6));
+                const newLat = parseFloat(lat.toFixed(6));
+                const newLng = parseFloat(lng.toFixed(6));
+                nextStages[selectedStageIndex].latitude = newLat;
+                nextStages[selectedStageIndex].longitude = newLng;
+                
+                const destCoords = getCampusFinalDestCoords(prev.campus, finalDestinations, prev.stages);
+                if (destCoords) {
+                    nextStages[selectedStageIndex].distanceToDestination = calculateHaversineDistance(
+                        newLat, newLng, destCoords.lat, destCoords.lng
+                    );
+                }
             }
             return { ...prev, stages: nextStages };
         });
-    }, [selectedStageIndex]);
+    }, [selectedStageIndex, finalDestinations]);
 
     const addViaPointToActiveStage = useCallback((lat, lng) => {
         if (selectedStageIndex === null || selectedStageIndex === undefined || selectedStageIndex < 1) return;
@@ -1420,9 +1531,10 @@ const RouteManagement = () => {
                     iconSize: isActive ? [28, 28] : [20, 20],
                     iconAnchor: isActive ? [14, 14] : [10, 10]
                 })
-            }).addTo(map).bindPopup(
-                `<b>Stage ${idx + 1}: ${stage.stageName || 'Unnamed'}</b><br/>Distance: ${stage.distanceFromStart || 0} km${showCircle ? `<br/>Radius: ${radiusVal} m` : ''}`
-            );
+            }).addTo(map).bindPopup(() => {
+                const distToDest = getComputedStageDistToDest(stage, formData.campus, finalDestinations, formData.stages);
+                return `<b>Stage ${idx + 1}: ${stage.stageName || 'Unnamed'}</b><br/>Dist from Start: ${stage.distanceFromStart || 0} km${distToDest !== null ? `<br/><b>Dist to Dest: ${distToDest} km</b>` : ''}${showCircle ? `<br/>Radius: ${radiusVal} m` : ''}`;
+            });
 
             if (showCircle) {
                 const circle = L.circle([latVal, lngVal], {
@@ -2435,6 +2547,16 @@ const RouteManagement = () => {
         const { name, value } = e.target;
         const newStages = [...formData.stages];
         newStages[index][name] = value;
+
+        if (name === 'latitude' || name === 'longitude') {
+            const lat = Number(newStages[index].latitude);
+            const lng = Number(newStages[index].longitude);
+            const destCoords = getCampusFinalDestCoords(formData.campus, finalDestinations, newStages);
+            if (destCoords && Number.isFinite(lat) && Number.isFinite(lng)) {
+                newStages[index].distanceToDestination = calculateHaversineDistance(lat, lng, destCoords.lat, destCoords.lng);
+            }
+        }
+
         setFormData(prev => ({ ...prev, stages: newStages }));
     };
 
@@ -2444,6 +2566,7 @@ const RouteManagement = () => {
                 _localId: createLocalStageId(),
                 stageName: '',
                 distanceFromStart: '',
+                distanceToDestination: null,
                 fare: 0,
                 academicYearFares: [],
                 latitude: null,
@@ -2531,6 +2654,7 @@ const RouteManagement = () => {
                 _localId: stage._localId || createLocalStageId(),
                 stageName: stage.stageName,
                 distanceFromStart: stage.distanceFromStart,
+                distanceToDestination: stage.distanceToDestination !== undefined && stage.distanceToDestination !== null ? stage.distanceToDestination : '',
                 fare: resolveStageFareForYear(stage, academicYear),
                 baseFare: stage.baseFare ?? stage.fare,
                 academicYearFares: stage.academicYearFares || [],
@@ -3286,7 +3410,7 @@ const RouteManagement = () => {
                                                 </span>
                                                 <div className="flex items-center gap-2">
                                                     <button
-                                                        onClick={(e) => { e.stopPropagation(); openEditModal(route); }}
+                                                        onClick={(e) => handleEdit(route, e)}
                                                         className="px-2.5 py-1 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1"
                                                     >
                                                         <Edit size={13} /> Edit
@@ -3389,10 +3513,7 @@ const RouteManagement = () => {
                                                         <td className="px-3 py-2 text-right">
                                                             <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                                                 <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        openEditModal(route);
-                                                                    }}
+                                                                    onClick={(e) => handleEdit(route, e)}
                                                                     className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
                                                                     title="Edit Route"
                                                                 >
@@ -3427,7 +3548,7 @@ const RouteManagement = () => {
                                                                             <p className="text-xs text-slate-400 italic py-2">No stages defined for this route network.</p>
                                                                         ) : (
                                                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                                                {route.stages.map((stage, index) => {
+                                                                                {resolveStageDistances(route).map(({ stage, fromStart, toDest }, index) => {
                                                                                     const displayFare = resolveStageFareForYear(stage, academicYear);
                                                                                     return (
                                                                                     <div key={index} className="bg-slate-50 p-3 rounded-lg border border-slate-100 flex items-center justify-between group/stage hover:border-blue-200 hover:bg-blue-50/30 transition-colors">
@@ -3437,7 +3558,12 @@ const RouteManagement = () => {
                                                                                             </span>
                                                                                             <div>
                                                                                                 <p className="font-bold text-slate-800 text-xs">{stage.stageName}</p>
-                                                                                                <p className="text-[9px] text-slate-400 font-medium">{stage.distanceFromStart} km</p>
+                                                                                                <p className="text-[9px] text-slate-400 font-medium">
+                                                                                                    From Start: {fromStart} km
+                                                                                                    {toDest != null && (
+                                                                                                        <span className="ml-1.5 text-indigo-600 font-bold">• To Dest: {toDest} km</span>
+                                                                                                    )}
+                                                                                                </p>
                                                                                             </div>
                                                                                         </div>
                                                                                         <div className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded border border-emerald-100 whitespace-nowrap ml-2">
@@ -4611,6 +4737,19 @@ const RouteManagement = () => {
                                                             />
                                                         </div>
                                                     </div>
+
+                                                    {(() => {
+                                                        const stage = formData.stages[selectedStageIndex];
+                                                        if (!stage) return null;
+                                                        const distToDest = getComputedStageDistToDest(stage, formData.campus, finalDestinations, formData.stages);
+                                                        const destCoords = getCampusFinalDestCoords(formData.campus, finalDestinations, formData.stages);
+                                                        return distToDest !== null ? (
+                                                            <div className="mt-2.5 p-2.5 bg-indigo-50/80 border border-indigo-100 rounded-xl text-xs font-semibold text-indigo-900 flex items-center justify-between shadow-2xs">
+                                                                <span className="text-slate-600 text-[10px] font-bold">Dist to Dest ({destCoords?.name || 'Final Dest'}):</span>
+                                                                <span className="font-black text-indigo-700 text-xs bg-indigo-100/70 px-2 py-0.5 rounded-lg border border-indigo-200">{distToDest} km</span>
+                                                            </div>
+                                                        ) : null;
+                                                    })()}
                                                 </div>
 
                                                 <button 
