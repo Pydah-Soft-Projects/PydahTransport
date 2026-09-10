@@ -367,7 +367,7 @@ const Inventory = () => {
             const historyData = await historyRes.json();
             const billsData = await billsRes.json();
             setHistory(Array.isArray(historyData) ? historyData : []);
-            setMaintenanceBills(Array.isArray(billsData) ? billsData : []);
+            setMaintenanceBills(Array.isArray(billsData) ? billsData : (billsData?.bills || []));
         } catch (error) {
             console.error('Error fetching history:', error);
         }

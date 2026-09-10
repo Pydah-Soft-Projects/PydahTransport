@@ -92,12 +92,6 @@ const BillPrint = ({ billData, vendor, bus }) => {
                 </div>
             </div>
 
-            {(billData.notes || billData.rawDescription) && (
-                <p className="text-sm mb-4 italic border border-black p-2">
-                    {billData.notes || billData.rawDescription}
-                </p>
-            )}
-
             <table className="w-full border-collapse border border-black text-sm">
                 <thead>
                     <tr className="bg-gray-100">
@@ -246,6 +240,12 @@ const BillPrint = ({ billData, vendor, bus }) => {
                 </div>
             </div>
 
+            {(billData.notes || billData.rawDescription) && (
+                <div className="bill-notes-section mt-4 text-xs border border-black p-2.5">
+                    <span className="font-bold">Remarks:</span> {billData.notes || billData.rawDescription}
+                </div>
+            )}
+
             <div className="bill-footer-section mt-8 text-xs">
                 <p><span className="font-bold">Raised By:</span> {billData.adminName || 'Admin'}</p>
                 <p className="mt-1">Items listed above were allocated to the mentioned vehicle for maintenance/spares usage.</p>
@@ -278,6 +278,7 @@ const BillPrint = ({ billData, vendor, bus }) => {
                         .bill-grand-total-table,
                         .bill-grand-total-row,
                         .bill-net-payable-row,
+                        .bill-notes-section,
                         .bill-footer-section {
                             page-break-inside: avoid !important;
                             break-inside: avoid !important;

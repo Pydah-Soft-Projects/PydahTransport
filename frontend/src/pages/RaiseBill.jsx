@@ -294,6 +294,11 @@ const RaiseBill = () => {
     const [expandedBillKey, setExpandedBillKey] = useState(null);
     const [isFormVehicleDropdownOpen, setIsFormVehicleDropdownOpen] = useState(false);
 
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalBills, setTotalBills] = useState(0);
+    const [billsPerPage] = useState(10);
+
     const inventoryGroups = getInventoryGroups(items);
 
     const switchTab = (tab) => {
@@ -849,12 +854,17 @@ const RaiseBill = () => {
         }
     };
 
-    const fetchBillsList = async (busId = selectedBusFilter) => {
+    const fetchBillsList = async (busId = selectedBusFilter, page = currentPage) => {
         setBillsLoading(true);
         try {
-            const billsUrl = busId === 'all'
-                ? `${API}/inventory/bills`
-                : `${API}/inventory/bills?busId=${encodeURIComponent(busId)}`;
+            const queryParams = new URLSearchParams({
+                page: String(page),
+                limit: String(billsPerPage)
+            });
+            if (busId && busId !== 'all') {
+                queryParams.append('busId', busId);
+            }
+            const billsUrl = `${API}/inventory/bills?${queryParams.toString()}`;
             const historyUrl = busId === 'all'
                 ? `${API}/inventory/history`
                 : `${API}/inventory/history/${encodeURIComponent(busId)}`;
@@ -865,11 +875,26 @@ const RaiseBill = () => {
             ]);
             const billsData = await billsRes.json();
             const historyData = await historyRes.json();
-            setMaintenanceBills(Array.isArray(billsData) ? billsData : []);
+
+            if (Array.isArray(billsData)) {
+                setMaintenanceBills(billsData);
+                setTotalPages(1);
+                setTotalBills(billsData.length);
+            } else if (billsData && billsData.bills) {
+                setMaintenanceBills(billsData.bills || []);
+                setTotalPages(billsData.pagination?.totalPages || 1);
+                setTotalBills(billsData.pagination?.totalBills || 0);
+            } else {
+                setMaintenanceBills([]);
+                setTotalPages(1);
+                setTotalBills(0);
+            }
             setHistory(Array.isArray(historyData) ? historyData : []);
         } catch (error) {
             console.error('Error fetching bills:', error);
             setMaintenanceBills([]);
+            setTotalPages(1);
+            setTotalBills(0);
         } finally {
             setBillsLoading(false);
         }
@@ -877,10 +902,10 @@ const RaiseBill = () => {
 
     useEffect(() => {
         if (pageTab === PAGE_TABS.view) {
-            fetchBillsList(selectedBusFilter);
+            fetchBillsList(selectedBusFilter, currentPage);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pageTab, selectedBusFilter]);
+    }, [pageTab, selectedBusFilter, currentPage]);
 
     useEffect(() => {
         if (isEditMode) {
@@ -1216,7 +1241,10 @@ const RaiseBill = () => {
                             <select
                                 className="w-full pl-6 pr-5 bg-transparent border-none outline-none text-xs font-bold text-slate-705 cursor-pointer appearance-none"
                                 value={selectedBusFilter}
-                                onChange={(e) => setSelectedBusFilter(e.target.value)}
+                                onChange={(e) => {
+                                    setSelectedBusFilter(e.target.value);
+                                    setCurrentPage(1);
+                                }}
                             >
                                 <option value="all">All Fleet Activity</option>
                                 <option value={CENTRAL_STORE}>Central Store</option>
@@ -1498,6 +1526,61 @@ const RaiseBill = () => {
                                     );
                                 })}
                             </div>
+
+                            {/* Pagination Bar */}
+                            {totalPages > 1 && (
+                                <div className="mt-5 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-semibold text-slate-600">
+                                    <div>
+                                        Showing <span className="font-bold text-slate-800">{Math.min((currentPage - 1) * billsPerPage + 1, totalBills)}</span> to{' '}
+                                        <span className="font-bold text-slate-800">{Math.min(currentPage * billsPerPage, totalBills)}</span> of{' '}
+                                        <span className="font-bold text-slate-800">{totalBills}</span> bills
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <button
+                                            type="button"
+                                            disabled={currentPage <= 1 || billsLoading}
+                                            onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                                            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm cursor-pointer"
+                                        >
+                                            Previous
+                                        </button>
+
+                                        <div className="flex items-center gap-1">
+                                            {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                                .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                                                .reduce((acc, p, idx, arr) => {
+                                                    if (idx > 0 && p - arr[idx - 1] > 1) {
+                                                        acc.push(<span key={`ellipsis-${p}`} className="px-1 text-slate-400">...</span>);
+                                                    }
+                                                    acc.push(
+                                                        <button
+                                                            key={p}
+                                                            type="button"
+                                                            onClick={() => setCurrentPage(p)}
+                                                            className={`w-8 h-8 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                                currentPage === p
+                                                                    ? 'bg-[#2563EB] text-white shadow-sm'
+                                                                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                            }`}
+                                                        >
+                                                            {p}
+                                                        </button>
+                                                    );
+                                                    return acc;
+                                                }, [])}
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            disabled={currentPage >= totalPages || billsLoading}
+                                            onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                                            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm cursor-pointer"
+                                        >
+                                            Next
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </>
                     ) : (
                         <div className="py-20 text-center text-slate-400 bg-slate-50 rounded-lg border-2 border-dashed border-slate-100">

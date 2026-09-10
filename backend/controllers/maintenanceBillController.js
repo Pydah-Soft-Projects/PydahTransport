@@ -627,7 +627,7 @@ exports.deleteBillByNumber = async (req, res) => {
 
 exports.getBills = async (req, res) => {
     try {
-        const { busId } = req.query;
+        const { busId, page, limit } = req.query;
         const query = {};
 
         if (busId && busId !== 'all') {
@@ -635,12 +635,47 @@ exports.getBills = async (req, res) => {
                 query.vehicleType = 'CentralStore';
             } else {
                 const resolved = await resolveVehicle(busId);
-                if (!resolved || resolved.isCentralStore) return res.status(200).json([]);
+                if (!resolved || resolved.isCentralStore) {
+                    if (page || limit) {
+                        return res.status(200).json({
+                            bills: [],
+                            pagination: { totalBills: 0, totalPages: 0, currentPage: Number(page) || 1, limit: Number(limit) || 10 }
+                        });
+                    }
+                    return res.status(200).json([]);
+                }
                 query.$or = [
                     { busId: resolved.vehicle._id, vehicleType: resolved.vehicleType },
                     { "lines.busId": resolved.vehicle._id, "lines.vehicleType": resolved.vehicleType }
                 ];
             }
+        }
+
+        if (page || limit) {
+            const pageNum = Math.max(1, parseInt(page, 10) || 1);
+            const limitNum = Math.max(1, parseInt(limit, 10) || 10);
+            const skip = (pageNum - 1) * limitNum;
+
+            const totalBills = await MaintenanceBill.countDocuments(query);
+            const totalPages = Math.ceil(totalBills / limitNum) || 1;
+
+            const billsQuery = MaintenanceBill.find(query)
+                .sort({ date: -1 })
+                .skip(skip)
+                .limit(limitNum);
+
+            const bills = await populateBill(billsQuery);
+            const formattedBills = bills.map(toPublicBill);
+
+            return res.status(200).json({
+                bills: formattedBills,
+                pagination: {
+                    totalBills,
+                    totalPages,
+                    currentPage: pageNum,
+                    limit: limitNum
+                }
+            });
         }
 
         const bills = await populateBill(MaintenanceBill.find(query).sort({ date: -1 }));
