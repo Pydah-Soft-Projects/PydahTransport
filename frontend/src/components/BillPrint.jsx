@@ -47,7 +47,7 @@ const BillPrint = ({ billData, vendor, bus }) => {
     const grandTotal = Number(billData.totalAmount ?? billData.grandTotal ?? computed.grandTotal);
 
     const showLineGst = taxMode === 'lineLevel';
-    const showLineDiscount = discountMode === 'lineLevel';
+    const showLineDiscount = true; // Always include Discount column in print bills table
     const showUnitPrice = (billData.items || []).some(
         (item) => (item.pricingMode || 'unitRate') !== 'lumpSum'
     );
@@ -92,26 +92,24 @@ const BillPrint = ({ billData, vendor, bus }) => {
                 </div>
             </div>
 
-            <table className="w-full border-collapse border border-black text-sm">
+            <table className="w-full border-collapse border border-black text-xs">
                 <thead>
-                    <tr className="bg-gray-100">
-                        <th className="border border-black p-2 text-center w-12">S.No</th>
-                        <th className="border border-black p-2 text-left">Item Details</th>
-                        <th className="border border-black p-2 text-center w-16">Qty</th>
+                    <tr className="bg-gray-100 text-[11px]">
+                        <th className="border border-black py-1.5 px-2 text-center w-9">S.No</th>
+                        <th className="border border-black py-1.5 px-2 text-left">Item Details</th>
+                        <th className="border border-black py-1.5 px-2 text-center w-12">Qty</th>
                         {showUnitPrice && (
-                            <th className="border border-black p-2 text-right w-24">Unit Price</th>
+                            <th className="border border-black py-1.5 px-2 text-right w-20">Unit Price</th>
                         )}
-                        <th className="border border-black p-2 text-right w-24">Amount</th>
-                        {showLineDiscount && (
-                            <th className="border border-black p-2 text-right w-20">Disc.</th>
-                        )}
+                        <th className="border border-black py-1.5 px-2 text-right w-20">Amount</th>
+                        <th className="border border-black py-1.5 px-2 text-right w-20">Discount</th>
                         {showLineGst && (
                             <>
-                                <th className="border border-black p-2 text-center w-16">GST %</th>
-                                <th className="border border-black p-2 text-right w-24">GST Amt</th>
+                                <th className="border border-black py-1.5 px-2 text-center w-12">GST %</th>
+                                <th className="border border-black py-1.5 px-2 text-right w-20">GST Amt</th>
                             </>
                         )}
-                        <th className="border border-black p-2 text-right w-28">Overall Price</th>
+                        <th className="border border-black py-1.5 px-2 text-right w-24">Overall Price</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -127,61 +125,67 @@ const BillPrint = ({ billData, vendor, bus }) => {
                         const gstAmount = showLineGst
                             ? (lineComputed?.taxAmount ?? getLineGstAmount(item.quantity, item.unitPrice ?? item.price, item.gstPercent))
                             : 0;
+                        const disc = lineComputed?.discountAmount
+                            ?? (Number(item.discountAmount || 0) + (baseAmount * Number(item.discountPercent || 0) / 100));
+                        const discPct = lineComputed?.discountPercent ?? Number(item.discountPercent || 0);
+
                         const lineTotal = lineComputed?.lineTotal
                             ?? (showLineGst
-                                ? getLineTotal(item.quantity, item.unitPrice ?? item.price, item.gstPercent)
-                                : round2(baseAmount));
-                        const disc = showLineDiscount
-                            ? Number(item.discountAmount || 0) + (baseAmount * Number(item.discountPercent || 0) / 100)
-                            : 0;
+                                ? getLineTotal(item.quantity, item.unitPrice ?? item.price, item.gstPercent) - disc
+                                : round2(baseAmount - disc));
 
                         return (
-                            <tr key={index} className="align-top">
-                                <td className="border border-black p-2 text-center">{index + 1}</td>
-                                <td className="border border-black p-2">
-                                    <div className="text-xs font-bold">{getAllocatedItemDisplayName(item)}</div>
+                            <tr key={index} className="align-top text-xs">
+                                <td className="border border-black py-1.5 px-2 text-center">{index + 1}</td>
+                                <td className="border border-black py-1.5 px-2">
+                                    <div className="text-xs font-bold text-black">{getAllocatedItemDisplayName(item)}</div>
                                     {pricingMode === 'lumpSum' && (
-                                        <div className="text-[10px] mt-0.5 uppercase tracking-wide">Lump sum</div>
+                                        <div className="text-[9px] mt-0.5 uppercase tracking-wide text-gray-600 font-semibold">Lump sum</div>
                                     )}
                                     {Array.isArray(item.subDescriptions) && item.subDescriptions.length > 0 && (
-                                        <ul className="text-xs mt-1 list-disc pl-4">
+                                        <ul className="text-[10px] mt-1 list-disc pl-3.5 space-y-0.5 text-gray-800">
                                             {item.subDescriptions.map((sub, i) => (
                                                 <li key={i}>{sub}</li>
                                             ))}
                                         </ul>
                                     )}
                                     {item.tyrePosition && item.itemId?.category === 'Tires' && (
-                                        <div className="text-xs mt-1">Tyre Position: {item.tyrePosition} | Reading: {item.kmReading || 0} KM</div>
+                                        <div className="text-[10px] mt-1 text-gray-700">Tyre Position: {item.tyrePosition} | Reading: {item.kmReading || 0} KM</div>
                                     )}
                                     {item.remarks && (
-                                        <div className="text-xs mt-1 italic">Remarks: {item.remarks}</div>
+                                        <div className="text-[10px] mt-1 italic text-gray-600">Remarks: {item.remarks}</div>
                                     )}
                                 </td>
-                                <td className="border border-black p-2 text-center">{item.quantity}</td>
+                                <td className="border border-black py-1.5 px-2 text-center">{item.quantity}</td>
                                 {showUnitPrice && (
-                                    <td className="border border-black p-2 text-right">
+                                    <td className="border border-black py-1.5 px-2 text-right">
                                         {pricingMode === 'lumpSum'
                                             ? '—'
                                             : `₹${formatCurrency(item.unitPrice ?? item.price)}`}
                                     </td>
                                 )}
-                                <td className="border border-black p-2 text-right">
+                                <td className="border border-black py-1.5 px-2 text-right">
                                     ₹{formatCurrency(baseAmount)}
                                 </td>
-                                {showLineDiscount && (
-                                    <td className="border border-black p-2 text-right">
-                                        ₹{formatCurrency(disc)}
-                                    </td>
-                                )}
+                                <td className="border border-black py-1.5 px-2 text-right">
+                                    {disc > 0 ? (
+                                        <>
+                                            ₹{formatCurrency(disc)}
+                                            {discPct > 0 && <span className="text-[9px] block text-gray-500 font-normal">({discPct}%)</span>}
+                                        </>
+                                    ) : (
+                                        '—'
+                                    )}
+                                </td>
                                 {showLineGst && (
                                     <>
-                                        <td className="border border-black p-2 text-center">{gstPercent}%</td>
-                                        <td className="border border-black p-2 text-right">
+                                        <td className="border border-black py-1.5 px-2 text-center">{gstPercent}%</td>
+                                        <td className="border border-black py-1.5 px-2 text-right">
                                             ₹{formatCurrency(gstAmount)}
                                         </td>
                                     </>
                                 )}
-                                <td className="border border-black p-2 text-right font-bold">
+                                <td className="border border-black py-1.5 px-2 text-right font-bold">
                                     ₹{formatCurrency(lineTotal)}
                                 </td>
                             </tr>
@@ -190,8 +194,8 @@ const BillPrint = ({ billData, vendor, bus }) => {
                 </tbody>
             </table>
 
-            <div className="bill-grand-total-table w-full border border-black border-t-0 text-sm">
-                <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-2 p-3">
+            <div className="bill-grand-total-table w-full border border-black border-t-0 text-xs">
+                <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1.5 p-2.5">
                     <div className="text-right whitespace-nowrap">
                         <span className="font-bold">Subtotal:</span>{' '}
                         <span>₹{formatCurrency(subtotal)}</span>
@@ -228,7 +232,7 @@ const BillPrint = ({ billData, vendor, bus }) => {
                             </div>
                             <div className="bill-net-payable-row text-right whitespace-nowrap font-bold border-t border-black pt-1 mt-1">
                                 <span className="font-bold">Net Payable:</span>{' '}
-                                <span className="font-bold text-lg text-blue-700">₹{formatCurrency(grandTotal)}</span>
+                                <span className="font-bold text-base text-blue-700">₹{formatCurrency(grandTotal)}</span>
                             </div>
                         </>
                     ) : (
