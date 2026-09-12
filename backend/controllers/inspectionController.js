@@ -40,6 +40,7 @@ const startInspection = async (req, res) => {
         inspectionDate,
         busNumber: String(busNumber),
         routeId: String(routeId),
+        status: 'in_progress',
     }).sort({ startedAt: -1 });
 
     if (existingSession) {
@@ -67,6 +68,7 @@ const startInspection = async (req, res) => {
         status: isAfter7PM ? 'submitted' : 'in_progress',
         completedAt: isAfter7PM ? now : null,
         scannedPassengers: {},
+        inspectedCount: 0,
     });
 
     return res.status(201).json(session);
@@ -74,7 +76,7 @@ const startInspection = async (req, res) => {
 
 const completeInspection = async (req, res) => {
     const { inspectedCount, totalCount } = req.body;
-    const session = await InspectionSession.findOne({ _id: req.params.id, inspectorId: req.user?._id });
+    const session = await InspectionSession.findById(req.params.id);
     if (!session) return res.status(404).json({ message: 'Inspection session not found' });
 
     const now = new Date();
@@ -82,7 +84,11 @@ const completeInspection = async (req, res) => {
     const isPast7PM = session.inspectionDate < todayStr || (session.inspectionDate === todayStr && now.getHours() >= 19);
 
     session.completedAt = now;
-    session.inspectedCount = Math.max(0, Number(inspectedCount) || 0);
+    if (inspectedCount !== undefined) {
+        session.inspectedCount = Math.max(0, Number(inspectedCount) || 0);
+    } else if (session.scannedPassengers) {
+        session.inspectedCount = Object.keys(session.scannedPassengers).length;
+    }
     if (totalCount !== undefined) session.totalCount = Math.max(0, Number(totalCount) || 0);
     session.status = isPast7PM ? 'submitted' : 'completed';
     await session.save();
@@ -104,10 +110,12 @@ const listInspectionSessions = async (req, res) => {
 
     const updatedSessions = sessions.map((s) => {
         const isExpired = s.inspectionDate < todayStr || (s.inspectionDate === todayStr && isPast7PM);
-        if (isExpired && s.status === 'in_progress') {
-            return { ...s, status: 'submitted' };
-        }
-        return s;
+        const scannedCount = s.scannedPassengers && typeof s.scannedPassengers === 'object' ? Object.keys(s.scannedPassengers).length : 0;
+        return {
+            ...s,
+            status: isExpired && s.status === 'in_progress' ? 'submitted' : s.status,
+            inspectedCount: Math.max(s.inspectedCount || 0, scannedCount),
+        };
     });
 
     return res.json(updatedSessions);
@@ -123,10 +131,11 @@ const recordScan = async (req, res) => {
         session.scannedPassengers[passengerKey] = scanRecord;
         session.markModified('scannedPassengers');
     }
+    const sessionScannedCount = Object.keys(session.scannedPassengers).length;
     if (inspectedCount !== undefined) {
-        session.inspectedCount = Math.max(session.inspectedCount || 0, Number(inspectedCount) || 0);
-    } else if (session.scannedPassengers) {
-        session.inspectedCount = Object.keys(session.scannedPassengers).length;
+        session.inspectedCount = Math.max(sessionScannedCount, Number(inspectedCount) || 0);
+    } else {
+        session.inspectedCount = sessionScannedCount;
     }
     await session.save();
     return res.json(session);
