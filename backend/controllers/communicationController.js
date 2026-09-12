@@ -5,6 +5,7 @@ const { ensureDefaultSettings, AUTO_NOTIFICATION_ACTIONS } = require('../service
 const TransportRequest = require('../models/TransportRequest');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 const { mysqlPool, getEmployeeConnection } = require('../config/db');
+const { resolveStudentExpiries } = require('../utils/expiryResolver');
 const {
   normalizePhone,
   sendBulkSms,
@@ -87,13 +88,18 @@ const fetchStudentPhones = async (admissionNumbers = []) => {
   if (!mysqlPool || admissionNumbers.length === 0) return map;
 
   const [rows] = await mysqlPool.query(
-    `SELECT admission_number, admission_no, student_mobile, parent_mobile1
+    `SELECT admission_number, admission_no, student_mobile, parent_mobile1, student_status
      FROM students
      WHERE admission_number IN (?) OR admission_no IN (?)`,
     [admissionNumbers, admissionNumbers]
   );
 
   for (const row of rows) {
+    const statusVal = String(row.student_status || '').trim().toLowerCase();
+    // Exclude students whose status is cancelled, discontinued, or inactive
+    if (statusVal.includes('cancelled') || statusVal.includes('discontinued') || statusVal.includes('inactive')) {
+      continue;
+    }
     const phone = normalizePhone(row.student_mobile) || normalizePhone(row.parent_mobile1);
     if (row.admission_number) map[row.admission_number] = phone;
     if (row.admission_no) map[row.admission_no] = phone;
@@ -123,45 +129,65 @@ const fetchEmployeePhones = async (empNos = []) => {
 
 const buildStudentRecipients = async ({ routeId, busId }) => {
   const filter = { status: 'approved' };
-  if (routeId) filter.route_id = String(routeId);
-  if (busId) filter.bus_id = String(busId);
+  if (routeId && routeId !== 'all') filter.route_id = String(routeId);
+  if (busId && busId !== 'all') filter.bus_id = String(busId);
 
-  const requests = await TransportRequest.find(filter)
-    .select('admission_number student_name route_id route_name stage_name bus_id')
+  let requests = await TransportRequest.find(filter)
+    .select('admission_number student_name route_id route_name stage_name bus_id academic_year course year_of_study semester_id expiry_date semester_end_date')
     .lean();
 
-  const admissionNos = requests.map((r) => r.admission_number).filter(Boolean);
+  // Resolve dynamic expiries to determine if pass is live or expired
+  try {
+    requests = await resolveStudentExpiries(requests);
+  } catch (err) {
+    console.error('[buildStudentRecipients] Error resolving student expiries:', err.message);
+  }
+
+  const now = new Date();
+
+  // Filter ONLY live (non-expired) student transport passes
+  const liveRequests = requests.filter((r) => {
+    if (r.is_expired) return false;
+    if (r.expiry_date && new Date(r.expiry_date) < now) return false;
+    if (r.semester_end_date && new Date(r.semester_end_date) < now) return false;
+    return true;
+  });
+
+  const admissionNos = liveRequests.map((r) => r.admission_number).filter(Boolean);
   const phoneMap = await fetchStudentPhones(admissionNos);
 
-  return requests.map((r) => {
-    const phone = phoneMap[r.admission_number] || null;
-    return {
-      id: String(r._id),
-      type: 'student',
-      name: r.student_name || '',
-      identifier: r.admission_number || '',
-      phone,
-      route_id: r.route_id || '',
-      route_name: r.route_name || '',
-      stage_name: r.stage_name || '',
-      bus_id: r.bus_id || '',
-      params: {
+  // Return only students with active MySQL records (excludes cancelled admissions)
+  return liveRequests
+    .filter((r) => phoneMap[r.admission_number] !== undefined)
+    .map((r) => {
+      const phone = phoneMap[r.admission_number] || null;
+      return {
+        id: String(r._id),
+        type: 'student',
         name: r.student_name || '',
-        student_name: r.student_name || '',
-        admission_number: r.admission_number || '',
+        identifier: r.admission_number || '',
+        phone,
         route_id: r.route_id || '',
         route_name: r.route_name || '',
         stage_name: r.stage_name || '',
         bus_id: r.bus_id || '',
-      },
-    };
-  });
+        params: {
+          name: r.student_name || '',
+          student_name: r.student_name || '',
+          admission_number: r.admission_number || '',
+          route_id: r.route_id || '',
+          route_name: r.route_name || '',
+          stage_name: r.stage_name || '',
+          bus_id: r.bus_id || '',
+        },
+      };
+    });
 };
 
 const buildEmployeeRecipients = async ({ routeId, busId }) => {
   const filter = { status: 'approved' };
-  if (routeId) filter.route_id = String(routeId);
-  if (busId) filter.bus_id = String(busId);
+  if (routeId && routeId !== 'all') filter.route_id = String(routeId);
+  if (busId && busId !== 'all') filter.bus_id = String(busId);
 
   const requests = await EmployeeTransportRequest.find(filter)
     .select('emp_no employee_name route_id route_name stage_name bus_id')
@@ -444,6 +470,16 @@ const sendSms = async (req, res) => {
       || (dltVarCount > 0 && mappingsNeedPersonalization(effectiveMappings))
     );
 
+    const meta = {
+      totalTargets: targets.length,
+      templateName: template.name,
+      audience,
+      filterBy,
+      routeId,
+      busId,
+      dltTemplateId,
+    };
+
     if (needsPersonalization || dltVarCount > 0) {
       // DLT vars often differ per student, so send personalized when vars exist
       if (dltVarCount > 0 || needsPersonalization) {
@@ -470,7 +506,7 @@ const sendSms = async (req, res) => {
             response: result.response || result.error,
             numbers: result.numbers || [],
             preview: items[0].message,
-            dltTemplateId,
+            ...meta,
           });
         }
 
@@ -485,7 +521,7 @@ const sendSms = async (req, res) => {
           failed: result.failed,
           results: result.results,
           preview: items[0]?.message || null,
-          dltTemplateId,
+          ...meta,
         });
       }
     }
@@ -506,7 +542,7 @@ const sendSms = async (req, res) => {
       response: result.response || result.error,
       numbers: result.numbers || [],
       preview: message,
-      dltTemplateId,
+      ...meta,
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });

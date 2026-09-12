@@ -20,6 +20,12 @@ import {
   Search,
   ChevronRight,
   Clock,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Check,
+  Copy,
+  Sparkles,
 } from 'lucide-react';
 
 const AUTO_ACTION_META = {
@@ -113,6 +119,10 @@ export default function Communications() {
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successModalData, setSuccessModalData] = useState(null);
+  const [modalRecipientSearch, setModalRecipientSearch] = useState('');
+  const [copiedPreview, setCopiedPreview] = useState(false);
 
   const [autoSettings, setAutoSettings] = useState([]);
   const [loadingAutoSettings, setLoadingAutoSettings] = useState(false);
@@ -229,8 +239,22 @@ export default function Communications() {
       const busesJson = await busesRes.json();
       const configJson = await configRes.json();
 
-      setRoutes(Array.isArray(routesJson) ? routesJson : (routesJson.data || []));
-      setBuses(Array.isArray(busesJson) ? busesJson : (busesJson.data || []));
+      const rawRoutes = Array.isArray(routesJson) ? routesJson : (routesJson.data || []);
+      const sortedRoutes = [...rawRoutes].sort((a, b) => {
+        const idA = String(a.routeId || a._id || '');
+        const idB = String(b.routeId || b._id || '');
+        return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+      });
+
+      const rawBuses = Array.isArray(busesJson) ? busesJson : (busesJson.data || []);
+      const sortedBuses = [...rawBuses].sort((a, b) => {
+        const numA = String(a.busNumber || a.busId || '');
+        const numB = String(b.busNumber || b.busId || '');
+        return numA.localeCompare(numB, undefined, { numeric: true, sensitivity: 'base' });
+      });
+
+      setRoutes(sortedRoutes);
+      setBuses(sortedBuses);
       if (configJson.success) setConfigStatus(configJson);
     } catch {
       // ignore lookup failures
@@ -482,10 +506,10 @@ export default function Communications() {
 
   const loadRecipients = async () => {
     if (sendForm.filterBy === 'route' && !sendForm.routeId) {
-      return showMessage('error', 'Select a route first');
+      return showMessage('error', 'Select a route or "All Routes"');
     }
     if (sendForm.filterBy === 'bus' && !sendForm.busId) {
-      return showMessage('error', 'Select a bus first');
+      return showMessage('error', 'Select a bus or "All Buses"');
     }
 
     setLoadingRecipients(true);
@@ -538,7 +562,13 @@ export default function Communications() {
       return showMessage('error', 'Selected template has incomplete variable mappings. Edit the template first.');
     }
 
-    if (!window.confirm(`Send SMS to ${selectedIds.length} recipient(s)?`)) return;
+    const scopeLabel = sendForm.filterBy === 'all'
+      ? 'All Routes & Buses'
+      : sendForm.filterBy === 'route'
+      ? (sendForm.routeId === 'all' ? 'All Routes' : `Route ${sendForm.routeId}`)
+      : (sendForm.busId === 'all' ? 'All Buses' : `Bus ${sendForm.busId}`);
+
+    if (!window.confirm(`Send SMS to ${selectedIds.length} recipient(s) (${scopeLabel})?`)) return;
 
     setSending(true);
     setSendResult(null);
@@ -560,6 +590,19 @@ export default function Communications() {
         throw new Error(json.message || 'Send failed');
       }
       setSendResult(json);
+      setSuccessModalData({
+        ...json,
+        totalSelected: selectedIds.length,
+        selectedRecipientsList: recipients.filter((r) => selectedIds.includes(r.id)),
+        audience: sendForm.audience,
+        filterBy: sendForm.filterBy,
+        scopeLabel,
+        templateName: selectedTemplate?.name || 'SMS Template',
+        timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
+        dateFormatted: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+      });
+      setShowSuccessModal(true);
+      loadBalance();
       showMessage('success', `Sent: ${json.sent || 0}, Failed: ${json.failed || 0}`);
     } catch (err) {
       showMessage('error', err.message || 'Failed to send SMS');
@@ -1239,10 +1282,11 @@ export default function Communications() {
                   <select
                     value={sendForm.filterBy}
                     onChange={(e) => setSendForm((p) => ({ ...p, filterBy: e.target.value, routeId: '', busId: '' }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
                   >
                     <option value="route">Route Wise</option>
                     <option value="bus">Bus Wise</option>
+                    <option value="all">All (All Routes &amp; Buses)</option>
                   </select>
                 </div>
 
@@ -1252,9 +1296,10 @@ export default function Communications() {
                     <select
                       value={sendForm.routeId}
                       onChange={(e) => setSendForm((p) => ({ ...p, routeId: e.target.value }))}
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
                     >
                       <option value="">— Select Route —</option>
+                      <option value="all">★ All Routes</option>
                       {routes.map((r) => (
                         <option key={r._id || r.routeId} value={r.routeId}>
                           {r.routeId} — {r.routeName}
@@ -1262,21 +1307,30 @@ export default function Communications() {
                       ))}
                     </select>
                   </div>
-                ) : (
+                ) : sendForm.filterBy === 'bus' ? (
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Bus</label>
                     <select
                       value={sendForm.busId}
                       onChange={(e) => setSendForm((p) => ({ ...p, busId: e.target.value }))}
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
                     >
                       <option value="">— Select Bus —</option>
+                      <option value="all">★ All Buses</option>
                       {buses.map((b) => (
                         <option key={b._id} value={b.busNumber || b.busId || b._id}>
                           {b.busNumber || b.busId} {b.assignedRouteId ? `(${b.assignedRouteId})` : ''}
                         </option>
                       ))}
                     </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Scope</label>
+                    <div className="w-full border border-blue-200 bg-blue-50/70 text-blue-900 rounded-lg px-3 py-2 text-sm font-semibold flex items-center gap-1.5 h-[38px]">
+                      <Users size={14} className="text-blue-600 shrink-0" />
+                      <span>All Routes &amp; Buses</span>
+                    </div>
                   </div>
                 )}
 
@@ -1395,12 +1449,237 @@ export default function Communications() {
 
             {sendResult && (
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 text-xs space-y-1">
-                <p className="font-bold text-slate-800">Send Result</p>
-                <p>Mode: {sendResult.mode}</p>
-                <p>Sent: {sendResult.sent || 0} • Failed: {sendResult.failed || 0}</p>
-                {sendResult.response && <p className="text-slate-500 break-all">API: {sendResult.response}</p>}
+                <div className="flex items-center justify-between">
+                  <p className="font-bold text-slate-800">Last Send Summary</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowSuccessModal(true)}
+                    className="text-blue-600 hover:text-blue-700 font-bold underline"
+                  >
+                    View Full Stats Modal
+                  </button>
+                </div>
+                <p>Mode: {sendResult.mode} • Sent: {sendResult.sent || 0} • Failed: {sendResult.failed || 0}</p>
               </div>
             )}
+          </div>
+        )}
+
+        {showSuccessModal && successModalData && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-3xl w-full overflow-hidden flex flex-col max-h-[92vh] text-slate-800 font-sans">
+              {/* Clean App-Themed Header */}
+              <div className="bg-white border-b border-slate-200 p-5 relative flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center shrink-0">
+                    <CheckCircle2 size={22} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        <Sparkles size={11} /> SMS Dispatched
+                      </span>
+                      <span className="text-slate-400 text-xs">{successModalData.timestamp}</span>
+                    </div>
+                    <h2 className="text-lg font-bold text-slate-900 leading-tight mt-0.5">Dispatch Report &amp; Statistics</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Target Audience: <span className="font-semibold text-slate-800 capitalize">{successModalData.audience}</span> ({successModalData.scopeLabel})
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSuccessModal(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Body Content */}
+              <div className="p-6 overflow-y-auto space-y-5">
+                {/* 4 Stat Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+                      <span>Total Selected</span>
+                      <Users size={14} className="text-blue-600" />
+                    </div>
+                    <p className="text-2xl font-black text-slate-900 mt-2">{successModalData.totalSelected || successModalData.totalTargets || 0}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Recipients queued</p>
+                  </div>
+
+                  <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-emerald-700 text-[10px] font-bold uppercase tracking-wider">
+                      <span>Sent Success</span>
+                      <CheckCircle2 size={14} className="text-emerald-600" />
+                    </div>
+                    <p className="text-2xl font-black text-emerald-700 mt-2">{successModalData.sent || 0}</p>
+                    <p className="text-[10px] text-emerald-600/80 mt-0.5">Delivered to gateway</p>
+                  </div>
+
+                  <div className="bg-red-50/70 border border-red-200 rounded-xl p-3.5 flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-red-700 text-[10px] font-bold uppercase tracking-wider">
+                      <span>Failed</span>
+                      <XCircle size={14} className="text-red-600" />
+                    </div>
+                    <p className="text-2xl font-black text-red-700 mt-2">{successModalData.failed || 0}</p>
+                    <p className="text-[10px] text-red-600/80 mt-0.5">Failed transmissions</p>
+                  </div>
+
+                  <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-blue-700 text-[10px] font-bold uppercase tracking-wider">
+                      <span>Transmission Mode</span>
+                      <Send size={14} className="text-blue-600" />
+                    </div>
+                    <p className="text-lg font-black text-blue-900 mt-2 uppercase">{successModalData.mode || 'BULK'}</p>
+                    <p className="text-[10px] text-blue-600/80 mt-0.5">SMS transmission</p>
+                  </div>
+                </div>
+
+                {/* Dispatch Summary Grid */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                    <FileText size={14} className="text-blue-600" /> Dispatch Details
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <span className="text-slate-400 font-bold block text-[10px] uppercase">Template Name</span>
+                      <span className="font-bold text-slate-800">{successModalData.templateName}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 font-bold block text-[10px] uppercase">DLT Template ID</span>
+                      <span className="font-mono text-slate-800 font-semibold">{successModalData.dltTemplateId || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 font-bold block text-[10px] uppercase">Filter Target</span>
+                      <span className="font-semibold text-slate-800">{successModalData.scopeLabel}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Message Preview Box */}
+                {successModalData.preview && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 relative">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                        <MessageSquare size={12} className="text-blue-600" /> SMS Content Preview
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(successModalData.preview);
+                          setCopiedPreview(true);
+                          setTimeout(() => setCopiedPreview(false), 2000);
+                        }}
+                        className="text-[10px] font-semibold text-slate-600 hover:text-slate-900 flex items-center gap-1 bg-white hover:bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg transition-colors"
+                      >
+                        {copiedPreview ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                        {copiedPreview ? 'Copied!' : 'Copy Text'}
+                      </button>
+                    </div>
+                    <p className="text-xs font-mono leading-relaxed text-slate-800 whitespace-pre-wrap bg-white p-3 rounded-lg border border-slate-200">
+                      {successModalData.preview}
+                    </p>
+                  </div>
+                )}
+
+                {/* Recipient Breakdown Table */}
+                <div className="space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                      <Users size={14} className="text-blue-600" /> Recipients Breakdown ({successModalData.results?.length || successModalData.selectedRecipientsList?.length || 0})
+                    </h3>
+                    <div className="relative w-full sm:w-56">
+                      <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="search"
+                        value={modalRecipientSearch}
+                        onChange={(e) => setModalRecipientSearch(e.target.value)}
+                        placeholder="Search recipient..."
+                        className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1 pl-8 pr-2 text-xs outline-none focus:bg-white focus:border-blue-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-xl overflow-hidden max-h-56 overflow-y-auto">
+                    {Array.isArray(successModalData.results) && successModalData.results.length > 0 ? (
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 text-[10px] font-bold uppercase text-slate-400">
+                          <tr>
+                            <th className="px-3 py-2">Recipient</th>
+                            <th className="px-3 py-2 font-mono">Phone</th>
+                            <th className="px-3 py-2 text-right">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {successModalData.results
+                            .filter((r) => !modalRecipientSearch || [r.name, r.number, r.response].some((v) => String(v || '').toLowerCase().includes(modalRecipientSearch.toLowerCase())))
+                            .map((item, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50">
+                                <td className="px-3 py-2 font-medium text-slate-800">{item.name || '—'}</td>
+                                <td className="px-3 py-2 font-mono text-slate-600">{item.number}</td>
+                                <td className="px-3 py-2 text-right">
+                                  <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${item.success ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                                    {item.success ? 'Sent' : 'Failed'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    ) : Array.isArray(successModalData.selectedRecipientsList) && successModalData.selectedRecipientsList.length > 0 ? (
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 text-[10px] font-bold uppercase text-slate-400">
+                          <tr>
+                            <th className="px-3 py-2">Recipient</th>
+                            <th className="px-3 py-2">ID</th>
+                            <th className="px-3 py-2 font-mono">Phone</th>
+                            <th className="px-3 py-2 text-right">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {successModalData.selectedRecipientsList
+                            .filter((r) => !modalRecipientSearch || [r.name, r.identifier, r.phone, r.route_id].some((v) => String(v || '').toLowerCase().includes(modalRecipientSearch.toLowerCase())))
+                            .map((r) => (
+                              <tr key={r.id} className="hover:bg-slate-50">
+                                <td className="px-3 py-2 font-medium text-slate-800">{r.name}</td>
+                                <td className="px-3 py-2 font-mono text-slate-500">{r.identifier}</td>
+                                <td className="px-3 py-2 font-mono text-slate-600">{r.phone}</td>
+                                <td className="px-3 py-2 text-right">
+                                  <span className="inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-emerald-50 text-emerald-700">
+                                    Dispatched
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="p-4 text-center text-xs text-slate-400 italic">No detailed recipient rows.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={loadBalance}
+                  className="px-3.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-white flex items-center gap-1.5"
+                >
+                  <RefreshCw size={13} /> Check Balance
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSuccessModal(false)}
+                  className="px-5 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-colors"
+                >
+                  Done &amp; Close Report
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
