@@ -2,6 +2,7 @@ const TransportRequest = require('../models/TransportRequest');
 const EmployeeTransportRequest = require('../models/EmployeeTransportRequest');
 const OfflineScanLog = require('../models/OfflineScanLog');
 const { mysqlPool } = require('../config/db');
+const { resolveStudentExpiries } = require('../utils/expiryResolver');
 const {
     getPublicKeyInfo,
     buildSignedVerifyUrl,
@@ -85,13 +86,6 @@ const syncVerificationData = async (req, res) => {
         const busId = req.query.busId || req.query.bus_id || null;
 
         const studentQuery = { status: 'approved' };
-        if (academicYear && String(academicYear).toLowerCase() !== 'all') {
-            studentQuery.$or = [
-                { academic_year: academicYear },
-                { academic_year: null },
-                { academic_year: { $exists: false } },
-            ];
-        }
         if (routeId) studentQuery.route_id = String(routeId);
         if (busId) studentQuery.bus_id = String(busId);
         if (since && !Number.isNaN(since.getTime())) {
@@ -99,23 +93,21 @@ const syncVerificationData = async (req, res) => {
         }
 
         const employeeQuery = { status: 'approved' };
-        if (academicYear && String(academicYear).toLowerCase() !== 'all') {
-            employeeQuery.$or = [
-                { academic_year: academicYear },
-                { academic_year: null },
-                { academic_year: { $exists: false } },
-            ];
-        }
         if (routeId) employeeQuery.route_id = String(routeId);
         if (busId) employeeQuery.bus_id = String(busId);
         if (since && !Number.isNaN(since.getTime())) {
             employeeQuery.updated_at = { $gte: since };
         }
 
-        const [students, employees] = await Promise.all([
+        let [students, employees] = await Promise.all([
             TransportRequest.find(studentQuery).lean(),
             EmployeeTransportRequest.find(employeeQuery).lean(),
         ]);
+
+        if (mysqlPool && students.length > 0) {
+            await resolveStudentExpiries(students, mysqlPool);
+            students = students.filter((r) => !r.is_expired);
+        }
 
         const pinMap = new Map();
         if (mysqlPool && students.length > 0) {

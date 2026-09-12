@@ -348,15 +348,6 @@ const InspectionReports = () => {
         loadInspectedData();
     }, [selectedDate, academicYear, loadInspectedData]);
 
-    // Live polling every 5 seconds for in-progress inspection reports when viewing today's date
-    useEffect(() => {
-        if (selectedDate !== todayStr || !online) return;
-        const interval = setInterval(() => {
-            loadReportData();
-        }, 5000);
-        return () => clearInterval(interval);
-    }, [selectedDate, todayStr, online, loadReportData]);
-
     // Build Master Routes with Assigned Buses
     const routesWithMetrics = useMemo(() => {
         const routeMap = new Map();

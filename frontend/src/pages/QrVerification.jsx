@@ -401,9 +401,10 @@ const QrVerification = () => {
 
             if (online && isAuthenticated()) {
                 try {
-                    const [routesRes, busesRes] = await Promise.all([
+                    const [routesRes, busesRes, syncRes] = await Promise.all([
                         apiFetch(`${API_BASE}/routes?academicYear=${encodeURIComponent(academicYear)}`).catch(() => null),
                         apiFetch(`${API_BASE}/buses`).catch(() => null),
+                        apiFetch(`${API_BASE}/verification/sync?academicYear=all`).catch(() => null),
                     ]);
 
                     if (routesRes && routesRes.ok) {
@@ -412,8 +413,17 @@ const QrVerification = () => {
                     if (busesRes && busesRes.ok) {
                         busesData = await busesRes.json().catch(() => []);
                     }
+                    if (syncRes && syncRes.ok) {
+                        const syncData = await syncRes.json().catch(() => null);
+                        if (syncData && Array.isArray(syncData.records) && syncData.records.length > 0) {
+                            await idbClearPassengers();
+                            await idbPutAllPassengers(syncData.records);
+                            setAllCachedPassengers(syncData.records);
+                            setRecordCount(syncData.records.length);
+                        }
+                    }
                 } catch (e) {
-                    console.warn('Could not fetch routes/buses from server, using local fallback:', e);
+                    console.warn('Could not fetch routes/buses/sync from server, using local fallback:', e);
                 }
             }
 
@@ -622,23 +632,18 @@ const QrVerification = () => {
                 setHasPublicKey(true);
             }
 
-            const params = new URLSearchParams({ academicYear });
-            const since = await idbGetMeta('lastSyncAt');
-            const prevYear = await idbGetMeta('academicYear');
-            const fullSync = !since || recordCount === 0 || prevYear !== academicYear;
-            if (!fullSync && since) params.append('since', since);
-
+            const params = new URLSearchParams({ academicYear: 'all' });
             const syncRes = await apiFetch(`${API_BASE}/verification/sync?${params.toString()}`);
             const syncData = await syncRes.json().catch(() => ({}));
             if (!syncRes.ok) {
                 throw new Error(syncData.message || 'Sync failed');
             }
 
-            if (fullSync) {
+            if (Array.isArray(syncData.records) && syncData.records.length > 0) {
                 await idbClearPassengers();
+                await idbPutAllPassengers(syncData.records);
+                setAllCachedPassengers(syncData.records);
             }
-
-            await idbPutAllPassengers(syncData.records || []);
             const syncedAt = syncData.syncedAt || new Date().toISOString();
             await idbSetMeta('lastSyncAt', syncedAt);
             await idbSetMeta('academicYear', academicYear);
@@ -973,16 +978,27 @@ const QrVerification = () => {
         });
     }, [inspectionSession, online, selectedBus, selectedRoute]);
 
-    const undoPassengerInspected = useCallback((passengerKey) => {
+    const undoPassengerInspected = useCallback((passenger) => {
+        if (!passenger) return;
+        const stdId = typeof passenger === 'object' ? String(passenger.studentId || passenger.admission_number || passenger.emp_no || '').trim() : String(passenger);
+        const reqId = typeof passenger === 'object' ? String(passenger.requestId || passenger.id || '').trim() : String(passenger);
+        const monId = typeof passenger === 'object' ? String(passenger.mongoId || passenger._id || '').trim() : String(passenger);
+
         setInspectedMap((prev) => {
             const next = { ...prev };
-            delete next[passengerKey];
+            if (stdId) delete next[stdId];
+            if (reqId) delete next[reqId];
+            if (monId) delete next[monId];
+            delete next[String(passenger)];
             return next;
         });
         setInspectionSession((prev) => {
             if (!prev || !prev.scannedPassengers) return prev;
             const updatedScanned = { ...prev.scannedPassengers };
-            delete updatedScanned[passengerKey];
+            if (stdId) delete updatedScanned[stdId];
+            if (reqId) delete updatedScanned[reqId];
+            if (monId) delete updatedScanned[monId];
+            delete updatedScanned[String(passenger)];
             return {
                 ...prev,
                 scannedPassengers: updatedScanned,
@@ -1124,32 +1140,31 @@ const QrVerification = () => {
             const isRouteMatch = isRouteIdMatch || isRouteNameMatch;
 
             if (isRouteMatch) {
-                // Direct match on this bus/route -> Check In Student!
+                // Direct match on this bus/route -> Record as Correct Candidate!
                 if (!isAlreadyInspected) {
                     markPassengerInspected(passenger, false);
                 }
                 playBeepFeedback(!isAlreadyInspected);
-                setInspectionSuccessModal({ passenger, isAlreadyInspected, isOverride: false });
+                setInspectionSuccessModal({ passenger, isAlreadyInspected, isOverride: false, isFault: false });
 
-                // Auto-dismiss the success banner after 1.8s so continuous camera scanning works seamlessly without manual tap!
+                // Auto-dismiss the success banner after 1.8s so continuous camera scanning works seamlessly!
                 if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
                 toastTimerRef.current = setTimeout(() => {
                     lastScanRef.current = { text: '', at: 0 };
                     setInspectionSuccessModal(null);
                 }, 1800);
             } else {
-                // ROUTE / BUS MISMATCH -> Open Wrong Bus Alert Popup Warning!
+                // Route Mismatch -> Automatically record as Fault Candidate Scan!
+                markPassengerInspected(passenger, true);
                 playBeepFeedback(false);
-                setWrongBusModal({
-                    isOpen: true,
-                    passenger,
-                    scannedRouteId: passenger.routeId || passenger.route_id || 'Unassigned',
-                    scannedRouteName: passenger.routeName || passenger.route_name || 'Different Route',
-                    scannedBusId: passenger.busId || passenger.bus_id || 'Unassigned',
-                    targetRouteId: selectedRoute.routeId,
-                    targetRouteName: selectedRoute.routeName,
-                    targetBuses: selectedRoute.assignedBuses || [],
-                });
+                setInspectionSuccessModal({ passenger, isAlreadyInspected: false, isOverride: true, isFault: true });
+
+                // Auto-dismiss the fault scan banner after 2.2s so continuous camera scanning keeps running!
+                if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+                toastTimerRef.current = setTimeout(() => {
+                    lastScanRef.current = { text: '', at: 0 };
+                    setInspectionSuccessModal(null);
+                }, 2200);
             }
         } finally {
             setVerifying(false);
@@ -1493,24 +1508,53 @@ const QrVerification = () => {
         return null;
     }, []);
 
+    // Helper to normalize route keys so "R01", "R-1", "Route 1", and "1" map to the exact same route
+    const normalizeRouteKey = useCallback((id) => {
+        if (!id) return '';
+        const str = String(id).trim().toLowerCase();
+        const match = str.match(/\d+/);
+        return match ? parseInt(match[0], 10).toString() : str;
+    }, []);
+
     // ==========================================
     // AGGREGATE ROUTE INSPECTION DATA
     // ==========================================
     const routesWithMetrics = useMemo(() => {
         const routeMap = new Map();
 
+        const getRouteFromMap = (rawId, rawName) => {
+            const normKey = normalizeRouteKey(rawId);
+            if (normKey && routeMap.has(normKey)) return routeMap.get(normKey);
+            if (rawId) {
+                const lowerId = String(rawId).trim().toLowerCase();
+                if (routeMap.has(lowerId)) return routeMap.get(lowerId);
+            }
+            if (rawName) {
+                const lowerName = String(rawName).trim().toLowerCase();
+                for (const r of routeMap.values()) {
+                    if (String(r.routeName || '').trim().toLowerCase() === lowerName) {
+                        return r;
+                    }
+                }
+            }
+            return null;
+        };
+
         // 1. Add defined routes
         rawRoutes.forEach((r) => {
             const rId = String(r.routeId || r._id || '').trim();
             if (!rId) return;
+            const normKey = normalizeRouteKey(rId);
             const rName = r.routeName || r.name || `Route ${rId}`;
-            routeMap.set(rId.toLowerCase(), {
-                routeId: rId,
-                routeName: rName,
-                stages: r.stages || [],
-                assignedBuses: [],
-                passengers: [],
-            });
+            if (!routeMap.has(normKey)) {
+                routeMap.set(normKey, {
+                    routeId: rId,
+                    routeName: rName,
+                    stages: r.stages || [],
+                    assignedBuses: [],
+                    passengers: [],
+                });
+            }
         });
 
         // 2. Associate buses from buses collection (latest active master mappings)
@@ -1518,11 +1562,20 @@ const QrVerification = () => {
             if (b.status && b.status !== 'Active') return;
             const assignedRId = String(b.assignedRouteId || '').trim();
             if (assignedRId) {
-                const existing = routeMap.get(assignedRId.toLowerCase());
-                if (existing) {
-                    if (b.busNumber && !existing.assignedBuses.includes(b.busNumber)) {
-                        existing.assignedBuses.push(b.busNumber);
+                const targetRoute = getRouteFromMap(assignedRId);
+                if (targetRoute) {
+                    if (b.busNumber && !targetRoute.assignedBuses.includes(b.busNumber)) {
+                        targetRoute.assignedBuses.push(b.busNumber);
                     }
+                } else {
+                    const normKey = normalizeRouteKey(assignedRId);
+                    routeMap.set(normKey, {
+                        routeId: assignedRId,
+                        routeName: `Route ${assignedRId}`,
+                        stages: [],
+                        assignedBuses: b.busNumber ? [b.busNumber] : [],
+                        passengers: [],
+                    });
                 }
             }
         });
@@ -1533,19 +1586,10 @@ const QrVerification = () => {
             const pRouteName = String(p.routeName || p.route_name || '').trim();
             const pBusId = String(p.busId || p.bus_id || '').trim();
 
-            let targetKey = pRouteId.toLowerCase();
-            let targetRoute = routeMap.get(targetKey);
-
-            if (!targetRoute && pRouteName) {
-                for (const r of routeMap.values()) {
-                    if (r.routeName.toLowerCase() === pRouteName.toLowerCase()) {
-                        targetRoute = r;
-                        break;
-                    }
-                }
-            }
+            let targetRoute = getRouteFromMap(pRouteId, pRouteName);
 
             if (!targetRoute && pRouteId) {
+                const normKey = normalizeRouteKey(pRouteId);
                 targetRoute = {
                     routeId: pRouteId,
                     routeName: pRouteName || `Route ${pRouteId}`,
@@ -1553,7 +1597,7 @@ const QrVerification = () => {
                     assignedBuses: [],
                     passengers: [],
                 };
-                routeMap.set(targetKey, targetRoute);
+                routeMap.set(normKey, targetRoute);
             }
 
             if (targetRoute) {
@@ -1590,12 +1634,15 @@ const QrVerification = () => {
             if (!Number.isNaN(numA) && !Number.isNaN(numB)) return numA - numB;
             return a.routeId.localeCompare(b.routeId);
         });
-    }, [rawRoutes, rawBuses, allCachedPassengers, inspectedMap, isPassengerInspected]);
+    }, [rawRoutes, rawBuses, allCachedPassengers, inspectedMap, isPassengerInspected, normalizeRouteKey]);
 
     // Active Route Selected Details
     const activeRouteData = useMemo(() => {
         if (!selectedRoute) return null;
-        const baseRoute = routesWithMetrics.find((r) => r.routeId.toLowerCase() === selectedRoute.routeId.toLowerCase()) || selectedRoute;
+        const selNormKey = normalizeRouteKey(selectedRoute.routeId);
+        const baseRoute = routesWithMetrics.find((r) => (
+            normalizeRouteKey(r.routeId) === selNormKey || r.routeId.toLowerCase() === selectedRoute.routeId.toLowerCase()
+        )) || selectedRoute;
         if (!selectedBus) return baseRoute;
 
         const selBusStr = String(selectedBus).trim().toLowerCase();
@@ -1603,8 +1650,22 @@ const QrVerification = () => {
 
         // 1. Assigned passengers for this bus
         const assignedPassengers = (baseRoute.passengers || []).filter((passenger) => {
-            const passengerBus = String(passenger.busId || passenger.bus_id || '').trim().toLowerCase();
-            return !passengerBus || passengerBus === selBusStr;
+            const pBus = String(passenger.busId || passenger.bus_id || passenger.busNumber || '').trim().toLowerCase();
+            if (!pBus || pBus === 'unassigned' || pBus === 'none' || pBus === 'all') return true;
+            if (pBus === selBusStr) return true;
+            if (rawBuses && rawBuses.length > 0) {
+                const busObj = rawBuses.find((b) => (
+                    String(b._id || '').trim().toLowerCase() === pBus ||
+                    String(b.busId || '').trim().toLowerCase() === pBus ||
+                    String(b.busNumber || '').trim().toLowerCase() === pBus
+                ));
+                if (busObj) {
+                    const bNo = String(busObj.busNumber || '').trim().toLowerCase();
+                    if (bNo && bNo !== selBusStr) return false;
+                    return true;
+                }
+            }
+            return true;
         });
 
         // 2. Override passengers scanned on this bus
@@ -1625,20 +1686,29 @@ const QrVerification = () => {
         });
 
         const passengers = [...assignedPassengers, ...overridePassengers];
-        const inspectedCount = passengers.filter((p) => isPassengerInspected(p, inspectedMap)).length;
-
-        const mismatchedCount = overridePassengers.length;
+        const correctScannedCount = assignedPassengers.filter((p) => isPassengerInspected(p, inspectedMap)).length;
+        const faultScannedCount = overridePassengers.length;
+        const totalScannedCount = correctScannedCount + faultScannedCount;
+        const totalExpectedCount = assignedPassengers.length;
+        const pendingCount = Math.max(0, totalExpectedCount - correctScannedCount);
+        const studentsCount = assignedPassengers.filter((p) => (p.userType || p.user_type || 'student') === 'student').length;
+        const facultyCount = assignedPassengers.filter((p) => (p.userType || p.user_type) === 'employee').length;
 
         return {
             ...baseRoute,
             passengers,
             assignedBuses: [selectedBus],
-            totalCount: passengers.length,
-            inspectedCount,
-            mismatchedCount,
-            inspectedPercent: passengers.length ? Math.round((inspectedCount / passengers.length) * 100) : 0,
+            totalCount: totalExpectedCount,
+            studentsCount,
+            facultyCount,
+            inspectedCount: totalScannedCount,
+            correctCount: correctScannedCount,
+            faultCount: faultScannedCount,
+            pendingCount,
+            mismatchedCount: faultScannedCount,
+            inspectedPercent: totalExpectedCount > 0 ? Math.round((correctScannedCount / totalExpectedCount) * 100) : 0,
         };
-    }, [selectedBus, selectedRoute, routesWithMetrics, inspectedMap, allCachedPassengers, isPassengerInspected, getInspectedRecord]);
+    }, [selectedBus, selectedRoute, routesWithMetrics, inspectedMap, allCachedPassengers, isPassengerInspected, getInspectedRecord, rawBuses]);
 
     const inspectionBuses = useMemo(() => {
         const buses = [];
@@ -1647,8 +1717,22 @@ const QrVerification = () => {
             route.assignedBuses.forEach((busNumber) => {
                 const busStr = String(busNumber).trim().toLowerCase();
                 const assignedPassengers = (route.passengers || []).filter((passenger) => {
-                    const passengerBus = String(passenger.busId || passenger.bus_id || '').trim().toLowerCase();
-                    return !passengerBus || passengerBus === busStr;
+                    const pBus = String(passenger.busId || passenger.bus_id || passenger.busNumber || '').trim().toLowerCase();
+                    if (!pBus || pBus === 'unassigned' || pBus === 'none' || pBus === 'all') return true;
+                    if (pBus === busStr) return true;
+                    if (rawBuses && rawBuses.length > 0) {
+                        const busObj = rawBuses.find((b) => (
+                            String(b._id || '').trim().toLowerCase() === pBus ||
+                            String(b.busId || '').trim().toLowerCase() === pBus ||
+                            String(b.busNumber || '').trim().toLowerCase() === pBus
+                        ));
+                        if (busObj) {
+                            const bNo = String(busObj.busNumber || '').trim().toLowerCase();
+                            if (bNo && bNo !== busStr) return false;
+                            return true;
+                        }
+                    }
+                    return true;
                 });
                 const overridePassengers = (allCachedPassengers || []).filter((passenger) => {
                     const rec = getInspectedRecord(passenger, inspectedMap);
@@ -1682,7 +1766,7 @@ const QrVerification = () => {
             });
         });
         return buses;
-    }, [routesWithMetrics, inspectedMap, allCachedPassengers, isPassengerInspected, getInspectedRecord]);
+    }, [routesWithMetrics, inspectedMap, allCachedPassengers, isPassengerInspected, getInspectedRecord, rawBuses]);
 
     const selectedInspectionBus = useMemo(
         () => inspectionBuses.find((bus) => `${bus.routeId}::${bus.busNumber}` === inspectionSelection),
@@ -1847,6 +1931,16 @@ const QrVerification = () => {
             list = list.filter((p) => (p.userType || p.user_type || 'student') === 'student');
         } else if (inspectionFilter === 'faculty') {
             list = list.filter((p) => (p.userType || p.user_type) === 'employee');
+        } else if (inspectionFilter === 'correct') {
+            list = list.filter((p) => {
+                const rec = getInspectedRecord(p, inspectedMap);
+                return Boolean(rec) && !rec.wrongRouteOverride;
+            });
+        } else if (inspectionFilter === 'fault') {
+            list = list.filter((p) => {
+                const rec = getInspectedRecord(p, inspectedMap);
+                return Boolean(rec) && Boolean(rec.wrongRouteOverride);
+            });
         } else if (inspectionFilter === 'inspected') {
             list = list.filter((p) => isPassengerInspected(p, inspectedMap));
         } else if (inspectionFilter === 'pending') {
@@ -2279,20 +2373,20 @@ const QrVerification = () => {
                             /* VIEW B: ACTIVE ROUTE PASSENGER INSPECTION DASHBOARD */
                             <div className="space-y-4 min-w-0">
                                 {/* Route Header Card */}
-                                <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs space-y-3">
-                                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <div className="bg-white rounded-2xl p-2.5 sm:p-4 border border-slate-200 shadow-2xs space-y-2 sm:space-y-3">
+                                    <div className="flex items-center justify-between gap-2">
                                         <button
                                             type="button"
                                             onClick={async () => {
                                                 if (scanning) stopScanner();
                                                 await finishInspection();
                                             }}
-                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors"
+                                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] sm:text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors"
                                         >
-                                            <ArrowLeft size={14} /> Back to Routes
+                                            <ArrowLeft size={13} /> Back to Routes
                                         </button>
 
-                                        <div className="flex items-center gap-2 flex-wrap">
+                                        <div className="flex items-center gap-1.5">
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -2307,78 +2401,73 @@ const QrVerification = () => {
                                                         });
                                                     }
                                                 }}
-                                                className="px-2.5 py-1.5 text-[11px] font-bold text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer flex items-center gap-1 border border-slate-200"
+                                                className="px-2 py-1 text-[10px] sm:text-[11px] font-bold text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-md transition-colors cursor-pointer flex items-center gap-1 border border-slate-200"
                                             >
-                                                <RotateCcw size={12} /> Reset Route
+                                                <RotateCcw size={11} /> Reset
                                             </button>
                                         </div>
                                     </div>
 
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100">
-                                        <div>
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <span className="px-2.5 py-1 rounded-md bg-blue-600 text-white font-extrabold text-xs">
-                                                    Route {activeRouteData.routeId}
-                                                </span>
-                                                <h2 className="text-base sm:text-lg font-black text-slate-900">
-                                                    {activeRouteData.routeName}
-                                                </h2>
-                                                {!online && (
-                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-rose-100 text-rose-700 border border-rose-300 animate-pulse shrink-0">
-                                                        <WifiOff size={9} />
-                                                        Offline
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1.5 sm:pt-2 border-t border-slate-100">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white font-extrabold text-xs shrink-0">
+                                                Route {activeRouteData.routeId}
+                                            </span>
+                                            {activeRouteData.assignedBuses?.length > 0 ? (
+                                                activeRouteData.assignedBuses.map((busNo) => (
+                                                    <span key={busNo} className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                                                        🚌 Bus {busNo}
                                                     </span>
-                                                )}
-                                            </div>
-                                            <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                                <span className="text-xs text-slate-500 font-semibold">Inspecting Bus:</span>
-                                                {activeRouteData.assignedBuses?.length > 0 ? (
-                                                    activeRouteData.assignedBuses.map((busNo) => (
-                                                        <span key={busNo} className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
-                                                            🚌 {busNo}
-                                                        </span>
-                                                    ))
-                                                ) : (
-                                                    <span className="text-xs text-slate-400 italic">None assigned</span>
-                                                )}
-                                            </div>
+                                                ))
+                                            ) : (
+                                                <span className="text-xs text-slate-400 italic">Bus: None</span>
+                                            )}
+                                            {!online && (
+                                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-extrabold uppercase bg-rose-100 text-rose-700 border border-rose-300 animate-pulse shrink-0">
+                                                    <WifiOff size={8} />
+                                                    Offline
+                                                </span>
+                                            )}
                                         </div>
 
                                         {/* Route Stats Box */}
-                                        <div className="grid grid-cols-3 gap-1.5 w-full sm:w-auto sm:flex sm:items-center sm:gap-3 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                                        <div className="grid grid-cols-4 gap-1 w-full sm:w-auto sm:flex sm:items-center sm:gap-2.5 bg-slate-50 p-1.5 sm:p-2 rounded-xl border border-slate-200">
                                             <div className="text-center px-1 sm:px-2">
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase">Assigned</p>
-                                                <p className="text-sm font-black text-slate-800">{activeRouteData.totalCount}</p>
+                                                <p className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase tracking-tight leading-none">Actual</p>
+                                                <p className="text-xs sm:text-sm font-black text-slate-800 leading-tight mt-0.5">{activeRouteData.totalCount}</p>
                                             </div>
                                             <div className="hidden sm:block w-px h-6 bg-slate-200" />
                                             <div className="text-center px-1 sm:px-2">
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase">Boarded</p>
-                                                <p className="text-sm font-black text-emerald-600">{activeRouteData.inspectedCount}</p>
+                                                <p className="text-[8px] sm:text-[9px] font-bold text-emerald-600 uppercase tracking-tight leading-none">Correct</p>
+                                                <p className="text-xs sm:text-sm font-black text-emerald-700 leading-tight mt-0.5">{activeRouteData.correctCount || 0}</p>
                                             </div>
                                             <div className="hidden sm:block w-px h-6 bg-slate-200" />
                                             <div className="text-center px-1 sm:px-2">
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase">Remaining</p>
-                                                <p className="text-sm font-black text-rose-600">
-                                                    {Math.max(0, activeRouteData.totalCount - activeRouteData.inspectedCount)}
-                                                </p>
+                                                <p className="text-[8px] sm:text-[9px] font-bold text-amber-600 uppercase tracking-tight leading-none">Fault</p>
+                                                <p className="text-xs sm:text-sm font-black text-amber-700 leading-tight mt-0.5">{activeRouteData.faultCount || 0}</p>
+                                            </div>
+                                            <div className="hidden sm:block w-px h-6 bg-slate-200" />
+                                            <div className="text-center px-1 sm:px-2">
+                                                <p className="text-[8px] sm:text-[9px] font-bold text-rose-500 uppercase tracking-tight leading-none">Pending</p>
+                                                <p className="text-xs sm:text-sm font-black text-rose-600 leading-tight mt-0.5">{activeRouteData.pendingCount || 0}</p>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div className="pt-3 border-t border-slate-100">
-                                        <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-500">
+                                    <div className="pt-1.5 sm:pt-3 border-t border-slate-100">
+                                        <div className="flex items-center justify-between gap-2 text-[10px] sm:text-[11px] font-bold text-slate-500">
                                             <span>Inspection progress</span>
                                             <span className="text-slate-800 tabular-nums">
-                                                {activeRouteData.inspectedCount} of {activeRouteData.totalCount} ({activeRouteData.inspectedPercent || 0}%)
+                                                {activeRouteData.inspectedCount} / {activeRouteData.totalCount} ({activeRouteData.inspectedPercent || 0}%)
                                             </span>
                                         </div>
-                                        <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+                                        <div className="mt-1 h-1.5 sm:h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
                                             <div
                                                 className="h-full rounded-full bg-emerald-500 transition-all duration-300"
                                                 style={{ width: `${activeRouteData.inspectedPercent || 0}%` }}
                                             />
                                         </div>
-                                        <div className="mt-1 flex justify-between text-[10px] font-semibold text-slate-400">
+                                        <div className="mt-0.5 flex justify-between text-[9px] sm:text-[10px] font-semibold text-slate-400">
                                             <span>{activeRouteData.inspectedCount} inspected</span>
                                             <span>{Math.max(0, activeRouteData.totalCount - activeRouteData.inspectedCount)} remaining</span>
                                         </div>
@@ -2610,11 +2699,12 @@ const QrVerification = () => {
                                     {/* Passenger Filter Pills */}
                                     <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-bold text-slate-600">
                                         {[
-                                            { id: 'all', label: `All (${activeRouteData.totalCount})` },
+                                            { id: 'all', label: `All Actual (${activeRouteData.totalCount})` },
+                                            { id: 'correct', label: `Correct (${activeRouteData.correctCount || 0})` },
+                                            { id: 'fault', label: `Fault Scanned (${activeRouteData.faultCount || 0})` },
                                             { id: 'students', label: `Students (${activeRouteData.studentsCount})` },
                                             { id: 'faculty', label: `Faculty (${activeRouteData.facultyCount})` },
-                                            { id: 'inspected', label: `Boarded (${activeRouteData.inspectedCount})` },
-                                            { id: 'pending', label: `Pending (${Math.max(0, activeRouteData.totalCount - activeRouteData.inspectedCount)})` },
+                                            { id: 'pending', label: `Pending (${activeRouteData.pendingCount || 0})` },
                                         ].map((tab) => (
                                             <button
                                                 key={tab.id}
@@ -2709,29 +2799,22 @@ const QrVerification = () => {
                                                         </div>
                                                     </div>
 
-                                                    {/* Right Action: Check-in / Inspected button */}
+                                                    {/* Right Status Badge */}
                                                     <div className="shrink-0 flex items-center justify-end gap-2 w-full sm:w-auto">
                                                         {isInspected ? (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => undoPassengerInspected(pKey)}
-                                                                className="px-3 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                                                                title="Click to undo inspection"
+                                                                onClick={() => undoPassengerInspected(p)}
+                                                                className="px-3 py-1 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                                                                title="Click to undo scan"
                                                             >
                                                                 <Check size={14} className="text-emerald-700 stroke-[3]" />
-                                                                <span className="hidden sm:inline">Boarded</span>
+                                                                <span>Scanned</span>
                                                             </button>
                                                         ) : (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    markPassengerInspected(p, false);
-                                                                    playBeepFeedback(true);
-                                                                }}
-                                                                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm shadow-blue-600/20 cursor-pointer"
-                                                            >
-                                                                Check In
-                                                            </button>
+                                                            <span className="px-3 py-1 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 text-xs font-bold">
+                                                                Pending
+                                                            </span>
                                                         )}
                                                     </div>
                                                 </div>
@@ -2923,15 +3006,15 @@ const QrVerification = () => {
                     lastScanRef.current = { text: '', at: 0 };
                     setInspectionSuccessModal(null);
                 }}
-                title={inspectionSuccessModal?.isOverride ? 'Boarding Override Allowed' : inspectionSuccessModal?.isAlreadyInspected ? 'Already Boarded' : 'Scan Successful'}
+                title={inspectionSuccessModal?.isFault ? 'Fault Candidate Scanned' : inspectionSuccessModal?.isAlreadyInspected ? 'Already Scanned' : 'Correct Candidate Scanned'}
                 maxWidth="max-w-sm"
             >
                 {inspectionSuccessModal?.passenger && (
                     <div className="space-y-4">
-                        {/* Success Banner */}
-                        <div className={`rounded-2xl p-4 flex items-center gap-4 ${inspectionSuccessModal.isOverride ? 'bg-amber-50 border border-amber-200' : inspectionSuccessModal.isAlreadyInspected ? 'bg-yellow-50 border border-yellow-300' : 'bg-emerald-50 border border-emerald-200'}`}>
-                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-md ${inspectionSuccessModal.isOverride ? 'bg-amber-500' : inspectionSuccessModal.isAlreadyInspected ? 'bg-yellow-500' : 'bg-emerald-500'}`}>
-                                {inspectionSuccessModal.isOverride ? (
+                        {/* Success / Fault Banner */}
+                        <div className={`rounded-2xl p-4 flex items-center gap-4 ${inspectionSuccessModal.isFault ? 'bg-amber-50 border border-amber-200' : inspectionSuccessModal.isAlreadyInspected ? 'bg-yellow-50 border border-yellow-300' : 'bg-emerald-50 border border-emerald-200'}`}>
+                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-md ${inspectionSuccessModal.isFault ? 'bg-amber-500' : inspectionSuccessModal.isAlreadyInspected ? 'bg-yellow-500' : 'bg-emerald-500'}`}>
+                                {inspectionSuccessModal.isFault ? (
                                     <ShieldAlert size={28} className="text-white" />
                                 ) : inspectionSuccessModal.isAlreadyInspected ? (
                                     <CheckCheck size={28} className="text-white" />
@@ -2940,13 +3023,13 @@ const QrVerification = () => {
                                 )}
                             </div>
                             <div className="min-w-0">
-                                <p className={`text-xs font-bold uppercase tracking-wider ${inspectionSuccessModal.isOverride ? 'text-amber-600' : inspectionSuccessModal.isAlreadyInspected ? 'text-yellow-700' : 'text-emerald-600'}`}>
-                                    {inspectionSuccessModal.isOverride ? 'Override' : inspectionSuccessModal.isAlreadyInspected ? 'Already Boarded ⚠️' : 'Boarded ✓'}
+                                <p className={`text-xs font-bold uppercase tracking-wider ${inspectionSuccessModal.isFault ? 'text-amber-600' : inspectionSuccessModal.isAlreadyInspected ? 'text-yellow-700' : 'text-emerald-600'}`}>
+                                    {inspectionSuccessModal.isFault ? 'Fault Candidate ⚠️' : inspectionSuccessModal.isAlreadyInspected ? 'Already Scanned' : 'Correct Candidate ✓'}
                                 </p>
-                                <h3 className={`text-base font-black leading-tight mt-0.5 ${inspectionSuccessModal.isOverride ? 'text-amber-900' : inspectionSuccessModal.isAlreadyInspected ? 'text-yellow-900' : 'text-emerald-900'}`}>
+                                <h3 className={`text-base font-black leading-tight mt-0.5 ${inspectionSuccessModal.isFault ? 'text-amber-900' : inspectionSuccessModal.isAlreadyInspected ? 'text-yellow-900' : 'text-emerald-900'}`}>
                                     {inspectionSuccessModal.passenger.studentName || 'Passenger'}
                                 </h3>
-                                <p className={`text-xs mt-0.5 font-semibold ${inspectionSuccessModal.isOverride ? 'text-amber-700' : inspectionSuccessModal.isAlreadyInspected ? 'text-yellow-700' : 'text-emerald-700'}`}>
+                                <p className={`text-xs mt-0.5 font-semibold ${inspectionSuccessModal.isFault ? 'text-amber-700' : inspectionSuccessModal.isAlreadyInspected ? 'text-yellow-700' : 'text-emerald-700'}`}>
                                     ID: {inspectionSuccessModal.passenger.studentId || inspectionSuccessModal.passenger.admission_number || '—'}
                                 </p>
                             </div>
@@ -3033,7 +3116,10 @@ const QrVerification = () => {
             {/* ========================================================================= */}
             <Modal
                 isOpen={wrongBusModal.isOpen}
-                onClose={() => setWrongBusModal((prev) => ({ ...prev, isOpen: false }))}
+                onClose={() => {
+                    lastScanRef.current = { text: '', at: 0 };
+                    setWrongBusModal((prev) => ({ ...prev, isOpen: false }));
+                }}
                 title="Route Mismatch Alert"
                 maxWidth="max-w-md"
             >
@@ -3121,20 +3207,23 @@ const QrVerification = () => {
                                 type="button"
                                 onClick={() => {
                                     markPassengerInspected(wrongBusModal.passenger, true);
+                                    lastScanRef.current = { text: '', at: 0 };
                                     setWrongBusModal((prev) => ({ ...prev, isOpen: false }));
-                                    setInspectionSuccessModal({ passenger: wrongBusModal.passenger, isAlreadyInspected: false, isOverride: true });
                                 }}
-                                className="flex-1 py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-colors cursor-pointer text-center shadow-sm"
+                                className="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs transition-all cursor-pointer text-center shadow-md active:scale-95"
                             >
-                                ⚠️ Allow Boarding Anyway
+                                Scan Next Candidate →
                             </button>
 
                             <button
                                 type="button"
-                                onClick={() => setWrongBusModal((prev) => ({ ...prev, isOpen: false }))}
-                                className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer text-center"
+                                onClick={() => {
+                                    lastScanRef.current = { text: '', at: 0 };
+                                    setWrongBusModal((prev) => ({ ...prev, isOpen: false }));
+                                }}
+                                className="py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer text-center"
                             >
-                                Dismiss / Reject
+                                Dismiss
                             </button>
                         </div>
                     </div>
