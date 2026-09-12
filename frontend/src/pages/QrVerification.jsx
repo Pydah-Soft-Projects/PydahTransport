@@ -1146,25 +1146,11 @@ const QrVerification = () => {
                 }
                 playBeepFeedback(!isAlreadyInspected);
                 setInspectionSuccessModal({ passenger, isAlreadyInspected, isOverride: false, isFault: false });
-
-                // Auto-dismiss the success banner after 1.8s so continuous camera scanning works seamlessly!
-                if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-                toastTimerRef.current = setTimeout(() => {
-                    lastScanRef.current = { text: '', at: 0 };
-                    setInspectionSuccessModal(null);
-                }, 1800);
             } else {
                 // Route Mismatch -> Automatically record as Fault Candidate Scan!
                 markPassengerInspected(passenger, true);
                 playBeepFeedback(false);
                 setInspectionSuccessModal({ passenger, isAlreadyInspected: false, isOverride: true, isFault: true });
-
-                // Auto-dismiss the fault scan banner after 2.2s so continuous camera scanning keeps running!
-                if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-                toastTimerRef.current = setTimeout(() => {
-                    lastScanRef.current = { text: '', at: 0 };
-                    setInspectionSuccessModal(null);
-                }, 2200);
             }
         } finally {
             setVerifying(false);
