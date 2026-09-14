@@ -348,53 +348,57 @@ const fetchFleetTravelled = async (req, res) => {
       routeMap[r.routeId] = r;
     });
     
-    // Process in parallel
-    const fetchPromises = vehicles.map(async (veh) => {
-      try {
-        const kmRes = await fetchDailyKilometersFromTgg({
-          vehicle_name: veh.name,
-          date_from,
-          date_to
-        });
-        
-        let totalKm = 0;
-        let isMock = false;
-        if (kmRes.success && Array.isArray(kmRes.data)) {
-          totalKm = kmRes.data.reduce((acc, d) => acc + d.kilometers, 0);
-          isMock = kmRes.isMock;
+    // Process in chunks with concurrency limit of 2 to avoid flooding TGG API
+    const results = [];
+    const CONCURRENCY = 2;
+    for (let i = 0; i < vehicles.length; i += CONCURRENCY) {
+      const chunk = vehicles.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.all(chunk.map(async (veh) => {
+        try {
+          const kmRes = await fetchDailyKilometersFromTgg({
+            vehicle_name: veh.name,
+            date_from,
+            date_to
+          });
+          
+          let totalKm = 0;
+          let isMock = false;
+          if (kmRes.success && Array.isArray(kmRes.data)) {
+            totalKm = kmRes.data.reduce((acc, d) => acc + d.kilometers, 0);
+            isMock = kmRes.isMock;
+          }
+
+          const { routeId: routeIdVal, routeName: routeNameVal } = resolveVehicleRoute(veh.name, buses, routeMap);
+          
+          return {
+            name: veh.name,
+            units: veh.units,
+            latitude: veh.latitude,
+            longitude: veh.longitude,
+            speed: veh.speed,
+            routeId: routeIdVal,
+            routeName: routeNameVal,
+            totalKm: Math.round(totalKm * 10) / 10,
+            isMock
+          };
+        } catch (err) {
+          const { routeId: routeIdVal, routeName: routeNameVal } = resolveVehicleRoute(veh.name, buses, routeMap);
+
+          return {
+            name: veh.name,
+            units: veh.units,
+            latitude: veh.latitude,
+            longitude: veh.longitude,
+            speed: veh.speed,
+            routeId: routeIdVal,
+            routeName: routeNameVal,
+            totalKm: 0,
+            isMock: false
+          };
         }
-
-        const { routeId: routeIdVal, routeName: routeNameVal } = resolveVehicleRoute(veh.name, buses, routeMap);
-        
-        return {
-          name: veh.name,
-          units: veh.units,
-          latitude: veh.latitude,
-          longitude: veh.longitude,
-          speed: veh.speed,
-          routeId: routeIdVal,
-          routeName: routeNameVal,
-          totalKm,
-          isMock
-        };
-      } catch (err) {
-        const { routeId: routeIdVal, routeName: routeNameVal } = resolveVehicleRoute(veh.name, buses, routeMap);
-
-        return {
-          name: veh.name,
-          units: veh.units,
-          latitude: veh.latitude,
-          longitude: veh.longitude,
-          speed: veh.speed,
-          routeId: routeIdVal,
-          routeName: routeNameVal,
-          totalKm: 0,
-          isMock: true
-        };
-      }
-    });
-
-    const results = await Promise.all(fetchPromises);
+      }));
+      results.push(...chunkResults);
+    }
 
     return res.status(200).json({
       success: true,
@@ -491,6 +495,61 @@ const parseGeofencesFromTgg = (tggData, vehName) => {
 };
 
 /**
+ * Helper to extract daily kilometers dictionary ({ 'YYYY-MM-DD': kmValue }) from TGG report response
+ */
+const parseDailyKilometersFromTggReport = (tggData, vehName) => {
+  const kmByDate = {};
+  if (!tggData || typeof tggData !== 'object') return kmByDate;
+
+  let vehObj = tggData[vehName] || null;
+  if (!vehObj) {
+    for (const k of Object.keys(tggData)) {
+      if (tggData[k] && typeof tggData[k] === 'object' && (tggData[k].Mileage || tggData[k]["Total KMs Travelled"] || tggData[k].Summary || tggData[k].Distance)) {
+        vehObj = tggData[k];
+        break;
+      }
+    }
+  }
+
+  const sections = vehObj || tggData;
+  const distanceReport = sections["Mileage"] || sections["Total KMs Travelled"] || sections["Summary"] || sections["Distance"];
+  if (!distanceReport) return kmByDate;
+
+  const subObjList = Array.isArray(distanceReport) ? [distanceReport] : Object.values(distanceReport);
+  subObjList.forEach(subObj => {
+    const rows = Array.isArray(subObj) ? subObj : (subObj && typeof subObj === 'object' ? Object.values(subObj) : []);
+    rows.forEach(rowItem => {
+      const cObj = rowItem?.c || rowItem;
+      if (cObj && typeof cObj === 'object') {
+        let rowDate = null;
+        let kmVal = 0;
+        for (const key of Object.keys(cObj)) {
+          const val = String(cObj[key] || '');
+          const normD = normalizeDateStr(val);
+          if (normD) {
+            rowDate = normD;
+          }
+          if (val.toLowerCase().includes('km') || /^\d+(\.\d+)?$/.test(val.trim())) {
+            const m = val.match(/([\d.]+)/);
+            if (m) {
+              const n = parseFloat(m[1]);
+              if (!isNaN(n) && n > 0 && n < 2000) {
+                kmVal = Math.max(kmVal, n);
+              }
+            }
+          }
+        }
+        if (rowDate && kmVal > 0) {
+          kmByDate[rowDate] = Math.round(kmVal * 10) / 10;
+        }
+      }
+    });
+  });
+
+  return kmByDate;
+};
+
+/**
  * GET /api/gps/geofence-report?vehicle_name=X&date_from=Y&date_to=Z
  * Fetches the "Geofences" section from the TGG Daily Report and normalises it
  * into a flat array of { geofence, timeIn, timeOut, duration, mileage, latIn, lngIn, latOut, lngOut }.
@@ -503,8 +562,8 @@ const fetchGeofenceReport = async (req, res) => {
     }
 
     const tggVehicleName = await resolveTggVehicleName(vehicle_name);
-    const dfFrom = date_from ? `${date_from} 00:00` : '';
-    const dfTo = date_to ? `${date_to} 23:59` : '';
+    const dfFrom = date_from ? `${date_from} 00:00:00` : '';
+    const dfTo = date_to ? `${date_to} 23:59:59` : '';
 
     const result = await fetchReportsFromTgg({
       vehicle_name: tggVehicleName,
@@ -873,11 +932,41 @@ const buildDateRangeArray = (fromStr, toStr) => {
   return dates;
 };
 
+const normalizeDateStr = (rawStr) => {
+  if (!rawStr || typeof rawStr !== 'string') return null;
+  const cleaned = rawStr.trim();
+  const datePart = cleaned.split(' ')[0].split('T')[0];
+  
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    return datePart;
+  }
+  const dmY = datePart.match(/^(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})$/);
+  if (dmY) {
+    const [, d, m, y] = dmY;
+    return `${y}-${m}-${d}`;
+  }
+  const yMd = datePart.match(/^(\d{4})[\/\.](\d{2})[\/\.](\d{2})$/);
+  if (yMd) {
+    const [, y, m, d] = yMd;
+    return `${y}-${m}-${d}`;
+  }
+  
+  const dt = new Date(cleaned);
+  if (!isNaN(dt.getTime())) {
+    const yyyy = dt.getFullYear();
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  return null;
+};
+
 /**
- * GET /api/gps/7day-inout-report
+ * GET /api/gps/day-inout-report
  * Returns bus IN and OUT times table report for a specified date range
  */
-const fetch7DayInOutReport = async (req, res) => {
+const fetchDayInOutReport = async (req, res) => {
   try {
     const dateToParam = req.query.date_to || new Date().toISOString().split('T')[0];
     const dateFromParam = req.query.date_from || null;
@@ -886,17 +975,17 @@ const fetch7DayInOutReport = async (req, res) => {
     let dates = buildDateRangeArray(dateFromParam, dateToParam);
 
     if (dates.length === 0) {
-      // Default array of 7 dates ending on dateToParam
+      // Default array of 5 dates ending on dateToParam
       const end = new Date(`${dateToParam}T12:00:00`);
       const start = new Date(end);
-      start.setDate(start.getDate() - 6);
+      start.setDate(start.getDate() - 4);
       const yFrom = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
       const yTo = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
       dates = buildDateRangeArray(yFrom, yTo);
     }
 
     const userIdStr = req.user?._id ? String(req.user._id) : 'anon';
-    const cacheKey = `7day_inout_${userIdStr}_${dateFromParam || 'default'}_${dateToParam}_${req.query.campus || 'all'}`;
+    const cacheKey = `day_inout_${userIdStr}_${dateFromParam || 'default'}_${dateToParam}_${req.query.campus || 'all'}`;
     // Use in-memory cache if fresh (10-minute TTL) unless forceRefresh is true
     if (!forceRefresh && global._7dayInOutCache && global._7dayInOutCache[cacheKey] && (Date.now() - global._7dayInOutCache[cacheKey].timestamp < 600000)) {
       return res.status(200).json(global._7dayInOutCache[cacheKey].data);
@@ -913,13 +1002,13 @@ const fetch7DayInOutReport = async (req, res) => {
     const vehiclesRes = await fetchVehiclesListFromTgg();
     const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
 
-    const dateFromStr = `${dates[0]} 00:00`;
-    const dateToStr = `${dates[dates.length - 1]} 23:59`;
+    const dateFromStr = `${dates[0]} 00:00:00`;
+    const dateToStr = `${dates[dates.length - 1]} 23:59:59`;
     const todayStr = new Date().toISOString().split('T')[0];
     const nowHHMM = new Date().toTimeString().substring(0, 5);
 
-    // Process buses concurrently with a limit of 5
-    const CONCURRENCY = 5;
+    // Process buses concurrently in fast chunks of 6
+    const CONCURRENCY = 6;
     const reportRows = [];
     for (let i = 0; i < buses.length; i += CONCURRENCY) {
       const chunk = buses.slice(i, i + CONCURRENCY);
@@ -934,6 +1023,7 @@ const fetch7DayInOutReport = async (req, res) => {
           daysMap[d] = { firstIn: null, lastOut: null, kilometers: 0 };
         });
 
+        // 1. Fetch IN/OUT Geofence logs and daily mileage from single TGG range report
         try {
           const tggReport = await fetchReportsFromTgg({
             vehicle_name: tggVehicleName,
@@ -945,39 +1035,59 @@ const fetch7DayInOutReport = async (req, res) => {
           if (tggReport.success && tggReport.data) {
             const gfLogs = parseGeofencesFromTgg(tggReport.data, tggVehicleName);
             
-            // Group TGG logs by date
+            // Group TGG geofence logs by normalized date for IN/OUT and log mileage
             gfLogs.forEach(log => {
               if (log.timeIn && log.timeIn !== '—') {
-                const inDate = log.timeIn.split(' ')[0];
+                const normInDate = normalizeDateStr(log.timeIn);
                 const inTime = log.timeIn.split(' ')[1]?.substring(0, 5); // HH:mm
-                if (daysMap[inDate] && inTime) {
-                  if (!daysMap[inDate].firstIn || inTime < daysMap[inDate].firstIn) {
-                    daysMap[inDate].firstIn = inTime;
+                if (normInDate && daysMap[normInDate] && inTime) {
+                  if (!daysMap[normInDate].firstIn || inTime < daysMap[normInDate].firstIn) {
+                    daysMap[normInDate].firstIn = inTime;
                   }
                 }
               }
 
               if (log.timeOut && log.timeOut !== '—') {
-                const outDate = log.timeOut.split(' ')[0];
+                const normOutDate = normalizeDateStr(log.timeOut);
                 const outTime = log.timeOut.split(' ')[1]?.substring(0, 5); // HH:mm
-                if (daysMap[outDate] && outTime) {
-                  if (!daysMap[outDate].lastOut || outTime > daysMap[outDate].lastOut) {
-                    daysMap[outDate].lastOut = outTime;
+                if (normOutDate && daysMap[normOutDate] && outTime) {
+                  if (!daysMap[normOutDate].lastOut || outTime > daysMap[normOutDate].lastOut) {
+                    daysMap[normOutDate].lastOut = outTime;
+                  }
+                }
+              }
+
+              // Extract mileage from geofence row if available
+              if (log.mileage && log.mileage !== '—') {
+                const mMatch = String(log.mileage).match(/([\d.]+)/);
+                if (mMatch) {
+                  const mVal = Math.round(parseFloat(mMatch[1]) * 10) / 10;
+                  const logDate = normalizeDateStr(log.timeIn || log.timeOut);
+                  if (logDate && daysMap[logDate] && mVal > 0) {
+                    daysMap[logDate].kilometers = Math.max(daysMap[logDate].kilometers, mVal);
                   }
                 }
               }
             });
+
+            // Extract daily kilometers directly from Mileage/Summary section in single tggReport
+            const parsedKms = parseDailyKilometersFromTggReport(tggReport.data, tggVehicleName);
+            Object.keys(parsedKms).forEach(dStr => {
+              if (daysMap[dStr] && parsedKms[dStr] > 0) {
+                daysMap[dStr].kilometers = Math.max(daysMap[dStr].kilometers, parsedKms[dStr]);
+              }
+            });
           }
         } catch (err) {
-          console.warn(`[GPS] 7day report fetch failed for ${tggVehicleName}:`, err.message);
+          console.warn(`[GPS] geofence report fetch failed for ${tggVehicleName}:`, err.message);
         }
 
-        // Validation for dates (suppress future OUT times for Today, leave missing logs as null)
+        // 3. Validation for dates (suppress future OUT times for Today, no mock data)
         dates.forEach(dateStr => {
           const dayObj = daysMap[dateStr];
           const isToday = dateStr === todayStr;
 
-          // Crucial: For TODAY, if recorded lastOut is in the future relative to current time, reset to null
+          // For TODAY, if recorded lastOut is in the future relative to current time, reset to null
           if (isToday && dayObj.lastOut && dayObj.lastOut > nowHHMM) {
             dayObj.lastOut = null;
           }
@@ -993,6 +1103,27 @@ const fetch7DayInOutReport = async (req, res) => {
       }));
 
       reportRows.push(...chunkResults);
+    }
+
+    // Merge with previous cache to preserve valid historical readings if TGG API temporarily returned empty
+    const previousCache = global._7dayInOutCache?.[cacheKey]?.data?.data;
+    if (previousCache && Array.isArray(previousCache)) {
+      reportRows.forEach(row => {
+        const prevRow = previousCache.find(p => p.busNumber === row.busNumber);
+        if (prevRow && prevRow.days) {
+          Object.keys(row.days).forEach(dStr => {
+            const currentDay = row.days[dStr];
+            const prevDay = prevRow.days[dStr];
+            if (prevDay) {
+              if (!currentDay.firstIn && prevDay.firstIn) currentDay.firstIn = prevDay.firstIn;
+              if (!currentDay.lastOut && prevDay.lastOut) currentDay.lastOut = prevDay.lastOut;
+              if ((!currentDay.kilometers || currentDay.kilometers === 0) && prevDay.kilometers > 0) {
+                currentDay.kilometers = prevDay.kilometers;
+              }
+            }
+          });
+        }
+      });
     }
 
     const responsePayload = {
@@ -1031,5 +1162,6 @@ module.exports = {
   fetchGeofenceReport,
   fetchFinalDestinationReport,
   fetchDailyHistory,
-  fetch7DayInOutReport
+  fetchDayInOutReport,
+  fetch7DayInOutReport: fetchDayInOutReport
 };

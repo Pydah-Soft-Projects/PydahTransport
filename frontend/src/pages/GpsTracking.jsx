@@ -121,7 +121,7 @@ export default function GpsTracking() {
   const [fleetDateFrom, setFleetDateFrom] = useState(() => {
     return sessionStorage.getItem('gps_fleet_date_from') || (() => {
       const d = new Date();
-      d.setDate(d.getDate() - 6);
+      d.setDate(d.getDate() - 4); // Default to last 5 days
       return d.toISOString().split('T')[0];
     })();
   });
@@ -129,10 +129,11 @@ export default function GpsTracking() {
     return sessionStorage.getItem('gps_fleet_date_to') || new Date().toISOString().split('T')[0];
   });
 
-  // 7-Day IN/OUT Report States
+  // 5-Day / Custom IN/OUT Report States
   const [report7DayData, setReport7DayData] = useState([]);
   const [reportDates, setReportDates] = useState([]);
   const [reportLoading, setReportLoading] = useState(false);
+  const reportRequestIdRef = useRef(0);
 
   // Filter Modal state
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
@@ -146,7 +147,7 @@ export default function GpsTracking() {
         if (generated.length > 0) return generated;
         const todayStr = new Date().toISOString().split('T')[0];
         const defaultFrom = new Date();
-        defaultFrom.setDate(defaultFrom.getDate() - 6);
+        defaultFrom.setDate(defaultFrom.getDate() - 4);
         return buildClientDateRange(defaultFrom.toISOString().split('T')[0], todayStr);
       })();
 
@@ -158,20 +159,53 @@ export default function GpsTracking() {
   const vehiclesRef = useRef(vehicles);
   vehiclesRef.current = vehicles;
 
-  const fetch7DayReport = useCallback(async (overrideFrom, overrideTo, forceRefresh = false) => {
-    setReportLoading(true);
+  // Fast range report fetcher for 5-day / custom date range
+  const fetchDayReport = useCallback(async (overrideFrom, overrideTo, forceRefresh = false) => {
     const fromStr = overrideFrom || fleetDateFrom;
     const toStr = overrideTo || fleetDateTo;
+    const requestedDates = buildClientDateRange(fromStr, toStr);
+
+    if (requestedDates.length > 0) {
+      setReportDates(requestedDates);
+    }
+    setReportLoading(true);
+
     try {
-      const url = `${API_BASE}/gps/7day-inout-report?date_from=${fromStr}&date_to=${toStr}${forceRefresh ? '&refresh=true' : ''}`;
+      const url = `${API_BASE}/gps/day-inout-report?date_from=${fromStr}&date_to=${toStr}${forceRefresh ? '&refresh=true' : ''}`;
       const res = await apiFetch(url);
       const json = await res.json();
-      if (res.ok && json.success) {
-        setReport7DayData(json.data || []);
-        setReportDates(json.dates && json.dates.length > 0 ? json.dates : buildClientDateRange(fromStr, toStr));
+
+      if (res.ok && json.success && Array.isArray(json.data)) {
+        setReport7DayData(prevRows => {
+          if (!prevRows || prevRows.length === 0) return json.data;
+          
+          return json.data.map(incomingRow => {
+            const existingRow = prevRows.find(r => r.busNumber === incomingRow.busNumber);
+            if (!existingRow || !existingRow.days) return incomingRow;
+
+            const mergedDays = { ...incomingRow.days };
+            Object.keys(existingRow.days).forEach(dStr => {
+              const existingDay = existingRow.days[dStr];
+              const incomingDay = mergedDays[dStr] || { firstIn: null, lastOut: null, kilometers: 0 };
+              mergedDays[dStr] = {
+                firstIn: incomingDay.firstIn || existingDay.firstIn || null,
+                lastOut: incomingDay.lastOut || existingDay.lastOut || null,
+                kilometers: (incomingDay.kilometers && incomingDay.kilometers > 0) ? incomingDay.kilometers : (existingDay.kilometers || 0)
+              };
+            });
+
+            return {
+              ...incomingRow,
+              days: mergedDays
+            };
+          });
+        });
+        if (json.dates && json.dates.length > 0) {
+          setReportDates(json.dates);
+        }
       }
     } catch (err) {
-      console.error('7-day report fetch error:', err);
+      console.error('Day report fetch error:', err);
     } finally {
       setReportLoading(false);
     }
@@ -179,9 +213,9 @@ export default function GpsTracking() {
 
   useEffect(() => {
     if (activePageTab === 'reports' || activePageTab === 'travelled') {
-      fetch7DayReport();
+      fetchDayReport();
     }
-  }, [activePageTab, fetch7DayReport]);
+  }, [activePageTab, fetchDayReport]);
 
   // Final Destination modal
   const [campuses, setCampuses] = useState([]);
@@ -429,19 +463,20 @@ export default function GpsTracking() {
   const handleExportFleetCsv = () => {
     if (!report7DayData.length) return;
     
-    const dateHeaders = reportDates.map(d => `${d} (IN / OUT)`);
+    const dateHeaders = reportDates.map(d => `${d} (IN / OUT / KMS)`);
     const headers = ['Route ID', 'Route Name', 'Bus Number', ...dateHeaders];
     
     const rows = report7DayData.map(r => {
       const dayCells = reportDates.map(d => {
         const info = r.days?.[d];
-        if (!info || (!info.firstIn && !info.lastOut)) return '—';
-        return `IN: ${info.firstIn || '—'} | OUT: ${info.lastOut || '—'}`;
+        if (!info || (!info.firstIn && !info.lastOut && !info.kilometers)) return '—';
+        const kmsStr = info.kilometers ? `${info.kilometers} km` : '—';
+        return `IN: ${info.firstIn || '—'} | OUT: ${info.lastOut || '—'} | KMS: ${kmsStr}`;
       });
       return [
         r.routeId || 'Unassigned',
         r.routeName || 'Unassigned',
-        r.busNumber,
+        r.tggVehicleName || r.busNumber,
         ...dayCells
       ];
     });
@@ -876,7 +911,7 @@ export default function GpsTracking() {
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-none truncate">
                   {activePageTab === 'live' && 'GPS Live Fleet Tracking Map'}
-                  {(activePageTab === 'reports' || activePageTab === 'travelled') && 'GPS Fleet Vehicle Reports & In/Out Logs'}
+                  {(activePageTab === 'reports' || activePageTab === 'travelled') && 'GPS Fleet Vehicle IN / OUT Reports & Distance Logs'}
                   {activePageTab === 'destination' && 'GPS Campus Final Destination Geofences'}
                 </h1>
                 <span className="px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-md flex items-center gap-1 shrink-0">
@@ -933,7 +968,7 @@ export default function GpsTracking() {
               </button>
 
               <button 
-                onClick={() => fetch7DayReport(fleetDateFrom, fleetDateTo, true)}
+                onClick={() => fetchDayReport(fleetDateFrom, fleetDateTo, true)}
                 disabled={reportLoading}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
               >
@@ -1076,7 +1111,7 @@ export default function GpsTracking() {
                     sessionStorage.setItem('gps_fleet_date_to', tempDateTo);
                     setIsFilterModalOpen(false);
                     setReportDates(buildClientDateRange(tempDateFrom, tempDateTo));
-                    fetch7DayReport(tempDateFrom, tempDateTo, true);
+                    fetchDayReport(tempDateFrom, tempDateTo, true);
                   }}
                   className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
                 >
@@ -1511,7 +1546,7 @@ export default function GpsTracking() {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
 
                             return (
-                              <th key={dateStr} colSpan={2} className={`px-2 py-1.5 text-center border-r border-slate-700/80 w-28 min-w-[112px] ${isToday ? 'bg-blue-900/90' : ''}`}>
+                              <th key={dateStr} colSpan={3} className={`px-2 py-1.5 text-center border-r border-slate-700/80 w-42 min-w-[168px] ${isToday ? 'bg-blue-900/90' : ''}`}>
                                 <div className="text-[10px] font-extrabold text-white">{dayNum} {monthName}</div>
                                 <div className="text-[8px] font-medium text-slate-300 uppercase">{dayName} {isToday ? '(Today)' : ''}</div>
                               </th>
@@ -1520,12 +1555,13 @@ export default function GpsTracking() {
                           <th rowSpan={2} className="px-2 py-2 text-center w-8 border-l border-slate-700 align-middle"></th>
                         </tr>
 
-                        {/* Header Row 2: IN / OUT Sub-headers under each date */}
+                        {/* Header Row 2: IN / OUT / KMS Sub-headers under each date */}
                         <tr className="bg-[#0A2558] text-slate-200 text-[9px] uppercase font-extrabold tracking-wider border-b border-slate-700 select-none">
                           {displayDates.map((dateStr) => (
                             <React.Fragment key={'sub_' + dateStr}>
                               <th className="px-1 py-1 text-center border-r border-slate-700/60 text-emerald-300 bg-emerald-950/40 w-14 min-w-[56px]">IN</th>
                               <th className="px-1 py-1 text-center border-r border-slate-700/80 text-rose-300 bg-rose-950/40 w-14 min-w-[56px]">OUT</th>
+                              <th className="px-1 py-1 text-center border-r border-slate-700/80 text-amber-300 bg-amber-950/40 w-14 min-w-[56px]">KMS</th>
                             </React.Fragment>
                           ))}
                         </tr>
@@ -1568,16 +1604,17 @@ export default function GpsTracking() {
                                   {row.tggVehicleName || row.busNumber}
                                 </td>
 
-                                {/* Divided IN & OUT Columns per date */}
+                                {/* Divided IN, OUT & KMS Columns per date */}
                                 {displayDates.map((dateStr) => {
                                   const dayInfo = row.days?.[dateStr] || {};
                                   const inTime = dayInfo.firstIn;
                                   const outTime = dayInfo.lastOut;
+                                  const kmVal = dayInfo.kilometers;
 
                                   return (
                                     <React.Fragment key={dateStr}>
                                       {/* IN Column */}
-                                      <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[9px]">
+                                      <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-14 min-w-[56px]">
                                         {reportLoading ? (
                                           <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                         ) : inTime ? (
@@ -1590,12 +1627,25 @@ export default function GpsTracking() {
                                       </td>
 
                                       {/* OUT Column */}
-                                      <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[9px]">
+                                      <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-14 min-w-[56px]">
                                         {reportLoading ? (
                                           <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                         ) : outTime ? (
                                           <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-700 font-extrabold border border-rose-200/80 inline-block whitespace-nowrap" title="Departure Time">
                                             {outTime}
+                                          </span>
+                                        ) : (
+                                          <span className="text-slate-300 font-bold text-[10px]">—</span>
+                                        )}
+                                      </td>
+
+                                      {/* KMS Column */}
+                                      <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-14 min-w-[56px]">
+                                        {reportLoading ? (
+                                          <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                        ) : (kmVal && kmVal > 0) ? (
+                                          <span className="px-1 py-0.2 rounded bg-amber-50 text-amber-800 font-extrabold border border-amber-200/80 inline-block whitespace-nowrap" title="Total Distance Travelled">
+                                            {kmVal} km
                                           </span>
                                         ) : (
                                           <span className="text-slate-300 font-bold text-[10px]">—</span>
@@ -1614,7 +1664,7 @@ export default function GpsTracking() {
                               {/* Expanded Detailed Day-by-Day Geofence Logs */}
                               {isExpanded && (
                                 <tr>
-                                  <td colSpan={displayDates.length * 2 + 3} className="px-4 py-3 bg-slate-50/90 border-b border-slate-200">
+                                  <td colSpan={displayDates.length * 3 + 3} className="px-4 py-3 bg-slate-50/90 border-b border-slate-200">
                                     <div className="space-y-2">
                                       <div className="flex items-center justify-between">
                                         <h4 className="text-[11px] font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-2">

@@ -106,7 +106,7 @@ const Layout = ({ children, title }) => {
                     permission: 'gps_tracking',
                     children: [
                         { path: '/gps-tracking?tab=live', label: 'Live Tracking Map', icon: <MapPin size={16} /> },
-                        { path: '/gps-tracking?tab=reports', label: 'GPS Reports', icon: <Activity size={16} /> },
+                        { path: '/gps-tracking?tab=reports', label: 'GPS IN / OUT Reports', icon: <Activity size={16} /> },
                         { path: '/gps-tracking?tab=destination', label: 'Final Destination', icon: <Zap size={16} /> },
                     ]
                 },

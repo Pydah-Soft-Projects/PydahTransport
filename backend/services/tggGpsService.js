@@ -65,7 +65,7 @@ try {
   // ignore
 }
 let lastCacheTime = vehiclesCache ? Date.now() : 0;
-const CACHE_TTL_MS = 6000; // 6 seconds cache TTL
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes cache TTL
 
 /**
  * Safe JSON parser that handles various PHP / TGG API response formats
@@ -434,30 +434,14 @@ const fetchDailyKilometersFromTgg = async (reportQuery = {}) => {
     return { success: true, isMock: false, data: [] };
   }
 
-  // Generate deterministic mock KM numbers
-  const getMockKMForDate = (dateStr, vehName) => {
-    const isSunday = new Date(dateStr).getDay() === 0;
-    const isSaturday = new Date(dateStr).getDay() === 6;
-    let kilometers = 0;
-    if (!isSunday) {
-      const seed = dateStr.split('-').reduce((acc, val) => acc + parseInt(val), 0) + 
-                   String(vehName).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      const pseudoRand = Math.abs(Math.sin(seed));
-      kilometers = isSaturday 
-        ? Math.round(45 + pseudoRand * 25) 
-        : Math.round(95 + pseudoRand * 45);
-    }
-    return { date: dateStr, kilometers, isMock: true };
-  };
-
   // Helper to fetch report for a single date with timeout
   const fetchSingleDay = async (dateStr) => {
     if (!token || !username || !password) {
-      return getMockKMForDate(dateStr, vehicleName);
+      return { date: dateStr, kilometers: 0, isMock: false };
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500); // 3.5 sec timeout
+    const timeoutId = setTimeout(() => controller.abort(), 7000); // 7 sec timeout
 
     try {
       const url = `${baseUrl}/reports_api.php?token=${encodeURIComponent(token)}`;
@@ -492,8 +476,7 @@ const fetchDailyKilometersFromTgg = async (reportQuery = {}) => {
           let cleaned = rawText.trim().replace(/^\{\s*\[/, '[').replace(/\]\s*\}$/, ']');
           parsed = JSON.parse(cleaned);
         } catch (e) {
-          console.warn(`[TGG Reports Parser] Failed to parse day ${dateStr}, using mock fallback.`);
-          return getMockKMForDate(dateStr, vehicleName);
+          return { date: dateStr, kilometers: 0, isMock: false };
         }
       }
 
@@ -503,31 +486,34 @@ const fetchDailyKilometersFromTgg = async (reportQuery = {}) => {
         for (const key of Object.keys(parsed)) {
           const vehReport = parsed[key];
           if (vehReport) {
-            const distanceReport = vehReport["Mileage"] || vehReport["Total KMs Travelled"];
+            const distanceReport = vehReport["Mileage"] || vehReport["Total KMs Travelled"] || vehReport["Summary"] || vehReport["Distance"];
             if (distanceReport) {
               for (const subKey of Object.keys(distanceReport)) {
                 const dataObj = distanceReport[subKey];
-                if (dataObj && dataObj["0"] && dataObj["0"].c) {
-                  const cObj = dataObj["0"].c;
-                  let distanceStr = "";
-                  
-                  // Dynamically scan cells to find the one containing "km" units
-                  for (const cKey of Object.keys(cObj)) {
-                    const val = String(cObj[cKey]);
-                    if (val.toLowerCase().includes("km")) {
-                      distanceStr = val;
-                      break;
+                const rows = Array.isArray(dataObj) ? dataObj : (dataObj && typeof dataObj === 'object' ? Object.values(dataObj) : []);
+                for (const rowItem of rows) {
+                  const cObj = rowItem?.c || rowItem;
+                  if (cObj && typeof cObj === 'object') {
+                    let distanceStr = "";
+                    for (const cKey of Object.keys(cObj)) {
+                      const val = String(cObj[cKey] || '');
+                      if (val.toLowerCase().includes("km")) {
+                        distanceStr = val;
+                        break;
+                      }
                     }
-                  }
-                  
-                  if (!distanceStr) {
-                    distanceStr = cObj["2"] || cObj["1"] || "";
-                  }
+                    if (!distanceStr) {
+                      distanceStr = cObj["2"] || cObj["1"] || cObj["3"] || cObj["5"] || "";
+                    }
 
-                  const match = distanceStr.match(/([\d.]+)/);
-                  if (match) {
-                    kilometers = parseFloat(match[1]);
-                    foundData = true;
+                    const match = String(distanceStr).match(/([\d.]+)/);
+                    if (match) {
+                      const valNum = parseFloat(match[1]);
+                      if (!isNaN(valNum) && valNum > 0) {
+                        kilometers = Math.max(kilometers, Math.round(valNum * 10) / 10);
+                        foundData = true;
+                      }
+                    }
                   }
                 }
               }
@@ -536,21 +522,26 @@ const fetchDailyKilometersFromTgg = async (reportQuery = {}) => {
         }
       }
 
-      if (!foundData) {
-        // If API responded but has no matching keys, it means vehicle was stationary (0 km)
-        return { date: dateStr, kilometers: 0, isMock: false };
-      }
-
-      return { date: dateStr, kilometers, isMock: false };
+      return { date: dateStr, kilometers: foundData ? kilometers : 0, isMock: false };
 
     } catch (err) {
-      console.warn(`[TGG Reports API] Error fetching day ${dateStr}, falling back to mock:`, err.message);
-      return getMockKMForDate(dateStr, vehicleName);
+      clearTimeout(timeoutId);
+      // Suppress repetitive abort/503 logs to prevent console noise
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`[TGG Reports API] Day ${dateStr}: ${err.message}`);
+      }
+      return { date: dateStr, kilometers: 0, isMock: false };
     }
   };
 
-  // Fetch all days in parallel
-  const results = await Promise.all(dateList.map(date => fetchSingleDay(date)));
+  // Process dates with maximum concurrency of 2 to avoid overwhelming TGG API
+  const results = [];
+  const CONCURRENCY_LIMIT = 2;
+  for (let i = 0; i < dateList.length; i += CONCURRENCY_LIMIT) {
+    const chunk = dateList.slice(i, i + CONCURRENCY_LIMIT);
+    const chunkResults = await Promise.all(chunk.map(d => fetchSingleDay(d)));
+    results.push(...chunkResults);
+  }
   
   const hasMock = results.some(r => r.isMock);
   
