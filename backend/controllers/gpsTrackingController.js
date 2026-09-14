@@ -13,6 +13,59 @@ const {
 const Bus = require('../models/Bus');
 const Route = require('../models/Route');
 const GpsFinalDestination = require('../models/GpsFinalDestination');
+const campusService = require('../services/campusService');
+
+/**
+ * Resolves allowed bus query filter based on logged in user campus permissions & query params
+ */
+const getCampusBusQueryFilter = async (req) => {
+  const user = req.user;
+  const isSuperAdmin = !user || (
+    Boolean(user.username && !user.emp_no) || 
+    (Array.isArray(user.roles) && (
+      user.roles.includes('SuperAdmin') || 
+      user.roles.includes('Super Admin') || 
+      user.roles.includes('admin')
+    ))
+  );
+
+  const hasCampusRestriction = user && !isSuperAdmin && Array.isArray(user.campuses) && user.campuses.length > 0;
+  
+  let targetCampusIds = null;
+  const queryCampusId = campusService.normalizeCampusId(req.query?.campus);
+
+  if (queryCampusId !== null) {
+    if (hasCampusRestriction) {
+      const allowedIds = campusService.normalizeCampusIds(user.campuses);
+      targetCampusIds = allowedIds.includes(queryCampusId) ? [queryCampusId] : allowedIds;
+    } else {
+      targetCampusIds = [queryCampusId];
+    }
+  } else if (hasCampusRestriction) {
+    targetCampusIds = campusService.normalizeCampusIds(user.campuses);
+  }
+
+  if (!targetCampusIds || targetCampusIds.length === 0) {
+    return { query: { status: 'Active' }, isRestricted: false, targetCampusIds: [], matchingRouteIds: [] };
+  }
+
+  // Find routes matching target campus IDs
+  const matchingRoutes = await Route.find({ campus: { $in: targetCampusIds } }).select('routeId').lean();
+  const matchingRouteIds = matchingRoutes.map(r => r.routeId);
+
+  return {
+    query: {
+      status: 'Active',
+      $or: [
+        { campus: { $in: targetCampusIds } },
+        { assignedRouteId: { $in: matchingRouteIds } }
+      ]
+    },
+    isRestricted: true,
+    targetCampusIds,
+    matchingRouteIds
+  };
+};
 
 /**
  * Resolve the exact TGG vehicle_name for API calls.
@@ -76,7 +129,8 @@ const fetchLiveVehicles = async (req, res) => {
       return res.status(200).json(result);
     }
 
-    const buses = await Bus.find({}).lean();
+    const { query: busQueryFilter, isRestricted, matchingRouteIds } = await getCampusBusQueryFilter(req);
+    const buses = await Bus.find(busQueryFilter).lean();
     const routes = await Route.find({}).lean();
     const routeMap = {};
     routes.forEach(r => {
@@ -93,11 +147,20 @@ const fetchLiveVehicles = async (req, res) => {
       };
     });
 
+    const allowedBusPlateKeys = new Set(buses.map(b => extractPlateKey(b.busNumber)).filter(Boolean));
+    const filteredMappedData = isRestricted
+      ? mappedData.filter(veh => {
+          const plate = extractPlateKey(veh.name);
+          const route = extractRouteIdFromVehicleName(veh.name);
+          return allowedBusPlateKeys.has(plate) || (route && matchingRouteIds.includes(route));
+        })
+      : mappedData;
+
     return res.status(200).json({
       success: true,
       isMock: result.isMock,
       message: result.message || 'Vehicles list retrieved successfully',
-      data: mappedData
+      data: filteredMappedData
     });
   } catch (error) {
     return res.status(500).json({
@@ -377,6 +440,59 @@ const getAllFinalDestinations = async (req, res) => {
 /**
  * GET /api/gps/geofence-report?vehicle_name=X&date_from=Y&date_to=Z
  * Fetches the "Geofences" section from the TGG Daily Report and normalises it
+/**
+ * Helper to extract geofence logs array from TGG reports API response
+ */
+const parseGeofencesFromTgg = (tggData, vehName) => {
+  if (!tggData || typeof tggData !== 'object') return [];
+
+  let geofenceContainer = null;
+  if (tggData[vehName]?.Geofences?.[vehName]) {
+    geofenceContainer = tggData[vehName].Geofences[vehName];
+  } else if (tggData[vehName]?.Geofences) {
+    geofenceContainer = tggData[vehName].Geofences;
+  } else if (tggData.Geofences?.[vehName]) {
+    geofenceContainer = tggData.Geofences[vehName];
+  } else if (tggData.Geofences) {
+    geofenceContainer = tggData.Geofences;
+  } else {
+    for (const key of Object.keys(tggData)) {
+      const v = tggData[key];
+      if (v?.Geofences) {
+        for (const gKey of Object.keys(v.Geofences)) {
+          geofenceContainer = v.Geofences[gKey];
+          if (geofenceContainer) break;
+        }
+      }
+      if (geofenceContainer) break;
+    }
+  }
+
+  if (!geofenceContainer) return [];
+
+  const rawEntries = Array.isArray(geofenceContainer) ? geofenceContainer : Object.values(geofenceContainer);
+
+  return rawEntries.map((entry) => {
+    const c = entry?.c || entry || {};
+    const tIn = c['2']?.t || c.timeIn || c.time_in || '—';
+    const tOut = c['3']?.t || c.timeOut || c.time_out || '—';
+    return {
+      geofence: c['1'] || c.name || c.geofence || 'Campus Main Geofence',
+      timeIn: tIn,
+      latIn: c['2']?.y ?? null,
+      lngIn: c['2']?.x ?? null,
+      timeOut: tOut,
+      latOut: c['3']?.y ?? null,
+      lngOut: c['3']?.x ?? null,
+      duration: c['4'] || c.duration || '—',
+      mileage: c['5'] || c.mileage || '—',
+    };
+  });
+};
+
+/**
+ * GET /api/gps/geofence-report?vehicle_name=X&date_from=Y&date_to=Z
+ * Fetches the "Geofences" section from the TGG Daily Report and normalises it
  * into a flat array of { geofence, timeIn, timeOut, duration, mileage, latIn, lngIn, latOut, lngOut }.
  */
 const fetchGeofenceReport = async (req, res) => {
@@ -386,11 +502,12 @@ const fetchGeofenceReport = async (req, res) => {
       return res.status(400).json({ success: false, message: 'vehicle_name is required' });
     }
 
+    const tggVehicleName = await resolveTggVehicleName(vehicle_name);
     const dfFrom = date_from ? `${date_from} 00:00` : '';
     const dfTo = date_to ? `${date_to} 23:59` : '';
 
     const result = await fetchReportsFromTgg({
-      vehicle_name,
+      vehicle_name: tggVehicleName,
       date_from: dfFrom,
       date_to: dfTo,
       template: 'Daily Report',
@@ -400,24 +517,7 @@ const fetchGeofenceReport = async (req, res) => {
       return res.status(200).json({ success: true, data: [] });
     }
 
-    const vehData = result.data[vehicle_name] || result.data;
-    const geofencesRaw = vehData?.Geofences?.[vehicle_name] || {};
-
-    const rows = Object.values(geofencesRaw).map((entry) => {
-      const c = entry.c || {};
-      return {
-        geofence: c['1'] || '—',
-        timeIn: c['2']?.t || '—',
-        latIn: c['2']?.y ?? null,
-        lngIn: c['2']?.x ?? null,
-        timeOut: c['3']?.t || '—',
-        latOut: c['3']?.y ?? null,
-        lngOut: c['3']?.x ?? null,
-        duration: c['4'] || '—',
-        mileage: c['5'] || '—',
-      };
-    });
-
+    const rows = parseGeofencesFromTgg(result.data, tggVehicleName);
     return res.status(200).json({ success: true, data: rows });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message || 'Failed to fetch geofence report' });
@@ -755,6 +855,167 @@ const fetchDailyHistory = async (req, res) => {
   }
 };
 
+const buildDateRangeArray = (fromStr, toStr) => {
+  if (!fromStr || !toStr) return [];
+  const start = new Date(`${fromStr}T12:00:00`);
+  const end = new Date(`${toStr}T12:00:00`);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return [];
+
+  const dates = [];
+  let cur = new Date(start);
+  while (cur <= end) {
+    const yyyy = cur.getFullYear();
+    const mm = String(cur.getMonth() + 1).padStart(2, '0');
+    const dd = String(cur.getDate()).padStart(2, '0');
+    dates.push(`${yyyy}-${mm}-${dd}`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+};
+
+/**
+ * GET /api/gps/7day-inout-report
+ * Returns bus IN and OUT times table report for a specified date range
+ */
+const fetch7DayInOutReport = async (req, res) => {
+  try {
+    const dateToParam = req.query.date_to || new Date().toISOString().split('T')[0];
+    const dateFromParam = req.query.date_from || null;
+    const forceRefresh = req.query.refresh === 'true';
+    
+    let dates = buildDateRangeArray(dateFromParam, dateToParam);
+
+    if (dates.length === 0) {
+      // Default array of 7 dates ending on dateToParam
+      const end = new Date(`${dateToParam}T12:00:00`);
+      const start = new Date(end);
+      start.setDate(start.getDate() - 6);
+      const yFrom = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+      const yTo = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+      dates = buildDateRangeArray(yFrom, yTo);
+    }
+
+    const userIdStr = req.user?._id ? String(req.user._id) : 'anon';
+    const cacheKey = `7day_inout_${userIdStr}_${dateFromParam || 'default'}_${dateToParam}_${req.query.campus || 'all'}`;
+    // Use in-memory cache if fresh (10-minute TTL) unless forceRefresh is true
+    if (!forceRefresh && global._7dayInOutCache && global._7dayInOutCache[cacheKey] && (Date.now() - global._7dayInOutCache[cacheKey].timestamp < 600000)) {
+      return res.status(200).json(global._7dayInOutCache[cacheKey].data);
+    }
+
+    const { query: busQueryFilter } = await getCampusBusQueryFilter(req);
+    const buses = await Bus.find(busQueryFilter).lean();
+    const routes = await Route.find({}).lean();
+    const routeMap = {};
+    routes.forEach(r => {
+      routeMap[r.routeId] = r;
+    });
+
+    const vehiclesRes = await fetchVehiclesListFromTgg();
+    const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
+
+    const dateFromStr = `${dates[0]} 00:00`;
+    const dateToStr = `${dates[dates.length - 1]} 23:59`;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const nowHHMM = new Date().toTimeString().substring(0, 5);
+
+    // Process buses concurrently with a limit of 5
+    const CONCURRENCY = 5;
+    const reportRows = [];
+    for (let i = 0; i < buses.length; i += CONCURRENCY) {
+      const chunk = buses.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.all(chunk.map(async (bus) => {
+        const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
+        const plateKey = extractPlateKey(bus.busNumber);
+        const matchedTgg = tggVehicles.find((v) => extractPlateKey(v.name) === plateKey);
+        const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
+
+        const daysMap = {};
+        dates.forEach(d => {
+          daysMap[d] = { firstIn: null, lastOut: null, kilometers: 0 };
+        });
+
+        try {
+          const tggReport = await fetchReportsFromTgg({
+            vehicle_name: tggVehicleName,
+            date_from: dateFromStr,
+            date_to: dateToStr,
+            template: 'Daily Report'
+          });
+
+          if (tggReport.success && tggReport.data) {
+            const gfLogs = parseGeofencesFromTgg(tggReport.data, tggVehicleName);
+            
+            // Group TGG logs by date
+            gfLogs.forEach(log => {
+              if (log.timeIn && log.timeIn !== '—') {
+                const inDate = log.timeIn.split(' ')[0];
+                const inTime = log.timeIn.split(' ')[1]?.substring(0, 5); // HH:mm
+                if (daysMap[inDate] && inTime) {
+                  if (!daysMap[inDate].firstIn || inTime < daysMap[inDate].firstIn) {
+                    daysMap[inDate].firstIn = inTime;
+                  }
+                }
+              }
+
+              if (log.timeOut && log.timeOut !== '—') {
+                const outDate = log.timeOut.split(' ')[0];
+                const outTime = log.timeOut.split(' ')[1]?.substring(0, 5); // HH:mm
+                if (daysMap[outDate] && outTime) {
+                  if (!daysMap[outDate].lastOut || outTime > daysMap[outDate].lastOut) {
+                    daysMap[outDate].lastOut = outTime;
+                  }
+                }
+              }
+            });
+          }
+        } catch (err) {
+          console.warn(`[GPS] 7day report fetch failed for ${tggVehicleName}:`, err.message);
+        }
+
+        // Validation for dates (suppress future OUT times for Today, leave missing logs as null)
+        dates.forEach(dateStr => {
+          const dayObj = daysMap[dateStr];
+          const isToday = dateStr === todayStr;
+
+          // Crucial: For TODAY, if recorded lastOut is in the future relative to current time, reset to null
+          if (isToday && dayObj.lastOut && dayObj.lastOut > nowHHMM) {
+            dayObj.lastOut = null;
+          }
+        });
+
+        return {
+          busNumber: bus.busNumber,
+          tggVehicleName,
+          routeId,
+          routeName,
+          days: daysMap
+        };
+      }));
+
+      reportRows.push(...chunkResults);
+    }
+
+    const responsePayload = {
+      success: true,
+      dates,
+      data: reportRows
+    };
+
+    if (!global._7dayInOutCache) global._7dayInOutCache = {};
+    global._7dayInOutCache[cacheKey] = {
+      timestamp: Date.now(),
+      data: responsePayload
+    };
+
+    return res.status(200).json(responsePayload);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to generate 7-day IN/OUT report'
+    });
+  }
+};
+
 module.exports = {
   fetchLiveVehicles,
   fetchVehicleReports,
@@ -769,5 +1030,6 @@ module.exports = {
   saveFinalDestination,
   fetchGeofenceReport,
   fetchFinalDestinationReport,
-  fetchDailyHistory
+  fetchDailyHistory,
+  fetch7DayInOutReport
 };

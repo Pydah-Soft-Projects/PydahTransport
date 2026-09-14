@@ -27,6 +27,9 @@ import {
     ShieldCheck,
     Camera,
     FileText,
+    MapPin,
+    Activity,
+    Zap,
 } from 'lucide-react';
 
 const Layout = ({ children, title }) => {
@@ -37,6 +40,7 @@ const Layout = ({ children, title }) => {
     const [openGroups, setOpenGroups] = useState(() => ({
         inventory: location.pathname.startsWith('/inventory'),
         route_management: location.pathname.startsWith('/routes'),
+        gps_tracking: location.pathname.startsWith('/gps-tracking'),
         qr_verification: location.pathname.startsWith('/verify') || location.pathname.startsWith('/inspection-reports'),
     }));
 
@@ -95,7 +99,17 @@ const Layout = ({ children, title }) => {
                     ]
                 },
                 { path: '/fleet', label: 'Fleet & Passengers', permission: 'fleet_passengers', icon: <Users size={20} /> },
-                { path: '/gps-tracking', label: 'GPS Live Tracking', permission: 'gps_tracking', icon: <Navigation size={20} /> },
+                {
+                    key: 'gps_tracking',
+                    label: 'GPS Live Tracking',
+                    icon: <Navigation size={20} />,
+                    permission: 'gps_tracking',
+                    children: [
+                        { path: '/gps-tracking?tab=live', label: 'Live Tracking Map', icon: <MapPin size={16} /> },
+                        { path: '/gps-tracking?tab=reports', label: 'GPS Reports', icon: <Activity size={16} /> },
+                        { path: '/gps-tracking?tab=destination', label: 'Final Destination', icon: <Zap size={16} /> },
+                    ]
+                },
                 { path: '/communications', label: 'Communications', permission: 'communications', icon: <MessageSquare size={20} /> },
             ]
         },
@@ -161,7 +175,7 @@ const Layout = ({ children, title }) => {
             const [basePath, searchStr] = path.split('?');
             const params = new URLSearchParams(searchStr);
             const activeTab = params.get('tab');
-            const currentTab = new URLSearchParams(location.search).get('tab') || (basePath === '/routes' ? 'network' : (basePath === '/verify' ? 'scan' : ''));
+            const currentTab = new URLSearchParams(location.search).get('tab') || (basePath === '/routes' ? 'network' : (basePath === '/verify' ? 'scan' : (basePath === '/gps-tracking' ? 'live' : '')));
             return location.pathname === basePath && currentTab === activeTab;
         }
         if (path === '/fleet') {

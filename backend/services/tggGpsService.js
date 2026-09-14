@@ -367,6 +367,10 @@ const getRecentAlerts = () => {
   return alertStore;
 };
 
+// In-memory cache store for daily kilometer queries to eliminate high latency & rate-limiting
+const dailyKmCacheStore = new Map();
+const DAILY_KM_CACHE_TTL = 15 * 60 * 1000; // 15 minutes TTL
+
 /**
  * Fetch daily kilometers by calling reports_api.php day-by-day in parallel
  */
@@ -378,6 +382,13 @@ const fetchDailyKilometersFromTgg = async (reportQuery = {}) => {
 
   if (!vehicleName || !dateFromStr || !dateToStr) {
     throw new Error('vehicle_name, date_from, and date_to are required parameters.');
+  }
+
+  // Check in-memory cache first to return instantly (0ms)
+  const cacheKey = `${vehicleName}_${dateFromStr}_${dateToStr}`;
+  const cachedEntry = dailyKmCacheStore.get(cacheKey);
+  if (cachedEntry && (Date.now() - cachedEntry.timestamp < DAILY_KM_CACHE_TTL)) {
+    return cachedEntry.result;
   }
 
   // Calculate dates in between (calendar YYYY-MM-DD — avoid UTC timezone shift)
@@ -439,12 +450,14 @@ const fetchDailyKilometersFromTgg = async (reportQuery = {}) => {
     return { date: dateStr, kilometers, isMock: true };
   };
 
-  // Helper to fetch report for a single date
+  // Helper to fetch report for a single date with timeout
   const fetchSingleDay = async (dateStr) => {
-    // Check if credentials are missing. If so, generate mock
     if (!token || !username || !password) {
       return getMockKMForDate(dateStr, vehicleName);
     }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500); // 3.5 sec timeout
 
     try {
       const url = `${baseUrl}/reports_api.php?token=${encodeURIComponent(token)}`;
@@ -461,8 +474,10 @@ const fetchDailyKilometersFromTgg = async (reportQuery = {}) => {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        body: params
+        body: params,
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
       const rawText = await response.text();
       if (!response.ok) {
@@ -539,11 +554,14 @@ const fetchDailyKilometersFromTgg = async (reportQuery = {}) => {
   
   const hasMock = results.some(r => r.isMock);
   
-  return {
+  const finalResponse = {
     success: true,
     isMock: hasMock,
     data: results
   };
+
+  dailyKmCacheStore.set(cacheKey, { timestamp: Date.now(), result: finalResponse });
+  return finalResponse;
 };
 
 module.exports = {

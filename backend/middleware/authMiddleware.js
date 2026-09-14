@@ -85,6 +85,48 @@ const userHasPermission = (user, permission) => {
     return false;
 };
 
+const optionalAuth = async (req, res, next) => {
+    if (
+        req.headers.authorization &&
+        req.headers.authorization.startsWith('Bearer')
+    ) {
+        try {
+            const token = req.headers.authorization.split(' ')[1];
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+            const Employee = getEmployeeModel();
+            if (Employee) {
+                req.user = await Employee.findById(decoded.id).select('-password').lean();
+            }
+
+            if (!req.user) {
+                const Admin = require('../models/Admin');
+                const adminUser = await Admin.findById(decoded.id).select('-password').lean();
+
+                if (adminUser) {
+                    req.user = {
+                        ...adminUser,
+                        roles: ['admin'],
+                        permissions: []
+                    };
+                }
+            }
+
+            if (req.user && !req.user.roles) {
+                const userRole = await UserRole.findOne({ employeeId: req.user._id }).lean();
+                req.user.roles = userRole ? userRole.roles : ['user'];
+                req.user.permissions = userRole ? userRole.permissions : [];
+                req.user.campuses = userRole ? (userRole.campuses || []) : [];
+                req.user.colleges = userRole ? (userRole.colleges || []) : [];
+                req.user.courses = userRole ? (userRole.courses || []) : [];
+            }
+        } catch (error) {
+            // Ignore invalid/expired token in optional auth
+        }
+    }
+    return next();
+};
+
 const requirePermission = (permission) => (req, res, next) => {
     if (userHasPermission(req.user, permission)) {
         return next();
@@ -92,4 +134,4 @@ const requirePermission = (permission) => (req, res, next) => {
     return res.status(403).json({ message: 'You do not have permission to perform this action' });
 };
 
-module.exports = { protect, admin, requirePermission, userHasPermission, isLegacySuperAdmin };
+module.exports = { protect, optionalAuth, admin, requirePermission, userHasPermission, isLegacySuperAdmin };
