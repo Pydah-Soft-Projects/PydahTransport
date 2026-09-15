@@ -360,15 +360,23 @@ const previewRecipients = async (req, res) => {
       return res.status(400).json({ success: false, message: 'busId is required for bus filter' });
     }
 
-    const recipients = audience === 'employees'
-      ? await buildEmployeeRecipients({
-          routeId: filterBy === 'route' ? routeId : undefined,
-          busId: filterBy === 'bus' ? busId : undefined,
-        })
-      : await buildStudentRecipients({
-          routeId: filterBy === 'route' ? routeId : undefined,
-          busId: filterBy === 'bus' ? busId : undefined,
-        });
+    const filterOpts = {
+      routeId: filterBy === 'route' ? routeId : undefined,
+      busId: filterBy === 'bus' ? busId : undefined,
+    };
+
+    let recipients = [];
+    if (audience === 'employees') {
+      recipients = await buildEmployeeRecipients(filterOpts);
+    } else if (audience === 'all') {
+      const [students, employees] = await Promise.all([
+        buildStudentRecipients(filterOpts),
+        buildEmployeeRecipients(filterOpts),
+      ]);
+      recipients = [...students, ...employees];
+    } else {
+      recipients = await buildStudentRecipients(filterOpts);
+    }
 
     const withPhone = recipients.filter((r) => r.phone);
     const withoutPhone = recipients.filter((r) => !r.phone);
@@ -435,15 +443,23 @@ const sendSms = async (req, res) => {
       }
     }
 
-    const recipients = audience === 'employees'
-      ? await buildEmployeeRecipients({
-          routeId: filterBy === 'route' ? routeId : undefined,
-          busId: filterBy === 'bus' ? busId : undefined,
-        })
-      : await buildStudentRecipients({
-          routeId: filterBy === 'route' ? routeId : undefined,
-          busId: filterBy === 'bus' ? busId : undefined,
-        });
+    const filterOpts = {
+      routeId: filterBy === 'route' ? routeId : undefined,
+      busId: filterBy === 'bus' ? busId : undefined,
+    };
+
+    let recipients = [];
+    if (String(audience).toLowerCase() === 'employees') {
+      recipients = await buildEmployeeRecipients(filterOpts);
+    } else if (String(audience).toLowerCase() === 'all') {
+      const [students, employees] = await Promise.all([
+        buildStudentRecipients(filterOpts),
+        buildEmployeeRecipients(filterOpts),
+      ]);
+      recipients = [...students, ...employees];
+    } else {
+      recipients = await buildStudentRecipients(filterOpts);
+    }
 
     let targets = recipients.filter((r) => r.phone);
     if (Array.isArray(selectedIds) && selectedIds.length > 0) {
@@ -480,8 +496,73 @@ const sendSms = async (req, res) => {
       dltTemplateId,
     };
 
+    const logDispatch = async (mode, sendResult, previewMsg) => {
+      try {
+        const isSuccess = Boolean(sendResult && sendResult.success);
+        const sentCount = isSuccess ? (sendResult.sent !== undefined ? sendResult.sent : targets.length) : 0;
+        const failedCount = isSuccess ? (sendResult.failed !== undefined ? sendResult.failed : 0) : targets.length;
+
+        const messages = targets.map((r) => {
+          let status = isSuccess ? 'sent' : 'failed';
+          let error = isSuccess ? '' : String(sendResult?.error || sendResult?.response || 'Failed to send SMS');
+          if (mode === 'personalized' && Array.isArray(sendResult?.results)) {
+            const itemRes = sendResult.results.find((resItem) => String(resItem.number) === String(r.phone));
+            if (itemRes) {
+              status = itemRes.status === 'sent' ? 'sent' : 'failed';
+              if (itemRes.error) error = itemRes.error;
+            }
+          }
+          return {
+            recipientName: r.name || '',
+            recipientId: r.identifier || '',
+            recipientType: r.type || 'unknown',
+            phone: r.phone || '',
+            message: buildMessageForRecipient(r.params || {}),
+            status,
+            error,
+          };
+        });
+
+        const noPhoneRecipients = recipients.filter((r) => !r.phone);
+        noPhoneRecipients.forEach((r) => {
+          messages.push({
+            recipientName: r.name || '',
+            recipientId: r.identifier || '',
+            recipientType: r.type || 'unknown',
+            phone: '',
+            message: buildMessageForRecipient(r.params || {}),
+            status: 'no_phone',
+            error: 'No valid phone number available',
+          });
+        });
+
+        const overallStatus = failedCount === 0 && sentCount > 0
+          ? 'sent'
+          : (sentCount > 0 ? 'partial' : 'failed');
+
+        await AutoNotificationLog.create({
+          action: 'bulk_sent',
+          status: overallStatus,
+          templateId: template._id,
+          templateName: template.name,
+          dltTemplateId,
+          mode,
+          sentCount,
+          failedCount,
+          noPhoneCount: noPhoneRecipients.length,
+          totalRecipients: recipients.length,
+          messages,
+          extraParams: {
+            ...meta,
+            sentBy: req.user?.username || req.user?.emp_no || 'system',
+          },
+        });
+      } catch (logErr) {
+        console.error('[sendSms] Failed to create AutoNotificationLog:', logErr.message);
+      }
+    };
+
     if (needsPersonalization || dltVarCount > 0) {
-      // DLT vars often differ per student, so send personalized when vars exist
       if (dltVarCount > 0 || needsPersonalization) {
         const items = targets.map((r) => ({
           number: r.phone,
@@ -489,7 +570,6 @@ const sendSms = async (req, res) => {
           message: buildMessageForRecipient(r.params || {}),
         }));
 
-        // If every message is identical, fall back to bulk for efficiency
         const uniqueBodies = new Set(items.map((i) => i.message));
         if (uniqueBodies.size === 1) {
           const result = await sendBulkSms({
@@ -498,6 +578,7 @@ const sendSms = async (req, res) => {
             unicode: template.unicode,
             templateId: dltTemplateId,
           });
+          await logDispatch('bulk', result, items[0].message);
           return res.json({
             success: result.success,
             mode: 'bulk',
@@ -514,6 +595,7 @@ const sendSms = async (req, res) => {
           unicode: template.unicode,
           templateId: dltTemplateId,
         });
+        await logDispatch('personalized', result, items[0]?.message || null);
         return res.json({
           success: result.success,
           mode: 'personalized',
@@ -533,6 +615,7 @@ const sendSms = async (req, res) => {
       unicode: template.unicode,
       templateId: dltTemplateId,
     });
+    await logDispatch('bulk', result, message);
 
     return res.json({
       success: result.success,

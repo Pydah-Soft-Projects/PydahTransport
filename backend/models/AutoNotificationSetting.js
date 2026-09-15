@@ -4,6 +4,7 @@ const AUTO_NOTIFICATION_ACTIONS = [
   'transfer_stage',
   'transfer_passengers',
   'bus_route_mapping',
+  'bulk_sent',
 ];
 
 const autoNotificationSettingSchema = new mongoose.Schema({

@@ -44,6 +44,11 @@ const AUTO_ACTION_META = {
     description: 'When a bus is attached or detached from a route and passenger bus assignments update.',
     icon: Bus,
   },
+  bulk_sent: {
+    label: 'Bulk / Reminder Sent',
+    description: 'Manual bulk SMS & reminders dispatched from the Send SMS module.',
+    icon: Send,
+  },
 };
 
 const EMPTY_TEMPLATE = {
@@ -109,7 +114,7 @@ export default function Communications() {
 
   const [sendForm, setSendForm] = useState({
     templateId: '',
-    audience: 'students',
+    audience: 'all',
     filterBy: 'route',
     routeId: '',
     busId: '',
@@ -123,6 +128,12 @@ export default function Communications() {
   const [successModalData, setSuccessModalData] = useState(null);
   const [modalRecipientSearch, setModalRecipientSearch] = useState('');
   const [copiedPreview, setCopiedPreview] = useState(false);
+
+  // Send SMS Progress Modal States
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [progressStatusText, setProgressStatusText] = useState('');
+  const [progressSentCount, setProgressSentCount] = useState(0);
 
   const [autoSettings, setAutoSettings] = useState([]);
   const [loadingAutoSettings, setLoadingAutoSettings] = useState(false);
@@ -572,6 +583,31 @@ export default function Communications() {
 
     setSending(true);
     setSendResult(null);
+
+    // Launch progress popup modal
+    setShowProgressModal(true);
+    setProgressPercent(10);
+    setProgressSentCount(0);
+    setProgressStatusText('Connecting to BulkSMS API Gateway...');
+
+    const totalCount = selectedIds.length;
+    let currentPct = 10;
+    const progressTimer = setInterval(() => {
+      currentPct += Math.floor(Math.random() * 12) + 6;
+      if (currentPct > 88) currentPct = 88;
+
+      let statusMsg = 'Dispatching SMS packets to network provider...';
+      if (currentPct > 35 && currentPct <= 65) {
+        statusMsg = 'Formatting & verifying DLT template variables...';
+      } else if (currentPct > 65) {
+        statusMsg = 'Awaiting gateway transmission confirmation...';
+      }
+
+      setProgressPercent(currentPct);
+      setProgressSentCount(Math.min(totalCount, Math.floor((totalCount * currentPct) / 100)));
+      setProgressStatusText(statusMsg);
+    }, 280);
+
     try {
       const res = await apiFetch(`${API_BASE}/communications/send`, {
         method: 'POST',
@@ -586,9 +622,20 @@ export default function Communications() {
         }),
       });
       const json = await res.json();
+      clearInterval(progressTimer);
+
       if (!json.success && !json.sent) {
         throw new Error(json.message || 'Send failed');
       }
+
+      // Complete progress to 100%
+      setProgressPercent(100);
+      setProgressSentCount(totalCount);
+      setProgressStatusText('Dispatched successfully! Opening summary report...');
+
+      await new Promise((r) => setTimeout(r, 450));
+      setShowProgressModal(false);
+
       setSendResult(json);
       setSuccessModalData({
         ...json,
@@ -605,6 +652,8 @@ export default function Communications() {
       loadBalance();
       showMessage('success', `Sent: ${json.sent || 0}, Failed: ${json.failed || 0}`);
     } catch (err) {
+      clearInterval(progressTimer);
+      setShowProgressModal(false);
       showMessage('error', err.message || 'Failed to send SMS');
     } finally {
       setSending(false);
@@ -1272,8 +1321,9 @@ export default function Communications() {
                     onChange={(e) => setSendForm((p) => ({ ...p, audience: e.target.value }))}
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                   >
-                    <option value="students">Students</option>
-                    <option value="employees">Employees</option>
+                    <option value="all">★ All (Students &amp; Employees)</option>
+                    <option value="students">Students Only</option>
+                    <option value="employees">Employees Only</option>
                   </select>
                 </div>
 
@@ -1462,6 +1512,65 @@ export default function Communications() {
                 <p>Mode: {sendResult.mode} • Sent: {sendResult.sent || 0} • Failed: {sendResult.failed || 0}</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Bulk SMS Sending Progress Popup Modal */}
+        {showProgressModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200 select-none">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-md w-full overflow-hidden p-6 text-center space-y-5 transform transition-all">
+              {/* Animated Header Icon */}
+              <div className="relative mx-auto w-16 h-16 flex items-center justify-center">
+                <span className={`absolute inset-0 rounded-full ${progressPercent === 100 ? 'bg-emerald-500/20' : 'bg-blue-500/20'} animate-ping`} />
+                <div className={`w-14 h-14 rounded-full ${progressPercent === 100 ? 'bg-emerald-600' : 'bg-blue-600'} text-white flex items-center justify-center shadow-lg transition-colors duration-300 relative z-10`}>
+                  {progressPercent === 100 ? (
+                    <CheckCircle2 size={28} className="animate-bounce" />
+                  ) : (
+                    <Send size={24} className="animate-pulse" />
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-black text-slate-900 tracking-tight">
+                  {progressPercent === 100 ? 'Transmissions Complete!' : 'Sending Bulk SMS...'}
+                </h3>
+                <p className="text-xs font-medium text-slate-500 mt-1 truncate">
+                  Template: <span className="font-bold text-slate-700">{selectedTemplate?.name || 'SMS Template'}</span>
+                </p>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 border border-slate-200 rounded-full text-[11px] font-bold text-slate-700 mt-2">
+                  <Users size={12} className="text-blue-600" />
+                  <span>Target: {selectedIds.length} Recipients</span>
+                </div>
+              </div>
+
+              {/* Progress Bar Container */}
+              <div className="space-y-2 text-left">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-extrabold text-slate-800 font-mono text-sm">{progressPercent}%</span>
+                  <span className="font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-100 text-[11px]">
+                    {progressSentCount} / {selectedIds.length} Sent
+                  </span>
+                </div>
+
+                <div className="w-full bg-slate-100 border border-slate-200 rounded-full h-3 overflow-hidden p-0.5 relative">
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 relative ${
+                      progressPercent === 100
+                        ? 'bg-gradient-to-r from-emerald-500 to-green-600'
+                        : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500'
+                    }`}
+                    style={{ width: `${progressPercent}%` }}
+                  >
+                    <span className="absolute inset-0 bg-white/20 animate-pulse rounded-full" />
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-500 font-medium text-center pt-1 animate-pulse">
+                  {progressStatusText}
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
