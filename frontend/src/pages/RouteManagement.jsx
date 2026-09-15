@@ -28,6 +28,7 @@ import {
     GripVertical,
     Printer,
     X,
+    Moon,
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -1367,6 +1368,7 @@ const RouteManagement = () => {
             fare: Number(stage.fare),
             baseFare: stage.baseFare,
             academicYearFares: stage.academicYearFares || [],
+            isNightStayPoint: Boolean(stage.isNightStayPoint),
             latitude: stage.latitude !== '' && stage.latitude !== null ? Number(stage.latitude) : null,
             longitude: stage.longitude !== '' && stage.longitude !== null ? Number(stage.longitude) : null,
             radius: stage.radius !== '' && stage.radius !== null ? Number(stage.radius) : 100,
@@ -3557,7 +3559,20 @@ const RouteManagement = () => {
                                                                                                 {index + 1}
                                                                                             </span>
                                                                                             <div>
-                                                                                                <p className="font-bold text-slate-800 text-xs">{stage.stageName}</p>
+                                                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                                                    <p className="font-bold text-slate-800 text-xs">{stage.stageName}</p>
+                                                                                                    {stage.isNightStayPoint ? (
+                                                                                                        <span className="text-[9px] font-extrabold bg-indigo-600 text-amber-300 px-1.5 py-0.5 rounded shadow-2xs flex items-center gap-0.5">
+                                                                                                            🌙 Night Stay
+                                                                                                        </span>
+                                                                                                    ) : (
+                                                                                                        !route.stages.some(s => s.isNightStayPoint) && index === 0 && (
+                                                                                                            <span className="text-[8.5px] font-bold bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded" title="Default Stay Point (First Stage)">
+                                                                                                                🌙 Default Stay
+                                                                                                            </span>
+                                                                                                        )
+                                                                                                    )}
+                                                                                                </div>
                                                                                                 <p className="text-[9px] text-slate-400 font-medium">
                                                                                                     From Start: {fromStart} km
                                                                                                     {toDest != null && (
@@ -4626,6 +4641,17 @@ const RouteManagement = () => {
                                                     <span className="truncate text-[11px] font-semibold flex-1">
                                                         {stage.stageName || `Stage ${idx + 1}`}
                                                     </span>
+                                                    {stage.isNightStayPoint ? (
+                                                        <span className="shrink-0 text-[8.5px] font-bold bg-indigo-500 text-amber-300 px-1 py-0.5 rounded">
+                                                            🌙 Stay
+                                                        </span>
+                                                    ) : (
+                                                        !formData.stages.some(s => s.isNightStayPoint) && idx === 0 && (
+                                                            <span className="shrink-0 text-[8px] font-medium bg-slate-200 text-slate-600 px-1 py-0.5 rounded" title="Default Night Stay Point">
+                                                                🌙 Default
+                                                            </span>
+                                                        )
+                                                    )}
                                                 </div>
                                             ))}
                                             {formData.stages.length === 0 && (
@@ -4750,6 +4776,28 @@ const RouteManagement = () => {
                                                             </div>
                                                         ) : null;
                                                     })()}
+
+                                                    <div className="pt-2 border-t border-slate-100">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const isCurrentlyNightStay = !!formData.stages[selectedStageIndex]?.isNightStayPoint;
+                                                                const updatedStages = formData.stages.map((st, i) => ({
+                                                                    ...st,
+                                                                    isNightStayPoint: i === selectedStageIndex ? !isCurrentlyNightStay : false
+                                                                }));
+                                                                setFormData(prev => ({ ...prev, stages: updatedStages }));
+                                                            }}
+                                                            className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all border ${
+                                                                formData.stages[selectedStageIndex]?.isNightStayPoint
+                                                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-200'
+                                                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                                            }`}
+                                                        >
+                                                            <Moon size={14} className={formData.stages[selectedStageIndex]?.isNightStayPoint ? 'text-amber-300 fill-amber-300' : 'text-slate-400'} />
+                                                            {formData.stages[selectedStageIndex]?.isNightStayPoint ? '🌙 Night Stay Point (Selected)' : 'Set as Night Stay Point'}
+                                                        </button>
+                                                    </div>
                                                 </div>
 
                                                 <button 

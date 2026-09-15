@@ -16,7 +16,8 @@ const {
   fetchFinalDestinationReport,
   fetchDailyHistory,
   fetchDayInOutReport,
-  fetch7DayInOutReport
+  fetch7DayInOutReport,
+  fetchNightStayReport
 } = require('../controllers/gpsTrackingController');
 
 const { optionalAuth } = require('../middleware/authMiddleware');
@@ -50,6 +51,7 @@ router.post('/daily-km', fetchDailyKilometers);
 router.get('/fleet-travelled', fetchFleetTravelled);
 router.get('/day-inout-report', fetchDayInOutReport);
 router.get('/7day-inout-report', fetchDayInOutReport);
+router.get('/nightstay-report', fetchNightStayReport);
 
 // 7. Final Destination Geofence (per campus)
 router.get('/final-destination', getFinalDestination);
