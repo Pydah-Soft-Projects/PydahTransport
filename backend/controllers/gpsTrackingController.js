@@ -67,6 +67,18 @@ const getCampusBusQueryFilter = async (req) => {
   };
 };
 
+const calculateHaversineDist = (lat1, lon1, lat2, lon2) => {
+  if (!Number.isFinite(Number(lat1)) || !Number.isFinite(Number(lon1)) || !Number.isFinite(Number(lat2)) || !Number.isFinite(Number(lon2))) return null;
+  const R = 6371; // Earth radius in km
+  const dLat = ((Number(lat2) - Number(lat1)) * Math.PI) / 180;
+  const dLon = ((Number(lon2) - Number(lon1)) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos((Number(lat1) * Math.PI) / 180) * Math.cos((Number(lat2) * Math.PI) / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
 /**
  * Resolve the exact TGG vehicle_name for API calls.
  * Accepts either a full TGG name (R23_AP39UW4611) or a local bus plate (AP39UW4611).
@@ -1212,6 +1224,9 @@ const fetchNightStayReport = async (req, res) => {
 
         const stayPointName = stayPointStage?.stageName || routeObj?.startPoint || 'Default Stay Point';
         const isDefaultStayPoint = !routeObj?.stages?.some(s => s.isNightStayPoint);
+        const stageLat = Number(stayPointStage?.latitude);
+        const stageLng = Number(stayPointStage?.longitude);
+        const hasStageCoords = Number.isFinite(stageLat) && Number.isFinite(stageLng);
 
         const plateKey = extractPlateKey(bus.busNumber);
         const matchedTgg = tggVehicles.find((v) => extractPlateKey(v.name) === plateKey);
@@ -1234,22 +1249,44 @@ const fetchNightStayReport = async (req, res) => {
             const gfLogs = parseGeofencesFromTgg(tggReport.data, tggVehicleName);
 
             gfLogs.forEach(log => {
-              if (log.timeIn && log.timeIn !== '—') {
-                const normInDate = normalizeDateStr(log.timeIn);
-                const inTime = log.timeIn.split(' ')[1]?.substring(0, 5);
-                if (normInDate && daysMap[normInDate] && inTime) {
-                  if (!daysMap[normInDate].firstIn || inTime < daysMap[normInDate].firstIn) {
-                    daysMap[normInDate].firstIn = inTime;
-                  }
+              const gfName = String(log.geofence || '').toLowerCase().trim();
+              const targetName = String(stayPointName || '').toLowerCase().trim();
+              
+              // Determine whether this geofence log entry actually corresponds to the Stay Point
+              let isMatch = false;
+              if (targetName && gfName && (gfName.includes(targetName) || targetName.includes(gfName))) {
+                isMatch = true;
+              } else if (hasStageCoords) {
+                const radiusKm = Math.max(2, (Number(stayPointStage?.radius) || 200) / 1000);
+                if (log.latIn != null && log.lngIn != null) {
+                  const distIn = calculateHaversineDist(stageLat, stageLng, log.latIn, log.lngIn);
+                  if (distIn !== null && distIn <= radiusKm) isMatch = true;
+                }
+                if (!isMatch && log.latOut != null && log.lngOut != null) {
+                  const distOut = calculateHaversineDist(stageLat, stageLng, log.latOut, log.lngOut);
+                  if (distOut !== null && distOut <= radiusKm) isMatch = true;
                 }
               }
 
-              if (log.timeOut && log.timeOut !== '—') {
-                const normOutDate = normalizeDateStr(log.timeOut);
-                const outTime = log.timeOut.split(' ')[1]?.substring(0, 5);
-                if (normOutDate && daysMap[normOutDate] && outTime) {
-                  if (!daysMap[normOutDate].lastOut || outTime > daysMap[normOutDate].lastOut) {
-                    daysMap[normOutDate].lastOut = outTime;
+              // Only assign IN/OUT times if the geofence log matches the Night Stay Point!
+              if (isMatch) {
+                if (log.timeIn && log.timeIn !== '—') {
+                  const normInDate = normalizeDateStr(log.timeIn);
+                  const inTime = log.timeIn.split(' ')[1]?.substring(0, 5);
+                  if (normInDate && daysMap[normInDate] && inTime) {
+                    if (!daysMap[normInDate].firstIn || inTime < daysMap[normInDate].firstIn) {
+                      daysMap[normInDate].firstIn = inTime;
+                    }
+                  }
+                }
+
+                if (log.timeOut && log.timeOut !== '—') {
+                  const normOutDate = normalizeDateStr(log.timeOut);
+                  const outTime = log.timeOut.split(' ')[1]?.substring(0, 5);
+                  if (normOutDate && daysMap[normOutDate] && outTime) {
+                    if (!daysMap[normOutDate].lastOut || outTime > daysMap[normOutDate].lastOut) {
+                      daysMap[normOutDate].lastOut = outTime;
+                    }
                   }
                 }
               }

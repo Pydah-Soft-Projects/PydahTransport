@@ -169,7 +169,9 @@ export default function GpsTracking() {
     if (requestedDates.length > 0) {
       setReportDates(requestedDates);
     }
-    setReportLoading(true);
+    if (forceRefresh || report7DayData.length === 0) {
+      setReportLoading(true);
+    }
 
     try {
       const url = `${API_BASE}/gps/day-inout-report?date_from=${fromStr}&date_to=${toStr}${forceRefresh ? '&refresh=true' : ''}`;
@@ -210,7 +212,7 @@ export default function GpsTracking() {
     } finally {
       setReportLoading(false);
     }
-  }, [fleetDateFrom, fleetDateTo]);
+  }, [fleetDateFrom, fleetDateTo, report7DayData.length]);
 
   // Night Stay Report States
   const [nightStayData, setNightStayData] = useState([]);
@@ -225,7 +227,9 @@ export default function GpsTracking() {
     if (requestedDates.length > 0) {
       setNightStayDates(requestedDates);
     }
-    setNightStayLoading(true);
+    if (forceRefresh || nightStayData.length === 0) {
+      setNightStayLoading(true);
+    }
 
     try {
       const url = `${API_BASE}/gps/nightstay-report?date_from=${fromStr}&date_to=${toStr}${forceRefresh ? '&refresh=true' : ''}`;
@@ -243,15 +247,19 @@ export default function GpsTracking() {
     } finally {
       setNightStayLoading(false);
     }
-  }, [fleetDateFrom, fleetDateTo]);
+  }, [fleetDateFrom, fleetDateTo, nightStayData.length]);
 
   useEffect(() => {
     if (activePageTab === 'reports' || activePageTab === 'travelled') {
-      fetchDayReport();
+      if (report7DayData.length === 0) {
+        fetchDayReport();
+      }
     } else if (activePageTab === 'nightstay') {
-      fetchNightStayReportData();
+      if (nightStayData.length === 0) {
+        fetchNightStayReportData();
+      }
     }
-  }, [activePageTab, fetchDayReport, fetchNightStayReportData]);
+  }, [activePageTab, fetchDayReport, fetchNightStayReportData, report7DayData.length, nightStayData.length]);
 
   // Final Destination modal
   const [campuses, setCampuses] = useState([]);
