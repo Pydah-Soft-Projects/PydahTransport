@@ -21,6 +21,7 @@ import {
   X
 } from 'lucide-react';
 import GpsFinalDestinationModal from '../components/GpsFinalDestinationModal';
+import { animateMarkerPosition, cancelAllMarkerAnimations, setCameraFollowVehicle, clearCameraFollow, getVehicleTelemetryState, setUserInteractingWithMap } from '../utils/mapAnimation';
 
 const formatGeofenceTime = (val) => {
   if (!val) return '—';
@@ -82,6 +83,8 @@ export default function GpsTracking() {
   const polylineRef = useRef(null);
   const liveBreadcrumbsRef = useRef({});
   const centeredVehicleNameRef = useRef(null);
+  const vehicleMarkersRef = useRef({});
+  const animFramesRef = useRef({});
 
   // GPS Daily Kilometer Tracking States
   const [kmTab, setKmTab] = useState('history');
@@ -375,6 +378,8 @@ export default function GpsTracking() {
     try {
       const response = await apiFetch(`${API_BASE}/gps/vehicles`);
       const data = await response.json();
+
+      console.log('[GPS RAW PAYLOAD]', data?.data ? data.data.map(v => ({ name: v.name, units: v.units, lat: v.latitude, lng: v.longitude, time: v.timestamp })) : []);
 
       if (data.success && Array.isArray(data.data)) {
         setVehicles(data.data);
@@ -678,22 +683,40 @@ export default function GpsTracking() {
     loadVehicles(false);
   }, [loadVehicles]);
 
-  // Periodic 30-second background sync for fleet vehicles
+  // Periodic 3-second background sync for live fleet vehicle updates
   useEffect(() => {
     const interval = setInterval(() => {
       loadVehicles(true);
-    }, 30000);
+    }, 3000);
     return () => clearInterval(interval);
   }, [loadVehicles]);
 
-  // Handle vehicle selection: Instant trace fetch on selection
+  // Handle vehicle selection: Instant trace fetch & continuous camera follow tracking
   const handleSelectVehicle = (veh) => {
+    setUserInteractingWithMap(false);
     selectedVehicleRef.current = veh;
     setSelectedVehicle(veh);
     setTraceLogs([]); // Clear trace logs immediately on switch to prevent showing old route
 
     if (veh) {
       loadTraceHistoryFast(veh.name);
+      const key = veh.units || veh.name;
+      setCameraFollowVehicle(key, mapInstanceRef.current);
+    } else {
+      clearCameraFollow();
+    }
+  };
+
+  const handleRecenterVehicle = () => {
+    setUserInteractingWithMap(false);
+    if (selectedVehicle && mapInstanceRef.current) {
+      const key = selectedVehicle.units || selectedVehicle.name;
+      const state = getVehicleTelemetryState(key);
+      const targetLat = state?.displayPosition?.lat || selectedVehicle.latitude;
+      const targetLng = state?.displayPosition?.lng || selectedVehicle.longitude;
+      if (typeof targetLat === 'number' && typeof targetLng === 'number') {
+        mapInstanceRef.current.flyTo([targetLat, targetLng], mapInstanceRef.current.getZoom() || 15, { animate: true, duration: 1 });
+      }
     }
   };
 
@@ -711,21 +734,40 @@ export default function GpsTracking() {
   const movingCount = vehicles.filter(v => (v.speed || 0) > 0).length;
   const idleCount = vehicles.filter(v => (!v.speed || v.speed === 0)).length;
 
-  // Custom styled bus icon marker helper (Green for Moving, Red for Stopped)
+  // Custom styled bus icon marker helper (Neon Green for Moving, Blue for Active)
   const createVehicleIcon = useCallback((isMoving) => {
     if (!window.L) return null;
-    const bgColor = isMoving ? '#10B981' : '#EF4444'; // High-contrast neon green / rose red
-    const shadowColor = isMoving ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)';
+    const bgColor = isMoving ? '#10B981' : '#3B82F6';
+    const shadowColor = isMoving ? 'rgba(16, 185, 129, 0.6)' : 'rgba(59, 130, 246, 0.6)';
+    const pulseBg = isMoving ? 'rgba(16, 185, 129, 0.25)' : 'rgba(59, 130, 246, 0.25)';
+    const pulseBorder = isMoving ? '#10B981' : '#3B82F6';
+
     return window.L.divIcon({
       className: 'custom-bus-marker',
       html: `
-        <div style="
+        <div data-bus-icon="true" style="
           position: relative;
           display: flex;
           flex-direction: column;
           align-items: center;
           cursor: pointer;
         ">
+          
+          <!-- Live Signal Beacon Dot -->
+          <div style="
+            position: absolute;
+            top: -2px;
+            right: -2px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: ${isMoving ? '#059669' : '#2563EB'};
+            border: 2px solid #ffffff;
+            box-shadow: 0 0 8px ${pulseBorder};
+            z-index: 10;
+          "></div>
+
+          <!-- Bus Body -->
           <div style="
             background: ${bgColor};
             color: #ffffff;
@@ -807,20 +849,6 @@ export default function GpsTracking() {
             const updatedVeh = vehiclesData.data.find(v => v.name === vehicleName);
             if (updatedVeh && typeof updatedVeh.latitude === 'number' && typeof updatedVeh.longitude === 'number') {
               setSelectedVehicle(updatedVeh);
-
-              // Accumulate live travelling coordinates into breadcrumbs path
-              if (!liveBreadcrumbsRef.current[vehicleName]) {
-                liveBreadcrumbsRef.current[vehicleName] = [];
-              }
-              const currentPath = liveBreadcrumbsRef.current[vehicleName];
-              const lastCoord = currentPath[currentPath.length - 1];
-
-              // Add new point if it moved or if path is empty
-              if (!lastCoord || lastCoord[0] !== updatedVeh.latitude || lastCoord[1] !== updatedVeh.longitude) {
-                if (updatedVeh.latitude !== 0 && updatedVeh.longitude !== 0) {
-                  currentPath.push([updatedVeh.latitude, updatedVeh.longitude]);
-                }
-              }
             }
           }
         }
@@ -874,11 +902,25 @@ export default function GpsTracking() {
 
     // Initialize map if not yet initialized
     if (!mapInstanceRef.current) {
-      const map = L.map(mapContainerRef.current, {
+      const container = mapContainerRef.current;
+      const map = L.map(container, {
         center: [17.544, 80.616],
         zoom: 10,
         zoomControl: true
       });
+
+      const handleUserMapInteraction = () => {
+        setUserInteractingWithMap(true);
+      };
+
+      if (container) {
+        container.addEventListener('mousedown', handleUserMapInteraction, { passive: true });
+        container.addEventListener('touchstart', handleUserMapInteraction, { passive: true });
+        container.addEventListener('pointerdown', handleUserMapInteraction, { passive: true });
+        container.addEventListener('wheel', handleUserMapInteraction, { passive: true });
+      }
+
+      map.on('dragstart zoomstart movestart', handleUserMapInteraction);
 
       L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
         maxZoom: 20,
@@ -892,10 +934,35 @@ export default function GpsTracking() {
 
     const map = mapInstanceRef.current;
     const layerGroup = layerGroupRef.current;
-    layerGroup.clearLayers();
+
+    // Active vehicles filter
+    const targetVehicles = selectedVehicle ? [selectedVehicle] : filteredVehicles;
+    const activeKeys = new Set(targetVehicles.map(v => v.units || v.name));
+
+    // Remove inactive markers
+    Object.keys(vehicleMarkersRef.current).forEach(key => {
+      if (!activeKeys.has(key)) {
+        if (animFramesRef.current[key]) {
+          cancelAnimationFrame(animFramesRef.current[key]);
+          delete animFramesRef.current[key];
+        }
+        if (vehicleMarkersRef.current[key]) {
+          layerGroup.removeLayer(vehicleMarkersRef.current[key]);
+          delete vehicleMarkersRef.current[key];
+        }
+      }
+    });
+
+    // Clear vector lines and circles while keeping active markers
+    layerGroup.eachLayer(layer => {
+      if (!(layer instanceof L.Marker)) {
+        layerGroup.removeLayer(layer);
+      }
+    });
 
     // 1. ALL VEHICLES MODE (selectedVehicle === null)
     if (!selectedVehicle) {
+      clearCameraFollow();
       centeredVehicleNameRef.current = null;
       if (filteredVehicles.length === 0) return;
 
@@ -908,10 +975,9 @@ export default function GpsTracking() {
 
           const isMoving = (veh.speed || 0) > 0;
           const icon = createVehicleIcon(isMoving);
+          const key = veh.units || veh.name;
 
-          // Custom Vehicle Icon Marker
-          const marker = L.marker(latLng, { icon });
-
+          const isOffline = Boolean(veh.isFallback) || veh.telemetryStatus === 'provider_unavailable' || veh.providerOffline;
           const popupHtml = `
             <div style="font-family: sans-serif; font-size: 12px; padding: 2px;">
               <strong style="font-size: 13px; color: #0f172a;">${veh.name}</strong><br/>
@@ -919,18 +985,54 @@ export default function GpsTracking() {
               <span style="color: ${isMoving ? '#059669' : '#dc2626'}; font-weight: bold;">
                 ${isMoving ? `🚌 Speed: ${veh.speed} km/h` : '⏹ Stopped'}
               </span><br/>
+              ${isOffline
+                ? '<div style="margin-top: 4px; padding: 2px 6px; background: #fffbe6; border: 1px solid #ffe58f; color: #d46b08; border-radius: 4px; font-weight: bold; font-size: 10px; display: inline-block;">⚠️ Estimated Position (Provider Offline)</div>'
+                : '<div style="margin-top: 4px; padding: 2px 6px; background: #f6ffed; border: 1px solid #b7eb8f; color: #389e0d; border-radius: 4px; font-weight: bold; font-size: 10px; display: inline-block;">🟢 Live GPS</div>'
+              }<br/>
               <span style="color: #94a3b8; font-size: 10px;">${veh.timestamp || ''}</span>
             </div>
           `;
 
-          marker.bindPopup(popupHtml);
-          marker.on('click', () => handleSelectVehicle(veh));
-          marker.addTo(layerGroup);
+          const existingState = getVehicleTelemetryState(key);
+          const initialPos = (existingState && existingState.displayPosition)
+            ? [existingState.displayPosition.lat, existingState.displayPosition.lng]
+            : latLng;
+
+          let marker = vehicleMarkersRef.current[key];
+          if (!marker) {
+            console.log('[VEHICLE LOCATION INITIAL MARKER]', key, initialPos);
+            marker = L.marker(initialPos, { icon });
+            marker.bindPopup(popupHtml);
+            marker.on('click', () => handleSelectVehicle(veh));
+            marker.addTo(layerGroup);
+            vehicleMarkersRef.current[key] = marker;
+          } else {
+            marker.setIcon(icon);
+            marker.setPopupContent(popupHtml);
+          }
+
+          console.log('[VEHICLE LOCATION UPDATE]', key, veh.latitude, veh.longitude);
+          animateMarkerPosition(
+            marker,
+            veh.latitude,
+            veh.longitude,
+            {
+              speed: veh.speed,
+              timestamp: veh.timestamp,
+              isFallback: isOffline,
+              telemetryStatus: isOffline ? 'provider_unavailable' : 'live_gps',
+              providerOffline: isOffline
+            },
+            key,
+            animFramesRef.current
+          );
         }
       });
 
-      if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [50, 50] });
+      if (bounds.isValid() && Object.keys(vehicleMarkersRef.current).length <= filteredVehicles.length) {
+        if (!centeredVehicleNameRef.current) {
+          map.fitBounds(bounds, { padding: [50, 50] });
+        }
       }
     }
     // 2. SINGLE VEHICLE MODE (selectedVehicle !== null) -> Focused bus icon & vibrant colored route path
@@ -938,76 +1040,110 @@ export default function GpsTracking() {
       const lat = selectedVehicle.latitude;
       const lng = selectedVehicle.longitude;
       const vehName = selectedVehicle.name;
+      const key = selectedVehicle.units || selectedVehicle.name;
 
       if (typeof lat === 'number' && typeof lng === 'number') {
         const isMoving = (selectedVehicle.speed || 0) > 0;
+        const isOffline = Boolean(selectedVehicle.isFallback) || selectedVehicle.telemetryStatus === 'provider_unavailable' || selectedVehicle.providerOffline;
         const icon = createVehicleIcon(isMoving);
+        const popupHtml = `
+          <div style="font-family: sans-serif; font-size: 12px; padding: 2px;">
+            <strong style="font-size: 13px; color: #0f172a;">${selectedVehicle.name}</strong><br/>
+            <span style="color: #64748b;">Unit ID: ${selectedVehicle.units}</span><br/>
+            <span style="color: ${isMoving ? '#059669' : '#dc2626'}; font-weight: bold;">
+              ${isMoving ? `🚌 Speed: ${selectedVehicle.speed} km/h` : '⏹ Stopped'}
+            </span><br/>
+            ${isOffline
+              ? '<div style="margin-top: 4px; padding: 2px 6px; background: #fffbe6; border: 1px solid #ffe58f; color: #d46b08; border-radius: 4px; font-weight: bold; font-size: 10px; display: inline-block;">⚠️ Estimated Position (Provider Offline)</div>'
+              : '<div style="margin-top: 4px; padding: 2px 6px; background: #f6ffed; border: 1px solid #b7eb8f; color: #389e0d; border-radius: 4px; font-weight: bold; font-size: 10px; display: inline-block;">🟢 Live GPS</div>'
+            }<br/>
+            <span style="color: #94a3b8; font-size: 10px;">${selectedVehicle.timestamp || ''}</span>
+          </div>
+        `;
 
-        const mainMarker = L.marker([lat, lng], { icon });
+        const existingState = getVehicleTelemetryState(key);
+        const initialPos = (existingState && existingState.displayPosition)
+          ? [existingState.displayPosition.lat, existingState.displayPosition.lng]
+          : [lat, lng];
 
-        mainMarker.bindPopup(`<b>${selectedVehicle.name}</b><br/>Unit: ${selectedVehicle.units}<br/>Speed: ${selectedVehicle.speed} km/h`);
-        mainMarker.addTo(layerGroup);
-
-        // Center map ONCE when vehicle selection changes with a sliding/zooming flight, then pan smoothly without zooming in/out
-        if (centeredVehicleNameRef.current !== vehName) {
-          map.flyTo([lat, lng], 15, { animate: true, duration: 1.5 });
-          centeredVehicleNameRef.current = vehName;
+        let mainMarker = vehicleMarkersRef.current[key];
+        if (!mainMarker) {
+          console.log('[VEHICLE LOCATION INITIAL MAIN MARKER]', key, initialPos);
+          mainMarker = L.marker(initialPos, { icon });
+          mainMarker.bindPopup(popupHtml);
+          mainMarker.addTo(layerGroup);
+          vehicleMarkersRef.current[key] = mainMarker;
         } else {
-          map.panTo([lat, lng], { animate: true });
+          mainMarker.setIcon(icon);
+          mainMarker.setPopupContent(popupHtml);
         }
 
-        // Build route trace points list combining Messages API history + live breadcrumbs
+        // Build historical route trace points list prior to current marker position
         const historyPoints = (traceLogs || [])
           .filter(t => typeof t.latitude === 'number' && typeof t.longitude === 'number' && t.latitude !== 0 && t.longitude !== 0)
           .map(t => [t.latitude, t.longitude]);
 
         const livePoints = liveBreadcrumbsRef.current[vehName] || [];
 
-        // Combine unique coordinates
+        // Combine unique historical coordinates
         const allPointsMap = new Map();
-        [...historyPoints, ...livePoints, [lat, lng]].forEach(pt => {
+        [...historyPoints, ...livePoints].forEach(pt => {
           if (Array.isArray(pt) && pt.length === 2 && !isNaN(pt[0]) && !isNaN(pt[1])) {
-            const key = `${pt[0].toFixed(5)},${pt[1].toFixed(5)}`;
-            if (!allPointsMap.has(key)) {
-              allPointsMap.set(key, pt);
+            const k = `${pt[0].toFixed(5)},${pt[1].toFixed(5)}`;
+            if (!allPointsMap.has(k)) {
+              allPointsMap.set(k, pt);
             }
           }
         });
 
-        const latLngs = Array.from(allPointsMap.values());
+        const telemetryState = getVehicleTelemetryState(key);
+        const basePath = (telemetryState && Array.isArray(telemetryState.basePath) && telemetryState.basePath.length > 0)
+          ? telemetryState.basePath
+          : Array.from(allPointsMap.values());
+        const initialTrailingPath = [...basePath, initialPos];
 
-        if (latLngs.length >= 2) {
-          // Outer Glow Line (Darker Blue)
-          L.polyline(latLngs, {
-            color: '#1d4ed8',
-            weight: 9,
-            opacity: 0.4,
-            lineCap: 'round',
-            lineJoin: 'round'
-          }).addTo(layerGroup);
+        // Outer Glow Line (Darker Blue)
+        const glowPolyline = L.polyline(initialTrailingPath, {
+          color: '#1d4ed8',
+          weight: 9,
+          opacity: 0.4,
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(layerGroup);
 
-          // Inner Vibrant Travelling Route Line (Bright Blue)
-          L.polyline(latLngs, {
-            color: '#2563eb',
-            weight: 5,
-            opacity: 0.95,
-            lineCap: 'round',
-            lineJoin: 'round'
-          }).addTo(layerGroup);
+        // Inner Vibrant Travelling Route Line (Bright Blue)
+        const innerPolyline = L.polyline(initialTrailingPath, {
+          color: '#2563eb',
+          weight: 5,
+          opacity: 0.95,
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(layerGroup);
 
-          // Add small route breadcrumb dots along the travelling line
-          latLngs.forEach((point, idx) => {
-            if (idx < latLngs.length - 1) {
-              L.circleMarker(point, {
-                radius: 4,
-                fillColor: '#60a5fa',
-                color: '#ffffff',
-                weight: 1.5,
-                fillOpacity: 1
-              }).addTo(layerGroup);
-            }
-          });
+        console.log('[VEHICLE LOCATION MAIN UPDATE]', key, lat, lng);
+        animateMarkerPosition(
+          mainMarker,
+          lat,
+          lng,
+          {
+            speed: selectedVehicle.speed,
+            timestamp: selectedVehicle.timestamp,
+            isFallback: isOffline,
+            telemetryStatus: isOffline ? 'provider_unavailable' : 'live_gps',
+            providerOffline: isOffline,
+            polylines: [glowPolyline, innerPolyline],
+            basePath
+          },
+          key,
+          animFramesRef.current
+        );
+
+        // Center map ONCE when vehicle selection changes with a sliding/zooming flight
+        if (centeredVehicleNameRef.current !== vehName) {
+          map.flyTo([lat, lng], 15, { animate: true, duration: 1.5 });
+          centeredVehicleNameRef.current = vehName;
         }
+        setCameraFollowVehicle(key, map);
       }
     }
   }, [isLeafletReady, selectedVehicle, filteredVehicles, traceLogs, createVehicleIcon, activePageTab]);
@@ -1412,6 +1548,18 @@ export default function GpsTracking() {
               {/* Interactive Leaflet Big Map Container */}
               <div className={`rounded-lg border border-slate-200 overflow-hidden relative w-full transition-all duration-300 z-0 isolate ${selectedVehicle && kmTab === 'kilometers' ? 'h-[180px] min-h-[180px]' : 'flex-1 min-h-[380px]'}`}>
                 <div ref={mapContainerRef} className="w-full h-full z-0" />
+
+                {/* Floating Recenter Map Button */}
+                {selectedVehicle && (
+                  <button
+                    onClick={handleRecenterVehicle}
+                    className="absolute bottom-3 right-3 z-[1000] bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs px-3 py-1.5 rounded-lg shadow-md border border-slate-300 flex items-center gap-1.5 transition-all cursor-pointer hover:border-blue-500 hover:text-blue-600"
+                    title="Re-center map on vehicle"
+                  >
+                    <Navigation size={14} className="text-blue-600" />
+                    <span>Recenter Vehicle</span>
+                  </button>
+                )}
               </div>
 
               {/* Fast Trace Points Table when a vehicle is selected */}

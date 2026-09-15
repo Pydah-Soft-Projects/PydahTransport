@@ -28,6 +28,7 @@ import {
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
+import { animateMarkerPosition, cancelAllMarkerAnimations } from '../utils/mapAnimation';
 import { apiFetch, API_BASE } from '../utils/api';
 import { printHtmlDocument, exportHtmlAsExcel } from '../utils/printHtml';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
@@ -239,6 +240,8 @@ const BusDetails = () => {
     const mapInstanceRef = useRef(null);
     const layerGroupRef = useRef(null);
     const centeredVehicleNameRef = useRef(null);
+    const busMarkerRef = useRef(null);
+    const animFramesRef = useRef({});
 
     // Destructure data object at the top so it is available to all hooks
     const { bus, route, passengers, seatsFilled, seatsAvailable, capacity, occupancyPercent } = data || {
@@ -361,18 +364,37 @@ const BusDetails = () => {
     const createVehicleIcon = useCallback((isMoving) => {
         if (!window.L) return null;
         const L = window.L;
-        const bgColor = isMoving ? '#10B981' : '#EF4444'; // High-contrast neon green / rose red
-        const shadowColor = isMoving ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)';
+        const bgColor = isMoving ? '#10B981' : '#3B82F6';
+        const shadowColor = isMoving ? 'rgba(16, 185, 129, 0.6)' : 'rgba(59, 130, 246, 0.6)';
+        const pulseBg = isMoving ? 'rgba(16, 185, 129, 0.25)' : 'rgba(59, 130, 246, 0.25)';
+        const pulseBorder = isMoving ? '#10B981' : '#3B82F6';
+
         return L.divIcon({
             className: 'custom-bus-marker',
             html: `
-                <div style="
+                <div data-bus-icon="true" style="
                     position: relative;
                     display: flex;
                     flex-direction: column;
                     align-items: center;
                     cursor: pointer;
                 ">
+
+                    <!-- Live Signal Beacon Dot -->
+                    <div style="
+                        position: absolute;
+                        top: -2px;
+                        right: -2px;
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 50%;
+                        background: ${isMoving ? '#059669' : '#2563EB'};
+                        border: 2px solid #ffffff;
+                        box-shadow: 0 0 6px ${pulseBorder};
+                        z-index: 10;
+                    "></div>
+
+                    <!-- Bus Body -->
                     <div style="
                         background: ${bgColor};
                         color: #ffffff;
@@ -717,7 +739,7 @@ const BusDetails = () => {
         fetchGpsData();
         fetchGpsHistory();
 
-        const liveInterval = setInterval(fetchGpsData, 5000);
+        const liveInterval = setInterval(fetchGpsData, 3000);
         const historyInterval = setInterval(fetchGpsHistory, 20000);
 
         return () => {
@@ -868,7 +890,8 @@ const BusDetails = () => {
         }
 
         let currentIndex = highlightsTab === 'in' ? 0 : animationPath.length - 1;
-        const stepVal = highlightsTab === 'in' ? 10 : -10; // faster animation
+        const stepSize = Math.max(1, Math.floor(animationPath.length / 150));
+        const stepVal = highlightsTab === 'in' ? stepSize : -stepSize;
         const targetIndex = highlightsTab === 'in' ? animationPath.length - 1 : 0;
 
         setAnimatingIndex(currentIndex);
@@ -923,7 +946,16 @@ const BusDetails = () => {
 
         const map = mapInstanceRef.current;
         const layerGroup = layerGroupRef.current;
-        layerGroup.clearLayers();
+        
+        // Remove non-busMarker layers or clean busMarker if switching away from live tab
+        layerGroup.eachLayer((layer) => {
+            if (mapTab !== 'live' || layer !== busMarkerRef.current) {
+                layerGroup.removeLayer(layer);
+            }
+        });
+        if (mapTab !== 'live' && busMarkerRef.current) {
+            busMarkerRef.current = null;
+        }
 
         // Invalidate size immediately to ensure container dimensions are calculated correctly
         map.invalidateSize();
@@ -1208,8 +1240,6 @@ const BusDetails = () => {
                 const lng = gpsVehicle.longitude;
                 const isMoving = (gpsVehicle.speed || 0) > 0;
                 const icon = createVehicleIcon(isMoving);
-
-                const marker = L.marker([lat, lng], { icon });
                 const popupHtml = `
                     <div style="font-family: sans-serif; font-size: 11px; padding: 2px;">
                         <strong style="font-size: 12px; color: #0f172a;">${gpsVehicle.name}</strong><br/>
@@ -1220,17 +1250,26 @@ const BusDetails = () => {
                         <span style="color: #94a3b8; font-size: 10px;">${gpsVehicle.timestamp || ''}</span>
                     </div>
                 `;
-                marker.bindPopup(popupHtml);
-                marker.addTo(layerGroup);
+
+                const key = gpsVehicle.units || gpsVehicle.name || 'busDetailMarker';
+
+                let marker = busMarkerRef.current;
+                if (!marker) {
+                    marker = L.marker([lat, lng], { icon });
+                    marker.bindPopup(popupHtml);
+                    marker.addTo(layerGroup);
+                    busMarkerRef.current = marker;
+                } else {
+                    marker.setIcon(icon);
+                    marker.setPopupContent(popupHtml);
+                    if (!layerGroup.hasLayer(marker)) {
+                        marker.addTo(layerGroup);
+                    }
+                    animateMarkerPosition(marker, lat, lng, { speed: gpsVehicle.speed, timestamp: gpsVehicle.timestamp }, key, animFramesRef.current);
+                }
 
                 // Follow live bus only after initial center (tab-switch zoom is handled separately)
-                if (centeredVehicleNameRef.current === gpsVehicle.name) {
-                    timer = setTimeout(() => {
-                        if (mapInstanceRef.current && mapTab === 'live') {
-                            mapInstanceRef.current.panTo([lat, lng], { animate: true });
-                        }
-                    }, 50);
-                } else if (!centeredVehicleNameRef.current) {
+                if (centeredVehicleNameRef.current !== gpsVehicle.name) {
                     timer = setTimeout(() => {
                         if (mapInstanceRef.current && mapTab === 'live') {
                             mapInstanceRef.current.invalidateSize();
@@ -1240,6 +1279,9 @@ const BusDetails = () => {
                         }
                     }, 150);
                 }
+            } else if (busMarkerRef.current) {
+                layerGroup.removeLayer(busMarkerRef.current);
+                busMarkerRef.current = null;
             }
         }
 

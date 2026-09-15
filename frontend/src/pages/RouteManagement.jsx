@@ -29,6 +29,8 @@ import {
     Printer,
     X,
     Moon,
+    Route,
+    RotateCcw,
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -896,13 +898,17 @@ const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
 
         const animInterval = setInterval(() => {
             animVehicles.forEach(veh => {
-                if (veh.index >= veh.path.length - 1) {
-                    return;
-                }
+                const stepSize = Math.max(1, Math.floor(veh.path.length / 250));
+                if (!veh.direction) veh.direction = 1;
 
-                veh.index += 12;
+                veh.index += stepSize * veh.direction;
+
                 if (veh.index >= veh.path.length - 1) {
                     veh.index = veh.path.length - 1;
+                    veh.direction = -1; // Reverse & drive BACKWARD along route
+                } else if (veh.index <= 0) {
+                    veh.index = 0;
+                    veh.direction = 1; // Reverse & drive FORWARD along route
                 }
 
                 const currentPos = veh.path[veh.index];
@@ -4900,7 +4906,7 @@ const RouteManagement = () => {
                                                         onClick={() => {
                                                             setSelectedStageIndex(idx);
                                                             setShowAllStagesOnMap(false);
-                                                            setMapEditMode(idx > 0 ? 'steer' : 'stage');
+                                                            setMapEditMode('stage');
                                                         }}
                                                     >
                                                         <span
@@ -5244,68 +5250,80 @@ const RouteManagement = () => {
 
                                     {/* Column 3: Leaflet Interactive Map with ALL stages */}
                                     <div className="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200 overflow-hidden relative">
-                                        <div className="absolute top-2 left-2 z-[1000] flex flex-col gap-1.5 items-start max-w-[70%]">
-                                            <div className="flex items-center gap-2 flex-wrap">
+                                        <div className="absolute top-2.5 left-2.5 z-[1000] flex flex-col gap-2 items-start max-w-[75%]">
+                                            <div className="flex items-center gap-1.5 flex-wrap bg-white/90 backdrop-blur-md p-1 rounded-xl border border-slate-200 shadow-md">
                                                 <button
                                                     type="button"
                                                     onClick={() => setShowAllStagesOnMap((prev) => !prev)}
-                                                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold shadow-sm transition-all ${
+                                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10.5px] font-extrabold transition-all cursor-pointer ${
                                                         showAllStagesOnMap
-                                                            ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
-                                                            : 'bg-white/95 backdrop-blur-[2px] border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                            ? 'bg-blue-900 border border-blue-900 text-white shadow-xs'
+                                                            : 'bg-transparent text-slate-700 hover:bg-slate-100'
                                                     }`}
-                                                    title={showAllStagesOnMap ? 'Zoom back to the selected stage' : 'Show every plotted stage on the map'}
+                                                    title={showAllStagesOnMap ? 'Focus on selected stage' : 'View full route network on map'}
                                                 >
-                                                    <Layers size={12} />
+                                                    <Layers size={13} />
                                                     {showAllStagesOnMap ? 'Focus Selected' : 'Show All Stages'}
                                                 </button>
-                                                {!showAllStagesOnMap && selectedStageIndex !== null && selectedStageIndex > 0 && (
+                                                
+                                                {!showAllStagesOnMap && selectedStageIndex !== null && (
                                                     <>
+                                                        <div className="h-4 w-px bg-slate-200 mx-0.5" />
                                                         <button
                                                             type="button"
                                                             onClick={() => setMapEditMode('stage')}
-                                                            className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold shadow-sm transition-all ${
+                                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10.5px] font-extrabold transition-all cursor-pointer ${
                                                                 mapEditMode === 'stage'
-                                                                    ? 'bg-red-600 border-red-600 text-white'
-                                                                    : 'bg-white/95 border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                                    ? 'bg-blue-600 text-white shadow-xs'
+                                                                    : 'bg-transparent text-slate-700 hover:bg-slate-100'
                                                             }`}
-                                                            title="Click map to place/move this stage"
+                                                            title="Click map or drag marker to point/set stage location"
                                                         >
-                                                            Place Stage
+                                                            <MapPin size={13} />
+                                                            Pin Location
                                                         </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setMapEditMode('steer')}
-                                                            className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-bold shadow-sm transition-all ${
-                                                                mapEditMode === 'steer'
-                                                                    ? 'bg-amber-500 border-amber-500 text-white'
-                                                                    : 'bg-white/95 border-slate-200 text-slate-700 hover:bg-slate-50'
-                                                            }`}
-                                                            title="Click the road you want — adds a guide so snap follows that road"
-                                                        >
-                                                            Steer Road
-                                                        </button>
-                                                        {(formData.stages[selectedStageIndex]?.viaPoints?.length > 0) && (
+                                                        {selectedStageIndex > 0 && selectedStageIndex !== 'nightStay' && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setMapEditMode('steer')}
+                                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10.5px] font-extrabold transition-all cursor-pointer ${
+                                                                    mapEditMode === 'steer'
+                                                                        ? 'bg-amber-500 text-white shadow-xs'
+                                                                        : 'bg-transparent text-slate-700 hover:bg-slate-100'
+                                                                }`}
+                                                                title="Click road to add a guide point so route snaps along that road"
+                                                            >
+                                                                <Route size={13} />
+                                                                Steer Road
+                                                            </button>
+                                                        )}
+                                                        {selectedStageIndex > 0 && selectedStageIndex !== 'nightStay' && (formData.stages[selectedStageIndex]?.viaPoints?.length > 0) && (
                                                             <button
                                                                 type="button"
                                                                 onClick={clearViaPointsOnActiveStage}
-                                                                className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white/95 text-[10px] font-bold text-slate-600 shadow-sm hover:bg-slate-50"
-                                                                title="Remove road guides for this stage"
+                                                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold text-slate-600 hover:text-red-600 hover:bg-red-50 border border-slate-200/80 transition-all cursor-pointer"
+                                                                title="Clear custom road guides for this stage"
                                                             >
+                                                                <RotateCcw size={11} />
                                                                 Clear Guides
                                                             </button>
                                                         )}
                                                     </>
                                                 )}
                                             </div>
-                                            <div className="bg-white/95 backdrop-blur-[2px] px-2.5 py-1.5 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-700 shadow-sm pointer-events-none">
-                                                {showAllStagesOnMap
-                                                    ? 'All stages + road-snapped path'
-                                                    : selectedStageIndex === null
-                                                        ? 'Select a stage to edit on map'
-                                                        : mapEditMode === 'steer' && selectedStageIndex > 0
-                                                            ? 'Steer mode: click desired road · or click amber alternate path'
-                                                            : 'Click map / drag marker to set stage · switch to Steer Road for other path'}
+
+                                            <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[10.5px] font-medium text-slate-100 shadow-md flex items-center gap-1.5 pointer-events-none">
+                                                {showAllStagesOnMap ? (
+                                                    <span>🌐 Viewing full route network & snapped road paths</span>
+                                                ) : selectedStageIndex === null ? (
+                                                    <span>👈 Click a stage card from left list to point location on map</span>
+                                                ) : selectedStageIndex === 'nightStay' ? (
+                                                    <span>🌙 Click map or drag marker to set Night Stay location</span>
+                                                ) : mapEditMode === 'steer' && selectedStageIndex > 0 ? (
+                                                    <span>🛤️ <strong>Steer Mode:</strong> Click road line to guide route path for Stage #{selectedStageIndex + 1}</span>
+                                                ) : (
+                                                    <span>📍 <strong>Pin Mode:</strong> Click map or drag marker to point location for <strong>Stage #{typeof selectedStageIndex === 'number' ? selectedStageIndex + 1 : ''} ({formData.stages[selectedStageIndex]?.stageName || 'Unnamed'})</strong></span>
+                                                )}
                                             </div>
                                         </div>
                                         

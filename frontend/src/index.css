@@ -115,3 +115,16 @@ button {
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
 }
+
+/* Live GPS Vehicle Marker Animations */
+.leaflet-marker-icon,
+.custom-bus-marker {
+  transition: none !important;
+  will-change: transform;
+}
+
+@keyframes routeDashFlow {
+  to {
+    stroke-dashoffset: -30;
+  }
+}

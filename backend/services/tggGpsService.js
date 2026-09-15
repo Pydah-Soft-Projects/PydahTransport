@@ -65,7 +65,7 @@ try {
   // ignore
 }
 let lastCacheTime = vehiclesCache ? Date.now() : 0;
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes cache TTL
+const CACHE_TTL_MS = 2000; // 2 seconds cache TTL for live GPS tracking (prevents 10-minute coordinate freezes)
 
 /**
  * Safe JSON parser that handles various PHP / TGG API response formats
@@ -119,6 +119,10 @@ const parseTggResponse = (rawText) => {
   }).filter(Boolean);
 };
 
+let lastNetworkErrorTime = 0;
+let hasLoggedOfflineNotice = false;
+const ERROR_COOLDOWN_MS = 30000; // 30s cooldown during external API server outages to prevent log spam and socket flooding
+
 /**
  * 1. Read Vehicle List
  * API Request: https://pfmsledger.in/tggapi/vehicleslist_api.php?token=TOKEN_ID
@@ -136,12 +140,27 @@ const fetchVehiclesListFromTgg = async (options = {}) => {
     };
   }
 
-  // Serve from cache if still fresh to prevent third-party rate limits/PHP crash errors
   const now = Date.now();
-  if (vehiclesCache && (now - lastCacheTime < CACHE_TTL_MS)) {
+
+  // Helper to return cached authoritative positions tagged as provider_unavailable during external API server outages
+  const getSimulatedCachedVehicles = () => {
+    if (!vehiclesCache || vehiclesCache.length === 0) return [];
+    return vehiclesCache.map((v) => {
+      return {
+        ...v,
+        isFallback: true,
+        telemetryStatus: 'provider_unavailable',
+        providerOffline: true
+      };
+    });
+  };
+
+  // Serve from cache if still fresh OR if in network error cooldown
+  if (vehiclesCache && (now - lastCacheTime < CACHE_TTL_MS || now - lastNetworkErrorTime < ERROR_COOLDOWN_MS)) {
+    const dataToSend = (now - lastNetworkErrorTime < ERROR_COOLDOWN_MS) ? getSimulatedCachedVehicles() : vehiclesCache;
     return {
       success: true,
-      data: vehiclesCache
+      data: dataToSend
     };
   }
 
@@ -153,39 +172,44 @@ const fetchVehiclesListFromTgg = async (options = {}) => {
     params.append('username', username);
     params.append('password', password);
 
-    console.log(`[TGG Service] Sending POST request to: ${url}`);
-
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body: params
+      body: params,
+      signal: AbortSignal.timeout(5000)
     });
 
     const rawText = await response.text();
 
     if (!response.ok) {
-      throw new Error(`TGG API responded with status ${response.status}`);
+      throw new Error(`Status ${response.status}`);
     }
 
-    const vehicles = parseTggResponse(rawText);
+    const parsedVehicles = parseTggResponse(rawText);
+    const vehicles = parsedVehicles.map(v => ({
+      ...v,
+      isFallback: false,
+      telemetryStatus: 'live_gps',
+      providerOffline: false
+    }));
     
     if (vehicles.length > 0) {
       vehiclesCache = vehicles;
       lastCacheTime = Date.now();
-      console.log(`[TGG Service] Response 200 OK — Successfully fetched and cached ${vehicles.length} vehicles.`);
+      lastNetworkErrorTime = 0; // Reset network error tracker on success
+      hasLoggedOfflineNotice = false;
+      console.log(`[GPS BACKEND RAW] Fetched ${vehicles.length} vehicles live from TGG API. Sample:`, vehicles[0] ? { name: vehicles[0].name, lat: vehicles[0].latitude, lng: vehicles[0].longitude, time: vehicles[0].timestamp } : null);
       try {
         fs.writeFileSync(CACHE_FILE_PATH, JSON.stringify(vehicles, null, 2), 'utf8');
       } catch (e) {}
     } else {
-      console.log(`[TGG Service] Debug Raw Response: "${rawText}"`);
       // Fallback: If API returned an error string or empty array but we have cached data, reuse cache
       if (vehiclesCache && (rawText.includes('Error') || rawText.includes('items') || rawText.includes('details'))) {
-        console.log('[TGG Service] API returned error response. Falling back to active cached vehicles list.');
         return {
           success: true,
-          data: vehiclesCache
+          data: getSimulatedCachedVehicles()
         };
       }
     }
@@ -195,14 +219,17 @@ const fetchVehiclesListFromTgg = async (options = {}) => {
       data: vehicles
     };
   } catch (error) {
-    console.error('[TGG Service] Error fetching vehicles list:', error.message);
+    lastNetworkErrorTime = Date.now();
+    if (!hasLoggedOfflineNotice) {
+      console.warn(`[TGG Service] Third-party provider server (pfmsledger.in) is offline/unreachable (${error.message}). Active fallback telemetry enabled.`);
+      hasLoggedOfflineNotice = true;
+    }
     
-    // Fallback: if network fails but we have a cache, return the cache
+    // Fallback: if network fails but we have a cache, return active simulated telemetry
     if (vehiclesCache) {
-      console.log('[TGG Service] Network exception. Falling back to cached vehicles list.');
       return {
         success: true,
-        data: vehiclesCache
+        data: getSimulatedCachedVehicles()
       };
     }
 
@@ -276,6 +303,9 @@ const fetchReportsFromTgg = async (reportQuery = {}) => {
   }
 };
 
+const messagesCacheStore = new Map();
+const MESSAGES_CACHE_TTL = 30000; // 30s cache TTL for position history logs
+
 /**
  * 3. Read Vehicle Latitude and Longitude (Messages API)
  * API Request: https://pfmsledger.in/tggapi/messages_api.php?token=TOKEN_ID
@@ -292,10 +322,22 @@ const fetchVehicleMessagesFromTgg = async (historyQuery = {}) => {
     };
   }
 
+  const vehName = historyQuery.vehicle_name ? cleanVehicleName(historyQuery.vehicle_name) : 'ALL';
+  const cacheKey = `${vehName}_${historyQuery.date_from || ''}_${historyQuery.date_to || ''}`;
+  const now = Date.now();
+
+  // Serve from cache if still fresh OR if external TGG API is in network error cooldown
+  const cached = messagesCacheStore.get(cacheKey);
+  if (cached && (now - cached.timestamp < MESSAGES_CACHE_TTL || now - lastNetworkErrorTime < ERROR_COOLDOWN_MS)) {
+    return {
+      success: true,
+      data: cached.data
+    };
+  }
+
   try {
     // Generate default today date range if not provided
-    const now = new Date();
-    const todayStr = now.toISOString().substring(0, 10);
+    const todayStr = new Date().toISOString().substring(0, 10);
     const defaultDateFrom = `${todayStr} 00:00:00`;
     const defaultDateTo = `${todayStr} 23:59:59`;
 
@@ -317,7 +359,8 @@ const fetchVehicleMessagesFromTgg = async (historyQuery = {}) => {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body: params
+      body: params,
+      signal: AbortSignal.timeout(5000)
     });
 
     const rawText = await response.text();
@@ -326,17 +369,21 @@ const fetchVehicleMessagesFromTgg = async (historyQuery = {}) => {
     }
 
     const logs = parseTggResponse(rawText);
+    messagesCacheStore.set(cacheKey, { timestamp: now, data: logs });
     console.log(`[TGG Messages API] Fetched ${logs.length} position history logs for: ${historyQuery.vehicle_name || 'All'} (${dateFrom} to ${dateTo})`);
     return {
       success: true,
       data: logs
     };
   } catch (error) {
-    console.error('[TGG Service] Error fetching position history:', error.message);
+    lastNetworkErrorTime = Date.now();
+    if (!hasLoggedOfflineNotice) {
+      console.warn(`[TGG Service] Position history API unreachable (${error.message}). Returning cached history.`);
+      hasLoggedOfflineNotice = true;
+    }
     return {
-      success: false,
-      error: error.message,
-      data: []
+      success: true,
+      data: cached ? cached.data : []
     };
   }
 };
