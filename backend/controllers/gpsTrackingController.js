@@ -1147,6 +1147,198 @@ const fetchDayInOutReport = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/gps/nightstay-report
+ * Returns Night Stay IN and OUT times table report for each route's designated night stay point
+ */
+const fetchNightStayReport = async (req, res) => {
+  try {
+    const dateToParam = req.query.date_to || new Date().toISOString().split('T')[0];
+    const dateFromParam = req.query.date_from || null;
+    const forceRefresh = req.query.refresh === 'true';
+    
+    let dates = buildDateRangeArray(dateFromParam, dateToParam);
+
+    if (dates.length === 0) {
+      const end = new Date(`${dateToParam}T12:00:00`);
+      const start = new Date(end);
+      start.setDate(start.getDate() - 4);
+      const yFrom = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+      const yTo = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+      dates = buildDateRangeArray(yFrom, yTo);
+    }
+
+    const userIdStr = req.user?._id ? String(req.user._id) : 'anon';
+    const cacheKey = `nightstay_${userIdStr}_${dateFromParam || 'default'}_${dateToParam}_${req.query.campus || 'all'}`;
+
+    if (!global._nightStayCache) {
+      global._nightStayCache = {};
+    }
+
+    if (!forceRefresh && global._nightStayCache[cacheKey] && (Date.now() - global._nightStayCache[cacheKey].timestamp < 600000)) {
+      return res.status(200).json(global._nightStayCache[cacheKey].data);
+    }
+
+    const { query: busQueryFilter } = await getCampusBusQueryFilter(req);
+    const buses = await Bus.find(busQueryFilter).lean();
+    const routes = await Route.find({}).lean();
+    const routeMap = {};
+    routes.forEach(r => {
+      routeMap[r.routeId] = r;
+    });
+
+    const vehiclesRes = await fetchVehiclesListFromTgg();
+    const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
+
+    const dateFromStr = `${dates[0]} 00:00:00`;
+    const dateToStr = `${dates[dates.length - 1]} 23:59:59`;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const nowHHMM = new Date().toTimeString().substring(0, 5);
+
+    const CONCURRENCY = 6;
+    const reportRows = [];
+
+    for (let i = 0; i < buses.length; i += CONCURRENCY) {
+      const chunk = buses.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.all(chunk.map(async (bus) => {
+        const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
+        const routeObj = routeMap[routeId];
+
+        // Resolve Stay Point: explicit isNightStayPoint stage OR stages[0] fallback
+        let stayPointStage = null;
+        if (routeObj && Array.isArray(routeObj.stages) && routeObj.stages.length > 0) {
+          stayPointStage = routeObj.stages.find(s => s.isNightStayPoint) || routeObj.stages[0];
+        }
+
+        const stayPointName = stayPointStage?.stageName || routeObj?.startPoint || 'Default Stay Point';
+        const isDefaultStayPoint = !routeObj?.stages?.some(s => s.isNightStayPoint);
+
+        const plateKey = extractPlateKey(bus.busNumber);
+        const matchedTgg = tggVehicles.find((v) => extractPlateKey(v.name) === plateKey);
+        const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
+
+        const daysMap = {};
+        dates.forEach(d => {
+          daysMap[d] = { firstIn: null, lastOut: null, kilometers: 0 };
+        });
+
+        try {
+          const tggReport = await fetchReportsFromTgg({
+            vehicle_name: tggVehicleName,
+            date_from: dateFromStr,
+            date_to: dateToStr,
+            template: 'Daily Report'
+          });
+
+          if (tggReport.success && tggReport.data) {
+            const gfLogs = parseGeofencesFromTgg(tggReport.data, tggVehicleName);
+
+            gfLogs.forEach(log => {
+              if (log.timeIn && log.timeIn !== '—') {
+                const normInDate = normalizeDateStr(log.timeIn);
+                const inTime = log.timeIn.split(' ')[1]?.substring(0, 5);
+                if (normInDate && daysMap[normInDate] && inTime) {
+                  if (!daysMap[normInDate].firstIn || inTime < daysMap[normInDate].firstIn) {
+                    daysMap[normInDate].firstIn = inTime;
+                  }
+                }
+              }
+
+              if (log.timeOut && log.timeOut !== '—') {
+                const normOutDate = normalizeDateStr(log.timeOut);
+                const outTime = log.timeOut.split(' ')[1]?.substring(0, 5);
+                if (normOutDate && daysMap[normOutDate] && outTime) {
+                  if (!daysMap[normOutDate].lastOut || outTime > daysMap[normOutDate].lastOut) {
+                    daysMap[normOutDate].lastOut = outTime;
+                  }
+                }
+              }
+
+              if (log.mileage && log.mileage !== '—') {
+                const mMatch = String(log.mileage).match(/([\d.]+)/);
+                if (mMatch) {
+                  const mVal = Math.round(parseFloat(mMatch[1]) * 10) / 10;
+                  const logDate = normalizeDateStr(log.timeIn || log.timeOut);
+                  if (logDate && daysMap[logDate] && mVal > 0) {
+                    daysMap[logDate].kilometers = Math.max(daysMap[logDate].kilometers, mVal);
+                  }
+                }
+              }
+            });
+
+            const parsedKms = parseDailyKilometersFromTggReport(tggReport.data, tggVehicleName);
+            Object.keys(parsedKms).forEach(dStr => {
+              if (daysMap[dStr] && parsedKms[dStr] > 0) {
+                daysMap[dStr].kilometers = Math.max(daysMap[dStr].kilometers, parsedKms[dStr]);
+              }
+            });
+          }
+        } catch (err) {
+          console.warn(`[GPS] nightstay report fetch failed for ${tggVehicleName}:`, err.message);
+        }
+
+        dates.forEach(dateStr => {
+          const dayObj = daysMap[dateStr];
+          const isToday = dateStr === todayStr;
+          if (isToday && dayObj.lastOut && dayObj.lastOut > nowHHMM) {
+            dayObj.lastOut = null;
+          }
+        });
+
+        return {
+          busNumber: bus.busNumber,
+          tggVehicleName,
+          routeId,
+          routeName,
+          stayPointName,
+          isDefaultStayPoint,
+          days: daysMap
+        };
+      }));
+
+      reportRows.push(...chunkResults);
+    }
+
+    const previousCache = global._nightStayCache?.[cacheKey]?.data?.data;
+    if (previousCache && Array.isArray(previousCache)) {
+      reportRows.forEach(row => {
+        const prevRow = previousCache.find(p => p.busNumber === row.busNumber);
+        if (prevRow && prevRow.days) {
+          Object.keys(row.days).forEach(dStr => {
+            const currentDay = row.days[dStr];
+            const prevDay = prevRow.days[dStr];
+            if (prevDay) {
+              if (!currentDay.firstIn && prevDay.firstIn) currentDay.firstIn = prevDay.firstIn;
+              if (!currentDay.lastOut && prevDay.lastOut) currentDay.lastOut = prevDay.lastOut;
+              if ((!currentDay.kilometers || currentDay.kilometers === 0) && prevDay.kilometers > 0) {
+                currentDay.kilometers = prevDay.kilometers;
+              }
+            }
+          });
+        }
+      });
+    }
+
+    const responsePayload = {
+      success: true,
+      dates,
+      data: reportRows
+    };
+
+    global._nightStayCache[cacheKey] = {
+      timestamp: Date.now(),
+      data: responsePayload
+    };
+
+    return res.status(200).json(responsePayload);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to generate Night Stay IN/OUT report'
+    });
+  }
+};
+
 module.exports = {
   fetchLiveVehicles,
   fetchVehicleReports,
@@ -1163,5 +1355,6 @@ module.exports = {
   fetchFinalDestinationReport,
   fetchDailyHistory,
   fetchDayInOutReport,
-  fetch7DayInOutReport: fetchDayInOutReport
+  fetch7DayInOutReport: fetchDayInOutReport,
+  fetchNightStayReport
 };

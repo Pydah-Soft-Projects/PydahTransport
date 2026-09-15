@@ -18,7 +18,8 @@ import {
   ChevronDown,
   Filter,
   SlidersHorizontal,
-  X
+  X,
+  Moon
 } from 'lucide-react';
 import GpsFinalDestinationModal from '../components/GpsFinalDestinationModal';
 
@@ -103,7 +104,7 @@ export default function GpsTracking() {
 
   // Sync tab with URL search parameter changes
   useEffect(() => {
-    if (tabParam && ['live', 'travelled', 'destination', 'reports'].includes(tabParam)) {
+    if (tabParam && ['live', 'travelled', 'destination', 'reports', 'nightstay'].includes(tabParam)) {
       setActivePageTab(tabParam);
       sessionStorage.setItem('gps_active_page_tab', tabParam);
     }
@@ -211,11 +212,46 @@ export default function GpsTracking() {
     }
   }, [fleetDateFrom, fleetDateTo]);
 
+  // Night Stay Report States
+  const [nightStayData, setNightStayData] = useState([]);
+  const [nightStayDates, setNightStayDates] = useState([]);
+  const [nightStayLoading, setNightStayLoading] = useState(false);
+
+  const fetchNightStayReportData = useCallback(async (overrideFrom, overrideTo, forceRefresh = false) => {
+    const fromStr = overrideFrom || fleetDateFrom;
+    const toStr = overrideTo || fleetDateTo;
+    const requestedDates = buildClientDateRange(fromStr, toStr);
+
+    if (requestedDates.length > 0) {
+      setNightStayDates(requestedDates);
+    }
+    setNightStayLoading(true);
+
+    try {
+      const url = `${API_BASE}/gps/nightstay-report?date_from=${fromStr}&date_to=${toStr}${forceRefresh ? '&refresh=true' : ''}`;
+      const res = await apiFetch(url);
+      const json = await res.json();
+
+      if (res.ok && json.success && Array.isArray(json.data)) {
+        setNightStayData(json.data);
+        if (json.dates && json.dates.length > 0) {
+          setNightStayDates(json.dates);
+        }
+      }
+    } catch (err) {
+      console.error('Night stay report fetch error:', err);
+    } finally {
+      setNightStayLoading(false);
+    }
+  }, [fleetDateFrom, fleetDateTo]);
+
   useEffect(() => {
     if (activePageTab === 'reports' || activePageTab === 'travelled') {
       fetchDayReport();
+    } else if (activePageTab === 'nightstay') {
+      fetchNightStayReportData();
     }
-  }, [activePageTab, fetchDayReport]);
+  }, [activePageTab, fetchDayReport, fetchNightStayReportData]);
 
   // Final Destination modal
   const [campuses, setCampuses] = useState([]);
@@ -911,7 +947,8 @@ export default function GpsTracking() {
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-none truncate">
                   {activePageTab === 'live' && 'GPS Live Fleet Tracking Map'}
-                  {(activePageTab === 'reports' || activePageTab === 'travelled') && 'GPS Fleet Vehicle IN / OUT Reports & Distance Logs'}
+                  {(activePageTab === 'reports' || activePageTab === 'travelled') && 'Campus IN / OUT Reports & Distance Logs'}
+                  {activePageTab === 'nightstay' && 'Night Stay IN / OUTs Reports'}
                   {activePageTab === 'destination' && 'GPS Campus Final Destination Geofences'}
                 </h1>
                 <span className="px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-md flex items-center gap-1 shrink-0">
@@ -932,14 +969,15 @@ export default function GpsTracking() {
               </div>
               <p className="text-[11px] sm:text-xs text-slate-500 mt-1 truncate">
                 {activePageTab === 'live' && (selectedVehicle ? `Tracing Vehicle: ${selectedVehicle.name}` : `All Vehicles Fleet Map (${vehicles.length} Vehicles) • Updated: ${lastUpdated.toLocaleTimeString()}`)}
-                {(activePageTab === 'reports' || activePageTab === 'travelled') && `7-Day Vehicle Reports, Distance Log & In/Out Arrival Logs (${vehicles.length} Buses)`}
+                {(activePageTab === 'reports' || activePageTab === 'travelled') && `Campus IN/OUT Reports, Distance Log & In/Out Arrival Logs (${vehicles.length} Buses)`}
+                {activePageTab === 'nightstay' && `Night Stay Stage Arrival (IN) & Departure (OUT) Reports (${vehicles.length} Buses)`}
                 {activePageTab === 'destination' && `Campus Final Destination Geofence Arrival Settings & Arrival Reports`}
               </p>
             </div>
           </div>
 
           {/* Integrated Header Filters for Reports View */}
-          {(activePageTab === 'reports' || activePageTab === 'travelled') && (
+          {(activePageTab === 'reports' || activePageTab === 'travelled' || activePageTab === 'nightstay') && (
             <div className="flex flex-wrap items-center gap-2.5 w-full xl:w-auto justify-start xl:justify-end pt-2 xl:pt-0 border-t xl:border-t-0 border-slate-100">
               <div className="relative w-full sm:w-52">
                 <Search size={12} className="absolute left-2.5 top-2.5 text-slate-400 pointer-events-none" />
@@ -968,17 +1006,23 @@ export default function GpsTracking() {
               </button>
 
               <button 
-                onClick={() => fetchDayReport(fleetDateFrom, fleetDateTo, true)}
-                disabled={reportLoading}
+                onClick={() => {
+                  if (activePageTab === 'nightstay') {
+                    fetchNightStayReportData(fleetDateFrom, fleetDateTo, true);
+                  } else {
+                    fetchDayReport(fleetDateFrom, fleetDateTo, true);
+                  }
+                }}
+                disabled={activePageTab === 'nightstay' ? nightStayLoading : reportLoading}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw size={12} className={reportLoading ? 'animate-spin' : ''} />
-                <span>{reportLoading ? 'Loading...' : 'Refresh Logs'}</span>
+                <RefreshCw size={12} className={(activePageTab === 'nightstay' ? nightStayLoading : reportLoading) ? 'animate-spin' : ''} />
+                <span>{(activePageTab === 'nightstay' ? nightStayLoading : reportLoading) ? 'Loading...' : 'Refresh Logs'}</span>
               </button>
 
               <button 
                 onClick={handleExportFleetCsv}
-                disabled={!report7DayData.length}
+                disabled={activePageTab === 'nightstay' ? !nightStayData.length : !report7DayData.length}
                 className="px-3 py-1.5 bg-[#071B45] hover:bg-[#0A2558] text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-2xs"
               >
                 <Download size={12} />
@@ -1111,11 +1155,15 @@ export default function GpsTracking() {
                     sessionStorage.setItem('gps_fleet_date_to', tempDateTo);
                     setIsFilterModalOpen(false);
                     setReportDates(buildClientDateRange(tempDateFrom, tempDateTo));
-                    fetchDayReport(tempDateFrom, tempDateTo, true);
+                    if (activePageTab === 'nightstay') {
+                      fetchNightStayReportData(tempDateFrom, tempDateTo, true);
+                    } else {
+                      fetchDayReport(tempDateFrom, tempDateTo, true);
+                    }
                   }}
                   className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
                 >
-                  <RefreshCw size={12} className={reportLoading ? 'animate-spin' : ''} />
+                  <RefreshCw size={12} className={(activePageTab === 'nightstay' ? nightStayLoading : reportLoading) ? 'animate-spin' : ''} />
                   <span>Apply & Fetch Reports</span>
                 </button>
               </div>
@@ -1451,7 +1499,221 @@ export default function GpsTracking() {
             </div>
           </div>
         </div>
-        {(activePageTab === 'reports' || activePageTab === 'travelled') ? (
+        {activePageTab === 'nightstay' ? (
+          /* Night Stay IN / OUTs Report View */
+          <div className="space-y-4">
+            {(() => {
+              const activeFilterQuery = fleetSearchQuery.toLowerCase();
+              const filteredRows = nightStayData.filter(r => {
+                if (!activeFilterQuery) return true;
+                return (r.busNumber && r.busNumber.toLowerCase().includes(activeFilterQuery)) ||
+                       (r.routeId && r.routeId.toLowerCase().includes(activeFilterQuery)) ||
+                       (r.routeName && r.routeName.toLowerCase().includes(activeFilterQuery)) ||
+                       (r.stayPointName && r.stayPointName.toLowerCase().includes(activeFilterQuery));
+              });
+
+              const displayRows = (nightStayData.length > 0)
+                ? filteredRows
+                : (vehicles.length > 0
+                    ? vehicles.map(v => ({ busNumber: v.name, tggVehicleName: v.name, routeId: extractRouteIdFromVehicleName(v.name) || 'Unassigned', stayPointName: 'Default Stay Point', isDefaultStayPoint: true, days: {} }))
+                    : Array.from({ length: 8 }).map((_, i) => ({ busNumber: `AP-05-TD-${3940 + i}`, tggVehicleName: `AP-05-TD-${3940 + i}`, routeId: `R${String(i + 1).padStart(2, '0')}`, stayPointName: 'Default Stay Point', isDefaultStayPoint: true, days: {} }))
+                  );
+
+              const sortedRows = [...displayRows].sort((a, b) => {
+                if (fleetSortField === 'route') {
+                  const valA = (a.routeId || 'ZZZ').toString();
+                  const valB = (b.routeId || 'ZZZ').toString();
+                  const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+                  return fleetSortOrder === 'asc' ? cmp : -cmp;
+                }
+                if (fleetSortField === 'bus') {
+                  const valA = (a.tggVehicleName || a.busNumber || '').toString();
+                  const valB = (b.tggVehicleName || b.busNumber || '').toString();
+                  const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+                  return fleetSortOrder === 'asc' ? cmp : -cmp;
+                }
+                return 0;
+              });
+
+              const nsDates = (nightStayDates.length > 0) ? nightStayDates : displayDates;
+
+              if (!nightStayLoading && nightStayData.length > 0 && filteredRows.length === 0) {
+                return (
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-8 text-center text-slate-400 italic text-xs">
+                    No bus records matched your search filter for Night Stay.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+                  <div className="overflow-x-auto sidebar-scrollbar">
+                    <table className="w-full text-left border-collapse min-w-[1100px]">
+                      <thead>
+                        {/* Header Row 1: Route, Bus Number, Stay Point, Date Columns */}
+                        <tr className="bg-[#071B45] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
+                          <th 
+                            rowSpan={2} 
+                            onClick={() => handleFleetSort('route')}
+                            className="px-2.5 py-2 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-20 w-24 min-w-[96px] max-w-[96px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            title="Click to sort by Route ID"
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span>Route</span>
+                              <span className="text-slate-400 group-hover:text-white">
+                                {fleetSortField === 'route' ? (
+                                  fleetSortOrder === 'asc' ? <ChevronDown size={12} className="text-blue-400 rotate-180" /> : <ChevronDown size={12} className="text-blue-400" />
+                                ) : (
+                                  <span className="text-[9px] opacity-40">↕</span>
+                                )}
+                              </span>
+                            </div>
+                          </th>
+                          <th 
+                            rowSpan={2} 
+                            onClick={() => handleFleetSort('bus')}
+                            className="px-2.5 py-2 sticky left-[96px] bg-[#071B45] hover:bg-[#0A2558] z-20 w-36 min-w-[144px] max-w-[144px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            title="Click to sort by Bus Number"
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span>Bus Number</span>
+                              <span className="text-slate-400 group-hover:text-white">
+                                {fleetSortField === 'bus' ? (
+                                  fleetSortOrder === 'asc' ? <ChevronDown size={12} className="text-blue-400 rotate-180" /> : <ChevronDown size={12} className="text-blue-400" />
+                                ) : (
+                                  <span className="text-[9px] opacity-40">↕</span>
+                                )}
+                              </span>
+                            </div>
+                          </th>
+                          <th 
+                            rowSpan={2} 
+                            className="px-2.5 py-2 sticky left-[240px] bg-[#071B45] z-20 w-44 min-w-[176px] max-w-[176px] align-middle border-r border-slate-700 select-none"
+                          >
+                            <span>Night Stay Point</span>
+                          </th>
+
+                          {nsDates.map((dateStr) => {
+                            const dObj = new Date(dateStr);
+                            const dayNum = dObj.getDate();
+                            const monthName = dObj.toLocaleDateString('en-US', { month: 'short' });
+                            const isToday = dateStr === new Date().toISOString().split('T')[0];
+
+                            return (
+                              <th key={dateStr} colSpan={3} className={`px-2 py-1.5 text-center border-r border-slate-700/80 w-42 min-w-[168px] ${isToday ? 'bg-blue-900/90' : ''}`}>
+                                <div className="text-[10px] font-extrabold text-white">{dayNum} {monthName}</div>
+                                <div className="text-[8.5px] text-blue-200 tracking-normal capitalize font-semibold">Night Stay In / Out</div>
+                              </th>
+                            );
+                          })}
+                        </tr>
+
+                        {/* Header Row 2: IN / OUT / KMS Sub-columns */}
+                        <tr className="bg-[#0b2256] text-slate-200 text-[9px] font-bold uppercase tracking-wider border-b border-slate-700">
+                          {nsDates.map((dateStr) => {
+                            const isToday = dateStr === new Date().toISOString().split('T')[0];
+                            return (
+                              <React.Fragment key={`sub-${dateStr}`}>
+                                <th className={`px-1 py-1 text-center border-r border-slate-700/50 w-14 min-w-[56px] text-emerald-300 ${isToday ? 'bg-blue-900/40' : ''}`}>IN</th>
+                                <th className={`px-1 py-1 text-center border-r border-slate-700/50 w-14 min-w-[56px] text-rose-300 ${isToday ? 'bg-blue-900/40' : ''}`}>OUT</th>
+                                <th className={`px-1 py-1 text-center border-r border-slate-700/80 w-14 min-w-[56px] text-amber-300 ${isToday ? 'bg-blue-900/40' : ''}`}>KMS</th>
+                              </React.Fragment>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+
+                      <tbody className="divide-y divide-slate-100 text-slate-800 text-xs font-semibold">
+                        {sortedRows.map((row, idx) => (
+                          <tr key={row.busNumber || idx} className="hover:bg-blue-50/40 transition-colors">
+                            {/* Route ID */}
+                            <td className="px-2.5 py-2 font-mono font-bold text-[11px] text-blue-700 sticky left-0 bg-white group-hover:bg-blue-50 z-10 border-r border-slate-100 align-middle shadow-2xs">
+                              {row.routeId || 'Unassigned'}
+                            </td>
+
+                            {/* Bus Number */}
+                            <td className="px-2.5 py-2 font-bold text-slate-900 sticky left-[96px] bg-white group-hover:bg-blue-50 z-10 border-r border-slate-100 align-middle shadow-2xs truncate">
+                              <span title={row.tggVehicleName || row.busNumber}>{row.tggVehicleName || row.busNumber}</span>
+                            </td>
+
+                            {/* Stay Point Name */}
+                            <td className="px-2.5 py-2 sticky left-[240px] bg-white group-hover:bg-blue-50 z-10 border-r border-slate-100 align-middle shadow-2xs truncate">
+                              <div className="flex items-center gap-1">
+                                <span className="font-bold text-indigo-900 text-xs truncate" title={row.stayPointName}>
+                                  {row.stayPointName || 'Default Stay'}
+                                </span>
+                                {row.isDefaultStayPoint ? (
+                                  <span className="text-[8px] font-bold bg-slate-100 text-slate-500 px-1 py-0.2 rounded border border-slate-200 shrink-0" title="Default 1st Stage Fallback">
+                                    Default
+                                  </span>
+                                ) : (
+                                  <span className="text-[8px] font-black bg-indigo-100 text-indigo-700 px-1 py-0.2 rounded border border-indigo-200 shrink-0">
+                                    🌙 Stay
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Day Columns */}
+                            {nsDates.map((dateStr) => {
+                              const dayData = row.days?.[dateStr] || {};
+                              const inTime = dayData.firstIn || null;
+                              const outTime = dayData.lastOut || null;
+                              const kmVal = dayData.kilometers || 0;
+
+                              return (
+                                <React.Fragment key={`${row.busNumber}-${dateStr}`}>
+                                  {/* IN Column */}
+                                  <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[10px] w-14 min-w-[56px]">
+                                    {nightStayLoading ? (
+                                      <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                    ) : inTime ? (
+                                      <span className="px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 font-extrabold border border-emerald-200/80 inline-block whitespace-nowrap" title="Arrival Time at Stay Point">
+                                        {inTime}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300 font-bold text-[10px]">—</span>
+                                    )}
+                                  </td>
+
+                                  {/* OUT Column */}
+                                  <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[10px] w-14 min-w-[56px]">
+                                    {nightStayLoading ? (
+                                      <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                    ) : outTime ? (
+                                      <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-700 font-extrabold border border-rose-200/80 inline-block whitespace-nowrap" title="Departure Time from Stay Point">
+                                        {outTime}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300 font-bold text-[10px]">—</span>
+                                    )}
+                                  </td>
+
+                                  {/* KMS Column */}
+                                  <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-14 min-w-[56px]">
+                                    {nightStayLoading ? (
+                                      <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                    ) : (kmVal && kmVal > 0) ? (
+                                      <span className="px-1 py-0.2 rounded bg-amber-50 text-amber-800 font-extrabold border border-amber-200/80 inline-block whitespace-nowrap" title="Total Distance Travelled">
+                                        {kmVal} km
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300 font-bold text-[10px]">—</span>
+                                    )}
+                                  </td>
+                                </React.Fragment>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        ) : (activePageTab === 'reports' || activePageTab === 'travelled') ? (
           /* GPS Reports & Distance Log View */
           <div className="space-y-4">
             {/* 7-Day Campus Final Destination IN / OUT Matrix Table */}

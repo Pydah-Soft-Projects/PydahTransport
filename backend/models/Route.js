@@ -22,6 +22,7 @@ const stageSchema = new mongoose.Schema({
     longitude: { type: Number, default: null },
     distanceToDestination: { type: Number, default: null }, // in km
     radius: { type: Number, default: 100 },
+    isNightStayPoint: { type: Boolean, default: false },
     // Intermediate points between previous stage and this stage — force road snap onto a chosen road
     viaPoints: {
         type: [viaPointSchema],

@@ -73,6 +73,7 @@ function resolveStageForAcademicYear(stage, academicYear) {
         longitude: stage.longitude !== undefined ? stage.longitude : null,
         distanceToDestination: stage.distanceToDestination !== undefined ? stage.distanceToDestination : null,
         radius: stage.radius !== undefined ? stage.radius : 100,
+        isNightStayPoint: Boolean(stage.isNightStayPoint),
         viaPoints: Array.isArray(stage.viaPoints)
             ? stage.viaPoints
                 .map((v) => ({
@@ -142,6 +143,7 @@ function normalizeStagesForSave(stages, editingAcademicYear = null) {
             longitude: stage.longitude !== undefined ? (stage.longitude === '' || stage.longitude === null ? null : Number(stage.longitude)) : null,
             distanceToDestination: stage.distanceToDestination !== undefined ? (stage.distanceToDestination === '' || stage.distanceToDestination === null ? null : Number(stage.distanceToDestination)) : null,
             radius: stage.radius !== undefined ? (stage.radius === '' || stage.radius === null ? 100 : Number(stage.radius)) : 100,
+            isNightStayPoint: Boolean(stage.isNightStayPoint),
             viaPoints: Array.isArray(stage.viaPoints)
                 ? stage.viaPoints
                     .map((v) => ({
