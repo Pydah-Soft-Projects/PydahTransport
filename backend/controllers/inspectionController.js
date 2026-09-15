@@ -141,5 +141,119 @@ const recordScan = async (req, res) => {
     return res.json(session);
 };
 
-module.exports = { startInspection, completeInspection, listInspectionSessions, recordScan };
+const syncInspectionSessions = async (req, res) => {
+    try {
+        await autoClosePastOr7PMSessions();
+        const { academicYear, inspectionDate, sessions = [], inspectedMap = {} } = req.body;
+
+        const targetDate = inspectionDate || new Date().toLocaleDateString('en-CA');
+        const now = new Date();
+        const todayStr = now.toLocaleDateString('en-CA');
+        const isPast7PM = targetDate < todayStr || (targetDate === todayStr && now.getHours() >= 19);
+
+        // Process provided offline sessions
+        if (Array.isArray(sessions) && sessions.length > 0) {
+            for (const s of sessions) {
+                if (!s.busNumber || !s.routeId) continue;
+                const dateToUse = s.inspectionDate || targetDate;
+
+                let dbSession = null;
+                if (s._id && !String(s._id).startsWith('local-')) {
+                    dbSession = await InspectionSession.findById(s._id);
+                }
+                if (!dbSession) {
+                    dbSession = await InspectionSession.findOne({
+                        inspectionDate: dateToUse,
+                        busNumber: String(s.busNumber),
+                        routeId: String(s.routeId),
+                    }).sort({ startedAt: -1 });
+                }
+
+                const offlineScanned = s.scannedPassengers && typeof s.scannedPassengers === 'object' ? s.scannedPassengers : {};
+
+                if (dbSession) {
+                    if (!dbSession.scannedPassengers) dbSession.scannedPassengers = {};
+                    Object.assign(dbSession.scannedPassengers, offlineScanned);
+                    dbSession.markModified('scannedPassengers');
+
+                    const count = Object.keys(dbSession.scannedPassengers).length;
+                    dbSession.inspectedCount = Math.max(count, Number(s.inspectedCount) || 0, dbSession.inspectedCount || 0);
+                    if (s.totalCount !== undefined) dbSession.totalCount = Number(s.totalCount) || dbSession.totalCount || 0;
+                    if (s.status === 'completed' || s.status === 'submitted') {
+                        dbSession.status = isPast7PM ? 'submitted' : s.status;
+                        if (s.completedAt) dbSession.completedAt = new Date(s.completedAt);
+                    }
+                    await dbSession.save();
+                } else {
+                    const count = Object.keys(offlineScanned).length;
+                    await InspectionSession.create({
+                        inspectorId: req.user?._id || null,
+                        inspectorName: s.inspectorName || getInspectorName(req.user),
+                        inspectorUsername: s.inspectorUsername || req.user?.emp_no || req.user?.username || null,
+                        academicYear: s.academicYear || academicYear || null,
+                        inspectionDate: dateToUse,
+                        busNumber: String(s.busNumber),
+                        routeId: String(s.routeId),
+                        routeName: s.routeName || null,
+                        totalCount: Number(s.totalCount) || 0,
+                        startedAt: s.startedAt ? new Date(s.startedAt) : now,
+                        status: isPast7PM ? 'submitted' : (s.status || 'completed'),
+                        completedAt: s.completedAt ? new Date(s.completedAt) : (isPast7PM || s.status === 'completed' ? now : null),
+                        scannedPassengers: offlineScanned,
+                        inspectedCount: Math.max(count, Number(s.inspectedCount) || 0),
+                    });
+                }
+            }
+        }
+
+        // Merge standalone inspectedMap scans into corresponding sessions if available
+        if (inspectedMap && typeof inspectedMap === 'object' && Object.keys(inspectedMap).length > 0) {
+            for (const [pKey, scanRec] of Object.entries(inspectedMap)) {
+                if (!scanRec || typeof scanRec !== 'object') continue;
+                const busNum = scanRec.scannedBusId || scanRec.busId || scanRec.busNumber;
+                const rId = scanRec.scannedRouteId || scanRec.routeId;
+                if (!busNum || !rId) continue;
+
+                const dbSession = await InspectionSession.findOne({
+                    inspectionDate: targetDate,
+                    busNumber: String(busNum),
+                    routeId: String(rId),
+                }).sort({ startedAt: -1 });
+
+                if (dbSession) {
+                    if (!dbSession.scannedPassengers) dbSession.scannedPassengers = {};
+                    if (!dbSession.scannedPassengers[pKey]) {
+                        dbSession.scannedPassengers[pKey] = scanRec;
+                        dbSession.markModified('scannedPassengers');
+                        dbSession.inspectedCount = Object.keys(dbSession.scannedPassengers).length;
+                        await dbSession.save();
+                    }
+                }
+            }
+        }
+
+        // Return all current sessions for targetDate and academicYear
+        const filter = { inspectionDate: targetDate };
+        if (academicYear) filter.academicYear = academicYear;
+        const allSessions = await InspectionSession.find(filter).sort({ startedAt: -1 }).lean();
+
+        const updatedSessions = allSessions.map((s) => {
+            const isExpired = s.inspectionDate < todayStr || (s.inspectionDate === todayStr && now.getHours() >= 19);
+            const scannedCount = s.scannedPassengers && typeof s.scannedPassengers === 'object' ? Object.keys(s.scannedPassengers).length : 0;
+            return {
+                ...s,
+                status: isExpired && s.status === 'in_progress' ? 'submitted' : s.status,
+                inspectedCount: Math.max(s.inspectedCount || 0, scannedCount),
+            };
+        });
+
+        return res.json({ success: true, sessions: updatedSessions });
+    } catch (err) {
+        console.error('Error syncing inspection sessions:', err);
+        return res.status(500).json({ message: 'Failed to sync inspection sessions', error: err.message });
+    }
+};
+
+module.exports = { startInspection, completeInspection, listInspectionSessions, recordScan, syncInspectionSessions };
+
 

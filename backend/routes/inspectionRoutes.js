@@ -6,12 +6,15 @@ const {
     completeInspection,
     listInspectionSessions,
     recordScan,
+    syncInspectionSessions,
 } = require('../controllers/inspectionController');
 
 router.use(protect);
 router.get('/', listInspectionSessions);
+router.post('/sync', syncInspectionSessions);
 router.post('/', startInspection);
 router.put('/:id/complete', completeInspection);
 router.put('/:id/scan', recordScan);
 
 module.exports = router;
+

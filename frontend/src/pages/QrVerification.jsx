@@ -68,6 +68,7 @@ import {
     buildOfflineLookupKeys,
     extractRequestIdFromText,
 } from '../utils/qrVerification';
+import { syncOfflineInspectionReports } from '../utils/inspectionSync';
 
 const QrVerification = () => {
     const academicYearOptions = getAcademicYearOptions();
@@ -179,6 +180,7 @@ const QrVerification = () => {
         if (!online || !isAuthenticated()) return;
         try {
             const today = new Date().toLocaleDateString('en-CA');
+            await syncOfflineInspectionReports(academicYear, today);
             const response = await apiFetch(`${API_BASE}/inspection-sessions?date=${today}&academicYear=${encodeURIComponent(academicYear)}`);
             if (response.ok) {
                 const sessions = await response.json();
@@ -441,15 +443,25 @@ const QrVerification = () => {
         refreshMeta();
         loadInspectionData();
 
-        const onOnline = () => setOnline(true);
+        const onOnline = () => {
+            setOnline(true);
+            const today = new Date().toLocaleDateString('en-CA');
+            syncOfflineInspectionReports(academicYear, today).then(() => {
+                loadInspectionSessions();
+            });
+        };
         const onOffline = () => setOnline(false);
+        const onInspectionSynced = () => loadInspectionSessions();
+
         window.addEventListener('online', onOnline);
         window.addEventListener('offline', onOffline);
+        window.addEventListener('pydah_inspection_synced', onInspectionSynced);
         return () => {
             window.removeEventListener('online', onOnline);
             window.removeEventListener('offline', onOffline);
+            window.removeEventListener('pydah_inspection_synced', onInspectionSynced);
         };
-    }, [refreshMeta, loadInspectionData]);
+    }, [refreshMeta, loadInspectionData, academicYear, loadInspectionSessions]);
 
     useEffect(() => {
         let cancelled = false;
@@ -666,6 +678,8 @@ const QrVerification = () => {
 
             await refreshMeta();
             await loadInspectionData();
+            await syncOfflineInspectionReports(academicYear, new Date().toLocaleDateString('en-CA'));
+            await loadInspectionSessions();
             setSyncMessage(`Synced ${syncData.count || 0} record${syncData.count === 1 ? '' : 's'} for ${academicYear}${fullSync ? ' (full sync)' : ''}.`);
         } catch (err) {
             setSyncMessage(err.message || 'Sync failed');

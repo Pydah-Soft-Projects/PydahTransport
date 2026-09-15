@@ -34,6 +34,13 @@ import { apiFetch, API_BASE, isAuthenticated } from '../utils/api';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 import { normalizeStudentPhoto } from '../utils/studentPhoto';
 import { idbGetAllPassengers, formatSyncTime } from '../utils/qrVerification';
+import {
+    getLocalInspectionSessions,
+    getLocalInspectedMap,
+    saveLocalInspectionSessions,
+    saveLocalInspectedMap,
+    syncOfflineInspectionReports,
+} from '../utils/inspectionSync';
 
 const findInspectedRecord = (p, fastLookup) => {
     if (!fastLookup || !p) return null;
@@ -74,6 +81,8 @@ const InspectionReports = () => {
     const [allPassengers, setAllPassengers] = useState([]);
     const [inspectionSessions, setInspectionSessions] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [syncMessage, setSyncMessage] = useState('');
     const [expandedInspector, setExpandedInspector] = useState(null);
     const [expandedBusKey, setExpandedBusKey] = useState(null);
     const [mismatchedModalData, setMismatchedModalData] = useState(null);
@@ -90,37 +99,34 @@ const InspectionReports = () => {
 
     // Network connectivity tracking
     const [online, setOnline] = useState(navigator.onLine);
-    useEffect(() => {
-        const onOnline = () => setOnline(true);
-        const onOffline = () => setOnline(false);
-        window.addEventListener('online', onOnline);
-        window.addEventListener('offline', onOffline);
-        return () => {
-            window.removeEventListener('online', onOnline);
-            window.removeEventListener('offline', onOffline);
-        };
-    }, []);
 
-    // Load inspection records for the chosen date & academic year
+    // Load local inspection records and local sessions for the chosen date & academic year
     const loadInspectedData = useCallback(() => {
-        try {
-            const key = `pydah_inspected_${academicYear}_${selectedDate}`;
-            const stored = localStorage.getItem(key);
-            setInspectedMap(stored ? JSON.parse(stored) : {});
-        } catch {
-            setInspectedMap({});
-        }
+        const localInspected = getLocalInspectedMap(academicYear, selectedDate);
+        const localSessions = getLocalInspectionSessions(academicYear, selectedDate);
+        setInspectedMap(localInspected);
+        setInspectionSessions(localSessions);
     }, [academicYear, selectedDate]);
 
-    // Load all passengers & routes
+    // Load all passengers, routes, and sync offline reports if online
     const loadReportData = useCallback(async () => {
         setLoading(true);
         try {
+            // Load local data first so offline progress is immediately available
             loadInspectedData();
             const cached = await idbGetAllPassengers();
             setAllPassengers(cached || []);
 
             if (isAuthenticated()) {
+                if (navigator.onLine) {
+                    try {
+                        // Sync unsynced offline reports to backend
+                        await syncOfflineInspectionReports(academicYear, selectedDate);
+                    } catch (syncErr) {
+                        console.warn('Offline report sync attempt warning:', syncErr);
+                    }
+                }
+
                 try {
                     const [routesRes, busesRes, sessionsRes] = await Promise.all([
                         apiFetch(`${API_BASE}/routes?academicYear=${encodeURIComponent(academicYear)}`).catch(() => null),
@@ -137,28 +143,89 @@ const InspectionReports = () => {
                         setBuses(Array.isArray(bData) ? bData : []);
                     }
                     if (sessionsRes && sessionsRes.ok) {
-                        const sessionData = await sessionsRes.json().catch(() => []);
-                        setInspectionSessions(Array.isArray(sessionData) ? sessionData : []);
-                        setInspectedMap((prev) => {
-                            const merged = { ...prev };
-                            if (Array.isArray(sessionData)) {
-                                sessionData.forEach((s) => {
+                        const serverSessions = await sessionsRes.json().catch(() => []);
+                        if (Array.isArray(serverSessions)) {
+                            // Merge server sessions with any unsynced local sessions
+                            const localSessions = getLocalInspectionSessions(academicYear, selectedDate);
+                            const mergedSessionsMap = new Map();
+
+                            serverSessions.forEach((s) => {
+                                const id = s._id || s.id;
+                                if (id) mergedSessionsMap.set(id, s);
+                            });
+                            localSessions.forEach((ls) => {
+                                const id = ls._id || ls.id;
+                                if (id && String(id).startsWith('local-')) {
+                                    mergedSessionsMap.set(id, ls);
+                                }
+                            });
+
+                            const mergedSessions = Array.from(mergedSessionsMap.values());
+                            setInspectionSessions(mergedSessions);
+                            saveLocalInspectionSessions(academicYear, selectedDate, mergedSessions);
+
+                            setInspectedMap((prev) => {
+                                const merged = { ...prev };
+                                mergedSessions.forEach((s) => {
                                     if (s.scannedPassengers && typeof s.scannedPassengers === 'object') {
                                         Object.assign(merged, s.scannedPassengers);
                                     }
                                 });
-                            }
-                            return merged;
-                        });
+                                saveLocalInspectedMap(academicYear, selectedDate, merged);
+                                return merged;
+                            });
+                        }
                     }
-                } catch {
-                    // ignore
+                } catch (e) {
+                    console.warn('Network request failed, using local offline inspection progress:', e);
                 }
             }
         } finally {
             setLoading(false);
         }
     }, [academicYear, loadInspectedData, selectedDate]);
+
+    // Setup network and sync listeners
+    useEffect(() => {
+        const onOnline = () => {
+            setOnline(true);
+            syncOfflineInspectionReports(academicYear, selectedDate).then(() => {
+                loadReportData();
+            });
+        };
+        const onOffline = () => setOnline(false);
+        const onInspectionSynced = () => loadReportData();
+
+        window.addEventListener('online', onOnline);
+        window.addEventListener('offline', onOffline);
+        window.addEventListener('pydah_inspection_synced', onInspectionSynced);
+
+        return () => {
+            window.removeEventListener('online', onOnline);
+            window.removeEventListener('offline', onOffline);
+            window.removeEventListener('pydah_inspection_synced', onInspectionSynced);
+        };
+    }, [academicYear, selectedDate, loadReportData]);
+
+    const handleSyncReports = async () => {
+        setIsSyncing(true);
+        setSyncMessage('');
+        try {
+            const res = await syncOfflineInspectionReports(academicYear, selectedDate);
+            if (res.synced) {
+                setSyncMessage('Successfully synced offline inspection reports!');
+                await loadReportData();
+            } else {
+                setSyncMessage(res.reason === 'no_local_data' ? 'All inspection reports are already synced.' : 'Sync failed or device is offline.');
+            }
+        } catch {
+            setSyncMessage('Failed to sync inspection reports.');
+        } finally {
+            setIsSyncing(false);
+            setTimeout(() => setSyncMessage(''), 4000);
+        }
+    };
+
 
     // Fast O(1) Inspected Records Lookup Map
     const fastInspectedLookup = useMemo(() => {
@@ -945,8 +1012,19 @@ const InspectionReports = () => {
                             </select>
                         </div>
 
-                        {/* Action Buttons: Refresh, Export & Print */}
-                        <div className="grid grid-cols-3 md:flex items-center gap-2 w-full md:w-auto">
+                        {/* Action Buttons: Sync, Refresh, Export & Print */}
+                        <div className="grid grid-cols-4 md:flex items-center gap-2 w-full md:w-auto">
+                            <button
+                                type="button"
+                                onClick={handleSyncReports}
+                                disabled={isSyncing}
+                                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-sm shadow-emerald-600/20 col-span-1"
+                                title="Sync Offline Inspection Reports to Server"
+                            >
+                                <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
+                                <span>{isSyncing ? 'Syncing...' : 'Sync Reports'}</span>
+                            </button>
+
                             <button
                                 type="button"
                                 onClick={loadReportData}
@@ -980,6 +1058,25 @@ const InspectionReports = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* Sync Notification Banner */}
+                {syncMessage && (
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between shadow-2xs print:hidden animate-fade-in">
+                        <span>{syncMessage}</span>
+                        <button type="button" onClick={() => setSyncMessage('')} className="text-emerald-600 hover:text-emerald-900 cursor-pointer">
+                            <X size={14} />
+                        </button>
+                    </div>
+                )}
+                {!online && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between shadow-2xs print:hidden">
+                        <span className="flex items-center gap-2">
+                            <WifiOff size={14} className="text-rose-600" />
+                            Offline Mode: Showing locally recorded inspection progress. Connect to the internet to sync reports to the server automatically.
+                        </span>
+                    </div>
+                )}
+
 
                 {/* KPI Metrics Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 print:hidden">
