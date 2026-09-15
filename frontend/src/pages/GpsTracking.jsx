@@ -18,8 +18,11 @@ import {
   ChevronDown,
   Filter,
   SlidersHorizontal,
-  X
+  X,
+  Moon,
+  FileSpreadsheet
 } from 'lucide-react';
+import ExcelJS from 'exceljs';
 import GpsFinalDestinationModal from '../components/GpsFinalDestinationModal';
 import { animateMarkerPosition, cancelAllMarkerAnimations, setCameraFollowVehicle, clearCameraFollow, getVehicleTelemetryState, setUserInteractingWithMap } from '../utils/mapAnimation';
 
@@ -579,37 +582,287 @@ export default function GpsTracking() {
     }
   };
 
-  const handleExportFleetCsv = () => {
-    if (!report7DayData.length) return;
-    
-    const dateHeaders = reportDates.map(d => `${d} (IN / OUT / KMS)`);
-    const headers = ['Route ID', 'Route Name', 'Bus Number', ...dateHeaders];
-    
-    const rows = report7DayData.map(r => {
-      const dayCells = reportDates.map(d => {
-        const info = r.days?.[d];
-        if (!info || (!info.firstIn && !info.lastOut && !info.kilometers)) return '—';
-        const kmsStr = info.kilometers ? `${info.kilometers} km` : '—';
-        return `IN: ${info.firstIn || '—'} | OUT: ${info.lastOut || '—'} | KMS: ${kmsStr}`;
-      });
-      return [
-        r.routeId || 'Unassigned',
-        r.routeName || 'Unassigned',
-        r.tggVehicleName || r.busNumber,
-        ...dayCells
-      ];
+  const handleExportFleetExcel = async () => {
+    const isNightStay = activePageTab === 'nightstay';
+    const rawReportData = isNightStay ? nightStayData : report7DayData;
+    const reportData = [...rawReportData].sort((a, b) => {
+      const valA = (a.routeId || 'ZZZ').toString();
+      const valB = (b.routeId || 'ZZZ').toString();
+      return valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
     });
 
-    const csvContent = [headers, ...rows].map(e => e.map(val => `"${val}"`).join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `GPS_7Day_InOut_Report_${fleetDateTo}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const dates = (isNightStay ? nightStayDates : reportDates).length > 0
+      ? (isNightStay ? nightStayDates : reportDates)
+      : displayDates;
+
+    if (!reportData.length || !dates.length) return;
+
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const sheetName = isNightStay ? 'Night Stay IN-OUT Report' : 'Campus IN-OUT Report';
+      const worksheet = workbook.addWorksheet(sheetName, {
+        views: [{ showGridLines: true }]
+      });
+
+      const staticColCount = isNightStay ? 4 : 3;
+      const totalColCount = staticColCount + (dates.length * 3);
+
+      // Title Banner Row 1
+      worksheet.mergeCells(1, 1, 1, totalColCount);
+      const titleCell = worksheet.getCell(1, 1);
+      titleCell.value = 'PYDAH EDUCATIONAL INSTITUTIONS — TRANSPORTATION DEPARTMENT';
+      titleCell.font = { name: 'Segoe UI', size: 13, bold: true, color: { argb: 'FFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '071B45' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(1).height = 30;
+
+      // Title Sub-banner Row 2
+      worksheet.mergeCells(2, 1, 2, totalColCount);
+      const subTitleCell = worksheet.getCell(2, 1);
+      subTitleCell.value = isNightStay
+        ? `NIGHT STAY STAGE ARRIVAL (IN) & DEPARTURE (OUT) LOGS REPORT (${dates[0]} to ${dates[dates.length - 1]})`
+        : `CAMPUS GATE VEHICLE ARRIVAL (IN) & DEPARTURE (OUT) LOGS REPORT (${dates[0]} to ${dates[dates.length - 1]})`;
+      subTitleCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'E2E8F0' } };
+      subTitleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '0B2256' } };
+      subTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(2).height = 22;
+
+      // Sub-info Row 3
+      worksheet.mergeCells(3, 1, 3, totalColCount);
+      const infoCell = worksheet.getCell(3, 1);
+      infoCell.value = `Report Generated: ${new Date().toLocaleString('en-IN')}  |  Total Buses Logged: ${reportData.length}`;
+      infoCell.font = { name: 'Segoe UI', size: 9, italic: true, color: { argb: '475569' } };
+      infoCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F8FAFC' } };
+      infoCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(3).height = 18;
+
+      // Empty Row 4
+      worksheet.getRow(4).height = 8;
+
+      // Group Headers Row 5
+      const headerRow5 = worksheet.getRow(5);
+      headerRow5.height = 24;
+
+      const staticHeaders = ['Route ID', 'Route Name', 'Bus Number'];
+      if (isNightStay) staticHeaders.push('Night Stay Point');
+
+      staticHeaders.forEach((name, i) => {
+        const colIdx = i + 1;
+        worksheet.mergeCells(5, colIdx, 6, colIdx);
+        const cell = worksheet.getCell(5, colIdx);
+        cell.value = name;
+        cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '071B45' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      // Date Group Headers in Row 5
+      dates.forEach((dateStr, idx) => {
+        const startCol = staticColCount + 1 + (idx * 3);
+        const endCol = startCol + 2;
+        worksheet.mergeCells(5, startCol, 5, endCol);
+        
+        const dObj = new Date(dateStr);
+        const dayNum = dObj.getDate();
+        const monthName = dObj.toLocaleDateString('en-US', { month: 'short' });
+        const dayName = dObj.toLocaleDateString('en-US', { weekday: 'short' });
+
+        const cell = worksheet.getCell(5, startCol);
+        cell.value = `${dayNum} ${monthName} (${dayName})`;
+        cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      // Sub Header Row 6 (IN / OUT / KMS)
+      const headerRow6 = worksheet.getRow(6);
+      headerRow6.height = 22;
+
+      dates.forEach((dateStr, idx) => {
+        const startCol = staticColCount + 1 + (idx * 3);
+        
+        const inCell = worksheet.getCell(6, startCol);
+        inCell.value = 'IN (Arrival)';
+        inCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: '6EE7B7' } };
+        inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '064E3B' } };
+        inCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+        const outCell = worksheet.getCell(6, startCol + 1);
+        outCell.value = 'OUT (Depart)';
+        outCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FCA5A5' } };
+        outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '881337' } };
+        outCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+        const kmsCell = worksheet.getCell(6, startCol + 2);
+        kmsCell.value = 'Distance (KMS)';
+        kmsCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FDE68A' } };
+        kmsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '78350F' } };
+        kmsCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      // Data Rows
+      let currentRowIdx = 7;
+      const totalKmPerDate = {};
+      dates.forEach(d => { totalKmPerDate[d] = 0; });
+
+      reportData.forEach((row, rowNum) => {
+        const dataRow = worksheet.getRow(currentRowIdx);
+        dataRow.height = 22;
+        const isAlternate = rowNum % 2 === 1;
+        const bgPattern = isAlternate ? 'F8FAFC' : 'FFFFFF';
+
+        const routeIdCell = dataRow.getCell(1);
+        routeIdCell.value = row.routeId || 'Unassigned';
+        routeIdCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: '1D4ED8' } };
+        routeIdCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+        const routeNameCell = dataRow.getCell(2);
+        routeNameCell.value = row.routeName || '—';
+        routeNameCell.font = { name: 'Segoe UI', size: 9, color: { argb: '334155' } };
+        routeNameCell.alignment = { horizontal: 'left', vertical: 'middle' };
+
+        const busCell = dataRow.getCell(3);
+        busCell.value = row.tggVehicleName || row.busNumber;
+        busCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: '0F172A' } };
+        busCell.alignment = { horizontal: 'left', vertical: 'middle' };
+
+        let dateColOffset = 4;
+        if (isNightStay) {
+          const stayCell = dataRow.getCell(4);
+          stayCell.value = row.stayPointName || 'Default Stay';
+          stayCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: '312E81' } };
+          stayCell.alignment = { horizontal: 'left', vertical: 'middle' };
+          stayCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EEF2FF' } };
+          dateColOffset = 5;
+        }
+
+        for (let c = 1; c < dateColOffset; c++) {
+          if (!isNightStay || c !== 4) {
+            dataRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
+          }
+        }
+
+        dates.forEach((dateStr, idx) => {
+          const startCol = (dateColOffset - 1) + 1 + (idx * 3);
+          const dayInfo = row.days?.[dateStr] || {};
+
+          const inTime = dayInfo.firstIn || null;
+          const outTime = dayInfo.lastOut || null;
+          const kmsVal = Number(dayInfo.kilometers) || 0;
+
+          if (kmsVal > 0) {
+            totalKmPerDate[dateStr] += kmsVal;
+          }
+
+          // IN Cell
+          const inCell = dataRow.getCell(startCol);
+          inCell.value = inTime || '—';
+          inCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          if (inTime) {
+            inCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: '15803D' } };
+            inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DCFCE7' } };
+          } else {
+            inCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
+            inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
+          }
+
+          // OUT Cell
+          const outCell = dataRow.getCell(startCol + 1);
+          outCell.value = outTime || '—';
+          outCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          if (outTime) {
+            outCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'B91C1C' } };
+            outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
+          } else {
+            outCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
+            outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
+          }
+
+          // KMS Cell
+          const kmsCell = dataRow.getCell(startCol + 2);
+          kmsCell.value = kmsVal > 0 ? `${kmsVal.toFixed(1)} km` : '—';
+          kmsCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          if (kmsVal > 0) {
+            kmsCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'B45309' } };
+            kmsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } };
+          } else {
+            kmsCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
+            kmsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
+          }
+        });
+
+        currentRowIdx++;
+      });
+
+      // Total Fleet Distance Summary Row at bottom
+      const totalRow = worksheet.getRow(currentRowIdx);
+      totalRow.height = 26;
+
+      worksheet.mergeCells(currentRowIdx, 1, currentRowIdx, staticColCount);
+      const totalLabelCell = worksheet.getCell(currentRowIdx, 1);
+      totalLabelCell.value = 'FLEET DAILY TOTAL DISTANCE (KMS)';
+      totalLabelCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: '78350F' } };
+      totalLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FDE68A' } };
+      totalLabelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      dates.forEach((dateStr, idx) => {
+        const startCol = staticColCount + 1 + (idx * 3);
+        const dayTotalKm = Math.round(totalKmPerDate[dateStr] * 10) / 10;
+
+        worksheet.mergeCells(currentRowIdx, startCol, currentRowIdx, startCol + 2);
+        const dayTotalCell = worksheet.getCell(currentRowIdx, startCol);
+        dayTotalCell.value = dayTotalKm > 0 ? `Total: ${dayTotalKm.toFixed(1)} km` : '—';
+        dayTotalCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: '92400E' } };
+        dayTotalCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } };
+        dayTotalCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      // Apply borders to table
+      const thinBorder = {
+        top: { style: 'thin', color: { argb: 'CBD5E1' } },
+        left: { style: 'thin', color: { argb: 'CBD5E1' } },
+        bottom: { style: 'thin', color: { argb: 'CBD5E1' } },
+        right: { style: 'thin', color: { argb: 'CBD5E1' } }
+      };
+
+      for (let r = 5; r <= currentRowIdx; r++) {
+        const rowObj = worksheet.getRow(r);
+        for (let c = 1; c <= totalColCount; c++) {
+          rowObj.getCell(c).border = thinBorder;
+        }
+      }
+
+      // Column Widths
+      worksheet.getColumn(1).width = 14;
+      worksheet.getColumn(2).width = 24;
+      worksheet.getColumn(3).width = 20;
+      if (isNightStay) {
+        worksheet.getColumn(4).width = 24;
+      }
+
+      dates.forEach((_, idx) => {
+        const startCol = staticColCount + 1 + (idx * 3);
+        worksheet.getColumn(startCol).width = 15;
+        worksheet.getColumn(startCol + 1).width = 15;
+        worksheet.getColumn(startCol + 2).width = 16;
+      });
+
+      // Write & Download Excel file
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const filePrefix = isNightStay ? 'Night_Stay_InOut_Report' : 'Campus_InOut_Report';
+      link.download = `${filePrefix}_${dates[0]}_to_${dates[dates.length - 1]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to export Excel report:', err);
+      alert('Failed to generate Excel file: ' + err.message);
+    }
   };
 
   const toggleGeofenceAccordion = useCallback(async (busNumber, tggVehicleName) => {
@@ -1235,12 +1488,13 @@ export default function GpsTracking() {
               </button>
 
               <button 
-                onClick={handleExportFleetCsv}
+                onClick={handleExportFleetExcel}
                 disabled={activePageTab === 'nightstay' ? !nightStayData.length : !report7DayData.length}
-                className="px-3 py-1.5 bg-[#071B45] hover:bg-[#0A2558] text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-2xs"
+                className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs border border-emerald-600"
+                title="Download formatted Excel spreadsheet report"
               >
-                <Download size={12} />
-                <span>Export CSV</span>
+                <FileSpreadsheet size={13} className="text-emerald-200" />
+                <span>Export Excel (.xlsx)</span>
               </button>
             </div>
           )}
