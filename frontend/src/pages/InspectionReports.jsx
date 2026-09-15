@@ -43,7 +43,7 @@ import {
     hasUnsyncedOfflineInspectionData,
 } from '../utils/inspectionSync';
 
-const findInspectedRecord = (p, fastLookup) => {
+const findInspectedRecord = (p, fastLookup, targetBusNumber = null) => {
     if (!fastLookup || !p) return null;
 
     const uType = normalizeUserType(p.userType || p.user_type, p);
@@ -52,25 +52,36 @@ const findInspectedRecord = (p, fastLookup) => {
     const monId = String(p.mongoId || p._id || '').trim().toLowerCase();
     const pinNo = String(p.pinNo || p.pin_no || '').trim().toLowerCase();
 
+    let rec = null;
     // 1. Scoped userType lookup (exact match)
-    if (reqId && fastLookup.has(`${uType}_${reqId}`)) return fastLookup.get(`${uType}_${reqId}`);
-    if (stdId && fastLookup.has(`${uType}_${stdId}`)) return fastLookup.get(`${uType}_${stdId}`);
-    if (monId && fastLookup.has(`${uType}_${monId}`)) return fastLookup.get(`${uType}_${monId}`);
-    if (pinNo && fastLookup.has(`${uType}_${pinNo}`)) return fastLookup.get(`${uType}_${pinNo}`);
+    if (reqId && fastLookup.has(`${uType}_${reqId}`)) rec = fastLookup.get(`${uType}_${reqId}`);
+    else if (stdId && fastLookup.has(`${uType}_${stdId}`)) rec = fastLookup.get(`${uType}_${stdId}`);
+    else if (monId && fastLookup.has(`${uType}_${monId}`)) rec = fastLookup.get(`${uType}_${monId}`);
+    else if (pinNo && fastLookup.has(`${uType}_${pinNo}`)) rec = fastLookup.get(`${uType}_${pinNo}`);
 
     // 2. Unscoped fallback only if record userType matches
-    let fallbackRec = null;
-    if (reqId && fastLookup.has(reqId)) fallbackRec = fastLookup.get(reqId);
-    else if (stdId && fastLookup.has(stdId)) fallbackRec = fastLookup.get(stdId);
-    else if (monId && fastLookup.has(monId)) fallbackRec = fastLookup.get(monId);
-    else if (pinNo && fastLookup.has(pinNo)) fallbackRec = fastLookup.get(pinNo);
+    if (!rec) {
+        let fallbackRec = null;
+        if (reqId && fastLookup.has(reqId)) fallbackRec = fastLookup.get(reqId);
+        else if (stdId && fastLookup.has(stdId)) fallbackRec = fastLookup.get(stdId);
+        else if (monId && fastLookup.has(monId)) fallbackRec = fastLookup.get(monId);
+        else if (pinNo && fastLookup.has(pinNo)) fallbackRec = fastLookup.get(pinNo);
 
-    if (fallbackRec) {
-        const recUType = normalizeUserType(fallbackRec.userType || fallbackRec.user_type, fallbackRec);
-        if (recUType === uType) return fallbackRec;
+        if (fallbackRec) {
+            const recUType = normalizeUserType(fallbackRec.userType || fallbackRec.user_type, fallbackRec);
+            if (recUType === uType) rec = fallbackRec;
+        }
     }
 
-    return null;
+    if (rec && targetBusNumber) {
+        const targetBusStr = String(targetBusNumber).trim().toLowerCase();
+        const recScannedBus = String(rec.scannedBusId || rec.busId || '').trim().toLowerCase();
+        if (recScannedBus && recScannedBus !== targetBusStr) {
+            return null;
+        }
+    }
+
+    return rec;
 };
 
 const changeDateDays = (dateStr, delta) => {

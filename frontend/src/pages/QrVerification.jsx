@@ -1466,7 +1466,7 @@ const QrVerification = () => {
         setResult(null);
     };
 
-    const isPassengerInspected = useCallback((p, map) => {
+    const isPassengerInspected = useCallback((p, map, targetBusNumber = null) => {
         if (!p || !map) return false;
         const uType = normalizeUserType(p.userType || p.user_type, p);
         const stdId = String(p.studentId || p.admission_number || p.emp_no || '').trim().toLowerCase();
@@ -1474,6 +1474,8 @@ const QrVerification = () => {
         const monId = String(p.mongoId || p._id || '').trim().toLowerCase();
         const pinNo = String(p.pinNo || p.pin_no || '').trim().toLowerCase();
 
+        const targetBusStr = targetBusNumber ? String(targetBusNumber).trim().toLowerCase() : null;
+
         for (const [key, rec] of Object.entries(map)) {
             if (!key || !rec) continue;
             const recUType = normalizeUserType(rec.userType || rec.user_type, rec);
@@ -1490,13 +1492,27 @@ const QrVerification = () => {
                 (monId && (kLower === monId)) ||
                 (pinNo && (kLower === pinNo || recPinNo === pinNo))
             ) {
+                if (targetBusStr) {
+                    const recScannedBus = String(rec.scannedBusId || rec.busId || '').trim().toLowerCase();
+                    if (recScannedBus) {
+                        const isDirectMatch = recScannedBus === targetBusStr;
+                        const isBusObjMatch = rawBuses && rawBuses.length > 0 && rawBuses.some((b) => {
+                            const bNo = String(b.busNumber || '').trim().toLowerCase();
+                            const bId = String(b._id || b.busId || '').trim().toLowerCase();
+                            return (bNo === targetBusStr || bId === targetBusStr) && (recScannedBus === bNo || recScannedBus === bId);
+                        });
+                        if (!isDirectMatch && !isBusObjMatch) {
+                            continue;
+                        }
+                    }
+                }
                 return true;
             }
         }
         return false;
-    }, []);
+    }, [rawBuses]);
 
-    const getInspectedRecord = useCallback((p, map) => {
+    const getInspectedRecord = useCallback((p, map, targetBusNumber = null) => {
         if (!p || !map) return null;
         const uType = normalizeUserType(p.userType || p.user_type, p);
         const stdId = String(p.studentId || p.admission_number || p.emp_no || '').trim().toLowerCase();
@@ -1504,6 +1520,8 @@ const QrVerification = () => {
         const monId = String(p.mongoId || p._id || '').trim().toLowerCase();
         const pinNo = String(p.pinNo || p.pin_no || '').trim().toLowerCase();
 
+        const targetBusStr = targetBusNumber ? String(targetBusNumber).trim().toLowerCase() : null;
+
         for (const [key, rec] of Object.entries(map)) {
             if (!key || !rec) continue;
             const recUType = normalizeUserType(rec.userType || rec.user_type, rec);
@@ -1520,11 +1538,25 @@ const QrVerification = () => {
                 (monId && (kLower === monId)) ||
                 (pinNo && (kLower === pinNo || recPinNo === pinNo))
             ) {
+                if (targetBusStr) {
+                    const recScannedBus = String(rec.scannedBusId || rec.busId || '').trim().toLowerCase();
+                    if (recScannedBus) {
+                        const isDirectMatch = recScannedBus === targetBusStr;
+                        const isBusObjMatch = rawBuses && rawBuses.length > 0 && rawBuses.some((b) => {
+                            const bNo = String(b.busNumber || '').trim().toLowerCase();
+                            const bId = String(b._id || b.busId || '').trim().toLowerCase();
+                            return (bNo === targetBusStr || bId === targetBusStr) && (recScannedBus === bNo || recScannedBus === bId);
+                        });
+                        if (!isDirectMatch && !isBusObjMatch) {
+                            continue;
+                        }
+                    }
+                }
                 return rec;
             }
         }
         return null;
-    }, []);
+    }, [rawBuses]);
 
     // Helper to normalize route keys so "R01", "R-1", "Route 1", and "1" map to the exact same route
     const normalizeRouteKey = useCallback((id) => {
@@ -1688,7 +1720,7 @@ const QrVerification = () => {
 
         // 2. Override passengers scanned on this bus
         const overridePassengers = (allCachedPassengers || []).filter((passenger) => {
-            const rec = getInspectedRecord(passenger, inspectedMap);
+            const rec = getInspectedRecord(passenger, inspectedMap, selBusStr);
             if (!rec) return false;
             const sBus = String(rec.scannedBusId || '').trim().toLowerCase();
             const sRoute = String(rec.scannedRouteId || '').trim().toLowerCase();
@@ -1704,7 +1736,7 @@ const QrVerification = () => {
         });
 
         const passengers = [...assignedPassengers, ...overridePassengers];
-        const correctScannedCount = assignedPassengers.filter((p) => isPassengerInspected(p, inspectedMap)).length;
+        const correctScannedCount = assignedPassengers.filter((p) => isPassengerInspected(p, inspectedMap, selectedBus)).length;
         const faultScannedCount = overridePassengers.length;
         const totalScannedCount = correctScannedCount + faultScannedCount;
         const totalExpectedCount = assignedPassengers.length;
@@ -1753,7 +1785,7 @@ const QrVerification = () => {
                     return true;
                 });
                 const overridePassengers = (allCachedPassengers || []).filter((passenger) => {
-                    const rec = getInspectedRecord(passenger, inspectedMap);
+                    const rec = getInspectedRecord(passenger, inspectedMap, busStr);
                     if (!rec) return false;
                     const sBus = String(rec.scannedBusId || '').trim().toLowerCase();
                     const sRoute = String(rec.scannedRouteId || '').trim().toLowerCase();
@@ -1768,7 +1800,7 @@ const QrVerification = () => {
                     return false;
                 });
                 const passengers = [...assignedPassengers, ...overridePassengers];
-                const inspectedCount = passengers.filter((p) => isPassengerInspected(p, inspectedMap)).length;
+                const inspectedCount = passengers.filter((p) => isPassengerInspected(p, inspectedMap, busNumber)).length;
 
                 buses.push({
                     ...route,
@@ -1875,7 +1907,7 @@ const QrVerification = () => {
     const finishInspection = useCallback(async () => {
         if (!inspectionSession) return;
         const inspectedCount = activeRouteData?.passengers?.filter((p) => (
-            isPassengerInspected(p, inspectedMap)
+            isPassengerInspected(p, inspectedMap, selectedBus)
         )).length || 0;
         if (online && isAuthenticated() && inspectionSession.status === 'in_progress' && !String(inspectionSession.id || inspectionSession._id).startsWith('local-')) {
             try {
@@ -1891,7 +1923,7 @@ const QrVerification = () => {
         setInspectionSession(null);
         setSelectedBus(null);
         setSelectedRoute(null);
-    }, [activeRouteData, inspectedMap, inspectionSession, isPassengerInspected, loadInspectionSessions, online]);
+    }, [activeRouteData, inspectedMap, inspectionSession, isPassengerInspected, loadInspectionSessions, online, selectedBus]);
 
     // Keep the active session's inspectedCount in inspectionSessions in sync with live inspectedMap
     // This ensures the "Previous inspections" cards show the same count as the active inspection view.
@@ -1903,7 +1935,7 @@ const QrVerification = () => {
 
         // Count how many passengers in the active route are currently inspected
         const liveCount = activeRouteData?.passengers
-            ? activeRouteData.passengers.filter((p) => isPassengerInspected(p, inspectedMap)).length
+            ? activeRouteData.passengers.filter((p) => isPassengerInspected(p, inspectedMap, selectedBus)).length
             : Object.keys(inspectedMap).length;
 
         setInspectionSessions((prev) => {
@@ -1916,7 +1948,7 @@ const QrVerification = () => {
                     : s
             );
         });
-    }, [inspectionSession, inspectedMap, activeRouteData, isPassengerInspected]);
+    }, [inspectionSession, inspectedMap, activeRouteData, isPassengerInspected, selectedBus]);
 
     // Overall summary counts for inspection tab
     const overallStats = useMemo(() => {
@@ -1951,18 +1983,18 @@ const QrVerification = () => {
             list = list.filter((p) => (p.userType || p.user_type) === 'employee');
         } else if (inspectionFilter === 'correct') {
             list = list.filter((p) => {
-                const rec = getInspectedRecord(p, inspectedMap);
+                const rec = getInspectedRecord(p, inspectedMap, selectedBus);
                 return Boolean(rec) && !rec.wrongRouteOverride;
             });
         } else if (inspectionFilter === 'fault') {
             list = list.filter((p) => {
-                const rec = getInspectedRecord(p, inspectedMap);
+                const rec = getInspectedRecord(p, inspectedMap, selectedBus);
                 return Boolean(rec) && Boolean(rec.wrongRouteOverride);
             });
         } else if (inspectionFilter === 'inspected') {
-            list = list.filter((p) => isPassengerInspected(p, inspectedMap));
+            list = list.filter((p) => isPassengerInspected(p, inspectedMap, selectedBus));
         } else if (inspectionFilter === 'pending') {
-            list = list.filter((p) => !isPassengerInspected(p, inspectedMap));
+            list = list.filter((p) => !isPassengerInspected(p, inspectedMap, selectedBus));
         }
 
         // 2. Filter by stage
@@ -1983,7 +2015,7 @@ const QrVerification = () => {
         }
 
         return list;
-    }, [activeRouteData, inspectionFilter, inspectionStageFilter, inspectionSearchQuery, inspectedMap]);
+    }, [activeRouteData, inspectionFilter, inspectionStageFilter, inspectionSearchQuery, inspectedMap, selectedBus, getInspectedRecord, isPassengerInspected]);
 
     // Unique stages for selected route
     const routeUniqueStages = useMemo(() => {
@@ -2755,7 +2787,7 @@ const QrVerification = () => {
                                     ) : (
                                         filteredPassengers.map((p) => {
                                             const pKey = String(p.requestId || p.studentId || p.mongoId);
-                                            const inspectionRecord = getInspectedRecord(p, inspectedMap);
+                                            const inspectionRecord = getInspectedRecord(p, inspectedMap, selectedBus);
                                             const isInspected = Boolean(inspectionRecord);
                                             const isStudent = (p.userType || p.user_type || 'student') === 'student';
                                             const photo = normalizeStudentPhoto(p.studentPhoto || p.student_photo);
