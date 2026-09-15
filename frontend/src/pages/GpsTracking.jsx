@@ -18,8 +18,7 @@ import {
   ChevronDown,
   Filter,
   SlidersHorizontal,
-  X,
-  Moon
+  X
 } from 'lucide-react';
 import GpsFinalDestinationModal from '../components/GpsFinalDestinationModal';
 
@@ -1721,18 +1720,15 @@ export default function GpsTracking() {
                             {/* Stay Point Name */}
                             <td className="px-1.5 py-1.5 sticky left-[176px] bg-white group-hover:bg-blue-50 z-10 border-r border-slate-100 align-middle shadow-2xs w-[128px] min-w-[128px] max-w-[128px] overflow-hidden">
                               <div className="flex items-center gap-1 min-w-0 max-w-full overflow-hidden">
-                                <span className="font-bold text-indigo-900 text-[10.5px] truncate flex items-center gap-0.5 min-w-0 flex-1 overflow-hidden" title={row.stayPointName || 'Default Stay'}>
-                                  <Moon size={10} className="text-indigo-600 fill-indigo-600 shrink-0" />
-                                  <span className="truncate min-w-0 block">{row.stayPointName || 'Default Stay'}</span>
+                                <span className="font-bold text-indigo-900 text-[10.5px] truncate block min-w-0 flex-1 overflow-hidden" title={row.stayPointName || 'Default Stay'}>
+                                  {row.stayPointName || 'Default Stay'}
                                 </span>
                                 {row.isDefaultStayPoint ? (
-                                  <span className="text-[7.5px] font-bold bg-slate-100 text-slate-500 px-0.5 py-0.2 rounded border border-slate-200 shrink-0 flex items-center gap-0.5" title="Default 1st Stage Fallback">
-                                    <Moon size={7} className="text-slate-400" />
+                                  <span className="text-[7.5px] font-bold bg-slate-100 text-slate-500 px-1 py-0.5 rounded border border-slate-200 shrink-0" title="Default 1st Stage Fallback">
                                     Def
                                   </span>
                                 ) : (
-                                  <span className="text-[7.5px] font-black bg-indigo-100 text-indigo-700 px-0.5 py-0.2 rounded border border-indigo-200 shrink-0 flex items-center gap-0.5" title="Configured Night Stay Point">
-                                    <Moon size={7} className="text-indigo-600 fill-indigo-600" />
+                                  <span className="text-[7.5px] font-black bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded border border-indigo-200 shrink-0" title="Configured Night Stay Point">
                                     Stay
                                   </span>
                                 )}
