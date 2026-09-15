@@ -1290,6 +1290,24 @@ const getBusTaxHistory = async (req, res) => {
     }
 };
 
+const { unassignLeftBusStaff } = require('../jobs/unassignLeftBusStaff');
+
+// @desc    Manually sync left staff from HRMS and auto-unassign drivers/cleaners
+// @route   POST /api/buses/sync-left-staff
+// @access  Private/Admin
+const syncLeftStaff = async (req, res) => {
+    try {
+        const summary = await unassignLeftBusStaff();
+        res.json({
+            message: 'Left staff sync completed successfully',
+            summary
+        });
+    } catch (error) {
+        console.error('Error syncing left staff:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     getBuses,
     getBusesOverview,
@@ -1306,5 +1324,6 @@ module.exports = {
     updateBusTax,
     deleteBusTax,
     syncPassengersToBusMapping,
-    recordRouteHistory
+    recordRouteHistory,
+    syncLeftStaff
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Loader from '../components/Loader';
@@ -46,10 +46,28 @@ const withCurrentStaffOption = (list, currentName) => {
 
 const BusManagement = () => {
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState(TABS.buses);
+    const [searchParams] = useSearchParams();
+    const tabParam = searchParams.get('tab');
+    const filterParam = searchParams.get('filter');
+
+    const [activeTab, setActiveTab] = useState(
+        tabParam === 'staffMapping' || tabParam === 'mapping' ? TABS.staffMapping : TABS.buses
+    );
     const [staffSubTab, setStaffSubTab] = useState('drivers');
+    const [staffAssignmentFilter, setStaffAssignmentFilter] = useState(
+        filterParam || 'all'
+    );
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const mobileMenuRef = useRef(null);
+
+    useEffect(() => {
+        if (tabParam === 'staffMapping' || tabParam === 'mapping') {
+            setActiveTab(TABS.staffMapping);
+        }
+        if (filterParam) {
+            setStaffAssignmentFilter(filterParam);
+        }
+    }, [tabParam, filterParam]);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -310,6 +328,19 @@ const BusManagement = () => {
             (bus.type || '').toLowerCase().includes(searchLower) ||
             (bus.driverName || '').toLowerCase().includes(searchLower)
         );
+    });
+
+    const staffFilteredBuses = filteredBuses.filter((bus) => {
+        if (staffAssignmentFilter === 'unassigned') {
+            return !bus.driverName || !bus.attendantName;
+        }
+        if (staffAssignmentFilter === 'no_driver') {
+            return !bus.driverName;
+        }
+        if (staffAssignmentFilter === 'no_cleaner') {
+            return !bus.attendantName;
+        }
+        return true;
     });
 
     const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
@@ -1052,9 +1083,24 @@ const BusManagement = () => {
 
             {activeTab === TABS.staffMapping && (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-                    <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/50">
-                        <h3 className="text-sm font-semibold text-slate-800">Assign driver and cleaner to each bus</h3>
-                        <p className="text-xs text-slate-500 mt-0.5">Select driver and cleaner per bus. Set previous exit date and new entry date when changing, then click Save.</p>
+                    <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div>
+                            <h3 className="text-sm font-semibold text-slate-800">Assign driver and cleaner to each bus</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">Select driver and cleaner per bus. Set previous exit date and new entry date when changing, then click Save.</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <label className="text-xs font-bold text-slate-600">Filter:</label>
+                            <select
+                                value={staffAssignmentFilter}
+                                onChange={(e) => setStaffAssignmentFilter(e.target.value)}
+                                className="text-xs rounded-lg border border-slate-300 py-1.5 px-3 bg-white font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-xs"
+                            >
+                                <option value="all">All Buses ({filteredBuses.length})</option>
+                                <option value="unassigned">Unassigned Only ({filteredBuses.filter(b => !b.driverName || !b.attendantName).length})</option>
+                                <option value="no_driver">Driver Unassigned ({filteredBuses.filter(b => !b.driverName).length})</option>
+                                <option value="no_cleaner">Cleaner Unassigned ({filteredBuses.filter(b => !b.attendantName).length})</option>
+                            </select>
+                        </div>
                     </div>
                     {(driversLoading || cleanersLoading) ? (
                         <div className="py-12">
@@ -1062,8 +1108,12 @@ const BusManagement = () => {
                         </div>
                     ) : buses.length === 0 ? (
                         <div className="p-12 text-center text-slate-500">No buses available. Add buses in the Buses tab first.</div>
-                    ) : filteredBuses.length === 0 ? (
-                        <div className="p-12 text-center text-slate-500">No buses found matching the selected campus.</div>
+                    ) : staffFilteredBuses.length === 0 ? (
+                        <div className="p-12 text-center text-slate-500">
+                            {staffAssignmentFilter === 'all'
+                                ? 'No buses found matching the selected campus.'
+                                : 'No buses found matching the selected unassigned filter.'}
+                        </div>
                     ) : (
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
@@ -1076,7 +1126,7 @@ const BusManagement = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {getPaginatedData(filteredBuses).map((bus) => {
+                                    {getPaginatedData(staffFilteredBuses).map((bus) => {
                                         const draft = staffDrafts[bus._id] || buildStaffDraft(bus);
                                         const hasChanges = hasStaffDraftChanges(bus);
                                         const driverChanged = normalizeStaffName(draft.driverName) !== normalizeStaffName(bus.driverName);
@@ -1227,7 +1277,7 @@ const BusManagement = () => {
                                     })}
                                 </tbody>
                             </table>
-                            {renderPagination(filteredBuses.length)}
+                            {renderPagination(staffFilteredBuses.length)}
                         </div>
                     )}
                 </div>

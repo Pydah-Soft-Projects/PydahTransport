@@ -15,7 +15,8 @@ import {
     RefreshCw,
     CheckCircle2,
     AlertTriangle,
-    XCircle
+    XCircle,
+    UserCheck
 } from 'lucide-react';
 import { apiFetch, API_BASE } from '../utils/api';
 import { getDefaultAcademicYear, getAcademicYearOptions, getPreviousAcademicYear } from '../utils/academicYear';
@@ -130,10 +131,13 @@ const Dashboard = () => {
                 const passengerStats = await statsRes.json();
 
                 const totalDist = routes.reduce((acc, curr) => acc + (curr.totalDistance || 0), 0);
+                const unassignedList = Array.isArray(buses) ? buses.filter(b => !b.driverName) : [];
 
                 setStats({
-                    buses: buses.length,
-                    routes: routes.length,
+                    buses: Array.isArray(buses) ? buses.length : 0,
+                    unassignedCount: unassignedList.length,
+                    unassignedBuses: unassignedList,
+                    routes: Array.isArray(routes) ? routes.length : 0,
                     totalDistance: totalDist,
                     totalPassengers: passengerStats.totalPassengers || 0,
                     routeBreakdown: passengerStats.routeBreakdown || [],
@@ -354,6 +358,83 @@ const Dashboard = () => {
                                 <ArrowUp size={12} className="mr-1" /> 8% <span className="text-slate-400 font-medium ml-1">from last month</span>
                             </div>
                         </div>
+                    </div>
+
+                    {/* UNASSIGNED BUSES CARD SECTION */}
+                    <div className="bg-white rounded-xl p-4 shadow-sm border border-amber-200/90 mb-4 bg-gradient-to-r from-white via-amber-50/20 to-white">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
+                                    <UserCheck size={18} />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="font-extrabold text-slate-900 text-sm">Unassigned Bus Staff</h3>
+                                        <span className={`text-[10.5px] font-black px-2 py-0.5 rounded-full border ${
+                                            (stats.unassignedCount || 0) > 0 
+                                                ? 'bg-amber-100 text-amber-800 border-amber-300' 
+                                                : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                        }`}>
+                                            {stats.unassignedCount || 0} Buses
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500">Buses requiring driver assignment in Vehicle Management</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                {stats.unassignedBuses && stats.unassignedBuses.length > 8 && (
+                                    <span
+                                        onClick={() => navigate('/buses?tab=staffMapping&filter=no_driver')}
+                                        className="text-[11px] font-bold text-slate-500 hover:text-blue-600 transition-colors cursor-pointer mr-1"
+                                        title="Click to view all buses with unassigned drivers"
+                                    >
+                                        +{stats.unassignedBuses.length - 8} more buses
+                                    </span>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/buses?tab=staffMapping&filter=no_driver')}
+                                    className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3.5 py-1.5 rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                                >
+                                    <span>Assign Staff</span>
+                                    <span>&rarr;</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {stats.unassignedBuses && stats.unassignedBuses.length > 0 ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                                {stats.unassignedBuses.slice(0, 8).map((bus) => (
+                                    <div
+                                        key={bus._id}
+                                        onClick={() => navigate('/buses?tab=staffMapping&filter=no_driver')}
+                                        className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-blue-50/60 hover:border-blue-300 transition-all cursor-pointer flex flex-col justify-between gap-1.5 shadow-2xs group"
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-mono font-bold text-xs text-slate-900 group-hover:text-blue-700">{bus.busNumber}</span>
+                                            <span className="text-[9.5px] font-semibold text-slate-400 truncate max-w-[100px]">{bus.vehicleModel || bus.type || 'Standard'}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            {!bus.driverName && (
+                                                <span className="text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 rounded">
+                                                    No Driver
+                                                </span>
+                                            )}
+                                            {!bus.attendantName && (
+                                                <span className="text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded">
+                                                    No Cleaner
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="py-2.5 px-3.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+                                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                                <span>All buses currently have assigned drivers!</span>
+                            </div>
+                        )}
                     </div>
 
                     {/* MIDDLE SECTION */}

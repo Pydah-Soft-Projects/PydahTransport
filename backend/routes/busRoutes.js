@@ -14,11 +14,13 @@ const {
     deleteBus,
     addBusTax,
     updateBusTax,
-    deleteBusTax
+    deleteBusTax,
+    syncLeftStaff
 } = require('../controllers/busController');
 
 router.get('/overview', getBusesOverview);
 router.get('/mapping-preview', getMappingPreview);
+router.post('/sync-left-staff', syncLeftStaff);
 router.route('/').get(getBuses).post(createBus);
 router.get('/:id/details', getBusDetails);
 router.get('/:id/history/route', getBusRouteHistory);

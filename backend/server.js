@@ -7,6 +7,7 @@ const cron = require('node-cron');
 const { connectDB, connectFeeDB, connectEmployeeDB } = require('./config/db');
 const { expireStaffTransportRequests } = require('./jobs/expireStaffTransportRequests');
 const { expireStudentTransportRequests } = require('./jobs/expireStudentTransportRequests');
+const { unassignLeftBusStaff } = require('./jobs/unassignLeftBusStaff');
 
 const app = express();
 
@@ -82,6 +83,9 @@ startDbs()
 
             console.log('[Cron] Running nightly student transport expiry check...');
             await expireStudentTransportRequests();
+
+            console.log('[Cron] Running nightly HRMS left bus staff unassignment check...');
+            await unassignLeftBusStaff();
         }, {
             scheduled: true,
             timezone: 'Asia/Kolkata'
