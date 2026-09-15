@@ -135,6 +135,14 @@ const createRoute = async (req, res) => {
             campus: campusId,
             stages: enrichedStages,
         };
+        if (req.body.nightStayPoint && (req.body.nightStayPoint.stageName || req.body.nightStayPoint.latitude != null)) {
+            payload.nightStayPoint = {
+                stageName: req.body.nightStayPoint.stageName || 'Night Stay Point',
+                latitude: req.body.nightStayPoint.latitude !== '' && req.body.nightStayPoint.latitude !== null ? Number(req.body.nightStayPoint.latitude) : null,
+                longitude: req.body.nightStayPoint.longitude !== '' && req.body.nightStayPoint.longitude !== null ? Number(req.body.nightStayPoint.longitude) : null,
+                radius: req.body.nightStayPoint.radius !== '' && req.body.nightStayPoint.radius !== null ? Number(req.body.nightStayPoint.radius) : 200,
+            };
+        }
         delete payload.editingAcademicYear;
         delete payload.academicYear;
 
@@ -176,6 +184,19 @@ const updateRoute = async (req, res) => {
                 const normalizedStages = normalizeStagesForSave(req.body.stages, editingAcademicYear);
                 route.stages = await enrichStagesDistanceToDestination(normalizedStages, route.campus, route.totalDistance);
                 route.markModified('stages');
+            }
+            if (req.body.nightStayPoint !== undefined) {
+                if (req.body.nightStayPoint && (req.body.nightStayPoint.stageName || req.body.nightStayPoint.latitude != null)) {
+                    route.nightStayPoint = {
+                        stageName: req.body.nightStayPoint.stageName || 'Night Stay Point',
+                        latitude: req.body.nightStayPoint.latitude !== '' && req.body.nightStayPoint.latitude !== null ? Number(req.body.nightStayPoint.latitude) : null,
+                        longitude: req.body.nightStayPoint.longitude !== '' && req.body.nightStayPoint.longitude !== null ? Number(req.body.nightStayPoint.longitude) : null,
+                        radius: req.body.nightStayPoint.radius !== '' && req.body.nightStayPoint.radius !== null ? Number(req.body.nightStayPoint.radius) : 200,
+                    };
+                } else {
+                    route.nightStayPoint = null;
+                }
+                route.markModified('nightStayPoint');
             }
 
             const updatedRoute = await route.save();

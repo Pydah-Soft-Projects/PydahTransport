@@ -1167,6 +1167,12 @@ const RouteManagement = () => {
         estimatedTime: '',
         campus: '',
         zone: '',
+        nightStayPoint: {
+            stageName: 'Night Stay Point',
+            latitude: '',
+            longitude: '',
+            radius: 100,
+        },
         stages: []
     });
 
@@ -1225,13 +1231,39 @@ const RouteManagement = () => {
         }
     }, []);
 
+    const handleNightStayChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({
+            ...prev,
+            nightStayPoint: {
+                ...(prev.nightStayPoint || {}),
+                stageName: prev.nightStayPoint?.stageName || 'Night Stay Point',
+                [name]: value
+            }
+        }));
+    };
+
     const updateActiveStageCoords = useCallback((lat, lng) => {
         if (selectedStageIndex === null || selectedStageIndex === undefined) return;
+        const newLat = parseFloat(lat.toFixed(6));
+        const newLng = parseFloat(lng.toFixed(6));
+
         setFormData(prev => {
+            if (selectedStageIndex === 'nightStay') {
+                return {
+                    ...prev,
+                    nightStayPoint: {
+                        ...(prev.nightStayPoint || {}),
+                        stageName: prev.nightStayPoint?.stageName || 'Night Stay Point',
+                        latitude: newLat,
+                        longitude: newLng,
+                        radius: prev.nightStayPoint?.radius || 100,
+                    }
+                };
+            }
+
             const nextStages = [...prev.stages];
             if (nextStages[selectedStageIndex]) {
-                const newLat = parseFloat(lat.toFixed(6));
-                const newLng = parseFloat(lng.toFixed(6));
                 nextStages[selectedStageIndex].latitude = newLat;
                 nextStages[selectedStageIndex].longitude = newLng;
                 
@@ -1240,6 +1272,20 @@ const RouteManagement = () => {
                     nextStages[selectedStageIndex].distanceToDestination = calculateHaversineDistance(
                         newLat, newLng, destCoords.lat, destCoords.lng
                     );
+                }
+
+                if (nextStages[selectedStageIndex].isNightStayPoint) {
+                    return {
+                        ...prev,
+                        stages: nextStages,
+                        nightStayPoint: {
+                            ...(prev.nightStayPoint || {}),
+                            stageName: nextStages[selectedStageIndex].stageName || `Stage ${selectedStageIndex + 1}`,
+                            latitude: newLat,
+                            longitude: newLng,
+                            radius: nextStages[selectedStageIndex].radius || 100,
+                        }
+                    };
                 }
             }
             return { ...prev, stages: nextStages };
@@ -1353,34 +1399,50 @@ const RouteManagement = () => {
     const [isSavingStageOrder, setIsSavingStageOrder] = useState(false);
     const [hasPendingStageOrder, setHasPendingStageOrder] = useState(false);
 
-    const buildRouteUpdatePayload = (routeForm, stages = routeForm.stages) => ({
-        routeId: routeForm.routeId,
-        routeName: routeForm.routeName,
-        startPoint: routeForm.startPoint,
-        endPoint: routeForm.endPoint,
-        totalDistance: routeForm.totalDistance,
-        estimatedTime: routeForm.estimatedTime,
-        campus: routeForm.campus || null,
-        zone: routeForm.zone || '',
-        stages: stages.map((stage) => ({
+    const buildRouteUpdatePayload = (routeForm, stages = routeForm.stages) => {
+        const cleanStages = (stages || []).map((stage) => ({
             stageName: stage.stageName,
-            distanceFromStart: Number(stage.distanceFromStart),
-            fare: Number(stage.fare),
+            distanceFromStart: Number(stage.distanceFromStart || 0),
+            fare: Number(stage.fare || 0),
             baseFare: stage.baseFare,
             academicYearFares: stage.academicYearFares || [],
-            isNightStayPoint: Boolean(stage.isNightStayPoint),
             latitude: stage.latitude !== '' && stage.latitude !== null ? Number(stage.latitude) : null,
             longitude: stage.longitude !== '' && stage.longitude !== null ? Number(stage.longitude) : null,
             radius: stage.radius !== '' && stage.radius !== null ? Number(stage.radius) : 100,
+            isNightStayPoint: Boolean(stage.isNightStayPoint),
             viaPoints: (Array.isArray(stage.viaPoints) ? stage.viaPoints : [])
                 .map((v) => ({
                     latitude: Number(v.latitude ?? v.lat),
                     longitude: Number(v.longitude ?? v.lng),
                 }))
                 .filter((v) => Number.isFinite(v.latitude) && Number.isFinite(v.longitude)),
-        })),
-        editingAcademicYear: academicYear,
-    });
+        }));
+
+        const nsp = routeForm.nightStayPoint;
+        const hasNightStayData = nsp && (
+            (nsp.latitude !== '' && nsp.latitude !== null && nsp.latitude !== undefined) ||
+            (nsp.stageName && nsp.stageName !== 'Night Stay Point')
+        );
+
+        return {
+            routeId: routeForm.routeId,
+            routeName: routeForm.routeName,
+            startPoint: routeForm.startPoint,
+            endPoint: routeForm.endPoint,
+            totalDistance: routeForm.totalDistance,
+            estimatedTime: routeForm.estimatedTime,
+            campus: routeForm.campus || null,
+            zone: routeForm.zone || '',
+            nightStayPoint: hasNightStayData ? {
+                stageName: nsp.stageName || 'Night Stay Point',
+                latitude: nsp.latitude !== '' && nsp.latitude !== null ? Number(nsp.latitude) : null,
+                longitude: nsp.longitude !== '' && nsp.longitude !== null ? Number(nsp.longitude) : null,
+                radius: nsp.radius !== '' && nsp.radius !== null ? Number(nsp.radius) : 100,
+            } : null,
+            stages: cleanStages,
+            editingAcademicYear: academicYear,
+        };
+    };
 
     const persistRouteStages = async (stages, routeForm = formData) => {
         if (!editingId) return true;
@@ -1422,8 +1484,15 @@ const RouteManagement = () => {
         setIsSavingStage(true);
         try {
             await persistRouteStages(formData.stages);
-            const stageName = formData.stages[selectedStageIndex]?.stageName || `Stage ${selectedStageIndex + 1}`;
-            setSuccessModalMessage(`Stage "${stageName}" details saved successfully.`);
+            if (selectedStageIndex === 'nightStay') {
+                const stageName = formData.nightStayPoint?.stageName || 'Night Stay Point';
+                setSuccessModalMessage(`"${stageName}" details saved successfully.`);
+            } else {
+                const currentStage = formData.stages[selectedStageIndex];
+                const seqNum = selectedStageIndex !== null ? selectedStageIndex + 1 : 1;
+                const stageName = currentStage?.stageName || `Stage ${seqNum}`;
+                setSuccessModalMessage(`Stage "${stageName}" details saved successfully.`);
+            }
             setIsSuccessModalOpen(true);
         } catch (error) {
             console.error('Error saving stage:', error);
@@ -1522,29 +1591,36 @@ const RouteManagement = () => {
             if (!coords) return null;
             const { lat: latVal, lng: lngVal } = coords;
             const radiusVal = Number(stage.radius) || 100;
+            const seqNum = idx + 1;
+
+            const iconSize = isActive ? [28, 28] : [20, 20];
+            const iconAnchor = isActive ? [14, 14] : [10, 10];
+            const iconHtml = isActive
+                ? `<div class="w-7 h-7 rounded-full bg-red-600 border-2 border-white text-white flex items-center justify-center font-black text-xs shadow-lg">${seqNum}</div>`
+                : `<div class="w-5 h-5 rounded-full bg-slate-500 border-2 border-white text-white flex items-center justify-center font-bold text-[9px] shadow-md">${seqNum}</div>`;
 
             const marker = L.marker([latVal, lngVal], {
                 draggable,
                 icon: L.divIcon({
                     className: isActive ? 'custom-stage-marker-active' : 'custom-stage-marker-inactive',
-                    html: isActive
-                        ? `<div class="w-7 h-7 rounded-full bg-red-600 border-2 border-white text-white flex items-center justify-center font-black text-xs shadow-lg">${idx + 1}</div>`
-                        : `<div class="w-5 h-5 rounded-full bg-slate-500 border-2 border-white text-white flex items-center justify-center font-bold text-[9px] shadow-md">${idx + 1}</div>`,
-                    iconSize: isActive ? [28, 28] : [20, 20],
-                    iconAnchor: isActive ? [14, 14] : [10, 10]
+                    html: iconHtml,
+                    iconSize,
+                    iconAnchor,
                 })
             }).addTo(map).bindPopup(() => {
                 const distToDest = getComputedStageDistToDest(stage, formData.campus, finalDestinations, formData.stages);
-                return `<b>Stage ${idx + 1}: ${stage.stageName || 'Unnamed'}</b><br/>Dist from Start: ${stage.distanceFromStart || 0} km${distToDest !== null ? `<br/><b>Dist to Dest: ${distToDest} km</b>` : ''}${showCircle ? `<br/>Radius: ${radiusVal} m` : ''}`;
+                return `<b>Stage ${seqNum}: ${stage.stageName || 'Unnamed'}</b><br/>Dist from Start: ${stage.distanceFromStart || 0} km${distToDest !== null ? `<br/><b>Dist to Dest: ${distToDest} km</b>` : ''}${showCircle ? `<br/>Radius: ${radiusVal} m` : ''}`;
             });
 
             if (showCircle) {
+                const circleColor = isActive ? '#ef4444' : '#3b82f6';
+                const fillColor = isActive ? '#ef4444' : '#3b82f6';
                 const circle = L.circle([latVal, lngVal], {
                     radius: radiusVal,
-                    color: isActive ? '#ef4444' : '#3b82f6',
-                    fillColor: isActive ? '#ef4444' : '#3b82f6',
-                    fillOpacity: isActive ? 0.15 : 0.08,
-                    weight: isActive ? 1.5 : 1
+                    color: circleColor,
+                    fillColor: fillColor,
+                    fillOpacity: isActive ? 0.2 : 0.08,
+                    weight: isActive ? 2 : 1
                 }).addTo(map);
 
                 if (isActive) {
@@ -1565,19 +1641,63 @@ const RouteManagement = () => {
             return marker;
         };
 
+        // Render dedicated Night Stay Point marker if configured
+        if (formData.nightStayPoint && hasStageCoordinateValue(formData.nightStayPoint.latitude) && hasStageCoordinateValue(formData.nightStayPoint.longitude)) {
+            const latVal = Number(formData.nightStayPoint.latitude);
+            const lngVal = Number(formData.nightStayPoint.longitude);
+            const radiusVal = Number(formData.nightStayPoint.radius) || 100;
+            const isNightStayActive = selectedStageIndex === 'nightStay';
+            const moonSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 0 1 1-9-9Z"/></svg>`;
+
+            const iconSize = isNightStayActive ? [32, 32] : [24, 24];
+            const iconAnchor = isNightStayActive ? [16, 16] : [12, 12];
+            const iconHtml = isNightStayActive
+                ? `<div class="w-8 h-8 rounded-full bg-indigo-700 border-2 border-amber-300 text-amber-300 flex items-center justify-center font-bold shadow-xl animate-pulse">${moonSvg}</div>`
+                : `<div class="w-6 h-6 rounded-full bg-indigo-600 border border-amber-300 text-amber-300 flex items-center justify-center font-bold shadow-md">${moonSvg}</div>`;
+
+            const nspMarker = L.marker([latVal, lngVal], {
+                draggable: isNightStayActive && mapEditMode === 'stage',
+                icon: L.divIcon({
+                    className: isNightStayActive ? 'custom-stage-marker-active' : 'custom-stage-marker-inactive',
+                    html: iconHtml,
+                    iconSize,
+                    iconAnchor,
+                })
+            }).addTo(map).bindPopup(`<b>Night Stay Location: ${formData.nightStayPoint.stageName || 'Night Stay Point'}</b><br/>Geofence Radius: ${radiusVal} m`);
+
+            L.circle([latVal, lngVal], {
+                radius: radiusVal,
+                color: '#6366f1',
+                fillColor: '#818cf8',
+                fillOpacity: isNightStayActive ? 0.2 : 0.08,
+                weight: isNightStayActive ? 2 : 1
+            }).addTo(map);
+
+            if (isNightStayActive) {
+                modalMarkerRef.current = nspMarker;
+                if (mapEditMode === 'stage') {
+                    nspMarker.on('dragend', (e) => {
+                        const { lat, lng } = e.target.getLatLng();
+                        updateActiveStageCoords(lat, lng);
+                    });
+                }
+            }
+        }
+
         // Which stages to plot:
         // - Show All: every stage
         // - Focus Selected: previous stages + current (so road snap previous→current is correct)
         const focusThroughIndex =
-            !showAllStagesOnMap && selectedStageIndex !== null
+            !showAllStagesOnMap && selectedStageIndex !== null && selectedStageIndex !== 'nightStay'
                 ? selectedStageIndex
                 : formData.stages.length - 1;
 
         formData.stages.forEach((stage, idx) => {
-            if (idx > focusThroughIndex) return;
+            if (focusThroughIndex !== null && idx > focusThroughIndex) return;
 
             const isActive = selectedStageIndex !== null && idx === selectedStageIndex;
-            const isPrevious = selectedStageIndex !== null && idx < selectedStageIndex;
+            const isPrevious = selectedStageIndex !== null && selectedStageIndex !== 'nightStay' && idx < selectedStageIndex;
+            const seqNum = idx + 1;
             bindStageMarker(stage, idx, {
                 draggable: isActive && mapEditMode === 'stage',
                 isActive,
@@ -1597,7 +1717,7 @@ const RouteManagement = () => {
                         iconAnchor: [8, 8],
                     }),
                 }).addTo(map).bindPopup(
-                    `<b>Road guide</b><br/>Stage ${idx + 1}${isActiveStageVias ? '<br/><span style="color:#b45309">Drag to steer · dbl-click to remove</span>' : ''}`
+                    `<b>Road guide</b><br/>${stage.isNightStayPoint ? 'Night Stay Point' : `Stage ${seqNum}`}${isActiveStageVias ? '<br/><span style="color:#b45309">Drag to steer · dbl-click to remove</span>' : ''}`
                 );
 
                 if (isActiveStageVias) {
@@ -1786,14 +1906,24 @@ const RouteManagement = () => {
         if (showAllStagesOnMap) return;
         if (modalActiveTab !== 'stages' || !modalMapInstanceRef.current || !window.L) return;
         if (selectedStageIndex === null || selectedStageIndex === undefined) return;
-        const activeStage = formData.stages[selectedStageIndex];
+        const isNightStay = selectedStageIndex === 'nightStay';
+        const activeStage = isNightStay ? formData.nightStayPoint : formData.stages[selectedStageIndex];
         const activeStageCoords = getStageCoords(activeStage);
         if (!activeStageCoords) return;
 
         const L = window.L;
         const map = modalMapInstanceRef.current;
         const { lat: latVal, lng: lngVal } = activeStageCoords;
-        const radVal = Number(activeStage.radius) || 100;
+        const radVal = Number(activeStage?.radius) || 100;
+
+        const activeSeqNum = isNightStay ? null : selectedStageIndex + 1;
+        const moonSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 0 1 1-9-9Z"/></svg>`;
+
+        const iconHtml = isNightStay
+            ? `<div class="w-8 h-8 rounded-full bg-indigo-700 border-2 border-amber-300 text-amber-300 flex items-center justify-center font-bold shadow-xl animate-pulse">${moonSvg}</div>`
+            : `<div class="w-7 h-7 rounded-full bg-red-600 border-2 border-white text-white flex items-center justify-center font-black text-xs shadow-lg">${activeSeqNum}</div>`;
+        const iconSize = isNightStay ? [32, 32] : [28, 28];
+        const iconAnchor = isNightStay ? [16, 16] : [14, 14];
 
         // If marker doesn't exist yet (new stage just got coords via click), create it
         if (!modalMarkerRef.current) {
@@ -1801,9 +1931,9 @@ const RouteManagement = () => {
                 draggable: true,
                 icon: L.divIcon({
                     className: 'custom-stage-marker-active',
-                    html: `<div class="w-7 h-7 rounded-full bg-red-600 border-2 border-white text-white flex items-center justify-center font-black text-xs shadow-lg">${selectedStageIndex + 1}</div>`,
-                    iconSize: [28, 28],
-                    iconAnchor: [14, 14]
+                    html: iconHtml,
+                    iconSize,
+                    iconAnchor,
                 })
             }).addTo(map);
 
@@ -1818,15 +1948,24 @@ const RouteManagement = () => {
             if (curLatLng.lat !== latVal || curLatLng.lng !== lngVal) {
                 modalMarkerRef.current.setLatLng([latVal, lngVal]);
             }
+            modalMarkerRef.current.setIcon(L.divIcon({
+                className: 'custom-stage-marker-active',
+                html: iconHtml,
+                iconSize,
+                iconAnchor,
+            }));
         }
+
+        const circleColor = isNightStay ? '#6366f1' : '#ef4444';
+        const fillColor = isNightStay ? '#818cf8' : '#ef4444';
 
         if (!modalCircleRef.current) {
             const activeCircle = L.circle([latVal, lngVal], {
                 radius: radVal,
-                color: '#ef4444',
-                fillColor: '#ef4444',
-                fillOpacity: 0.15,
-                weight: 1.5
+                color: circleColor,
+                fillColor: fillColor,
+                fillOpacity: 0.2,
+                weight: 2
             }).addTo(map);
             modalCircleRef.current = activeCircle;
         } else {
@@ -1837,13 +1976,14 @@ const RouteManagement = () => {
             if (modalCircleRef.current.getRadius() !== radVal) {
                 modalCircleRef.current.setRadius(radVal);
             }
+            modalCircleRef.current.setStyle({ color: circleColor, fillColor: fillColor });
         }
     }, [
         modalActiveTab,
         selectedStageIndex,
-        formData.stages[selectedStageIndex]?.latitude ?? null,
-        formData.stages[selectedStageIndex]?.longitude ?? null,
-        formData.stages[selectedStageIndex]?.radius ?? null,
+        selectedStageIndex === 'nightStay' ? formData.nightStayPoint?.latitude : formData.stages[selectedStageIndex]?.latitude ?? null,
+        selectedStageIndex === 'nightStay' ? formData.nightStayPoint?.longitude : formData.stages[selectedStageIndex]?.longitude ?? null,
+        selectedStageIndex === 'nightStay' ? formData.nightStayPoint?.radius : formData.stages[selectedStageIndex]?.radius ?? null,
         showAllStagesOnMap,
         updateActiveStageCoords
     ]);
@@ -2559,7 +2699,47 @@ const RouteManagement = () => {
             }
         }
 
-        setFormData(prev => ({ ...prev, stages: newStages }));
+        let updatedNightStay = formData.nightStayPoint;
+        if (newStages[index].isNightStayPoint) {
+            updatedNightStay = {
+                ...(formData.nightStayPoint || {}),
+                stageName: newStages[index].stageName,
+                latitude: newStages[index].latitude ?? '',
+                longitude: newStages[index].longitude ?? '',
+                radius: newStages[index].radius ?? 100,
+            };
+        }
+
+        setFormData(prev => ({ ...prev, stages: newStages, nightStayPoint: updatedNightStay }));
+    };
+
+    const toggleStageAsNightStay = (index) => {
+        const targetStage = formData.stages[index];
+        if (!targetStage) return;
+
+        const isCurrentlyStay = Boolean(targetStage.isNightStayPoint);
+        const updatedStages = formData.stages.map((st, i) => ({
+            ...st,
+            isNightStayPoint: i === index ? !isCurrentlyStay : false
+        }));
+
+        const updatedNightStay = !isCurrentlyStay ? {
+            stageName: targetStage.stageName || `Stage ${index + 1}`,
+            latitude: targetStage.latitude ?? '',
+            longitude: targetStage.longitude ?? '',
+            radius: targetStage.radius ?? 100,
+        } : {
+            stageName: '',
+            latitude: '',
+            longitude: '',
+            radius: 100,
+        };
+
+        setFormData(prev => ({
+            ...prev,
+            stages: updatedStages,
+            nightStayPoint: updatedNightStay
+        }));
     };
 
     const addStage = () => {
@@ -2586,6 +2766,8 @@ const RouteManagement = () => {
             };
         });
     };
+
+
 
     const reorderStages = (fromIndex, toIndex) => {
         if (fromIndex === toIndex) return;
@@ -2643,16 +2825,23 @@ const RouteManagement = () => {
 
     const handleEdit = (route, e) => {
         e.stopPropagation();
-        setFormData({
-            routeId: route.routeId,
-            routeName: route.routeName,
-            startPoint: route.startPoint,
-            endPoint: route.endPoint,
-            totalDistance: route.totalDistance,
-            estimatedTime: route.estimatedTime,
-            campus: getCampusId(route.campus) || '',
-            zone: route.zone || '',
-            stages: (route.stages || []).map((stage) => ({
+        const nsp = route.nightStayPoint || (route.stages || []).find(s => s.isNightStayPoint) || {};
+        const nightStayObj = {
+            stageName: nsp.stageName || 'Night Stay Point',
+            latitude: nsp.latitude !== undefined && nsp.latitude !== null ? nsp.latitude : '',
+            longitude: nsp.longitude !== undefined && nsp.longitude !== null ? nsp.longitude : '',
+            radius: nsp.radius !== undefined && nsp.radius !== null ? nsp.radius : 100,
+        };
+
+        const mappedStages = (route.stages || []).map((stage) => {
+            const isMatch = Boolean(stage.isNightStayPoint) || (
+                hasStageCoordinateValue(nightStayObj.latitude) &&
+                hasStageCoordinateValue(stage.latitude) &&
+                Number(stage.latitude) === Number(nightStayObj.latitude) &&
+                Number(stage.longitude) === Number(nightStayObj.longitude)
+            );
+
+            return {
                 _localId: stage._localId || createLocalStageId(),
                 stageName: stage.stageName,
                 distanceFromStart: stage.distanceFromStart,
@@ -2663,13 +2852,27 @@ const RouteManagement = () => {
                 latitude: stage.latitude !== undefined && stage.latitude !== null ? stage.latitude : '',
                 longitude: stage.longitude !== undefined && stage.longitude !== null ? stage.longitude : '',
                 radius: stage.radius !== undefined && stage.radius !== null ? stage.radius : 100,
+                isNightStayPoint: Boolean(isMatch),
                 viaPoints: Array.isArray(stage.viaPoints)
                     ? stage.viaPoints.map((v) => ({
                         latitude: Number(v.latitude),
                         longitude: Number(v.longitude),
                     })).filter((v) => Number.isFinite(v.latitude) && Number.isFinite(v.longitude))
                     : [],
-            })),
+            };
+        });
+
+        setFormData({
+            routeId: route.routeId,
+            routeName: route.routeName,
+            startPoint: route.startPoint,
+            endPoint: route.endPoint,
+            totalDistance: route.totalDistance,
+            estimatedTime: route.estimatedTime,
+            campus: getCampusId(route.campus) || '',
+            zone: route.zone || '',
+            nightStayPoint: nightStayObj,
+            stages: mappedStages,
         });
         setEditingId(route._id);
         setModalActiveTab('details');
@@ -2712,7 +2915,9 @@ const RouteManagement = () => {
         destroyModalMap();
         setFormData({
             routeId: '', routeName: '', startPoint: '', endPoint: '',
-            totalDistance: '', estimatedTime: '', campus: '', zone: '', stages: []
+            totalDistance: '', estimatedTime: '', campus: '', zone: '',
+            nightStayPoint: { stageName: '', latitude: '', longitude: '', radius: 100 },
+            stages: []
         });
     };
 
@@ -3546,8 +3751,31 @@ const RouteManagement = () => {
                                                                                 Stages & Fare Distribution ({academicYear})
                                                                             </h4>
                                                                         </div>
+
+                                                                        {route.nightStayPoint && (
+                                                                            <div className="mb-3 bg-indigo-50/90 border border-indigo-200/80 p-3 rounded-xl flex items-center justify-between">
+                                                                                <div className="flex items-center gap-2.5">
+                                                                                    <span className="w-6 h-6 rounded-full bg-indigo-600 text-amber-300 flex items-center justify-center shrink-0 shadow-xs">
+                                                                                        <Moon size={13} className="text-amber-300 fill-amber-300" />
+                                                                                    </span>
+                                                                                    <div>
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <span className="font-bold text-indigo-950 text-xs">{route.nightStayPoint.stageName || 'Night Stay Point'}</span>
+                                                                                            <span className="text-[8.5px] font-black uppercase tracking-wider bg-indigo-600 text-amber-300 px-1.5 py-0.5 rounded flex items-center gap-1 shadow-2xs">
+                                                                                                <Moon size={9} className="text-amber-300 fill-amber-300" />
+                                                                                                Night Stay Location
+                                                                                            </span>
+                                                                                        </div>
+                                                                                        <p className="text-[9.5px] text-indigo-700 font-medium">
+                                                                                            {route.nightStayPoint.latitude != null ? `${route.nightStayPoint.latitude}, ${route.nightStayPoint.longitude}` : 'Coordinates not set'} · Geofence Radius: {route.nightStayPoint.radius || 100}m
+                                                                                        </p>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+
                                                                         {route.stages.length === 0 ? (
-                                                                            <p className="text-xs text-slate-400 italic py-2">No stages defined for this route network.</p>
+                                                                            <p className="text-xs text-slate-400 italic py-2">No passenger pickup stages defined for this route network.</p>
                                                                         ) : (
                                                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                                                 {resolveStageDistances(route).map(({ stage, fromStart, toDest }, index) => {
@@ -3561,17 +3789,6 @@ const RouteManagement = () => {
                                                                                             <div>
                                                                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                                                                     <p className="font-bold text-slate-800 text-xs">{stage.stageName}</p>
-                                                                                                    {stage.isNightStayPoint ? (
-                                                                                                        <span className="text-[9px] font-extrabold bg-indigo-600 text-amber-300 px-1.5 py-0.5 rounded shadow-2xs flex items-center gap-0.5">
-                                                                                                            🌙 Night Stay
-                                                                                                        </span>
-                                                                                                    ) : (
-                                                                                                        !route.stages.some(s => s.isNightStayPoint) && index === 0 && (
-                                                                                                            <span className="text-[8.5px] font-bold bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded" title="Default Stay Point (First Stage)">
-                                                                                                                🌙 Default Stay
-                                                                                                            </span>
-                                                                                                        )
-                                                                                                    )}
                                                                                                 </div>
                                                                                                 <p className="text-[9px] text-slate-400 font-medium">
                                                                                                     From Start: {fromStart} km
@@ -4576,100 +4793,288 @@ const RouteManagement = () => {
                                 /* Tab 2: Stages - 3-Column Layout */
                                 <div className="flex gap-4 py-2 flex-1 overflow-hidden">
                                     {/* Column 1: All Stages List */}
-                                    <div className="w-[200px] shrink-0 flex flex-col bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
-                                        <div className="flex justify-between items-center p-3 border-b border-slate-200 bg-white shrink-0">
-                                            <div>
-                                                <h4 className="font-bold text-slate-800 text-[11px]">Stages ({formData.stages.length})</h4>
-                                                <p className="text-[9px] text-slate-400 mt-0.5">
-                                                    {hasPendingStageOrder
-                                                        ? 'Order changed — click Save Route Sorting in header'
-                                                        : 'Drag to reorder route'}
-                                                </p>
+                                    <div className="w-[230px] shrink-0 flex flex-col bg-slate-50/80 rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
+                                        <div className="p-3 border-b border-slate-200 bg-white shrink-0 space-y-2">
+                                            <div className="flex items-center justify-between gap-1">
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    <div className="w-5 h-5 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-[10px]">
+                                                        <MapPin size={12} />
+                                                    </div>
+                                                    <h4 className="font-extrabold text-slate-800 text-xs tracking-tight">Stages</h4>
+                                                    <span className="px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-extrabold border border-slate-200/80">
+                                                        {formData.stages.length}
+                                                    </span>
+                                                </div>
+
+                                                <button 
+                                                    type="button" 
+                                                    onClick={addStage} 
+                                                    className="h-7 px-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg text-[10.5px] font-bold transition-all flex items-center gap-1 shadow-xs hover:shadow"
+                                                    title="Add new passenger pickup stage"
+                                                >
+                                                    <Plus size={12} strokeWidth={2.5} />
+                                                    <span>Add</span>
+                                                </button>
                                             </div>
-                                            <button 
-                                                type="button" 
-                                                onClick={addStage} 
-                                                className="text-[10px] bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 py-1 rounded-lg font-bold transition-all"
-                                            >
-                                                + Add
-                                            </button>
+
+                                            <div className="flex items-center gap-1 text-[9.5px] text-slate-500 font-medium bg-slate-50 px-2 py-1 rounded-md border border-slate-200/60">
+                                                <GripVertical size={11} className="text-slate-400 shrink-0" />
+                                                <span className="truncate">
+                                                    {hasPendingStageOrder
+                                                        ? 'Order changed — click Save Route Sorting'
+                                                        : 'Drag handles to reorder route'}
+                                                </span>
+                                            </div>
                                         </div>
                                         <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-                                            {formData.stages.map((stage, idx) => (
-                                                <div
-                                                    key={stage._localId || `stage-${idx}`}
-                                                    onDragOver={(e) => handleStageDragOver(e, idx)}
-                                                    onDrop={(e) => handleStageDrop(e, idx)}
-                                                    onDragLeave={() => setDragOverStageIndex(null)}
-                                                    className={`rounded-xl border transition-all flex items-center gap-1.5 px-2 py-2.5 cursor-pointer ${
-                                                        selectedStageIndex === idx
-                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                                                            : 'bg-white text-slate-700 border-slate-100 hover:bg-blue-50 hover:border-blue-200'
-                                                    } ${
-                                                        dragOverStageIndex === idx && draggedStageIndex !== idx
-                                                            ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200'
-                                                            : draggedStageIndex === idx
-                                                                ? 'opacity-50'
-                                                                : ''
-                                                    }`}
-                                                    onClick={() => {
-                                                        setSelectedStageIndex(idx);
-                                                        setShowAllStagesOnMap(false);
-                                                        setMapEditMode(idx > 0 ? 'steer' : 'stage');
-                                                    }}
-                                                >
-                                                    <span
-                                                        draggable
-                                                        onDragStart={(e) => {
-                                                            e.stopPropagation();
-                                                            handleStageDragStart(e, idx);
+                                            {/* Pinned Night Stay Point Card */}
+                                            {(() => {
+                                                const linkedStayStageIndex = formData.stages.findIndex(s => s.isNightStayPoint);
+                                                const linkedStayStage = linkedStayStageIndex !== -1 ? formData.stages[linkedStayStageIndex] : null;
+
+                                                return (
+                                                    <div
+                                                        onClick={() => {
+                                                            setSelectedStageIndex('nightStay');
+                                                            setShowAllStagesOnMap(false);
+                                                            setMapEditMode('stage');
                                                         }}
-                                                        onDragEnd={handleStageDragEnd}
-                                                        className={`shrink-0 cursor-grab active:cursor-grabbing p-0.5 rounded ${
-                                                            selectedStageIndex === idx ? 'text-blue-100 hover:text-white' : 'text-slate-300 hover:text-slate-500'
+                                                        className={`rounded-xl border p-2 cursor-pointer transition-all flex items-center justify-between gap-1.5 mb-2 ${
+                                                            selectedStageIndex === 'nightStay'
+                                                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-200'
+                                                                : 'bg-indigo-50/80 border-indigo-200/90 text-indigo-950 hover:bg-indigo-100/90'
                                                         }`}
-                                                        title="Drag to reorder"
-                                                        onClick={(e) => e.stopPropagation()}
                                                     >
-                                                        <GripVertical size={14} />
-                                                    </span>
-                                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
-                                                        selectedStageIndex === idx ? 'bg-white text-blue-600' : 'bg-slate-100 text-slate-500'
-                                                    }`}>
-                                                        {idx + 1}
-                                                    </span>
-                                                    <span className="truncate text-[11px] font-semibold flex-1">
-                                                        {stage.stageName || `Stage ${idx + 1}`}
-                                                    </span>
-                                                    {stage.isNightStayPoint ? (
-                                                        <span className="shrink-0 text-[8.5px] font-bold bg-indigo-500 text-amber-300 px-1 py-0.5 rounded">
-                                                            🌙 Stay
-                                                        </span>
-                                                    ) : (
-                                                        !formData.stages.some(s => s.isNightStayPoint) && idx === 0 && (
-                                                            <span className="shrink-0 text-[8px] font-medium bg-slate-200 text-slate-600 px-1 py-0.5 rounded" title="Default Night Stay Point">
-                                                                🌙 Default
+                                                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                            <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                                                                selectedStageIndex === 'nightStay' ? 'bg-white text-indigo-700' : 'bg-indigo-200 text-indigo-800'
+                                                            }`}>
+                                                                <Moon size={11} className="fill-current" />
                                                             </span>
-                                                        )
-                                                    )}
-                                                </div>
-                                            ))}
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className={`truncate text-[11px] font-bold ${selectedStageIndex === 'nightStay' ? 'text-white' : 'text-indigo-950'}`}>
+                                                                    {formData.nightStayPoint?.stageName || 'Night Stay Point'}
+                                                                </p>
+                                                                <p className={`text-[9px] truncate font-medium ${selectedStageIndex === 'nightStay' ? 'text-indigo-100' : 'text-indigo-600'}`}>
+                                                                    {linkedStayStage
+                                                                        ? `Linked: Stage ${linkedStayStageIndex + 1}`
+                                                                        : hasStageCoordinateValue(formData.nightStayPoint?.latitude)
+                                                                            ? `${formData.nightStayPoint.latitude}, ${formData.nightStayPoint.longitude}`
+                                                                            : 'Click to configure'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <span className={`shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${
+                                                            selectedStageIndex === 'nightStay'
+                                                                ? 'bg-white/20 text-white border border-white/30'
+                                                                : 'bg-indigo-200/80 text-indigo-900 border border-indigo-300/50'
+                                                        }`}>
+                                                            {linkedStayStage ? 'Stage Stay' : 'Stay Point'}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
+
+                                            <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider px-1 pt-1 pb-0.5">
+                                                Pickup Stages ({formData.stages.length})
+                                            </div>
+
+                                            {formData.stages.map((stage, idx) => {
+                                                return (
+                                                    <div
+                                                        key={stage._localId || `stage-${idx}`}
+                                                        onDragOver={(e) => handleStageDragOver(e, idx)}
+                                                        onDrop={(e) => handleStageDrop(e, idx)}
+                                                        onDragLeave={() => setDragOverStageIndex(null)}
+                                                        className={`rounded-xl border transition-all flex items-center gap-1.5 px-2 py-2.5 cursor-pointer ${
+                                                            selectedStageIndex === idx
+                                                                ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                                                                : 'bg-white text-slate-700 border-slate-100 hover:bg-blue-50 hover:border-blue-200'
+                                                        } ${
+                                                            dragOverStageIndex === idx && draggedStageIndex !== idx
+                                                                ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200'
+                                                                : draggedStageIndex === idx
+                                                                    ? 'opacity-50'
+                                                                    : ''
+                                                        }`}
+                                                        onClick={() => {
+                                                            setSelectedStageIndex(idx);
+                                                            setShowAllStagesOnMap(false);
+                                                            setMapEditMode(idx > 0 ? 'steer' : 'stage');
+                                                        }}
+                                                    >
+                                                        <span
+                                                            draggable
+                                                            onDragStart={(e) => {
+                                                                e.stopPropagation();
+                                                                handleStageDragStart(e, idx);
+                                                            }}
+                                                            onDragEnd={handleStageDragEnd}
+                                                            className={`shrink-0 cursor-grab active:cursor-grabbing p-0.5 rounded ${
+                                                                selectedStageIndex === idx ? 'text-blue-100 hover:text-white' : 'text-slate-300 hover:text-slate-500'
+                                                            }`}
+                                                            title="Drag to reorder"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <GripVertical size={14} />
+                                                        </span>
+                                                        <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
+                                                            selectedStageIndex === idx ? 'bg-white text-blue-600' : 'bg-slate-100 text-slate-500'
+                                                        }`}>
+                                                            {idx + 1}
+                                                        </span>
+                                                        <span className="truncate text-[11px] font-semibold flex-1 flex items-center justify-between gap-1">
+                                                            <span className="truncate">{stage.stageName || `Stage ${idx + 1}`}</span>
+                                                            {stage.isNightStayPoint && (
+                                                                <span className={`text-[7.5px] font-black uppercase px-1 py-0.2 rounded flex items-center gap-0.5 shrink-0 ${
+                                                                    selectedStageIndex === idx
+                                                                        ? 'bg-white/20 text-white border border-white/30'
+                                                                        : 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                                                                }`} title="Set as Night Stay Point">
+                                                                    <Moon size={7} className="fill-current" />
+                                                                    Stay
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
                                             {formData.stages.length === 0 && (
-                                                <div className="text-center text-[10px] text-slate-400 py-8">
-                                                    No stages yet.<br />Click "+ Add" above.
+                                                <div className="text-center text-[10px] text-slate-400 py-6">
+                                                    No pickup stages yet.<br />Click "+ Add" above.
                                                 </div>
                                             )}
                                         </div>
                                     </div>
 
-                                    {/* Column 2: Selected Stage Detail Form */}
+                                    {/* Column 2: Selected Stage / Night Stay Detail Form */}
                                     <div className="w-[280px] shrink-0 flex flex-col">
-                                        {selectedStageIndex !== null && formData.stages[selectedStageIndex] ? (
+                                        {selectedStageIndex === 'nightStay' ? (
+                                            <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3 relative flex-1 overflow-y-auto custom-scrollbar">
+                                                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                                                    <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center justify-center shrink-0">
+                                                        <Moon size={11} className="text-indigo-700 fill-indigo-700" />
+                                                    </span>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-800">
+                                                        Night Stay Config
+                                                    </span>
+                                                </div>
+
+                                                <div className="bg-indigo-50/90 border border-indigo-200 p-2.5 rounded-xl text-[11px] text-indigo-900 space-y-1 shadow-2xs">
+                                                    <div className="font-bold flex items-center gap-1.5 text-indigo-900">
+                                                        <Moon size={13} className="text-indigo-700 fill-indigo-700 shrink-0" />
+                                                        Locate Night Stay Location
+                                                    </div>
+                                                    <p className="text-[10px] text-indigo-700 leading-snug">
+                                                        Select an existing stage or create a standalone location by clicking anywhere on the map.
+                                                    </p>
+                                                </div>
+
+                                                {/* Source Selector: Choose existing stage OR custom standalone */}
+                                                <div>
+                                                    <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Night Stay Source</label>
+                                                    <select
+                                                        value={
+                                                            formData.stages.findIndex(s => s.isNightStayPoint) !== -1
+                                                                ? String(formData.stages.findIndex(s => s.isNightStayPoint))
+                                                                : 'custom'
+                                                        }
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            if (val === 'custom') {
+                                                                const unlinkedStages = formData.stages.map(s => ({ ...s, isNightStayPoint: false }));
+                                                                setFormData(prev => ({
+                                                                    ...prev,
+                                                                    stages: unlinkedStages,
+                                                                    nightStayPoint: {
+                                                                        stageName: prev.nightStayPoint?.stageName || 'Night Stay Point',
+                                                                        latitude: prev.nightStayPoint?.latitude ?? '',
+                                                                        longitude: prev.nightStayPoint?.longitude ?? '',
+                                                                        radius: prev.nightStayPoint?.radius || 100,
+                                                                    }
+                                                                }));
+                                                            } else {
+                                                                const sIdx = Number(val);
+                                                                toggleStageAsNightStay(sIdx);
+                                                            }
+                                                        }}
+                                                        className="w-full px-2.5 py-1.5 rounded-lg border border-indigo-200 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 outline-none bg-indigo-50/60 text-indigo-950"
+                                                    >
+                                                        <option value="custom">Create Standalone / Custom Location</option>
+                                                        {formData.stages.map((stg, sIdx) => (
+                                                            <option key={stg._localId || sIdx} value={String(sIdx)}>
+                                                                Stage {sIdx + 1}: {stg.stageName || `Stage ${sIdx + 1}`}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                <div className="space-y-2.5">
+                                                    <div>
+                                                        <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Night Stay Location Name</label>
+                                                        <input 
+                                                            type="text" 
+                                                            name="stageName" 
+                                                            placeholder="e.g. Bus Depot / Night Stay" 
+                                                            value={formData.nightStayPoint?.stageName || ''} 
+                                                            onChange={handleNightStayChange} 
+                                                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-slate-800" 
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Geofence Radius (m)</label>
+                                                        <input 
+                                                            type="number" 
+                                                            name="radius" 
+                                                            placeholder="200" 
+                                                            value={formData.nightStayPoint?.radius ?? 100} 
+                                                            onChange={handleNightStayChange} 
+                                                            className="w-full px-3 py-2 rounded-lg border border-indigo-200 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-slate-800" 
+                                                        />
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                                                        <div>
+                                                            <label className="block text-[8px] font-black text-slate-400 uppercase tracking-wider mb-0.5">Latitude</label>
+                                                            <input 
+                                                                type="number" 
+                                                                step="any"
+                                                                name="latitude" 
+                                                                placeholder="Click map" 
+                                                                value={formData.nightStayPoint?.latitude ?? ''} 
+                                                                onChange={handleNightStayChange} 
+                                                                className="w-full p-1.5 border border-slate-100 rounded text-[11px] font-semibold outline-none text-slate-600 bg-white" 
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-[8px] font-black text-slate-400 uppercase tracking-wider mb-0.5">Longitude</label>
+                                                            <input 
+                                                                type="number" 
+                                                                step="any"
+                                                                name="longitude" 
+                                                                placeholder="Click map" 
+                                                                value={formData.nightStayPoint?.longitude ?? ''} 
+                                                                onChange={handleNightStayChange} 
+                                                                className="w-full p-1.5 border border-slate-100 rounded text-[11px] font-semibold outline-none text-slate-600 bg-white" 
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <button 
+                                                    type="button" 
+                                                    onClick={handleSaveStage}
+                                                    disabled={isSavingStage}
+                                                    className="w-full bg-indigo-900 hover:bg-indigo-800 text-white font-bold py-2.5 rounded-xl transition-colors shadow-lg shadow-indigo-200 mt-3 text-xs disabled:opacity-50 cursor-pointer"
+                                                >
+                                                    {isSavingStage ? 'Saving...' : 'Save Night Stay Config'}
+                                                </button>
+                                            </div>
+                                        ) : selectedStageIndex !== null && formData.stages[selectedStageIndex] ? (
                                             <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3 relative flex-1 overflow-y-auto custom-scrollbar">
                                                 <button 
                                                     type="button" 
                                                     onClick={() => removeStage(selectedStageIndex)} 
-                                                    className="absolute top-3 right-3 text-slate-400 hover:text-red-500 transition-colors"
+                                                    className="absolute top-3 right-3 text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
                                                     title="Remove Stage"
                                                 >
                                                     <Trash2 size={14} />
@@ -4679,7 +5084,50 @@ const RouteManagement = () => {
                                                     <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-[10px]">
                                                         {selectedStageIndex + 1}
                                                     </span>
-                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Stage Config</span>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                                        Stage {selectedStageIndex + 1} Config
+                                                    </span>
+                                                </div>
+
+                                                {/* Option to make this stage the Night Stay Point */}
+                                                <div className={`p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2 ${
+                                                    formData.stages[selectedStageIndex].isNightStayPoint
+                                                        ? 'bg-indigo-50 border-indigo-200 text-indigo-950 shadow-2xs'
+                                                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100/80'
+                                                }`}>
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <span className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
+                                                            formData.stages[selectedStageIndex].isNightStayPoint
+                                                                ? 'bg-indigo-600 text-white shadow-xs'
+                                                                : 'bg-slate-200 text-slate-500'
+                                                        }`}>
+                                                            <Moon size={12} className={formData.stages[selectedStageIndex].isNightStayPoint ? 'fill-current' : ''} />
+                                                        </span>
+                                                        <div className="min-w-0">
+                                                            <div className="text-[10px] font-bold leading-tight flex items-center gap-1">
+                                                                <span>Night Stay Location</span>
+                                                                {formData.stages[selectedStageIndex].isNightStayPoint && (
+                                                                    <span className="text-[7.5px] font-black bg-indigo-200/80 text-indigo-800 px-1 rounded">Active</span>
+                                                                )}
+                                                            </div>
+                                                            <div className="text-[8.5px] text-slate-500 truncate leading-tight">
+                                                                {formData.stages[selectedStageIndex].isNightStayPoint
+                                                                    ? 'This stage is set as Night Stay'
+                                                                    : 'Make this stage the Night Stay'}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleStageAsNightStay(selectedStageIndex)}
+                                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer shrink-0 ${
+                                                            formData.stages[selectedStageIndex].isNightStayPoint
+                                                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
+                                                                : 'bg-white hover:bg-indigo-50 border border-slate-300 text-slate-700 hover:border-indigo-400 hover:text-indigo-600'
+                                                        }`}
+                                                    >
+                                                        {formData.stages[selectedStageIndex].isNightStayPoint ? 'Unset' : 'Set as Stay'}
+                                                    </button>
                                                 </div>
 
                                                 <div className="space-y-2.5">
@@ -4776,28 +5224,6 @@ const RouteManagement = () => {
                                                             </div>
                                                         ) : null;
                                                     })()}
-
-                                                    <div className="pt-2 border-t border-slate-100">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                const isCurrentlyNightStay = !!formData.stages[selectedStageIndex]?.isNightStayPoint;
-                                                                const updatedStages = formData.stages.map((st, i) => ({
-                                                                    ...st,
-                                                                    isNightStayPoint: i === selectedStageIndex ? !isCurrentlyNightStay : false
-                                                                }));
-                                                                setFormData(prev => ({ ...prev, stages: updatedStages }));
-                                                            }}
-                                                            className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all border ${
-                                                                formData.stages[selectedStageIndex]?.isNightStayPoint
-                                                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-200'
-                                                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                                                            }`}
-                                                        >
-                                                            <Moon size={14} className={formData.stages[selectedStageIndex]?.isNightStayPoint ? 'text-amber-300 fill-amber-300' : 'text-slate-400'} />
-                                                            {formData.stages[selectedStageIndex]?.isNightStayPoint ? '🌙 Night Stay Point (Selected)' : 'Set as Night Stay Point'}
-                                                        </button>
-                                                    </div>
                                                 </div>
 
                                                 <button 

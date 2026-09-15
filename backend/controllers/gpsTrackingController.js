@@ -1216,14 +1216,16 @@ const fetchNightStayReport = async (req, res) => {
         const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
         const routeObj = routeMap[routeId];
 
-        // Resolve Stay Point: explicit isNightStayPoint stage OR stages[0] fallback
-        let stayPointStage = null;
-        if (routeObj && Array.isArray(routeObj.stages) && routeObj.stages.length > 0) {
-          stayPointStage = routeObj.stages.find(s => s.isNightStayPoint) || routeObj.stages[0];
+        // Resolve Stay Point: explicit routeObj.nightStayPoint OR legacy stage OR stages[0] fallback
+        let stayPointStage = routeObj?.nightStayPoint;
+        if (!stayPointStage || !Number.isFinite(Number(stayPointStage.latitude)) || !Number.isFinite(Number(stayPointStage.longitude))) {
+          if (routeObj && Array.isArray(routeObj.stages) && routeObj.stages.length > 0) {
+            stayPointStage = routeObj.stages.find(s => s.isNightStayPoint) || routeObj.stages[0];
+          }
         }
 
         const stayPointName = stayPointStage?.stageName || routeObj?.startPoint || 'Default Stay Point';
-        const isDefaultStayPoint = !routeObj?.stages?.some(s => s.isNightStayPoint);
+        const isDefaultStayPoint = !routeObj?.nightStayPoint && !routeObj?.stages?.some(s => s.isNightStayPoint);
         const stageLat = Number(stayPointStage?.latitude);
         const stageLng = Number(stayPointStage?.longitude);
         const hasStageCoords = Number.isFinite(stageLat) && Number.isFinite(stageLng);
@@ -1266,6 +1268,11 @@ const fetchNightStayReport = async (req, res) => {
                   const distOut = calculateHaversineDist(stageLat, stageLng, log.latOut, log.lngOut);
                   if (distOut !== null && distOut <= radiusKm) isMatch = true;
                 }
+              }
+
+              // Fallback: If Night Stay is not set, fetch IN/OUT from default point (first arrival / last departure)
+              if (!isMatch && isDefaultStayPoint) {
+                isMatch = true;
               }
 
               // Only assign IN/OUT times if the geofence log matches the Night Stay Point!

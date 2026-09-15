@@ -30,6 +30,13 @@ const stageSchema = new mongoose.Schema({
     },
 });
 
+const nightStayPointSchema = new mongoose.Schema({
+    stageName: { type: String, default: 'Night Stay Point' },
+    latitude: { type: Number, default: null },
+    longitude: { type: Number, default: null },
+    radius: { type: Number, default: 200 },
+}, { _id: false });
+
 const routeSchema = new mongoose.Schema({
     routeId: {
         type: String,
@@ -61,6 +68,10 @@ const routeSchema = new mongoose.Schema({
     zone: {
         type: String,
         default: ''
+    },
+    nightStayPoint: {
+        type: nightStayPointSchema,
+        default: null
     },
     stages: [stageSchema]
 }, {

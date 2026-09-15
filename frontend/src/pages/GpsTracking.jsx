@@ -131,8 +131,34 @@ export default function GpsTracking() {
   });
 
   // 5-Day / Custom IN/OUT Report States
-  const [report7DayData, setReport7DayData] = useState([]);
-  const [reportDates, setReportDates] = useState([]);
+  const [report7DayData, setReport7DayData] = useState(() => {
+    try {
+      const fromStr = sessionStorage.getItem('gps_fleet_date_from') || (() => {
+        const d = new Date(); d.setDate(d.getDate() - 4); return d.toISOString().split('T')[0];
+      })();
+      const toStr = sessionStorage.getItem('gps_fleet_date_to') || new Date().toISOString().split('T')[0];
+      const cached = sessionStorage.getItem(`gps_day_report_${fromStr}_${toStr}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && Array.isArray(parsed.data)) return parsed.data;
+      }
+    } catch (e) {}
+    return [];
+  });
+  const [reportDates, setReportDates] = useState(() => {
+    try {
+      const fromStr = sessionStorage.getItem('gps_fleet_date_from') || (() => {
+        const d = new Date(); d.setDate(d.getDate() - 4); return d.toISOString().split('T')[0];
+      })();
+      const toStr = sessionStorage.getItem('gps_fleet_date_to') || new Date().toISOString().split('T')[0];
+      const cached = sessionStorage.getItem(`gps_day_report_${fromStr}_${toStr}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && Array.isArray(parsed.dates)) return parsed.dates;
+      }
+    } catch (e) {}
+    return [];
+  });
   const [reportLoading, setReportLoading] = useState(false);
   const reportRequestIdRef = useRef(0);
 
@@ -165,10 +191,29 @@ export default function GpsTracking() {
     const fromStr = overrideFrom || fleetDateFrom;
     const toStr = overrideTo || fleetDateTo;
     const requestedDates = buildClientDateRange(fromStr, toStr);
+    const cacheKey = `gps_day_report_${fromStr}_${toStr}`;
 
     if (requestedDates.length > 0) {
       setReportDates(requestedDates);
     }
+
+    if (!forceRefresh) {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed && Array.isArray(parsed.data) && parsed.data.length > 0) {
+            setReport7DayData(parsed.data);
+            if (parsed.dates && parsed.dates.length > 0) {
+              setReportDates(parsed.dates);
+            }
+            setReportLoading(false);
+            return;
+          }
+        } catch (e) {}
+      }
+    }
+
     if (forceRefresh || report7DayData.length === 0) {
       setReportLoading(true);
     }
@@ -179,33 +224,12 @@ export default function GpsTracking() {
       const json = await res.json();
 
       if (res.ok && json.success && Array.isArray(json.data)) {
-        setReport7DayData(prevRows => {
-          if (!prevRows || prevRows.length === 0) return json.data;
-          
-          return json.data.map(incomingRow => {
-            const existingRow = prevRows.find(r => r.busNumber === incomingRow.busNumber);
-            if (!existingRow || !existingRow.days) return incomingRow;
-
-            const mergedDays = { ...incomingRow.days };
-            Object.keys(existingRow.days).forEach(dStr => {
-              const existingDay = existingRow.days[dStr];
-              const incomingDay = mergedDays[dStr] || { firstIn: null, lastOut: null, kilometers: 0 };
-              mergedDays[dStr] = {
-                firstIn: incomingDay.firstIn || existingDay.firstIn || null,
-                lastOut: incomingDay.lastOut || existingDay.lastOut || null,
-                kilometers: (incomingDay.kilometers && incomingDay.kilometers > 0) ? incomingDay.kilometers : (existingDay.kilometers || 0)
-              };
-            });
-
-            return {
-              ...incomingRow,
-              days: mergedDays
-            };
-          });
-        });
-        if (json.dates && json.dates.length > 0) {
-          setReportDates(json.dates);
+        setReport7DayData(json.data);
+        const resolvedDates = (json.dates && json.dates.length > 0) ? json.dates : requestedDates;
+        if (resolvedDates.length > 0) {
+          setReportDates(resolvedDates);
         }
+        sessionStorage.setItem(cacheKey, JSON.stringify({ data: json.data, dates: resolvedDates }));
       }
     } catch (err) {
       console.error('Day report fetch error:', err);
@@ -215,18 +239,63 @@ export default function GpsTracking() {
   }, [fleetDateFrom, fleetDateTo, report7DayData.length]);
 
   // Night Stay Report States
-  const [nightStayData, setNightStayData] = useState([]);
-  const [nightStayDates, setNightStayDates] = useState([]);
+  const [nightStayData, setNightStayData] = useState(() => {
+    try {
+      const fromStr = sessionStorage.getItem('gps_fleet_date_from') || (() => {
+        const d = new Date(); d.setDate(d.getDate() - 4); return d.toISOString().split('T')[0];
+      })();
+      const toStr = sessionStorage.getItem('gps_fleet_date_to') || new Date().toISOString().split('T')[0];
+      const cached = sessionStorage.getItem(`gps_nightstay_report_${fromStr}_${toStr}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && Array.isArray(parsed.data)) return parsed.data;
+      }
+    } catch (e) {}
+    return [];
+  });
+  const [nightStayDates, setNightStayDates] = useState(() => {
+    try {
+      const fromStr = sessionStorage.getItem('gps_fleet_date_from') || (() => {
+        const d = new Date(); d.setDate(d.getDate() - 4); return d.toISOString().split('T')[0];
+      })();
+      const toStr = sessionStorage.getItem('gps_fleet_date_to') || new Date().toISOString().split('T')[0];
+      const cached = sessionStorage.getItem(`gps_nightstay_report_${fromStr}_${toStr}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && Array.isArray(parsed.dates)) return parsed.dates;
+      }
+    } catch (e) {}
+    return [];
+  });
   const [nightStayLoading, setNightStayLoading] = useState(false);
 
   const fetchNightStayReportData = useCallback(async (overrideFrom, overrideTo, forceRefresh = false) => {
     const fromStr = overrideFrom || fleetDateFrom;
     const toStr = overrideTo || fleetDateTo;
     const requestedDates = buildClientDateRange(fromStr, toStr);
+    const cacheKey = `gps_nightstay_report_${fromStr}_${toStr}`;
 
     if (requestedDates.length > 0) {
       setNightStayDates(requestedDates);
     }
+
+    if (!forceRefresh) {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed && Array.isArray(parsed.data) && parsed.data.length > 0) {
+            setNightStayData(parsed.data);
+            if (parsed.dates && parsed.dates.length > 0) {
+              setNightStayDates(parsed.dates);
+            }
+            setNightStayLoading(false);
+            return;
+          }
+        } catch (e) {}
+      }
+    }
+
     if (forceRefresh || nightStayData.length === 0) {
       setNightStayLoading(true);
     }
@@ -238,9 +307,11 @@ export default function GpsTracking() {
 
       if (res.ok && json.success && Array.isArray(json.data)) {
         setNightStayData(json.data);
-        if (json.dates && json.dates.length > 0) {
-          setNightStayDates(json.dates);
+        const resolvedDates = (json.dates && json.dates.length > 0) ? json.dates : requestedDates;
+        if (resolvedDates.length > 0) {
+          setNightStayDates(resolvedDates);
         }
+        sessionStorage.setItem(cacheKey, JSON.stringify({ data: json.data, dates: resolvedDates }));
       }
     } catch (err) {
       console.error('Night stay report fetch error:', err);
@@ -1556,23 +1627,26 @@ export default function GpsTracking() {
               return (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
                   <div className="overflow-x-auto sidebar-scrollbar">
-                    <table className="w-full text-left border-collapse min-w-[1100px]">
+                    <table 
+                      className="w-full text-left border-collapse" 
+                      style={{ minWidth: `${304 + nsDates.length * 136}px` }}
+                    >
                       <thead>
                         {/* Header Row 1: Route, Bus Number, Stay Point, Date Columns */}
                         <tr className="bg-[#071B45] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('route')}
-                            className="px-2.5 py-2 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-20 w-24 min-w-[96px] max-w-[96px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            className="px-1.5 py-1.5 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-20 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
                             title="Click to sort by Route ID"
                           >
-                            <div className="flex items-center justify-between gap-1">
+                            <div className="flex items-center justify-between gap-0.5">
                               <span>Route</span>
                               <span className="text-slate-400 group-hover:text-white">
                                 {fleetSortField === 'route' ? (
-                                  fleetSortOrder === 'asc' ? <ChevronDown size={12} className="text-blue-400 rotate-180" /> : <ChevronDown size={12} className="text-blue-400" />
+                                  fleetSortOrder === 'asc' ? <ChevronDown size={11} className="text-blue-400 rotate-180" /> : <ChevronDown size={11} className="text-blue-400" />
                                 ) : (
-                                  <span className="text-[9px] opacity-40">↕</span>
+                                  <span className="text-[8px] opacity-40">↕</span>
                                 )}
                               </span>
                             </div>
@@ -1580,23 +1654,23 @@ export default function GpsTracking() {
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('bus')}
-                            className="px-2.5 py-2 sticky left-[96px] bg-[#071B45] hover:bg-[#0A2558] z-20 w-36 min-w-[144px] max-w-[144px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            className="px-1.5 py-1.5 sticky left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-20 w-[108px] min-w-[108px] max-w-[108px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
                             title="Click to sort by Bus Number"
                           >
-                            <div className="flex items-center justify-between gap-1">
-                              <span>Bus Number</span>
+                            <div className="flex items-center justify-between gap-0.5">
+                              <span>Bus No</span>
                               <span className="text-slate-400 group-hover:text-white">
                                 {fleetSortField === 'bus' ? (
-                                  fleetSortOrder === 'asc' ? <ChevronDown size={12} className="text-blue-400 rotate-180" /> : <ChevronDown size={12} className="text-blue-400" />
+                                  fleetSortOrder === 'asc' ? <ChevronDown size={11} className="text-blue-400 rotate-180" /> : <ChevronDown size={11} className="text-blue-400" />
                                 ) : (
-                                  <span className="text-[9px] opacity-40">↕</span>
+                                  <span className="text-[8px] opacity-40">↕</span>
                                 )}
                               </span>
                             </div>
                           </th>
                           <th 
                             rowSpan={2} 
-                            className="px-2.5 py-2 sticky left-[240px] bg-[#071B45] z-20 w-44 min-w-[176px] max-w-[176px] align-middle border-r border-slate-700 select-none"
+                            className="px-2 py-1.5 sticky left-[176px] bg-[#071B45] z-20 w-[128px] min-w-[128px] max-w-[128px] align-middle border-r border-slate-700 select-none"
                           >
                             <span>Night Stay Point</span>
                           </th>
@@ -1608,23 +1682,23 @@ export default function GpsTracking() {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
 
                             return (
-                              <th key={dateStr} colSpan={3} className={`px-2 py-1.5 text-center border-r border-slate-700/80 w-42 min-w-[168px] ${isToday ? 'bg-blue-900/90' : ''}`}>
-                                <div className="text-[10px] font-extrabold text-white">{dayNum} {monthName}</div>
-                                <div className="text-[8.5px] text-blue-200 tracking-normal capitalize font-semibold">Night Stay In / Out</div>
+                              <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[136px] min-w-[136px] ${isToday ? 'bg-blue-900/90' : ''}`}>
+                                <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
+                                <div className="text-[8px] text-blue-200 tracking-normal capitalize font-semibold leading-tight">{isToday ? 'Today' : 'Night Stay'}</div>
                               </th>
                             );
                           })}
                         </tr>
 
                         {/* Header Row 2: IN / OUT / KMS Sub-columns */}
-                        <tr className="bg-[#0b2256] text-slate-200 text-[9px] font-bold uppercase tracking-wider border-b border-slate-700">
+                        <tr className="bg-[#0b2256] text-slate-200 text-[8.5px] font-bold uppercase tracking-wider border-b border-slate-700">
                           {nsDates.map((dateStr) => {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
                             return (
                               <React.Fragment key={`sub-${dateStr}`}>
-                                <th className={`px-1 py-1 text-center border-r border-slate-700/50 w-14 min-w-[56px] text-emerald-300 ${isToday ? 'bg-blue-900/40' : ''}`}>IN</th>
-                                <th className={`px-1 py-1 text-center border-r border-slate-700/50 w-14 min-w-[56px] text-rose-300 ${isToday ? 'bg-blue-900/40' : ''}`}>OUT</th>
-                                <th className={`px-1 py-1 text-center border-r border-slate-700/80 w-14 min-w-[56px] text-amber-300 ${isToday ? 'bg-blue-900/40' : ''}`}>KMS</th>
+                                <th className={`py-1 text-center border-r border-slate-700/50 w-[44px] min-w-[44px] text-emerald-300 ${isToday ? 'bg-blue-900/40' : ''}`}>IN</th>
+                                <th className={`py-1 text-center border-r border-slate-700/50 w-[44px] min-w-[44px] text-rose-300 ${isToday ? 'bg-blue-900/40' : ''}`}>OUT</th>
+                                <th className={`py-1 text-center border-r border-slate-700/80 w-[48px] min-w-[48px] text-amber-300 ${isToday ? 'bg-blue-900/40' : ''}`}>KMS</th>
                               </React.Fragment>
                             );
                           })}
@@ -1635,28 +1709,31 @@ export default function GpsTracking() {
                         {sortedRows.map((row, idx) => (
                           <tr key={row.busNumber || idx} className="hover:bg-blue-50/40 transition-colors">
                             {/* Route ID */}
-                            <td className="px-2.5 py-2 font-mono font-bold text-[11px] text-blue-700 sticky left-0 bg-white group-hover:bg-blue-50 z-10 border-r border-slate-100 align-middle shadow-2xs">
+                            <td className="px-1.5 py-1.5 font-mono font-bold text-[10.5px] text-blue-700 sticky left-0 bg-white group-hover:bg-blue-50 z-10 border-r border-slate-100 align-middle shadow-2xs w-[68px] min-w-[68px] max-w-[68px] text-center truncate">
                               {row.routeId || 'Unassigned'}
                             </td>
 
                             {/* Bus Number */}
-                            <td className="px-2.5 py-2 font-bold text-slate-900 sticky left-[96px] bg-white group-hover:bg-blue-50 z-10 border-r border-slate-100 align-middle shadow-2xs truncate">
-                              <span title={row.tggVehicleName || row.busNumber}>{row.tggVehicleName || row.busNumber}</span>
+                            <td className="px-1.5 py-1.5 font-mono font-bold text-slate-900 sticky left-[68px] bg-white group-hover:bg-blue-50 z-10 border-r border-slate-100 align-middle shadow-2xs w-[108px] min-w-[108px] max-w-[108px] text-[10.5px] truncate">
+                              <span className="truncate block" title={row.tggVehicleName || row.busNumber}>{row.tggVehicleName || row.busNumber}</span>
                             </td>
 
                             {/* Stay Point Name */}
-                            <td className="px-2.5 py-2 sticky left-[240px] bg-white group-hover:bg-blue-50 z-10 border-r border-slate-100 align-middle shadow-2xs truncate">
-                              <div className="flex items-center gap-1">
-                                <span className="font-bold text-indigo-900 text-xs truncate" title={row.stayPointName}>
-                                  {row.stayPointName || 'Default Stay'}
+                            <td className="px-1.5 py-1.5 sticky left-[176px] bg-white group-hover:bg-blue-50 z-10 border-r border-slate-100 align-middle shadow-2xs w-[128px] min-w-[128px] max-w-[128px] overflow-hidden">
+                              <div className="flex items-center gap-1 min-w-0 max-w-full overflow-hidden">
+                                <span className="font-bold text-indigo-900 text-[10.5px] truncate flex items-center gap-0.5 min-w-0 flex-1 overflow-hidden" title={row.stayPointName || 'Default Stay'}>
+                                  <Moon size={10} className="text-indigo-600 fill-indigo-600 shrink-0" />
+                                  <span className="truncate min-w-0 block">{row.stayPointName || 'Default Stay'}</span>
                                 </span>
                                 {row.isDefaultStayPoint ? (
-                                  <span className="text-[8px] font-bold bg-slate-100 text-slate-500 px-1 py-0.2 rounded border border-slate-200 shrink-0" title="Default 1st Stage Fallback">
-                                    Default
+                                  <span className="text-[7.5px] font-bold bg-slate-100 text-slate-500 px-0.5 py-0.2 rounded border border-slate-200 shrink-0 flex items-center gap-0.5" title="Default 1st Stage Fallback">
+                                    <Moon size={7} className="text-slate-400" />
+                                    Def
                                   </span>
                                 ) : (
-                                  <span className="text-[8px] font-black bg-indigo-100 text-indigo-700 px-1 py-0.2 rounded border border-indigo-200 shrink-0">
-                                    🌙 Stay
+                                  <span className="text-[7.5px] font-black bg-indigo-100 text-indigo-700 px-0.5 py-0.2 rounded border border-indigo-200 shrink-0 flex items-center gap-0.5" title="Configured Night Stay Point">
+                                    <Moon size={7} className="text-indigo-600 fill-indigo-600" />
+                                    Stay
                                   </span>
                                 )}
                               </div>
@@ -1672,41 +1749,41 @@ export default function GpsTracking() {
                               return (
                                 <React.Fragment key={`${row.busNumber}-${dateStr}`}>
                                   {/* IN Column */}
-                                  <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[10px] w-14 min-w-[56px]">
+                                  <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-[44px] min-w-[44px]">
                                     {nightStayLoading ? (
-                                      <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                      <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                     ) : inTime ? (
-                                      <span className="px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 font-extrabold border border-emerald-200/80 inline-block whitespace-nowrap" title="Arrival Time at Stay Point">
+                                      <span className="px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 font-extrabold border border-emerald-200/80 inline-block whitespace-nowrap text-[9px]" title="Arrival Time at Stay Point">
                                         {inTime}
                                       </span>
                                     ) : (
-                                      <span className="text-slate-300 font-bold text-[10px]">—</span>
+                                      <span className="text-slate-300 font-bold text-[9px]">—</span>
                                     )}
                                   </td>
 
                                   {/* OUT Column */}
-                                  <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[10px] w-14 min-w-[56px]">
+                                  <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-[44px] min-w-[44px]">
                                     {nightStayLoading ? (
-                                      <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                      <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                     ) : outTime ? (
-                                      <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-700 font-extrabold border border-rose-200/80 inline-block whitespace-nowrap" title="Departure Time from Stay Point">
+                                      <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-700 font-extrabold border border-rose-200/80 inline-block whitespace-nowrap text-[9px]" title="Departure Time from Stay Point">
                                         {outTime}
                                       </span>
                                     ) : (
-                                      <span className="text-slate-300 font-bold text-[10px]">—</span>
+                                      <span className="text-slate-300 font-bold text-[9px]">—</span>
                                     )}
                                   </td>
 
                                   {/* KMS Column */}
-                                  <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-14 min-w-[56px]">
+                                  <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[8.5px] w-[48px] min-w-[48px]">
                                     {nightStayLoading ? (
-                                      <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                      <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                     ) : (kmVal && kmVal > 0) ? (
-                                      <span className="px-1 py-0.2 rounded bg-amber-50 text-amber-800 font-extrabold border border-amber-200/80 inline-block whitespace-nowrap" title="Total Distance Travelled">
+                                      <span className="px-0.5 py-0.2 rounded bg-amber-50 text-amber-800 font-extrabold border border-amber-200/80 inline-block whitespace-nowrap text-[8.5px]" title="Total Distance Travelled">
                                         {kmVal} km
                                       </span>
                                     ) : (
-                                      <span className="text-slate-300 font-bold text-[10px]">—</span>
+                                      <span className="text-slate-300 font-bold text-[9px]">—</span>
                                     )}
                                   </td>
                                 </React.Fragment>
@@ -1770,23 +1847,26 @@ export default function GpsTracking() {
               return (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
                   <div className="overflow-x-auto sidebar-scrollbar">
-                    <table className="w-full text-left border-collapse min-w-[1050px]">
+                    <table 
+                      className="w-full text-left border-collapse"
+                      style={{ minWidth: `${180 + displayDates.length * 136 + 28}px` }}
+                    >
                       <thead>
                         {/* Header Row 1: Route, Bus Number, Date Column Groups */}
                         <tr className="bg-[#071B45] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('route')}
-                            className="px-2.5 py-2 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-20 w-24 min-w-[96px] max-w-[96px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            className="px-1.5 py-1.5 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-20 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
                             title="Click to sort by Route ID"
                           >
-                            <div className="flex items-center justify-between gap-1">
+                            <div className="flex items-center justify-between gap-0.5">
                               <span>Route</span>
                               <span className="text-slate-400 group-hover:text-white">
                                 {fleetSortField === 'route' ? (
-                                  fleetSortOrder === 'asc' ? <ChevronDown size={12} className="text-blue-400 rotate-180" /> : <ChevronDown size={12} className="text-blue-400" />
+                                  fleetSortOrder === 'asc' ? <ChevronDown size={11} className="text-blue-400 rotate-180" /> : <ChevronDown size={11} className="text-blue-400" />
                                 ) : (
-                                  <span className="text-[9px] opacity-40">↕</span>
+                                  <span className="text-[8px] opacity-40">↕</span>
                                 )}
                               </span>
                             </div>
@@ -1794,16 +1874,16 @@ export default function GpsTracking() {
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('bus')}
-                            className="px-2.5 py-2 sticky left-[96px] bg-[#071B45] hover:bg-[#0A2558] z-20 w-36 min-w-[144px] max-w-[144px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            className="px-1.5 py-1.5 sticky left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-20 w-[112px] min-w-[112px] max-w-[112px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
                             title="Click to sort by Bus Number"
                           >
-                            <div className="flex items-center justify-between gap-1">
+                            <div className="flex items-center justify-between gap-0.5">
                               <span>Bus Number</span>
                               <span className="text-slate-400 group-hover:text-white">
                                 {fleetSortField === 'bus' ? (
-                                  fleetSortOrder === 'asc' ? <ChevronDown size={12} className="text-blue-400 rotate-180" /> : <ChevronDown size={12} className="text-blue-400" />
+                                  fleetSortOrder === 'asc' ? <ChevronDown size={11} className="text-blue-400 rotate-180" /> : <ChevronDown size={11} className="text-blue-400" />
                                 ) : (
-                                  <span className="text-[9px] opacity-40">↕</span>
+                                  <span className="text-[8px] opacity-40">↕</span>
                                 )}
                               </span>
                             </div>
@@ -1816,22 +1896,22 @@ export default function GpsTracking() {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
 
                             return (
-                              <th key={dateStr} colSpan={3} className={`px-2 py-1.5 text-center border-r border-slate-700/80 w-42 min-w-[168px] ${isToday ? 'bg-blue-900/90' : ''}`}>
-                                <div className="text-[10px] font-extrabold text-white">{dayNum} {monthName}</div>
-                                <div className="text-[8px] font-medium text-slate-300 uppercase">{dayName} {isToday ? '(Today)' : ''}</div>
+                              <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[136px] min-w-[136px] ${isToday ? 'bg-blue-900/90' : ''}`}>
+                                <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
+                                <div className="text-[8px] font-medium text-slate-300 uppercase leading-tight">{dayName} {isToday ? '(Today)' : ''}</div>
                               </th>
                             );
                           })}
-                          <th rowSpan={2} className="px-2 py-2 text-center w-8 border-l border-slate-700 align-middle"></th>
+                          <th rowSpan={2} className="w-[28px] min-w-[28px] border-l border-slate-700 align-middle"></th>
                         </tr>
 
                         {/* Header Row 2: IN / OUT / KMS Sub-headers under each date */}
-                        <tr className="bg-[#0A2558] text-slate-200 text-[9px] uppercase font-extrabold tracking-wider border-b border-slate-700 select-none">
+                        <tr className="bg-[#0A2558] text-slate-200 text-[8.5px] uppercase font-extrabold tracking-wider border-b border-slate-700 select-none">
                           {displayDates.map((dateStr) => (
                             <React.Fragment key={'sub_' + dateStr}>
-                              <th className="px-1 py-1 text-center border-r border-slate-700/60 text-emerald-300 bg-emerald-950/40 w-14 min-w-[56px]">IN</th>
-                              <th className="px-1 py-1 text-center border-r border-slate-700/80 text-rose-300 bg-rose-950/40 w-14 min-w-[56px]">OUT</th>
-                              <th className="px-1 py-1 text-center border-r border-slate-700/80 text-amber-300 bg-amber-950/40 w-14 min-w-[56px]">KMS</th>
+                              <th className="py-1 text-center border-r border-slate-700/60 text-emerald-300 bg-emerald-950/40 w-[44px] min-w-[44px]">IN</th>
+                              <th className="py-1 text-center border-r border-slate-700/80 text-rose-300 bg-rose-950/40 w-[44px] min-w-[44px]">OUT</th>
+                              <th className="py-1 text-center border-r border-slate-700/80 text-amber-300 bg-amber-950/40 w-[48px] min-w-[48px]">KMS</th>
                             </React.Fragment>
                           ))}
                         </tr>
@@ -1863,14 +1943,14 @@ export default function GpsTracking() {
                                 className={`hover:bg-blue-50/50 transition-colors cursor-pointer ${isExpanded ? 'bg-blue-50/70' : ''}`}
                               >
                                 {/* Route ID */}
-                                <td className={`px-2.5 py-2 font-bold text-slate-900 sticky left-0 z-10 w-24 min-w-[96px] max-w-[96px] whitespace-nowrap border-r border-slate-200 ${isExpanded ? 'bg-blue-50' : 'bg-white'}`}>
-                                  <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200 text-[10px] font-bold">
+                                <td className={`px-1.5 py-1.5 font-bold text-slate-900 sticky left-0 z-10 w-[68px] min-w-[68px] max-w-[68px] whitespace-nowrap border-r border-slate-200 text-center ${isExpanded ? 'bg-blue-50' : 'bg-white'}`}>
+                                  <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200 text-[9.5px] font-bold">
                                     {row.routeId || 'Unassigned'}
                                   </span>
                                 </td>
 
                                 {/* Bus Number */}
-                                <td className={`px-2.5 py-2 font-extrabold text-slate-800 sticky left-[96px] z-10 w-36 min-w-[144px] max-w-[144px] whitespace-nowrap border-r border-slate-200 text-xs truncate ${isExpanded ? 'bg-blue-50' : 'bg-white'}`} title={row.tggVehicleName || row.busNumber}>
+                                <td className={`px-1.5 py-1.5 font-extrabold text-slate-800 sticky left-[68px] z-10 w-[112px] min-w-[112px] max-w-[112px] whitespace-nowrap border-r border-slate-200 text-[10.5px] font-mono truncate ${isExpanded ? 'bg-blue-50' : 'bg-white'}`} title={row.tggVehicleName || row.busNumber}>
                                   {row.tggVehicleName || row.busNumber}
                                 </td>
 
@@ -1884,41 +1964,41 @@ export default function GpsTracking() {
                                   return (
                                     <React.Fragment key={dateStr}>
                                       {/* IN Column */}
-                                      <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-14 min-w-[56px]">
+                                      <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-[44px] min-w-[44px]">
                                         {reportLoading ? (
-                                          <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                          <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                         ) : inTime ? (
-                                          <span className="px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 font-extrabold border border-emerald-200/80 inline-block whitespace-nowrap" title="Arrival Time">
+                                          <span className="px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 font-extrabold border border-emerald-200/80 inline-block whitespace-nowrap text-[9px]" title="Arrival Time">
                                             {inTime}
                                           </span>
                                         ) : (
-                                          <span className="text-slate-300 font-bold text-[10px]">—</span>
+                                          <span className="text-slate-300 font-bold text-[9px]">—</span>
                                         )}
                                       </td>
 
                                       {/* OUT Column */}
-                                      <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-14 min-w-[56px]">
+                                      <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-[44px] min-w-[44px]">
                                         {reportLoading ? (
-                                          <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                          <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                         ) : outTime ? (
-                                          <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-700 font-extrabold border border-rose-200/80 inline-block whitespace-nowrap" title="Departure Time">
+                                          <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-700 font-extrabold border border-rose-200/80 inline-block whitespace-nowrap text-[9px]" title="Departure Time">
                                             {outTime}
                                           </span>
                                         ) : (
-                                          <span className="text-slate-300 font-bold text-[10px]">—</span>
+                                          <span className="text-slate-300 font-bold text-[9px]">—</span>
                                         )}
                                       </td>
 
                                       {/* KMS Column */}
-                                      <td className="px-1 py-1.5 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-14 min-w-[56px]">
+                                      <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[8.5px] w-[48px] min-w-[48px]">
                                         {reportLoading ? (
-                                          <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                          <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                         ) : (kmVal && kmVal > 0) ? (
-                                          <span className="px-1 py-0.2 rounded bg-amber-50 text-amber-800 font-extrabold border border-amber-200/80 inline-block whitespace-nowrap" title="Total Distance Travelled">
+                                          <span className="px-0.5 py-0.2 rounded bg-amber-50 text-amber-800 font-extrabold border border-amber-200/80 inline-block whitespace-nowrap text-[8.5px]" title="Total Distance Travelled">
                                             {kmVal} km
                                           </span>
                                         ) : (
-                                          <span className="text-slate-300 font-bold text-[10px]">—</span>
+                                          <span className="text-slate-300 font-bold text-[9px]">—</span>
                                         )}
                                       </td>
                                     </React.Fragment>
@@ -1926,8 +2006,8 @@ export default function GpsTracking() {
                                 })}
 
                                 {/* Expand Chevron */}
-                                <td className="px-2 py-2 text-center border-l border-slate-100">
-                                  <ChevronDown size={13} className={`text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180 text-blue-600' : ''}`} />
+                                <td className="w-[28px] min-w-[28px] text-center border-l border-slate-100">
+                                  <ChevronDown size={12} className={`text-slate-400 transition-transform duration-200 mx-auto ${isExpanded ? 'rotate-180 text-blue-600' : ''}`} />
                                 </td>
                               </tr>
 
