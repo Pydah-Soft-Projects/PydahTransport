@@ -43,7 +43,7 @@ import {
     hasUnsyncedOfflineInspectionData,
 } from '../utils/inspectionSync';
 
-const findInspectedRecord = (p, fastLookup, targetBusNumber = null) => {
+const findInspectedRecord = (p, fastLookup, targetBusNumber = null, targetRouteId = null) => {
     if (!fastLookup || !p) return null;
 
     const uType = normalizeUserType(p.userType || p.user_type, p);
@@ -73,10 +73,22 @@ const findInspectedRecord = (p, fastLookup, targetBusNumber = null) => {
         }
     }
 
-    if (rec && targetBusNumber) {
-        const targetBusStr = String(targetBusNumber).trim().toLowerCase();
+    if (rec && (targetBusNumber || targetRouteId)) {
+        const targetBusStr = targetBusNumber ? String(targetBusNumber).trim().toLowerCase() : null;
+        const normRoute = (id) => {
+            if (!id) return '';
+            const match = String(id).trim().toLowerCase().match(/\d+/);
+            return match ? parseInt(match[0], 10).toString() : String(id).trim().toLowerCase();
+        };
+        const targetNormRoute = targetRouteId ? normRoute(targetRouteId) : null;
+
         const recScannedBus = String(rec.scannedBusId || rec.busId || '').trim().toLowerCase();
-        if (recScannedBus && recScannedBus !== targetBusStr) {
+        const recScannedRoute = normRoute(rec.scannedRouteId || rec.routeId);
+
+        if (targetBusStr && recScannedBus && recScannedBus !== targetBusStr) {
+            return null;
+        }
+        if (targetNormRoute && !targetBusStr && recScannedRoute && recScannedRoute !== targetNormRoute) {
             return null;
         }
     }

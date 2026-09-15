@@ -1466,7 +1466,15 @@ const QrVerification = () => {
         setResult(null);
     };
 
-    const isPassengerInspected = useCallback((p, map, targetBusNumber = null) => {
+    // Helper to normalize route keys so "R01", "R-1", "Route 1", and "1" map to the exact same route
+    const normalizeRouteKey = useCallback((id) => {
+        if (!id) return '';
+        const str = String(id).trim().toLowerCase();
+        const match = str.match(/\d+/);
+        return match ? parseInt(match[0], 10).toString() : str;
+    }, []);
+
+    const isPassengerInspected = useCallback((p, map, targetBusNumber = null, targetRouteId = null) => {
         if (!p || !map) return false;
         const uType = normalizeUserType(p.userType || p.user_type, p);
         const stdId = String(p.studentId || p.admission_number || p.emp_no || '').trim().toLowerCase();
@@ -1475,6 +1483,7 @@ const QrVerification = () => {
         const pinNo = String(p.pinNo || p.pin_no || '').trim().toLowerCase();
 
         const targetBusStr = targetBusNumber ? String(targetBusNumber).trim().toLowerCase() : null;
+        const targetNormRoute = targetRouteId ? normalizeRouteKey(targetRouteId) : null;
 
         for (const [key, rec] of Object.entries(map)) {
             if (!key || !rec) continue;
@@ -1505,14 +1514,19 @@ const QrVerification = () => {
                             continue;
                         }
                     }
+                } else if (targetNormRoute) {
+                    const recScannedRoute = normalizeRouteKey(rec.scannedRouteId || rec.routeId);
+                    if (recScannedRoute && recScannedRoute !== targetNormRoute) {
+                        continue;
+                    }
                 }
                 return true;
             }
         }
         return false;
-    }, [rawBuses]);
+    }, [rawBuses, normalizeRouteKey]);
 
-    const getInspectedRecord = useCallback((p, map, targetBusNumber = null) => {
+    const getInspectedRecord = useCallback((p, map, targetBusNumber = null, targetRouteId = null) => {
         if (!p || !map) return null;
         const uType = normalizeUserType(p.userType || p.user_type, p);
         const stdId = String(p.studentId || p.admission_number || p.emp_no || '').trim().toLowerCase();
@@ -1521,6 +1535,7 @@ const QrVerification = () => {
         const pinNo = String(p.pinNo || p.pin_no || '').trim().toLowerCase();
 
         const targetBusStr = targetBusNumber ? String(targetBusNumber).trim().toLowerCase() : null;
+        const targetNormRoute = targetRouteId ? normalizeRouteKey(targetRouteId) : null;
 
         for (const [key, rec] of Object.entries(map)) {
             if (!key || !rec) continue;
@@ -1551,20 +1566,17 @@ const QrVerification = () => {
                             continue;
                         }
                     }
+                } else if (targetNormRoute) {
+                    const recScannedRoute = normalizeRouteKey(rec.scannedRouteId || rec.routeId);
+                    if (recScannedRoute && recScannedRoute !== targetNormRoute) {
+                        continue;
+                    }
                 }
                 return rec;
             }
         }
         return null;
-    }, [rawBuses]);
-
-    // Helper to normalize route keys so "R01", "R-1", "Route 1", and "1" map to the exact same route
-    const normalizeRouteKey = useCallback((id) => {
-        if (!id) return '';
-        const str = String(id).trim().toLowerCase();
-        const match = str.match(/\d+/);
-        return match ? parseInt(match[0], 10).toString() : str;
-    }, []);
+    }, [rawBuses, normalizeRouteKey]);
 
     // ==========================================
     // AGGREGATE ROUTE INSPECTION DATA
@@ -1665,7 +1677,7 @@ const QrVerification = () => {
             const faculty = r.passengers.filter((p) => normalizeUserType(p.userType || p.user_type, p) === 'employee');
             const total = r.passengers.length;
 
-            const inspectedCount = r.passengers.filter((p) => isPassengerInspected(p, inspectedMap)).length;
+            const inspectedCount = r.passengers.filter((p) => isPassengerInspected(p, inspectedMap, null, r.routeId)).length;
 
             return {
                 ...r,
@@ -1720,7 +1732,7 @@ const QrVerification = () => {
 
         // 2. Override passengers scanned on this bus
         const overridePassengers = (allCachedPassengers || []).filter((passenger) => {
-            const rec = getInspectedRecord(passenger, inspectedMap, selBusStr);
+            const rec = getInspectedRecord(passenger, inspectedMap, selBusStr, selRouteStr);
             if (!rec) return false;
             const sBus = String(rec.scannedBusId || '').trim().toLowerCase();
             const sRoute = String(rec.scannedRouteId || '').trim().toLowerCase();
@@ -1736,7 +1748,7 @@ const QrVerification = () => {
         });
 
         const passengers = [...assignedPassengers, ...overridePassengers];
-        const correctScannedCount = assignedPassengers.filter((p) => isPassengerInspected(p, inspectedMap, selectedBus)).length;
+        const correctScannedCount = assignedPassengers.filter((p) => isPassengerInspected(p, inspectedMap, selectedBus, selectedRoute?.routeId)).length;
         const faultScannedCount = overridePassengers.length;
         const totalScannedCount = correctScannedCount + faultScannedCount;
         const totalExpectedCount = assignedPassengers.length;
@@ -1785,7 +1797,7 @@ const QrVerification = () => {
                     return true;
                 });
                 const overridePassengers = (allCachedPassengers || []).filter((passenger) => {
-                    const rec = getInspectedRecord(passenger, inspectedMap, busStr);
+                    const rec = getInspectedRecord(passenger, inspectedMap, busStr, routeStr);
                     if (!rec) return false;
                     const sBus = String(rec.scannedBusId || '').trim().toLowerCase();
                     const sRoute = String(rec.scannedRouteId || '').trim().toLowerCase();
@@ -1800,7 +1812,7 @@ const QrVerification = () => {
                     return false;
                 });
                 const passengers = [...assignedPassengers, ...overridePassengers];
-                const inspectedCount = passengers.filter((p) => isPassengerInspected(p, inspectedMap, busNumber)).length;
+                const inspectedCount = passengers.filter((p) => isPassengerInspected(p, inspectedMap, busNumber, route.routeId)).length;
 
                 buses.push({
                     ...route,
@@ -1907,7 +1919,7 @@ const QrVerification = () => {
     const finishInspection = useCallback(async () => {
         if (!inspectionSession) return;
         const inspectedCount = activeRouteData?.passengers?.filter((p) => (
-            isPassengerInspected(p, inspectedMap, selectedBus)
+            isPassengerInspected(p, inspectedMap, selectedBus, selectedRoute?.routeId)
         )).length || 0;
         if (online && isAuthenticated() && inspectionSession.status === 'in_progress' && !String(inspectionSession.id || inspectionSession._id).startsWith('local-')) {
             try {
@@ -1923,7 +1935,7 @@ const QrVerification = () => {
         setInspectionSession(null);
         setSelectedBus(null);
         setSelectedRoute(null);
-    }, [activeRouteData, inspectedMap, inspectionSession, isPassengerInspected, loadInspectionSessions, online, selectedBus]);
+    }, [activeRouteData, inspectedMap, inspectionSession, isPassengerInspected, loadInspectionSessions, online, selectedBus, selectedRoute]);
 
     // Keep the active session's inspectedCount in inspectionSessions in sync with live inspectedMap
     // This ensures the "Previous inspections" cards show the same count as the active inspection view.
@@ -1935,7 +1947,7 @@ const QrVerification = () => {
 
         // Count how many passengers in the active route are currently inspected
         const liveCount = activeRouteData?.passengers
-            ? activeRouteData.passengers.filter((p) => isPassengerInspected(p, inspectedMap, selectedBus)).length
+            ? activeRouteData.passengers.filter((p) => isPassengerInspected(p, inspectedMap, selectedBus, selectedRoute?.routeId)).length
             : Object.keys(inspectedMap).length;
 
         setInspectionSessions((prev) => {
@@ -1948,7 +1960,7 @@ const QrVerification = () => {
                     : s
             );
         });
-    }, [inspectionSession, inspectedMap, activeRouteData, isPassengerInspected, selectedBus]);
+    }, [inspectionSession, inspectedMap, activeRouteData, isPassengerInspected, selectedBus, selectedRoute]);
 
     // Overall summary counts for inspection tab
     const overallStats = useMemo(() => {
@@ -1983,18 +1995,18 @@ const QrVerification = () => {
             list = list.filter((p) => (p.userType || p.user_type) === 'employee');
         } else if (inspectionFilter === 'correct') {
             list = list.filter((p) => {
-                const rec = getInspectedRecord(p, inspectedMap, selectedBus);
+                const rec = getInspectedRecord(p, inspectedMap, selectedBus, selectedRoute?.routeId);
                 return Boolean(rec) && !rec.wrongRouteOverride;
             });
         } else if (inspectionFilter === 'fault') {
             list = list.filter((p) => {
-                const rec = getInspectedRecord(p, inspectedMap, selectedBus);
+                const rec = getInspectedRecord(p, inspectedMap, selectedBus, selectedRoute?.routeId);
                 return Boolean(rec) && Boolean(rec.wrongRouteOverride);
             });
         } else if (inspectionFilter === 'inspected') {
-            list = list.filter((p) => isPassengerInspected(p, inspectedMap, selectedBus));
+            list = list.filter((p) => isPassengerInspected(p, inspectedMap, selectedBus, selectedRoute?.routeId));
         } else if (inspectionFilter === 'pending') {
-            list = list.filter((p) => !isPassengerInspected(p, inspectedMap, selectedBus));
+            list = list.filter((p) => !isPassengerInspected(p, inspectedMap, selectedBus, selectedRoute?.routeId));
         }
 
         // 2. Filter by stage
@@ -2787,7 +2799,7 @@ const QrVerification = () => {
                                     ) : (
                                         filteredPassengers.map((p) => {
                                             const pKey = String(p.requestId || p.studentId || p.mongoId);
-                                            const inspectionRecord = getInspectedRecord(p, inspectedMap, selectedBus);
+                                            const inspectionRecord = getInspectedRecord(p, inspectedMap, selectedBus, selectedRoute?.routeId);
                                             const isInspected = Boolean(inspectionRecord);
                                             const isStudent = (p.userType || p.user_type || 'student') === 'student';
                                             const photo = normalizeStudentPhoto(p.studentPhoto || p.student_photo);
