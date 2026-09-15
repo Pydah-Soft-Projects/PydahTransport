@@ -533,6 +533,14 @@ export function formatSyncTime(iso) {
     }
 }
 
+export function normalizeUserType(rawType, passengerObj = {}) {
+    const t = String(rawType || passengerObj.userType || passengerObj.user_type || '').trim().toLowerCase();
+    if (t === 'employee' || t === 'faculty' || t === 'staff') return 'employee';
+    if (passengerObj.emp_no && !passengerObj.admission_number) return 'employee';
+    return 'student';
+}
+
+
 const OFFLINE_READY_KEY = 'pydah_qr_offline_ready';
 
 /** Mark device as ready for offline QR after a successful sync. */

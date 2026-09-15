@@ -67,6 +67,7 @@ import {
     verifySignedPayload,
     buildOfflineLookupKeys,
     extractRequestIdFromText,
+    normalizeUserType,
 } from '../utils/qrVerification';
 import { syncOfflineInspectionReports } from '../utils/inspectionSync';
 
@@ -941,11 +942,12 @@ const QrVerification = () => {
     const markPassengerInspected = useCallback((passenger, wrongRouteOverride = false) => {
         if (!passenger) return;
         const pKey = String(passenger.requestId || passenger.studentId || passenger.mongoId);
+        const uType = normalizeUserType(passenger.userType || passenger.user_type, passenger);
         const record = {
             requestId: passenger.requestId || passenger.id,
             studentId: passenger.studentId || passenger.admission_number || passenger.emp_no,
             studentName: passenger.studentName || passenger.student_name || passenger.employee_name || 'Passenger',
-            userType: passenger.userType || passenger.user_type || 'student',
+            userType: uType,
             routeId: passenger.routeId || passenger.route_id,
             routeName: passenger.routeName || passenger.route_name,
             stageName: passenger.stageName || passenger.stage_name,
@@ -1466,20 +1468,28 @@ const QrVerification = () => {
 
     const isPassengerInspected = useCallback((p, map) => {
         if (!p || !map) return false;
+        const uType = normalizeUserType(p.userType || p.user_type, p);
         const stdId = String(p.studentId || p.admission_number || p.emp_no || '').trim().toLowerCase();
         const reqId = String(p.requestId || p.id || '').trim().toLowerCase();
         const monId = String(p.mongoId || p._id || '').trim().toLowerCase();
         const pinNo = String(p.pinNo || p.pin_no || '').trim().toLowerCase();
 
-        if (stdId && map[stdId]) return true;
-        if (reqId && map[reqId]) return true;
-        if (monId && map[monId]) return true;
-        if (pinNo && map[pinNo]) return true;
+        for (const [key, rec] of Object.entries(map)) {
+            if (!key || !rec) continue;
+            const recUType = normalizeUserType(rec.userType || rec.user_type, rec);
+            if (recUType !== uType) continue;
 
-        for (const key in map) {
-            if (!key) continue;
             const kLower = key.toLowerCase();
-            if ((stdId && kLower === stdId) || (reqId && kLower === reqId) || (monId && kLower === monId) || (pinNo && kLower === pinNo)) {
+            const recReqId = String(rec.requestId || '').trim().toLowerCase();
+            const recStdId = String(rec.studentId || '').trim().toLowerCase();
+            const recPinNo = String(rec.pinNo || '').trim().toLowerCase();
+
+            if (
+                (reqId && (kLower === reqId || recReqId === reqId)) ||
+                (stdId && (kLower === stdId || recStdId === stdId)) ||
+                (monId && (kLower === monId)) ||
+                (pinNo && (kLower === pinNo || recPinNo === pinNo))
+            ) {
                 return true;
             }
         }
@@ -1488,21 +1498,29 @@ const QrVerification = () => {
 
     const getInspectedRecord = useCallback((p, map) => {
         if (!p || !map) return null;
+        const uType = normalizeUserType(p.userType || p.user_type, p);
         const stdId = String(p.studentId || p.admission_number || p.emp_no || '').trim().toLowerCase();
         const reqId = String(p.requestId || p.id || '').trim().toLowerCase();
         const monId = String(p.mongoId || p._id || '').trim().toLowerCase();
         const pinNo = String(p.pinNo || p.pin_no || '').trim().toLowerCase();
 
-        if (stdId && map[stdId]) return map[stdId];
-        if (reqId && map[reqId]) return map[reqId];
-        if (monId && map[monId]) return map[monId];
-        if (pinNo && map[pinNo]) return map[pinNo];
+        for (const [key, rec] of Object.entries(map)) {
+            if (!key || !rec) continue;
+            const recUType = normalizeUserType(rec.userType || rec.user_type, rec);
+            if (recUType !== uType) continue;
 
-        for (const key in map) {
-            if (!key) continue;
             const kLower = key.toLowerCase();
-            if ((stdId && kLower === stdId) || (reqId && kLower === reqId) || (monId && kLower === monId) || (pinNo && kLower === pinNo)) {
-                return map[key];
+            const recReqId = String(rec.requestId || '').trim().toLowerCase();
+            const recStdId = String(rec.studentId || '').trim().toLowerCase();
+            const recPinNo = String(rec.pinNo || '').trim().toLowerCase();
+
+            if (
+                (reqId && (kLower === reqId || recReqId === reqId)) ||
+                (stdId && (kLower === stdId || recStdId === stdId)) ||
+                (monId && (kLower === monId)) ||
+                (pinNo && (kLower === pinNo || recPinNo === pinNo))
+            ) {
+                return rec;
             }
         }
         return null;
@@ -1611,8 +1629,8 @@ const QrVerification = () => {
 
         // Calculate counts & stats
         const list = Array.from(routeMap.values()).map((r) => {
-            const students = r.passengers.filter((p) => (p.userType || p.user_type || 'student') === 'student');
-            const faculty = r.passengers.filter((p) => (p.userType || p.user_type) === 'employee');
+            const students = r.passengers.filter((p) => normalizeUserType(p.userType || p.user_type, p) === 'student');
+            const faculty = r.passengers.filter((p) => normalizeUserType(p.userType || p.user_type, p) === 'employee');
             const total = r.passengers.length;
 
             const inspectedCount = r.passengers.filter((p) => isPassengerInspected(p, inspectedMap)).length;
@@ -1691,8 +1709,8 @@ const QrVerification = () => {
         const totalScannedCount = correctScannedCount + faultScannedCount;
         const totalExpectedCount = assignedPassengers.length;
         const pendingCount = Math.max(0, totalExpectedCount - correctScannedCount);
-        const studentsCount = assignedPassengers.filter((p) => (p.userType || p.user_type || 'student') === 'student').length;
-        const facultyCount = assignedPassengers.filter((p) => (p.userType || p.user_type) === 'employee').length;
+        const studentsCount = assignedPassengers.filter((p) => normalizeUserType(p.userType || p.user_type, p) === 'student').length;
+        const facultyCount = assignedPassengers.filter((p) => normalizeUserType(p.userType || p.user_type, p) === 'employee').length;
 
         return {
             ...baseRoute,
@@ -1757,8 +1775,8 @@ const QrVerification = () => {
                     busNumber: String(busNumber),
                     passengers,
                     totalCount: passengers.length,
-                    studentsCount: passengers.filter((p) => (p.userType || p.user_type || 'student') === 'student').length,
-                    facultyCount: passengers.filter((p) => (p.userType || p.user_type) === 'employee').length,
+                    studentsCount: passengers.filter((p) => normalizeUserType(p.userType || p.user_type, p) === 'student').length,
+                    facultyCount: passengers.filter((p) => normalizeUserType(p.userType || p.user_type, p) === 'employee').length,
                     inspectedCount,
                     mismatchedCount: overridePassengers.length,
                     inspectedPercent: passengers.length ? Math.round((inspectedCount / passengers.length) * 100) : 0,

@@ -52,9 +52,32 @@ export function saveLocalInspectedMap(academicYear, date, inspectedMap) {
 }
 
 /**
- * Sync offline inspection sessions & scanned passengers to backend when online.
+ * Check if there is any unsynced offline inspection data (local- IDs or unsynced scans).
  */
-export async function syncOfflineInspectionReports(academicYear, targetDate) {
+export function hasUnsyncedOfflineInspectionData(academicYear, targetDate) {
+    const year = academicYear || getDefaultAcademicYear();
+    const date = targetDate || new Date().toLocaleDateString('en-CA');
+
+    const localSessions = getLocalInspectionSessions(year, date);
+    const localInspectedMap = getLocalInspectedMap(year, date);
+
+    const hasLocalUnsyncedSessions = Array.isArray(localSessions) && localSessions.some(
+        (s) => (s._id && String(s._id).startsWith('local-')) ||
+               (s.id && String(s.id).startsWith('local-')) ||
+               s.synced === false
+    );
+
+    const hasLocalUnsyncedScans = localInspectedMap && Object.values(localInspectedMap).some(
+        (rec) => rec && (rec.synced === false || rec.isOfflineScan === true)
+    );
+
+    return hasLocalUnsyncedSessions || hasLocalUnsyncedScans;
+}
+
+/**
+ * Sync offline inspection sessions & scanned passengers to backend ONLY when unsynced data exists (or forceSync = true).
+ */
+export async function syncOfflineInspectionReports(academicYear, targetDate, forceSync = false) {
     if (typeof window === 'undefined' || !navigator.onLine || !isAuthenticated()) {
         return { synced: false, reason: 'offline_or_unauthenticated' };
     }
@@ -62,15 +85,12 @@ export async function syncOfflineInspectionReports(academicYear, targetDate) {
     const year = academicYear || getDefaultAcademicYear();
     const date = targetDate || new Date().toLocaleDateString('en-CA');
 
+    if (!forceSync && !hasUnsyncedOfflineInspectionData(year, date)) {
+        return { synced: false, reason: 'no_unsynced_data' };
+    }
+
     const localSessions = getLocalInspectionSessions(year, date);
     const localInspectedMap = getLocalInspectedMap(year, date);
-
-    const hasLocalSessions = Array.isArray(localSessions) && localSessions.length > 0;
-    const hasLocalInspected = localInspectedMap && Object.keys(localInspectedMap).length > 0;
-
-    if (!hasLocalSessions && !hasLocalInspected) {
-        return { synced: false, reason: 'no_local_data' };
-    }
 
     try {
         const response = await apiFetch(`${API_BASE}/inspection-sessions/sync`, {
@@ -87,24 +107,36 @@ export async function syncOfflineInspectionReports(academicYear, targetDate) {
             const data = await response.json();
             const serverSessions = data.sessions || [];
 
-            // Merge scannedPassengers from server sessions into localInspectedMap
+            // Merge scannedPassengers from server sessions into localInspectedMap and mark synced
             const mergedInspectedMap = { ...localInspectedMap };
             serverSessions.forEach((s) => {
                 if (s.scannedPassengers && typeof s.scannedPassengers === 'object') {
-                    Object.assign(mergedInspectedMap, s.scannedPassengers);
+                    Object.entries(s.scannedPassengers).forEach(([k, rec]) => {
+                        mergedInspectedMap[k] = { ...rec, synced: true };
+                    });
                 }
             });
 
-            saveLocalInspectionSessions(year, date, serverSessions);
+            // Mark all localInspectedMap items synced
+            Object.keys(mergedInspectedMap).forEach((k) => {
+                if (mergedInspectedMap[k] && typeof mergedInspectedMap[k] === 'object') {
+                    mergedInspectedMap[k].synced = true;
+                    delete mergedInspectedMap[k].isOfflineScan;
+                }
+            });
+
+            const syncedSessions = serverSessions.map((s) => ({ ...s, synced: true }));
+
+            saveLocalInspectionSessions(year, date, syncedSessions);
             saveLocalInspectedMap(year, date, mergedInspectedMap);
 
             window.dispatchEvent(new CustomEvent('pydah_inspection_synced', {
-                detail: { academicYear: year, date, sessions: serverSessions, inspectedMap: mergedInspectedMap },
+                detail: { academicYear: year, date, sessions: syncedSessions, inspectedMap: mergedInspectedMap },
             }));
 
             return {
                 synced: true,
-                sessions: serverSessions,
+                sessions: syncedSessions,
                 inspectedMap: mergedInspectedMap,
             };
         }

@@ -33,27 +33,42 @@ import Modal from '../components/Modal';
 import { apiFetch, API_BASE, isAuthenticated } from '../utils/api';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 import { normalizeStudentPhoto } from '../utils/studentPhoto';
-import { idbGetAllPassengers, formatSyncTime } from '../utils/qrVerification';
+import { idbGetAllPassengers, formatSyncTime, normalizeUserType } from '../utils/qrVerification';
 import {
     getLocalInspectionSessions,
     getLocalInspectedMap,
     saveLocalInspectionSessions,
     saveLocalInspectedMap,
     syncOfflineInspectionReports,
+    hasUnsyncedOfflineInspectionData,
 } from '../utils/inspectionSync';
 
 const findInspectedRecord = (p, fastLookup) => {
     if (!fastLookup || !p) return null;
 
+    const uType = normalizeUserType(p.userType || p.user_type, p);
     const reqId = String(p.requestId || p.id || '').trim().toLowerCase();
     const stdId = String(p.studentId || p.admission_number || p.emp_no || '').trim().toLowerCase();
     const monId = String(p.mongoId || p._id || '').trim().toLowerCase();
     const pinNo = String(p.pinNo || p.pin_no || '').trim().toLowerCase();
 
-    if (reqId && fastLookup.has(reqId)) return fastLookup.get(reqId);
-    if (stdId && fastLookup.has(stdId)) return fastLookup.get(stdId);
-    if (monId && fastLookup.has(monId)) return fastLookup.get(monId);
-    if (pinNo && fastLookup.has(pinNo)) return fastLookup.get(pinNo);
+    // 1. Scoped userType lookup (exact match)
+    if (reqId && fastLookup.has(`${uType}_${reqId}`)) return fastLookup.get(`${uType}_${reqId}`);
+    if (stdId && fastLookup.has(`${uType}_${stdId}`)) return fastLookup.get(`${uType}_${stdId}`);
+    if (monId && fastLookup.has(`${uType}_${monId}`)) return fastLookup.get(`${uType}_${monId}`);
+    if (pinNo && fastLookup.has(`${uType}_${pinNo}`)) return fastLookup.get(`${uType}_${pinNo}`);
+
+    // 2. Unscoped fallback only if record userType matches
+    let fallbackRec = null;
+    if (reqId && fastLookup.has(reqId)) fallbackRec = fastLookup.get(reqId);
+    else if (stdId && fastLookup.has(stdId)) fallbackRec = fastLookup.get(stdId);
+    else if (monId && fastLookup.has(monId)) fallbackRec = fastLookup.get(monId);
+    else if (pinNo && fastLookup.has(pinNo)) fallbackRec = fastLookup.get(pinNo);
+
+    if (fallbackRec) {
+        const recUType = normalizeUserType(fallbackRec.userType || fallbackRec.user_type, fallbackRec);
+        if (recUType === uType) return fallbackRec;
+    }
 
     return null;
 };
@@ -108,7 +123,7 @@ const InspectionReports = () => {
         setInspectionSessions(localSessions);
     }, [academicYear, selectedDate]);
 
-    // Load all passengers, routes, and sync offline reports if online
+    // Load all passengers, routes, and sync offline reports ONLY if unsynced offline data exists
     const loadReportData = useCallback(async () => {
         setLoading(true);
         try {
@@ -118,7 +133,7 @@ const InspectionReports = () => {
             setAllPassengers(cached || []);
 
             if (isAuthenticated()) {
-                if (navigator.onLine) {
+                if (navigator.onLine && hasUnsyncedOfflineInspectionData(academicYear, selectedDate)) {
                     try {
                         // Sync unsynced offline reports to backend
                         await syncOfflineInspectionReports(academicYear, selectedDate);
@@ -189,12 +204,14 @@ const InspectionReports = () => {
     useEffect(() => {
         const onOnline = () => {
             setOnline(true);
-            syncOfflineInspectionReports(academicYear, selectedDate).then(() => {
-                loadReportData();
-            });
+            if (hasUnsyncedOfflineInspectionData(academicYear, selectedDate)) {
+                syncOfflineInspectionReports(academicYear, selectedDate).then(() => {
+                    loadReportData();
+                });
+            }
         };
         const onOffline = () => setOnline(false);
-        const onInspectionSynced = () => loadReportData();
+        const onInspectionSynced = () => loadInspectedData();
 
         window.addEventListener('online', onOnline);
         window.addEventListener('offline', onOffline);
@@ -205,18 +222,18 @@ const InspectionReports = () => {
             window.removeEventListener('offline', onOffline);
             window.removeEventListener('pydah_inspection_synced', onInspectionSynced);
         };
-    }, [academicYear, selectedDate, loadReportData]);
+    }, [academicYear, selectedDate, loadReportData, loadInspectedData]);
 
     const handleSyncReports = async () => {
         setIsSyncing(true);
         setSyncMessage('');
         try {
-            const res = await syncOfflineInspectionReports(academicYear, selectedDate);
+            const res = await syncOfflineInspectionReports(academicYear, selectedDate, true);
             if (res.synced) {
                 setSyncMessage('Successfully synced offline inspection reports!');
                 await loadReportData();
             } else {
-                setSyncMessage(res.reason === 'no_local_data' ? 'All inspection reports are already synced.' : 'Sync failed or device is offline.');
+                setSyncMessage(res.reason === 'no_unsynced_data' || res.reason === 'no_local_data' ? 'All inspection reports are already synced.' : 'Sync failed or device is offline.');
             }
         } catch {
             setSyncMessage('Failed to sync inspection reports.');
@@ -227,6 +244,7 @@ const InspectionReports = () => {
     };
 
 
+
     // Fast O(1) Inspected Records Lookup Map
     const fastInspectedLookup = useMemo(() => {
         const map = new Map();
@@ -234,15 +252,22 @@ const InspectionReports = () => {
 
         Object.entries(inspectedMap).forEach(([k, rec]) => {
             if (!rec || typeof rec !== 'object') return;
-            const normKey = String(k || '').trim().toLowerCase();
-            if (normKey) map.set(normKey, rec);
+            const uType = normalizeUserType(rec.userType || rec.user_type, rec);
 
+            const normKey = String(k || '').trim().toLowerCase();
             const reqId = String(rec.requestId || '').trim().toLowerCase();
             const stdId = String(rec.studentId || '').trim().toLowerCase();
             const pinNo = String(rec.pinNo || '').trim().toLowerCase();
-            if (reqId) map.set(reqId, rec);
-            if (stdId) map.set(stdId, rec);
-            if (pinNo) map.set(pinNo, rec);
+
+            if (normKey) map.set(`${uType}_${normKey}`, rec);
+            if (reqId) map.set(`${uType}_${reqId}`, rec);
+            if (stdId) map.set(`${uType}_${stdId}`, rec);
+            if (pinNo) map.set(`${uType}_${pinNo}`, rec);
+
+            if (normKey && !map.has(normKey)) map.set(normKey, rec);
+            if (reqId && !map.has(reqId)) map.set(reqId, rec);
+            if (stdId && !map.has(stdId)) map.set(stdId, rec);
+            if (pinNo && !map.has(pinNo)) map.set(pinNo, rec);
         });
 
         return map;
@@ -255,6 +280,7 @@ const InspectionReports = () => {
             const inspectedRecord = findInspectedRecord(p, fastInspectedLookup);
             const isBoarded = Boolean(inspectedRecord);
             const isOverride = Boolean(inspectedRecord?.wrongRouteOverride);
+            const uType = normalizeUserType(p.userType || p.user_type, p);
 
             return {
                 key: pKey,
@@ -262,7 +288,7 @@ const InspectionReports = () => {
                 studentName: p.studentName || p.student_name || p.employee_name || 'Passenger',
                 studentId: p.studentId || p.admission_number || p.emp_no || '—',
                 pinNo: p.pinNo || p.pin_no || null,
-                userType: p.userType || p.user_type || 'student',
+                userType: uType,
                 routeId: p.routeId || p.route_id || 'Unassigned',
                 routeName: p.routeName || p.route_name || '',
                 busId: p.busId || p.bus_id || 'Unassigned',
@@ -280,8 +306,13 @@ const InspectionReports = () => {
     const passengerLookupMap = useMemo(() => {
         const map = new Map();
         allPassengerReports.forEach((p) => {
-            if (p.key) map.set(p.key.toLowerCase(), p);
-            if (p.studentId && p.studentId !== '—') map.set(p.studentId.toLowerCase(), p);
+            const uType = normalizeUserType(p.userType, p.raw);
+            if (p.key) map.set(`${uType}_${p.key.toLowerCase()}`, p);
+            if (p.studentId && p.studentId !== '—') map.set(`${uType}_${p.studentId.toLowerCase()}`, p);
+            if (p.pinNo) map.set(`${uType}_${p.pinNo.toLowerCase()}`, p);
+
+            if (p.key && !map.has(p.key.toLowerCase())) map.set(p.key.toLowerCase(), p);
+            if (p.studentId && p.studentId !== '—' && !map.has(p.studentId.toLowerCase())) map.set(p.studentId.toLowerCase(), p);
         });
         return map;
     }, [allPassengerReports]);
@@ -320,18 +351,24 @@ const InspectionReports = () => {
             if (session.scannedPassengers && typeof session.scannedPassengers === 'object') {
                 Object.entries(session.scannedPassengers).forEach(([pKey, rec]) => {
                     if (rec && (rec.wrongRouteOverride || rec.isOverride || rec.wrong_route_override)) {
+                        const uType = normalizeUserType(rec.userType || rec.user_type, rec);
                         const sKey = pKey.toLowerCase();
                         const sStd = String(rec.studentId || '').toLowerCase();
                         const sReq = String(rec.requestId || '').toLowerCase();
 
-                        const existingP = passengerLookupMap.get(sKey) || passengerLookupMap.get(sStd) || passengerLookupMap.get(sReq);
+                        const existingP = passengerLookupMap.get(`${uType}_${sKey}`)
+                            || passengerLookupMap.get(`${uType}_${sStd}`)
+                            || passengerLookupMap.get(`${uType}_${sReq}`)
+                            || passengerLookupMap.get(sKey)
+                            || passengerLookupMap.get(sStd)
+                            || passengerLookupMap.get(sReq);
 
                         const passengerObj = existingP || {
                             key: pKey,
                             studentName: rec.studentName || rec.student_name || 'Passenger',
                             studentId: rec.studentId || rec.admission_number || rec.emp_no || '—',
                             pinNo: rec.pinNo || rec.pin_no || null,
-                            userType: rec.userType || rec.user_type || 'student',
+                            userType: uType,
                             routeId: rec.originalRouteId || rec.routeId || 'Unassigned',
                             routeName: rec.originalRouteName || rec.routeName || '',
                             busId: rec.originalBusId || rec.busId || 'Unassigned',
@@ -474,8 +511,8 @@ const InspectionReports = () => {
         });
 
         return Array.from(routeMap.values()).map((r) => {
-            const students = r.passengers.filter((p) => (p.userType || p.user_type || 'student') === 'student');
-            const faculty = r.passengers.filter((p) => (p.userType || p.user_type) === 'employee');
+            const students = r.passengers.filter((p) => normalizeUserType(p.userType || p.user_type, p) === 'student');
+            const faculty = r.passengers.filter((p) => normalizeUserType(p.userType || p.user_type, p) === 'employee');
             const total = r.passengers.length;
 
             let boarded = 0;
