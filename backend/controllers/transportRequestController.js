@@ -1317,19 +1317,35 @@ const approveTransportRequest = async (req, res) => {
             });
         }
 
-        // Check for persistent concession
-        const finalAmount = amount;
-
-        const existingFee = await StudentFee.findOne({
+        // Find existing transport fees for this student and academic year (ignore remarks to prevent duplicates)
+        const existingFees = await StudentFee.find({
             studentId: String(admissionNumber),
             feeHead: transportFeeHead._id,
             academicYear: resolvedAcademicYear,
-            studentYear,
-            semester: semester || null,
-            remarks,
             ...ACTIVE_STUDENT_FEE_FILTER,
-        });
-        if (existingFee) {
+        }).sort({ createdAt: 1 });
+
+        if (existingFees && existingFees.length > 0) {
+            const primaryFee = existingFees[0];
+
+            // Deactivate any duplicate fee documents to prevent double charging
+            for (let i = 1; i < existingFees.length; i++) {
+                existingFees[i].isActive = false;
+                existingFees[i].remarks = (existingFees[i].remarks || '') + ' | Duplicate deactivated on approval';
+                await existingFees[i].save();
+            }
+
+            // Update primary fee record with current details and new fare amount
+            primaryFee.amount = finalAmount;
+            primaryFee.remarks = remarks;
+            if (college) primaryFee.college = college;
+            if (course) primaryFee.course = course;
+            if (branch) primaryFee.branch = branch;
+            if (studentYear) primaryFee.studentYear = studentYear;
+            if (semester) primaryFee.semester = semester;
+            primaryFee.isActive = true;
+            await primaryFee.save();
+
             if (lastSem) {
                 await updateTransportRequestSemester(mysqlPool, requestId, {
                     semester_id: lastSem.id,
@@ -1350,10 +1366,12 @@ const approveTransportRequest = async (req, res) => {
             });
 
             return res.json({
-                message: `Request approved. Application No: ${approvedApp.application_number}. Transport fee for this student/year already exists in Fee Management.`,
+                message: `Transport request approved. Application No: ${approvedApp.application_number}. Transport fee updated in Fee Management.`,
                 requestId: Number(requestId),
+                academicYear: resolvedAcademicYear,
                 application_number: approvedApp.application_number,
                 application_serial: approvedApp.application_serial,
+                amount: finalAmount,
                 expiry_date: lastSem?.end_date || null,
             });
         }
@@ -2913,24 +2931,29 @@ const submitRouteChangeRequest = async (req, res) => {
             if (!transportFeeHead) {
                 console.error('Transport Fee Head (TRN01) not found for change request adjustment.');
             } else {
-                // Find existing fee record for the student in current academic year
-                // Note: approveTransportRequest uses resolvedAcademicYear. For simplicity, we assume same year.
-                const academicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
+                const academicYear = (currentRequest && currentRequest.academic_year)
+                    || process.env.CURRENT_ACADEMIC_YEAR
+                    || getDefaultAcademicYear();
                 
-                const fee = await StudentFee.findOne({
-                    studentId: admission_number,
+                const fees = await StudentFee.find({
+                    studentId: String(admission_number),
                     feeHead: transportFeeHead._id,
-                    academicYear: academicYear
-                });
+                    academicYear: academicYear,
+                    ...ACTIVE_STUDENT_FEE_FILTER,
+                }).sort({ createdAt: 1 });
 
-                if (fee) {
-                    const oldAmount = fee.amount;
-                    fee.amount += fareDiff;
+                if (fees && fees.length > 0) {
+                    const primaryFee = fees[0];
+                    for (let i = 1; i < fees.length; i++) {
+                        fees[i].isActive = false;
+                        fees[i].remarks = (fees[i].remarks || '') + ' | Duplicate deactivated on route change';
+                        await fees[i].save();
+                    }
+                    primaryFee.amount += fareDiff;
                     const changeRemark = ` | Change: ${currentRequest.stage_name} -> ${new_stage_name} (+₹${fareDiff})`;
-                    fee.remarks = (fee.remarks || '') + changeRemark;
-                    await fee.save();
+                    primaryFee.remarks = (primaryFee.remarks || '') + changeRemark;
+                    await primaryFee.save();
                 } else {
-                    // This shouldn't typically happen if they have an approved request, but we handle it
                     console.warn(`No MongoDB fee record found for student ${admission_number} to adjust.`);
                 }
             }
