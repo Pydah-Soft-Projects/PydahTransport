@@ -1383,6 +1383,142 @@ const fetchNightStayReport = async (req, res) => {
   }
 };
 
+/**
+ * External API Endpoint: Get live GPS location for a specific bus number or all buses
+ * GET /api/gps/live-location
+ * GET /api/gps/live-location/:busNumber
+ * Query params: ?busNumber=AP39WS0357 or ?bus_id=AP39WS0357 or ?routeId=R03
+ */
+const getLiveBusLocation = async (req, res) => {
+  try {
+    const rawBusParam = req.params.busNumber || req.query.busNumber || req.query.bus_number || req.query.bus_id || req.query.bus || '';
+    const routeParam = req.query.routeId || req.query.route_id || req.query.route || '';
+    
+    // Fetch live vehicles from TGG service
+    const tggResult = await fetchVehiclesListFromTgg();
+    if (!tggResult.success || !Array.isArray(tggResult.data)) {
+      return res.status(502).json({
+        success: false,
+        message: 'Live GPS provider currently unavailable.',
+        data: []
+      });
+    }
+
+    // Load bus and route metadata from Database
+    const buses = await Bus.find({ status: 'Active' }).lean();
+    const routes = await Route.find({}).lean();
+    const routeMap = {};
+    routes.forEach(r => {
+      routeMap[r.routeId] = r;
+    });
+
+    // Helper to format vehicle object for external API consumers
+    const formatExternalVehicle = (veh) => {
+      const { matchedBus, routeId, routeName } = resolveVehicleRoute(veh.name, buses, routeMap);
+      const plateKey = extractPlateKey(veh.name) || (matchedBus ? extractPlateKey(matchedBus.busNumber) : '');
+      const busNumber = matchedBus ? matchedBus.busNumber : (extractPlateKey(veh.name) ? extractPlateKey(veh.name).toUpperCase() : veh.name);
+
+      const lat = Number(veh.lat ?? veh.latitude ?? veh.y ?? 0);
+      const lng = Number(veh.lng ?? veh.longitude ?? veh.x ?? 0);
+      const speed = Number(veh.speed ?? veh.spd ?? 0);
+      const heading = Number(veh.course ?? veh.heading ?? veh.angle ?? 0);
+      const ignition = Boolean(veh.ignition ?? veh.acc ?? veh.engine ?? (speed > 0));
+
+      let status = 'Stopped';
+      if (speed > 3) {
+        status = 'Moving';
+      } else if (ignition) {
+        status = 'Idle';
+      }
+
+      return {
+        busNumber,
+        plateKey,
+        routeId: routeId || 'Unassigned',
+        routeName: routeName || 'Unassigned',
+        tggVehicleName: veh.name,
+        location: {
+          latitude: lat,
+          longitude: lng,
+          speed,
+          speedUnit: 'km/h',
+          heading,
+          ignition,
+          status,
+          lastUpdated: veh.time || veh.gps_time || veh.last_updated || new Date().toISOString()
+        },
+        busDetails: {
+          busId: matchedBus ? String(matchedBus._id) : null,
+          capacity: matchedBus ? (matchedBus.capacity || 0) : null,
+          driverName: matchedBus ? (matchedBus.driverName || 'N/A') : 'N/A',
+          driverPhone: matchedBus ? (matchedBus.driverPhone || 'N/A') : 'N/A',
+          campus: matchedBus ? (matchedBus.campus || 'N/A') : 'N/A'
+        }
+      };
+    };
+
+    const formattedVehicles = tggResult.data.map(formatExternalVehicle);
+
+    // Filter by specific bus number if requested
+    if (rawBusParam && rawBusParam.toLowerCase() !== 'all') {
+      const searchKey = extractPlateKey(rawBusParam);
+      const searchRawUpper = String(rawBusParam).trim().toUpperCase();
+
+      const matchedList = formattedVehicles.filter(item => {
+        const itemPlateKey = item.plateKey;
+        const itemBusNumUpper = String(item.busNumber).toUpperCase();
+        const itemRouteUpper = String(item.routeId).toUpperCase();
+        const itemTggUpper = String(item.tggVehicleName).toUpperCase();
+
+        return (
+          (searchKey && itemPlateKey === searchKey) ||
+          itemBusNumUpper === searchRawUpper ||
+          itemBusNumUpper.includes(searchRawUpper) ||
+          itemRouteUpper === searchRawUpper ||
+          itemTggUpper.includes(searchRawUpper)
+        );
+      });
+
+      if (matchedList.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: `Bus '${rawBusParam}' not found in active GPS tracking system.`,
+          query: { busNumber: rawBusParam },
+          data: null
+        });
+      }
+
+      // If single match requested, return object format
+      return res.status(200).json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        query: { busNumber: rawBusParam },
+        data: matchedList.length === 1 ? matchedList[0] : matchedList
+      });
+    }
+
+    // Filter by routeId if requested
+    let resultList = formattedVehicles;
+    if (routeParam) {
+      const searchRouteUpper = String(routeParam).trim().toUpperCase();
+      resultList = resultList.filter(v => String(v.routeId).toUpperCase() === searchRouteUpper);
+    }
+
+    return res.status(200).json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      count: resultList.length,
+      data: resultList
+    });
+  } catch (error) {
+    console.error('[GPS Live Location API] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error while retrieving live GPS location'
+    });
+  }
+};
+
 module.exports = {
   fetchLiveVehicles,
   fetchVehicleReports,
@@ -1400,5 +1536,6 @@ module.exports = {
   fetchDailyHistory,
   fetchDayInOutReport,
   fetch7DayInOutReport: fetchDayInOutReport,
-  fetchNightStayReport
+  fetchNightStayReport,
+  getLiveBusLocation
 };

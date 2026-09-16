@@ -17,12 +17,18 @@ const {
   fetchDailyHistory,
   fetchDayInOutReport,
   fetch7DayInOutReport,
-  fetchNightStayReport
+  fetchNightStayReport,
+  getLiveBusLocation
 } = require('../controllers/gpsTrackingController');
 
 const { optionalAuth } = require('../middleware/authMiddleware');
 
 router.use(optionalAuth);
+
+// 0. External API Endpoint for Live Bus Location Tracking (Third-party Integration)
+router.get('/live-location', getLiveBusLocation);
+router.get('/live-location/:busNumber', getLiveBusLocation);
+router.post('/live-location', getLiveBusLocation);
 
 // Configuration Status Route
 router.get('/config-status', getGpsConfigStatus);
