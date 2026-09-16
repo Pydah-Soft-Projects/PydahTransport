@@ -33,9 +33,9 @@ jobs:
           VITE_API_URL: /api
           VITE_CRM_URL: https://crm.pydah.edu.in
         run: |
-          # npm ci is faster/reproducible when lockfile is present; falls back only if needed
+          # npm ci is faster/reproducible when lockfile is present; falls back to npm install if needed
           if [ -f package-lock.json ]; then
-            npm ci --prefer-offline --no-audit --no-fund
+            npm ci --prefer-offline --no-audit --no-fund || npm install --prefer-offline --no-audit --no-fund
           else
             npm install --prefer-offline --no-audit --no-fund
           fi
