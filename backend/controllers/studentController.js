@@ -137,11 +137,14 @@ const getCourses = async (req, res) => {
 
         const restrictedColleges = await getRestrictedCollegesForUser(req.user, req.query.campus);
         const hasCollegeRestriction = restrictedColleges !== null;
+        const selectedCollege = req.query.college;
+        const selectedCollegeId = req.query.college_id;
 
         let sql = 'SELECT c.id, c.college_id, c.name, c.code, c.total_years FROM courses c';
         const params = [];
 
-        if (hasCollegeRestriction) {
+        const needsCollegeJoin = hasCollegeRestriction || Boolean(selectedCollege);
+        if (needsCollegeJoin) {
             sql += ' JOIN colleges coll ON c.college_id = coll.id';
         }
 
@@ -150,6 +153,14 @@ const getCourses = async (req, res) => {
         if (hasCollegeRestriction) {
             sql += ' AND coll.name IN (?)';
             params.push(restrictedColleges.length > 0 ? restrictedColleges : ['']);
+        }
+
+        if (selectedCollegeId) {
+            sql += ' AND c.college_id = ?';
+            params.push(selectedCollegeId);
+        } else if (selectedCollege) {
+            sql += ' AND (coll.name = ? OR coll.code = ?)';
+            params.push(selectedCollege, selectedCollege);
         }
 
         if (hasCourseRestriction) {

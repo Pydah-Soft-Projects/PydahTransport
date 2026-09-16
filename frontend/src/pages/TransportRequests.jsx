@@ -61,12 +61,82 @@ const FareDisplay = ({ request }) => {
 };
 
 const courseExpiryKey = (courseId, yearOfStudy) => `${Number(courseId)}-${Number(yearOfStudy)}`;
+const requestsCacheMap = new Map();
+
+const TransportRequestsSkeleton = () => {
+    return (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-pulse">
+            <div className="p-3 border-b border-slate-200 bg-slate-50/80 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="flex items-center gap-3">
+                    <div className="h-8 w-44 bg-slate-200 rounded-lg"></div>
+                    <div className="h-8 w-24 bg-slate-200 rounded-lg"></div>
+                </div>
+                <div className="h-8 w-48 bg-slate-200 rounded-lg"></div>
+            </div>
+            <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                    <thead>
+                        <tr className="bg-slate-50/90 border-b border-slate-200">
+                            <th className="p-3 w-10"><div className="h-4 w-4 bg-slate-200 rounded"></div></th>
+                            <th className="p-3"><div className="h-4 w-16 bg-slate-200 rounded"></div></th>
+                            <th className="p-3"><div className="h-4 w-28 bg-slate-200 rounded"></div></th>
+                            <th className="p-3"><div className="h-4 w-24 bg-slate-200 rounded"></div></th>
+                            <th className="p-3"><div className="h-4 w-24 bg-slate-200 rounded"></div></th>
+                            <th className="p-3"><div className="h-4 w-20 bg-slate-200 rounded"></div></th>
+                            <th className="p-3"><div className="h-4 w-16 bg-slate-200 rounded"></div></th>
+                            <th className="p-3"><div className="h-4 w-20 bg-slate-200 rounded"></div></th>
+                            <th className="p-3 text-right"><div className="h-4 w-16 bg-slate-200 rounded ml-auto"></div></th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {[1, 2, 3, 4, 5, 6].map((i) => (
+                            <tr key={i} className="hover:bg-slate-50/50">
+                                <td className="p-3"><div className="h-4 w-4 bg-slate-200 rounded"></div></td>
+                                <td className="p-3"><div className="h-4 w-16 bg-slate-200 rounded"></div></td>
+                                <td className="p-3 space-y-1.5">
+                                    <div className="h-4 w-36 bg-slate-200 rounded"></div>
+                                    <div className="h-3 w-20 bg-slate-150 rounded"></div>
+                                </td>
+                                <td className="p-3 space-y-1.5">
+                                    <div className="h-4 w-28 bg-slate-200 rounded"></div>
+                                    <div className="h-3 w-24 bg-slate-150 rounded"></div>
+                                </td>
+                                <td className="p-3 space-y-1.5">
+                                    <div className="h-4 w-32 bg-slate-200 rounded"></div>
+                                    <div className="h-3 w-16 bg-slate-150 rounded"></div>
+                                </td>
+                                <td className="p-3"><div className="h-4 w-20 bg-slate-200 rounded"></div></td>
+                                <td className="p-3"><div className="h-4 w-16 bg-slate-200 rounded"></div></td>
+                                <td className="p-3"><div className="h-6 w-20 bg-slate-200 rounded-full"></div></td>
+                                <td className="p-3 text-right"><div className="h-7 w-20 bg-slate-200 rounded-lg ml-auto"></div></td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <div className="block md:hidden divide-y divide-slate-100 p-2">
+                {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                            <div className="h-4 w-28 bg-slate-200 rounded"></div>
+                            <div className="h-5 w-16 bg-slate-200 rounded-full"></div>
+                        </div>
+                        <div className="h-5 w-44 bg-slate-200 rounded"></div>
+                        <div className="h-4 w-32 bg-slate-150 rounded"></div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
 
 const TransportRequests = () => {
     const [requests, setRequests] = useState([]);
     const [routes, setRoutes] = useState([]);
     const [courses, setCourses] = useState([]);
+    const [colleges, setColleges] = useState([]);
     const [routeFilter, setRouteFilter] = useState('');
+    const [collegeFilter, setCollegeFilter] = useState('');
     const [courseFilter, setCourseFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
@@ -601,13 +671,19 @@ const TransportRequests = () => {
         }
     };
 
-    const fetchRequests = async () => {
-        setLoading(true);
+    const fetchRequests = async (isBackground = false) => {
+        const cacheKey = `${academicYear}||${routeFilter}||${collegeFilter}||${courseFilter}||${statusFilter}||${searchQuery}`;
+        
+        if (!isBackground) {
+            setLoading(true);
+        }
+
         try {
             let url = `${API_BASE}/transport-requests?`;
             const params = new URLSearchParams();
             if (academicYear) params.append('academicYear', academicYear);
             if (routeFilter) params.append('route_id', routeFilter);
+            if (collegeFilter) params.append('college', collegeFilter);
             if (courseFilter) params.append('course', courseFilter);
             if (statusFilter) params.append('status', statusFilter);
             if (searchQuery) params.append('search', searchQuery);
@@ -627,6 +703,7 @@ const TransportRequests = () => {
                     if (appB) return 1;
                     return new Date(b.request_date) - new Date(a.request_date);
                 });
+                requestsCacheMap.set(cacheKey, data);
                 setRequests(data);
             } else {
                 console.error('Failed to fetch requests');
@@ -650,15 +727,35 @@ const TransportRequests = () => {
         }
     };
 
-    const fetchCourses = async () => {
+    const fetchColleges = async () => {
         try {
-            const response = await apiFetch(`${API_BASE}/students/courses`);
+            const response = await apiFetch(`${API_BASE}/students/colleges`);
             if (response.ok) {
                 const data = await response.json();
-                setCourses(data);
+                setColleges(Array.isArray(data) ? data : []);
+            }
+        } catch (e) {
+            console.error('Error fetching colleges:', e);
+        }
+    };
+
+    const fetchCourses = async (selectedCollege = collegeFilter) => {
+        if (!selectedCollege) {
+            setCourses([]);
+            setCourseFilter('');
+            return;
+        }
+        try {
+            const response = await apiFetch(`${API_BASE}/students/courses?college=${encodeURIComponent(selectedCollege)}`);
+            if (response.ok) {
+                const data = await response.json();
+                setCourses(Array.isArray(data) ? data : []);
+            } else {
+                setCourses([]);
             }
         } catch (e) {
             console.error('Error fetching courses:', e);
+            setCourses([]);
         }
     };
 
@@ -840,7 +937,7 @@ const TransportRequests = () => {
 
     useEffect(() => {
         fetchRoutes();
-        fetchCourses();
+        fetchColleges();
     }, []);
 
     useEffect(() => {
@@ -858,19 +955,19 @@ const TransportRequests = () => {
     useEffect(() => {
         fetchRequests();
         setCurrentPage(1);
-    }, [academicYear, routeFilter, courseFilter, statusFilter, searchQuery]);
+    }, [academicYear, routeFilter, collegeFilter, courseFilter, statusFilter, searchQuery]);
 
     // Re-fetch requests when the browser tab/page becomes visible again,
     // so changes made in other pages (e.g. route change in AdminRaiseRequest) are reflected.
     useEffect(() => {
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
-                fetchRequests();
+                fetchRequests(true);
             }
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [academicYear, routeFilter, courseFilter, statusFilter, searchQuery]);
+    }, [academicYear, routeFilter, collegeFilter, courseFilter, statusFilter, searchQuery]);
 
     const isExpiredPass = (req) => {
         const normalizedStatus = (req.status || '').toLowerCase();
@@ -1199,11 +1296,34 @@ const TransportRequests = () => {
 
                 <div className="flex-1 min-w-[120px]">
                     <select
-                        value={courseFilter}
-                        onChange={(e) => setCourseFilter(e.target.value)}
+                        value={collegeFilter}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setCollegeFilter(val);
+                            setCourseFilter('');
+                            fetchCourses(val);
+                        }}
                         className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent cursor-pointer"
                     >
-                        <option value="">All Courses</option>
+                        <option value="">All Colleges</option>
+                        {colleges.map((c) => (
+                            <option key={c.id} value={c.name}>{c.name}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div className="flex-1 min-w-[120px]">
+                    <select
+                        value={courseFilter}
+                        onChange={(e) => setCourseFilter(e.target.value)}
+                        disabled={!collegeFilter}
+                        className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent ${
+                            !collegeFilter ? 'opacity-60 cursor-not-allowed bg-slate-50' : 'cursor-pointer'
+                        }`}
+                    >
+                        <option value="">
+                            {collegeFilter ? 'All Courses' : 'Select College First'}
+                        </option>
                         {courses.map((c) => (
                             <option key={c.id} value={c.name}>{c.name}</option>
                         ))}
@@ -1226,10 +1346,17 @@ const TransportRequests = () => {
                     </select>
                 </div>
 
-                {(routeFilter || courseFilter || statusFilter || searchQuery) && (
+                {(routeFilter || collegeFilter || courseFilter || statusFilter || searchQuery) && (
                     <div className="flex-shrink-0">
                         <button
-                            onClick={() => { setRouteFilter(''); setCourseFilter(''); setStatusFilter(''); setSearchQuery(''); }}
+                            onClick={() => {
+                                setRouteFilter('');
+                                setCollegeFilter('');
+                                setCourseFilter('');
+                                setStatusFilter('');
+                                setSearchQuery('');
+                                setCourses([]);
+                            }}
                             className="text-xs text-red-650 hover:text-red-750 font-bold px-3 py-1.5 border border-red-100 bg-red-50 rounded-lg transition-all cursor-pointer"
                         >
                             Reset
@@ -1238,9 +1365,7 @@ const TransportRequests = () => {
                 )}
             </div>
             {loading ? (
-                <div className="py-20">
-                    <Loader text="Loading requests..." />
-                </div>
+                <TransportRequestsSkeleton />
             ) : requests.length === 0 ? (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 text-center text-slate-400 font-semibold text-xs">
                     No transport requests found{academicYear ? ` for academic year ${academicYear}` : ''}.

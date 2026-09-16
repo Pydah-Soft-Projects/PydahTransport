@@ -67,41 +67,15 @@ function toDate(d) {
  * @param {object} customPool - Optional custom mysqlPool (falls back to default)
  * @returns {Promise<Array<object>>} - Enriched requests array
  */
-async function resolveStudentExpiries(requests, customPool = null) {
-    if (!Array.isArray(requests) || requests.length === 0) {
-        return requests;
+let metadataCache = null;
+let metadataCacheTime = 0;
+const METADATA_CACHE_TTL = 15000; // 15 seconds cache
+
+async function getSqlMetadata(pool) {
+    const now = Date.now();
+    if (metadataCache && (now - metadataCacheTime < METADATA_CACHE_TTL)) {
+        return metadataCache;
     }
-
-    const pool = customPool || mysqlPool;
-    if (!pool) {
-        console.warn('[expiryResolver] MySQL Pool not initialized. Skipping dynamic resolution.');
-        return requests;
-    }
-
-    const now = new Date();
-
-    // 1. Gather all unique admission numbers to look up student info
-    const admissionNos = [...new Set(requests.map(r => r.admission_number).filter(Boolean))];
-    const studentMap = new Map();
-
-    if (admissionNos.length > 0) {
-        try {
-            const [studentRows] = await pool.query(
-                `SELECT admission_number, admission_no, course, batch, current_year
-                 FROM students
-                 WHERE admission_number IN (?) OR admission_no IN (?)`,
-                [admissionNos, admissionNos]
-            );
-            for (const s of studentRows) {
-                if (s.admission_number) studentMap.set(String(s.admission_number).trim(), s);
-                if (s.admission_no) studentMap.set(String(s.admission_no).trim(), s);
-            }
-        } catch (err) {
-            console.error('[expiryResolver] Error querying students table:', err);
-        }
-    }
-
-    // 2. Preload SQL metadata (Courses, Academic Years, Semesters, Course Expiries)
     let coursesMap = new Map();
     let academicYearsMap = new Map();
     let semestersList = [];
@@ -129,6 +103,57 @@ async function resolveStudentExpiries(requests, customPool = null) {
     } catch (err) {
         console.error('[expiryResolver] Error loading SQL metadata tables:', err);
     }
+
+    metadataCache = { coursesMap, academicYearsMap, semestersList, expiryOverridesMap };
+    metadataCacheTime = now;
+    return metadataCache;
+}
+
+async function resolveStudentExpiries(requests, customPool = null) {
+    if (!Array.isArray(requests) || requests.length === 0) {
+        return requests;
+    }
+
+    const pool = customPool || mysqlPool;
+    if (!pool) {
+        console.warn('[expiryResolver] MySQL Pool not initialized. Skipping dynamic resolution.');
+        return requests;
+    }
+
+    const now = new Date();
+
+    // 1. Gather all unique admission numbers to look up student info
+    const admissionNos = [...new Set(requests.map(r => r.admission_number).filter(Boolean))];
+    const studentMap = new Map();
+    const rawStudentObjMap = {};
+
+    if (admissionNos.length > 0) {
+        try {
+            const [studentRows] = await pool.query(
+                `SELECT admission_number, admission_no, course, branch, pin_no, college, batch, current_year, student_mobile, parent_mobile1
+                 FROM students
+                 WHERE admission_number IN (?) OR admission_no IN (?)`,
+                [admissionNos, admissionNos]
+            );
+            for (const s of studentRows) {
+                if (s.admission_number) {
+                    studentMap.set(String(s.admission_number).trim(), s);
+                    rawStudentObjMap[s.admission_number] = s;
+                }
+                if (s.admission_no) {
+                    studentMap.set(String(s.admission_no).trim(), s);
+                    rawStudentObjMap[s.admission_no] = s;
+                }
+            }
+        } catch (err) {
+            console.error('[expiryResolver] Error querying students table:', err);
+        }
+    }
+
+    requests._studentMap = rawStudentObjMap;
+
+    // 2. Preload SQL metadata (Courses, Academic Years, Semesters, Course Expiries)
+    const { coursesMap, academicYearsMap, semestersList, expiryOverridesMap } = await getSqlMetadata(pool);
 
     // 3. Resolve each request dynamically in-memory
     for (const tr of requests) {

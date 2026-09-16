@@ -731,7 +731,7 @@ const getSemesterOptions = async (req, res) => {
 // @access  Private/Admin
 const getTransportRequests = async (req, res) => {
     try {
-        const { route_id, status, bus_id, course, search } = req.query;
+        const { route_id, status, bus_id, course, college, search } = req.query;
         const explicitAcademicYear = req.query.academicYear || req.query.academic_year;
         const fallbackAcademicYear = process.env.CURRENT_ACADEMIC_YEAR || getDefaultAcademicYear();
         const filterAcademicYear = explicitAcademicYear
@@ -825,21 +825,8 @@ const getTransportRequests = async (req, res) => {
         // Resolve student request expiry details dynamically from SQL
         await resolveStudentExpiries(filteredStudentMongoRows, mysqlPool);
 
-        // Fetch student info from MySQL students table for course, branch, college, pin_no
-        const admissionNos = [...new Set(filteredStudentMongoRows.map(r => r.admission_number).filter(Boolean))];
-        let studentMap = {};
-        if (mysqlPool && admissionNos.length > 0) {
-            const [studentRows] = await mysqlPool.query(
-                `SELECT admission_number, admission_no, course, branch, pin_no, college, current_year, student_mobile, parent_mobile1
-                 FROM students
-                 WHERE admission_number IN (?) OR admission_no IN (?)`,
-                [admissionNos, admissionNos]
-            );
-            for (const s of studentRows) {
-                if (s.admission_number) studentMap[s.admission_number] = s;
-                if (s.admission_no) studentMap[s.admission_no] = s;
-            }
-        }
+        // Reuse student info loaded by resolveStudentExpiries
+        const studentMap = filteredStudentMongoRows._studentMap || {};
 
         const formattedStudentRows = [];
 
@@ -854,6 +841,7 @@ const getTransportRequests = async (req, res) => {
             const itemYear = r.year_of_study || student.current_year || 1;
 
             if (course && itemCourse !== course) continue;
+            if (college && itemCollege !== college) continue;
             if (restrictedColleges !== null && (!itemCollege || !restrictedColleges.includes(itemCollege))) continue;
             if (hasCourseRestriction && (!itemCourse || !req.user.courses.includes(itemCourse))) continue;
 
@@ -920,7 +908,7 @@ const getTransportRequests = async (req, res) => {
         }
 
         let mongoRows = [];
-        if (!course || course === 'Employee') {
+        if ((!course || course === 'Employee') && !college) {
             const rawMongoRows = await EmployeeTransportRequest.find(mongoQuery).lean();
             const filteredMongoRows = filterAcademicYear
                 ? rawMongoRows.filter(
