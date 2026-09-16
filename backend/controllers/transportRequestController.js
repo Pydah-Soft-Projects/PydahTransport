@@ -1294,7 +1294,8 @@ const approveTransportRequest = async (req, res) => {
         const category = student?.stud_type || 'Regular';
         const amount = Number(request.fare);
         const studentName = request.student_name || '';
-        const remarks = 'Transport';
+        const remarks = `Transport: ${request.route_name || ''} - ${request.stage_name || ''} (${resolvedAcademicYear})`;
+        const finalAmount = amount;
 
         const feeModels = getFeePortalModels();
         if (!feeModels) {
