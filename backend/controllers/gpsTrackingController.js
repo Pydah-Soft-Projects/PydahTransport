@@ -506,6 +506,48 @@ const parseGeofencesFromTgg = (tggData, vehName) => {
   });
 };
 
+const calculateHaversineDistMeters = (lat1, lon1, lat2, lon2) => {
+  if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return Infinity;
+  const R = 6371000;
+  const phi1 = lat1 * Math.PI / 180;
+  const phi2 = lat2 * Math.PI / 180;
+  const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+  const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+            Math.cos(phi1) * Math.cos(phi2) *
+            Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+const parseTggMessagesLocal = (rawText) => {
+  if (!rawText) return [];
+  try {
+    const parsed = JSON.parse(rawText.trim());
+    const points = [];
+    for (const vehKey of Object.keys(parsed)) {
+      const vehData = parsed[vehKey];
+      if (vehData && typeof vehData === 'object') {
+        for (const logKey of Object.keys(vehData)) {
+          const log = vehData[logKey];
+          if (log && log.y && log.x) {
+            points.push({
+              timestamp: log.time || log.timestamp || '',
+              latitude: parseFloat(log.y),
+              longitude: parseFloat(log.x)
+            });
+          }
+        }
+      }
+    }
+    points.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    return points;
+  } catch (e) {
+    return [];
+  }
+};
+
 /**
  * Helper to extract daily kilometers dictionary ({ 'YYYY-MM-DD': kmValue }) from TGG report response
  */
@@ -677,32 +719,6 @@ const fetchFinalDestinationReport = async (req, res) => {
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
       return R * c;
-    };
-
-    const parseTggMessagesLocal = (rawText) => {
-      if (!rawText) return [];
-      try {
-        const parsed = JSON.parse(rawText.trim());
-        const points = [];
-        for (const vehKey of Object.keys(parsed)) {
-          const vehData = parsed[vehKey];
-          if (vehData && typeof vehData === 'object') {
-            for (const logKey of Object.keys(vehData)) {
-              const log = vehData[logKey];
-              if (log && log.y && log.x) {
-                points.push({
-                  timestamp: log.time || log.timestamp || '',
-                  latitude: parseFloat(log.y),
-                  longitude: parseFloat(log.x)
-                });
-              }
-            }
-          }
-        }
-        return points;
-      } catch (e) {
-        return [];
-      }
     };
 
     // Resolve TGG names once for all buses (plate → R##_PLATE)
@@ -1183,7 +1199,7 @@ const fetchNightStayReport = async (req, res) => {
     const userIdStr = req.user?._id ? String(req.user._id) : 'anon';
     const cacheKey = `nightstay_${userIdStr}_${dateFromParam || 'default'}_${dateToParam}_${req.query.campus || 'all'}`;
 
-    if (!global._nightStayCache) {
+    if (!global._nightStayCache || forceRefresh) {
       global._nightStayCache = {};
     }
 
@@ -1216,19 +1232,19 @@ const fetchNightStayReport = async (req, res) => {
         const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
         const routeObj = routeMap[routeId];
 
-        // Resolve Stay Point: explicit routeObj.nightStayPoint OR legacy stage OR stages[0] fallback
+        // Resolve Stay Point: explicit routeObj.nightStayPoint OR stage marked with isNightStayPoint
         let stayPointStage = routeObj?.nightStayPoint;
-        if (!stayPointStage || !Number.isFinite(Number(stayPointStage.latitude)) || !Number.isFinite(Number(stayPointStage.longitude))) {
+        if (!stayPointStage || !Number.isFinite(Number(stayPointStage.latitude)) || !Number.isFinite(Number(stayPointStage.longitude)) || Number(stayPointStage.latitude) === 0) {
           if (routeObj && Array.isArray(routeObj.stages) && routeObj.stages.length > 0) {
-            stayPointStage = routeObj.stages.find(s => s.isNightStayPoint) || routeObj.stages[0];
+            stayPointStage = routeObj.stages.find(s => s.isNightStayPoint) || null;
           }
         }
 
-        const stayPointName = stayPointStage?.stageName || routeObj?.startPoint || 'Default Stay Point';
+        const stayPointName = stayPointStage?.stageName || routeObj?.nightStayPoint?.stageName || 'Default Stay Point';
         const isDefaultStayPoint = !routeObj?.nightStayPoint && !routeObj?.stages?.some(s => s.isNightStayPoint);
         const stageLat = Number(stayPointStage?.latitude);
         const stageLng = Number(stayPointStage?.longitude);
-        const hasStageCoords = Number.isFinite(stageLat) && Number.isFinite(stageLng);
+        const hasStageCoords = Number.isFinite(stageLat) && Number.isFinite(stageLng) && stageLat !== 0 && stageLng !== 0;
 
         const plateKey = extractPlateKey(bus.busNumber);
         const matchedTgg = tggVehicles.find((v) => extractPlateKey(v.name) === plateKey);
@@ -1239,95 +1255,78 @@ const fetchNightStayReport = async (req, res) => {
           daysMap[d] = { firstIn: null, lastOut: null, kilometers: 0 };
         });
 
-        try {
-          const tggReport = await fetchReportsFromTgg({
-            vehicle_name: tggVehicleName,
-            date_from: dateFromStr,
-            date_to: dateToStr,
-            template: 'Daily Report'
-          });
+        if (hasStageCoords) {
+          try {
+            const tggReport = await fetchReportsFromTgg({
+              vehicle_name: tggVehicleName,
+              date_from: dateFromStr,
+              date_to: dateToStr,
+              template: 'Daily Report'
+            });
 
-          if (tggReport.success && tggReport.data) {
-            const gfLogs = parseGeofencesFromTgg(tggReport.data, tggVehicleName);
+            if (tggReport.success && tggReport.data) {
+              const gfLogs = parseGeofencesFromTgg(tggReport.data, tggVehicleName);
 
-            gfLogs.forEach(log => {
-              const gfName = String(log.geofence || '').toLowerCase().trim();
-              const targetName = String(stayPointName || '').toLowerCase().trim();
-              
-              // Determine whether this geofence log entry actually corresponds to the Stay Point
-              let isMatch = false;
-              if (targetName && gfName && (gfName.includes(targetName) || targetName.includes(gfName))) {
-                isMatch = true;
-              } else if (hasStageCoords) {
-                const radiusKm = Math.max(2, (Number(stayPointStage?.radius) || 200) / 1000);
-                if (log.latIn != null && log.lngIn != null) {
-                  const distIn = calculateHaversineDist(stageLat, stageLng, log.latIn, log.lngIn);
-                  if (distIn !== null && distIn <= radiusKm) isMatch = true;
-                }
-                if (!isMatch && log.latOut != null && log.lngOut != null) {
-                  const distOut = calculateHaversineDist(stageLat, stageLng, log.latOut, log.lngOut);
-                  if (distOut !== null && distOut <= radiusKm) isMatch = true;
-                }
-              }
-
-              // Fallback: If Night Stay is not set, fetch IN/OUT from default point (first arrival / last departure)
-              if (!isMatch && isDefaultStayPoint) {
-                isMatch = true;
-              }
-
-              // Only assign IN/OUT times if the geofence log matches the Night Stay Point!
-              if (isMatch) {
-                if (log.timeIn && log.timeIn !== '—') {
-                  const normInDate = normalizeDateStr(log.timeIn);
-                  const inTime = log.timeIn.split(' ')[1]?.substring(0, 5);
-                  if (normInDate && daysMap[normInDate] && inTime) {
-                    if (!daysMap[normInDate].firstIn || inTime < daysMap[normInDate].firstIn) {
-                      daysMap[normInDate].firstIn = inTime;
-                    }
-                  }
-                }
-
+              gfLogs.forEach(log => {
+                // OUT Column: Morning departure from Night Stay Point (before 12:00 PM)
                 if (log.timeOut && log.timeOut !== '—') {
                   const normOutDate = normalizeDateStr(log.timeOut);
                   const outTime = log.timeOut.split(' ')[1]?.substring(0, 5);
                   if (normOutDate && daysMap[normOutDate] && outTime) {
-                    if (!daysMap[normOutDate].lastOut || outTime > daysMap[normOutDate].lastOut) {
+                    if (outTime < '12:00') {
+                      if (!daysMap[normOutDate].lastOut || outTime < daysMap[normOutDate].lastOut) {
+                        daysMap[normOutDate].lastOut = outTime;
+                      }
+                    } else if (!daysMap[normOutDate].lastOut) {
                       daysMap[normOutDate].lastOut = outTime;
                     }
                   }
                 }
-              }
 
-              if (log.mileage && log.mileage !== '—') {
-                const mMatch = String(log.mileage).match(/([\d.]+)/);
-                if (mMatch) {
-                  const mVal = Math.round(parseFloat(mMatch[1]) * 10) / 10;
-                  const logDate = normalizeDateStr(log.timeIn || log.timeOut);
-                  if (logDate && daysMap[logDate] && mVal > 0) {
-                    daysMap[logDate].kilometers = Math.max(daysMap[logDate].kilometers, mVal);
+                // IN Column: Evening/Night Arrival at Night Stay Point (after 5:00 PM / 17:00)
+                if (log.timeIn && log.timeIn !== '—') {
+                  const normInDate = normalizeDateStr(log.timeIn);
+                  const inTime = log.timeIn.split(' ')[1]?.substring(0, 5);
+                  if (normInDate && daysMap[normInDate] && inTime) {
+                    if (inTime >= '17:00') {
+                      if (!daysMap[normInDate].firstIn || inTime < daysMap[normInDate].firstIn) {
+                        daysMap[normInDate].firstIn = inTime;
+                      }
+                    }
                   }
                 }
-              }
-            });
 
-            const parsedKms = parseDailyKilometersFromTggReport(tggReport.data, tggVehicleName);
-            Object.keys(parsedKms).forEach(dStr => {
-              if (daysMap[dStr] && parsedKms[dStr] > 0) {
-                daysMap[dStr].kilometers = Math.max(daysMap[dStr].kilometers, parsedKms[dStr]);
-              }
-            });
+                if (log.mileage && log.mileage !== '—') {
+                  const mMatch = String(log.mileage).match(/([\d.]+)/);
+                  if (mMatch) {
+                    const mVal = Math.round(parseFloat(mMatch[1]) * 10) / 10;
+                    const logDate = normalizeDateStr(log.timeIn || log.timeOut);
+                    if (logDate && daysMap[logDate] && mVal > 0) {
+                      daysMap[logDate].kilometers = Math.max(daysMap[logDate].kilometers, mVal);
+                    }
+                  }
+                }
+              });
+
+              const parsedKms = parseDailyKilometersFromTggReport(tggReport.data, tggVehicleName);
+              Object.keys(parsedKms).forEach(dStr => {
+                if (daysMap[dStr] && parsedKms[dStr] > 0) {
+                  daysMap[dStr].kilometers = Math.max(daysMap[dStr].kilometers, parsedKms[dStr]);
+                }
+              });
+            }
+          } catch (err) {
+            console.warn(`[GPS] nightstay report fetch failed for ${tggVehicleName}:`, err.message);
           }
-        } catch (err) {
-          console.warn(`[GPS] nightstay report fetch failed for ${tggVehicleName}:`, err.message);
         }
 
-        dates.forEach(dateStr => {
-          const dayObj = daysMap[dateStr];
-          const isToday = dateStr === todayStr;
-          if (isToday && dayObj.lastOut && dayObj.lastOut > nowHHMM) {
-            dayObj.lastOut = null;
-          }
-        });
+        // If stay point has no valid coordinates, clear IN/OUT times
+        if (!hasStageCoords) {
+          dates.forEach(dateStr => {
+            daysMap[dateStr].firstIn = null;
+            daysMap[dateStr].lastOut = null;
+          });
+        }
 
         return {
           busNumber: bus.busNumber,
@@ -1336,6 +1335,7 @@ const fetchNightStayReport = async (req, res) => {
           routeName,
           stayPointName,
           isDefaultStayPoint,
+          hasStageCoords,
           days: daysMap
         };
       }));
@@ -1346,14 +1346,25 @@ const fetchNightStayReport = async (req, res) => {
     const previousCache = global._nightStayCache?.[cacheKey]?.data?.data;
     if (previousCache && Array.isArray(previousCache)) {
       reportRows.forEach(row => {
+        if (!row.hasStageCoords) {
+          Object.keys(row.days).forEach(dStr => {
+            row.days[dStr].firstIn = null;
+            row.days[dStr].lastOut = null;
+          });
+          return;
+        }
         const prevRow = previousCache.find(p => p.busNumber === row.busNumber);
         if (prevRow && prevRow.days) {
           Object.keys(row.days).forEach(dStr => {
             const currentDay = row.days[dStr];
             const prevDay = prevRow.days[dStr];
             if (prevDay) {
-              if (!currentDay.firstIn && prevDay.firstIn) currentDay.firstIn = prevDay.firstIn;
-              if (!currentDay.lastOut && prevDay.lastOut) currentDay.lastOut = prevDay.lastOut;
+              if (!currentDay.firstIn && prevDay.firstIn && prevDay.firstIn >= '17:00') {
+                currentDay.firstIn = prevDay.firstIn;
+              }
+              if (!currentDay.lastOut && prevDay.lastOut) {
+                currentDay.lastOut = prevDay.lastOut;
+              }
               if ((!currentDay.kilometers || currentDay.kilometers === 0) && prevDay.kilometers > 0) {
                 currentDay.kilometers = prevDay.kilometers;
               }

@@ -604,8 +604,9 @@ export default function GpsTracking() {
         views: [{ showGridLines: true }]
       });
 
+      const subColsPerDate = isNightStay ? 2 : 3;
       const staticColCount = isNightStay ? 4 : 3;
-      const totalColCount = staticColCount + (dates.length * 3);
+      const totalColCount = staticColCount + (dates.length * subColsPerDate);
 
       // Title Banner Row 1
       worksheet.mergeCells(1, 1, 1, totalColCount);
@@ -658,8 +659,8 @@ export default function GpsTracking() {
 
       // Date Group Headers in Row 5
       dates.forEach((dateStr, idx) => {
-        const startCol = staticColCount + 1 + (idx * 3);
-        const endCol = startCol + 2;
+        const startCol = staticColCount + 1 + (idx * subColsPerDate);
+        const endCol = startCol + (subColsPerDate - 1);
         worksheet.mergeCells(5, startCol, 5, endCol);
         
         const dObj = new Date(dateStr);
@@ -674,30 +675,44 @@ export default function GpsTracking() {
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
       });
 
-      // Sub Header Row 6 (IN / OUT / KMS)
+      // Sub Header Row 6 (OUT / IN for Night Stay, IN / OUT / KMS for Campus)
       const headerRow6 = worksheet.getRow(6);
       headerRow6.height = 22;
 
       dates.forEach((dateStr, idx) => {
-        const startCol = staticColCount + 1 + (idx * 3);
+        const startCol = staticColCount + 1 + (idx * subColsPerDate);
         
-        const inCell = worksheet.getCell(6, startCol);
-        inCell.value = 'IN (Arrival)';
-        inCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: '6EE7B7' } };
-        inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '064E3B' } };
-        inCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        if (isNightStay) {
+          const outCell = worksheet.getCell(6, startCol);
+          outCell.value = 'OUT (Depart)';
+          outCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FCA5A5' } };
+          outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '881337' } };
+          outCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
-        const outCell = worksheet.getCell(6, startCol + 1);
-        outCell.value = 'OUT (Depart)';
-        outCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FCA5A5' } };
-        outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '881337' } };
-        outCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          const inCell = worksheet.getCell(6, startCol + 1);
+          inCell.value = 'IN (Arrival)';
+          inCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: '6EE7B7' } };
+          inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '064E3B' } };
+          inCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        } else {
+          const inCell = worksheet.getCell(6, startCol);
+          inCell.value = 'IN (Arrival)';
+          inCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: '6EE7B7' } };
+          inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '064E3B' } };
+          inCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
-        const kmsCell = worksheet.getCell(6, startCol + 2);
-        kmsCell.value = 'Distance (KMS)';
-        kmsCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FDE68A' } };
-        kmsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '78350F' } };
-        kmsCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          const outCell = worksheet.getCell(6, startCol + 1);
+          outCell.value = 'OUT (Depart)';
+          outCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FCA5A5' } };
+          outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '881337' } };
+          outCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+          const kmsCell = worksheet.getCell(6, startCol + 2);
+          kmsCell.value = 'Distance (KMS)';
+          kmsCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FDE68A' } };
+          kmsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '78350F' } };
+          kmsCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        }
       });
 
       // Data Rows
@@ -743,7 +758,7 @@ export default function GpsTracking() {
         }
 
         dates.forEach((dateStr, idx) => {
-          const startCol = (dateColOffset - 1) + 1 + (idx * 3);
+          const startCol = (dateColOffset - 1) + 1 + (idx * subColsPerDate);
           const dayInfo = row.days?.[dateStr] || {};
 
           const inTime = dayInfo.firstIn || null;
@@ -754,68 +769,99 @@ export default function GpsTracking() {
             totalKmPerDate[dateStr] += kmsVal;
           }
 
-          // IN Cell
-          const inCell = dataRow.getCell(startCol);
-          inCell.value = inTime || '—';
-          inCell.alignment = { horizontal: 'center', vertical: 'middle' };
-          if (inTime) {
-            inCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: '15803D' } };
-            inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DCFCE7' } };
-          } else {
-            inCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
-            inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
-          }
+          if (isNightStay) {
+            // OUT Cell (Depart in morning)
+            const outCell = dataRow.getCell(startCol);
+            outCell.value = outTime || '—';
+            outCell.alignment = { horizontal: 'center', vertical: 'middle' };
+            if (outTime) {
+              outCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'B91C1C' } };
+              outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
+            } else {
+              outCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
+              outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
+            }
 
-          // OUT Cell
-          const outCell = dataRow.getCell(startCol + 1);
-          outCell.value = outTime || '—';
-          outCell.alignment = { horizontal: 'center', vertical: 'middle' };
-          if (outTime) {
-            outCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'B91C1C' } };
-            outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
+            // IN Cell (Arrival at night)
+            const inCell = dataRow.getCell(startCol + 1);
+            inCell.value = inTime || '—';
+            inCell.alignment = { horizontal: 'center', vertical: 'middle' };
+            if (inTime) {
+              inCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: '15803D' } };
+              inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DCFCE7' } };
+            } else {
+              inCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
+              inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
+            }
           } else {
-            outCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
-            outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
-          }
+            // IN Cell
+            const inCell = dataRow.getCell(startCol);
+            inCell.value = inTime || '—';
+            inCell.alignment = { horizontal: 'center', vertical: 'middle' };
+            if (inTime) {
+              inCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: '15803D' } };
+              inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DCFCE7' } };
+            } else {
+              inCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
+              inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
+            }
 
-          // KMS Cell
-          const kmsCell = dataRow.getCell(startCol + 2);
-          kmsCell.value = kmsVal > 0 ? `${kmsVal.toFixed(1)} km` : '—';
-          kmsCell.alignment = { horizontal: 'center', vertical: 'middle' };
-          if (kmsVal > 0) {
-            kmsCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'B45309' } };
-            kmsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } };
-          } else {
-            kmsCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
-            kmsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
+            // OUT Cell
+            const outCell = dataRow.getCell(startCol + 1);
+            outCell.value = outTime || '—';
+            outCell.alignment = { horizontal: 'center', vertical: 'middle' };
+            if (outTime) {
+              outCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'B91C1C' } };
+              outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
+            } else {
+              outCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
+              outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
+            }
+
+            // KMS Cell
+            const kmsCell = dataRow.getCell(startCol + 2);
+            kmsCell.value = kmsVal > 0 ? `${kmsVal.toFixed(1)} km` : '—';
+            kmsCell.alignment = { horizontal: 'center', vertical: 'middle' };
+            if (kmsVal > 0) {
+              kmsCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'B45309' } };
+              kmsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } };
+            } else {
+              kmsCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
+              kmsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
+            }
           }
         });
 
         currentRowIdx++;
       });
 
-      // Total Fleet Distance Summary Row at bottom
-      const totalRow = worksheet.getRow(currentRowIdx);
-      totalRow.height = 26;
+      if (!isNightStay) {
+        // Total Fleet Distance Summary Row at bottom
+        const totalRow = worksheet.getRow(currentRowIdx);
+        totalRow.height = 26;
 
-      worksheet.mergeCells(currentRowIdx, 1, currentRowIdx, staticColCount);
-      const totalLabelCell = worksheet.getCell(currentRowIdx, 1);
-      totalLabelCell.value = 'FLEET DAILY TOTAL DISTANCE (KMS)';
-      totalLabelCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: '78350F' } };
-      totalLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FDE68A' } };
-      totalLabelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        worksheet.mergeCells(currentRowIdx, 1, currentRowIdx, staticColCount);
+        const totalLabelCell = worksheet.getCell(currentRowIdx, 1);
+        totalLabelCell.value = 'FLEET DAILY TOTAL DISTANCE (KMS)';
+        totalLabelCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: '78350F' } };
+        totalLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FDE68A' } };
+        totalLabelCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
-      dates.forEach((dateStr, idx) => {
-        const startCol = staticColCount + 1 + (idx * 3);
-        const dayTotalKm = Math.round(totalKmPerDate[dateStr] * 10) / 10;
+        dates.forEach((dateStr, idx) => {
+          const startCol = staticColCount + 1 + (idx * subColsPerDate);
+          const dayTotalKm = Math.round(totalKmPerDate[dateStr] * 10) / 10;
 
-        worksheet.mergeCells(currentRowIdx, startCol, currentRowIdx, startCol + 2);
-        const dayTotalCell = worksheet.getCell(currentRowIdx, startCol);
-        dayTotalCell.value = dayTotalKm > 0 ? `Total: ${dayTotalKm.toFixed(1)} km` : '—';
-        dayTotalCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: '92400E' } };
-        dayTotalCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } };
-        dayTotalCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      });
+          worksheet.mergeCells(currentRowIdx, startCol, currentRowIdx, startCol + 2);
+          const dayTotalCell = worksheet.getCell(currentRowIdx, startCol);
+          dayTotalCell.value = dayTotalKm > 0 ? `Total: ${dayTotalKm.toFixed(1)} km` : '—';
+          dayTotalCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: '92400E' } };
+          dayTotalCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } };
+          dayTotalCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        });
+      } else {
+        // Decrement by 1 since no summary row was added for nightstay
+        currentRowIdx--;
+      }
 
       // Apply borders to table
       const thinBorder = {
@@ -841,10 +887,12 @@ export default function GpsTracking() {
       }
 
       dates.forEach((_, idx) => {
-        const startCol = staticColCount + 1 + (idx * 3);
+        const startCol = staticColCount + 1 + (idx * subColsPerDate);
         worksheet.getColumn(startCol).width = 15;
         worksheet.getColumn(startCol + 1).width = 15;
-        worksheet.getColumn(startCol + 2).width = 16;
+        if (!isNightStay) {
+          worksheet.getColumn(startCol + 2).width = 16;
+        }
       });
 
       // Write & Download Excel file
@@ -2030,7 +2078,7 @@ export default function GpsTracking() {
                   <div className="overflow-x-auto sidebar-scrollbar">
                     <table 
                       className="w-full text-left border-collapse" 
-                      style={{ minWidth: `${304 + nsDates.length * 136}px` }}
+                      style={{ minWidth: `${304 + nsDates.length * 88}px` }}
                     >
                       <thead>
                         {/* Header Row 1: Route, Bus Number, Stay Point, Date Columns */}
@@ -2083,7 +2131,7 @@ export default function GpsTracking() {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
 
                             return (
-                              <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[136px] min-w-[136px] ${isToday ? 'bg-blue-900/90' : ''}`}>
+                              <th key={dateStr} colSpan={2} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[88px] min-w-[88px] ${isToday ? 'bg-blue-900/90' : ''}`}>
                                 <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
                                 <div className="text-[8px] text-blue-200 tracking-normal capitalize font-semibold leading-tight">{isToday ? 'Today' : 'Night Stay'}</div>
                               </th>
@@ -2091,15 +2139,14 @@ export default function GpsTracking() {
                           })}
                         </tr>
 
-                        {/* Header Row 2: IN / OUT / KMS Sub-columns */}
+                        {/* Header Row 2: OUT / IN Sub-columns */}
                         <tr className="bg-[#0b2256] text-slate-200 text-[8.5px] font-bold uppercase tracking-wider border-b border-slate-700">
                           {nsDates.map((dateStr) => {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
                             return (
                               <React.Fragment key={`sub-${dateStr}`}>
-                                <th className={`py-1 text-center border-r border-slate-700/50 w-[44px] min-w-[44px] text-emerald-300 ${isToday ? 'bg-blue-900/40' : ''}`}>IN</th>
                                 <th className={`py-1 text-center border-r border-slate-700/50 w-[44px] min-w-[44px] text-rose-300 ${isToday ? 'bg-blue-900/40' : ''}`}>OUT</th>
-                                <th className={`py-1 text-center border-r border-slate-700/80 w-[48px] min-w-[48px] text-amber-300 ${isToday ? 'bg-blue-900/40' : ''}`}>KMS</th>
+                                <th className={`py-1 text-center border-r border-slate-700/80 w-[44px] min-w-[44px] text-emerald-300 ${isToday ? 'bg-blue-900/40' : ''}`}>IN</th>
                               </React.Fragment>
                             );
                           })}
@@ -2142,23 +2189,9 @@ export default function GpsTracking() {
                               const dayData = row.days?.[dateStr] || {};
                               const inTime = dayData.firstIn || null;
                               const outTime = dayData.lastOut || null;
-                              const kmVal = dayData.kilometers || 0;
 
                               return (
                                 <React.Fragment key={`${row.busNumber}-${dateStr}`}>
-                                  {/* IN Column */}
-                                  <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-[44px] min-w-[44px]">
-                                    {nightStayLoading ? (
-                                      <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
-                                    ) : inTime ? (
-                                      <span className="px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 font-extrabold border border-emerald-200/80 inline-block whitespace-nowrap text-[9px]" title="Arrival Time at Stay Point">
-                                        {inTime}
-                                      </span>
-                                    ) : (
-                                      <span className="text-slate-300 font-bold text-[9px]">—</span>
-                                    )}
-                                  </td>
-
                                   {/* OUT Column */}
                                   <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-[44px] min-w-[44px]">
                                     {nightStayLoading ? (
@@ -2172,13 +2205,13 @@ export default function GpsTracking() {
                                     )}
                                   </td>
 
-                                  {/* KMS Column */}
-                                  <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[8.5px] w-[48px] min-w-[48px]">
+                                  {/* IN Column */}
+                                  <td className="px-0.5 py-1 text-center border-r border-slate-200 align-middle font-mono text-[9px] w-[44px] min-w-[44px]">
                                     {nightStayLoading ? (
                                       <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
-                                    ) : (kmVal && kmVal > 0) ? (
-                                      <span className="px-0.5 py-0.2 rounded bg-amber-50 text-amber-800 font-extrabold border border-amber-200/80 inline-block whitespace-nowrap text-[8.5px]" title="Total Distance Travelled">
-                                        {kmVal} km
+                                    ) : inTime ? (
+                                      <span className="px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 font-extrabold border border-emerald-200/80 inline-block whitespace-nowrap text-[9px]" title="Arrival Time at Stay Point">
+                                        {inTime}
                                       </span>
                                     ) : (
                                       <span className="text-slate-300 font-bold text-[9px]">—</span>
