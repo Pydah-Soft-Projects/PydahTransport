@@ -18,6 +18,7 @@ const {
   fetchDayInOutReport,
   fetch7DayInOutReport,
   fetchNightStayReport,
+  fetchFuelDayReport,
   getLiveBusLocation
 } = require('../controllers/gpsTrackingController');
 
@@ -40,6 +41,8 @@ router.post('/vehicles', fetchLiveVehicles);
 // 2. Read Reports
 router.get('/reports', fetchVehicleReports);
 router.post('/reports', fetchVehicleReports);
+router.get('/fuel-report', fetchFuelDayReport);
+router.post('/fuel-report', fetchFuelDayReport);
 
 // 3. Read Vehicle Latitude and Longitude (Messages API)
 router.get('/history', fetchVehicleHistory);

@@ -31,6 +31,7 @@ import {
     Activity,
     Zap,
     Moon,
+    Fuel,
 } from 'lucide-react';
 
 const Layout = ({ children, title }) => {
@@ -109,6 +110,7 @@ const Layout = ({ children, title }) => {
                         { path: '/gps-tracking?tab=live', label: 'Live Tracking Map', icon: <MapPin size={16} /> },
                         { path: '/gps-tracking?tab=reports', label: 'Campus IN / OUTs', icon: <Activity size={16} /> },
                         { path: '/gps-tracking?tab=nightstay', label: 'Night Stay IN / OUTs', icon: <Moon size={16} /> },
+                        { path: '/gps-tracking?tab=fuel', label: 'Fuel Day Report', icon: <Fuel size={16} /> },
                         { path: '/gps-tracking?tab=destination', label: 'Final Destination', icon: <Zap size={16} /> },
                     ]
                 },

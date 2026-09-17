@@ -269,12 +269,15 @@ const fetchReportsFromTgg = async (reportQuery = {}) => {
       params.append('template', reportQuery.template);
     }
 
+    const timeoutMs = reportQuery.timeoutMs || 25000;
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body: params
+      body: params,
+      signal: AbortSignal.timeout(timeoutMs)
     });
 
     const rawText = await response.text();
@@ -602,6 +605,132 @@ const fetchDailyKilometersFromTgg = async (reportQuery = {}) => {
   return finalResponse;
 };
 
+/**
+ * Universal robust TGG Fuel Report parser
+ */
+const parseFuelDayReportFromTgg = (tggData) => {
+  if (!tggData || typeof tggData !== 'object') return [];
+
+  const results = [];
+
+  const parseNumWithUnit = (valStr) => {
+    if (valStr === null || valStr === undefined) return null;
+    const str = String(valStr).trim();
+    if (!str || str === '-' || str.toLowerCase() === 'n/a') return null;
+    const m = str.match(/([0-9]+(?:\.[0-9]+)?)/);
+    if (!m) return null;
+    const num = parseFloat(m[1]);
+    return isNaN(num) ? null : num;
+  };
+
+  const extractAllCObjects = (obj) => {
+    const list = [];
+    if (!obj || typeof obj !== 'object') return list;
+
+    if (obj.c && typeof obj.c === 'object') {
+      list.push(obj.c);
+    } else {
+      for (const k of Object.keys(obj)) {
+        if (obj[k] && typeof obj[k] === 'object') {
+          list.push(...extractAllCObjects(obj[k]));
+        }
+      }
+    }
+    return list;
+  };
+
+  const processVehicle = (vName, vehObj) => {
+    if (!vehObj || typeof vehObj !== 'object') return null;
+
+    let kmsTravelled = null;
+    let initialFuel = null;
+    let finalFuel = null;
+    let fuelConsumption = null;
+
+    // 1. Process "Summary Report" if available
+    const summarySec = vehObj["Summary Report"] || vehObj["Summary"] || vehObj.Summary;
+    if (summarySec && typeof summarySec === 'object') {
+      const cList = extractAllCObjects(summarySec);
+      for (const cObj of cList) {
+        if (typeof cObj !== 'object') continue;
+
+        if (cObj["10"] && String(cObj["10"]).toLowerCase().includes('km')) {
+          kmsTravelled = parseNumWithUnit(cObj["10"]);
+        }
+        if (cObj["4"] && String(cObj["4"]).toLowerCase().includes('l')) {
+          const val = parseNumWithUnit(cObj["4"]);
+          if (val !== null && val > 0) initialFuel = val;
+        }
+        if (cObj["5"] && String(cObj["5"]).toLowerCase().includes('l')) {
+          const val = parseNumWithUnit(cObj["5"]);
+          if (val !== null && val > 0) finalFuel = val;
+        }
+        if (cObj["2"] && String(cObj["2"]).toLowerCase().includes('l')) {
+          const val = parseNumWithUnit(cObj["2"]);
+          if (val !== null && val > 0) fuelConsumption = val;
+        }
+
+        for (const k of Object.keys(cObj)) {
+          const valStr = String(cObj[k] || '');
+          if (valStr.toLowerCase().includes('km') && kmsTravelled === null) {
+            kmsTravelled = parseNumWithUnit(valStr);
+          }
+        }
+      }
+    }
+
+    // 2. Process "Trips details" / "Trips" for fallback distance & fuel if needed
+    const tripsSec = vehObj["Trips details"] || vehObj["Trips"] || vehObj.Trips;
+    if (tripsSec && typeof tripsSec === 'object') {
+      const cList = extractAllCObjects(tripsSec);
+      for (const cObj of cList) {
+        for (const k of Object.keys(cObj)) {
+          const valStr = String(cObj[k] || '');
+          if (valStr.toLowerCase().includes('km')) {
+            const d = parseNumWithUnit(valStr);
+            if (d !== null && (kmsTravelled === null || d > kmsTravelled)) {
+              kmsTravelled = d;
+            }
+          }
+          if (valStr.toLowerCase().includes('l')) {
+            const f = parseNumWithUnit(valStr);
+            if (f !== null && f > 0) {
+              if (k === '8' && initialFuel === null) initialFuel = f;
+              if (k === '9' && finalFuel === null) finalFuel = f;
+              if (k === '6' && fuelConsumption === null) fuelConsumption = f;
+            }
+          }
+        }
+      }
+    }
+
+    // 3. If initialFuel & finalFuel exist but fuelConsumption is missing, calculate consumption
+    if (initialFuel !== null && finalFuel !== null && (fuelConsumption === null || fuelConsumption === 0)) {
+      if (initialFuel >= finalFuel) {
+        fuelConsumption = Math.round((initialFuel - finalFuel) * 100) / 100;
+      }
+    }
+
+    return {
+      tggVehicleName: vName,
+      kmsTravelled: kmsTravelled !== null ? Math.round(kmsTravelled * 10) / 10 : null,
+      initialFuel: initialFuel !== null ? Math.round(initialFuel * 100) / 100 : null,
+      finalFuel: finalFuel !== null ? Math.round(finalFuel * 100) / 100 : null,
+      fuelConsumption: fuelConsumption !== null ? Math.round(fuelConsumption * 100) / 100 : null
+    };
+  };
+
+  for (const key of Object.keys(tggData)) {
+    const vehObj = tggData[key];
+    if (vehObj && typeof vehObj === 'object') {
+      const res = processVehicle(key, vehObj);
+      if (res) results.push(res);
+    }
+  }
+
+  return results;
+};
+
 module.exports = {
   getTggConfig,
   cleanVehicleName,
@@ -612,5 +741,7 @@ module.exports = {
   fetchVehicleMessagesFromTgg,
   registerIncomingAlert,
   getRecentAlerts,
-  fetchDailyKilometersFromTgg
+  fetchDailyKilometersFromTgg,
+  parseFuelDayReportFromTgg
 };
+

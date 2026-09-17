@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   X,
   Moon,
+  Fuel,
   FileSpreadsheet
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
@@ -109,7 +110,7 @@ export default function GpsTracking() {
 
   // Sync tab with URL search parameter changes
   useEffect(() => {
-    if (tabParam && ['live', 'travelled', 'destination', 'reports', 'nightstay'].includes(tabParam)) {
+    if (tabParam && ['live', 'travelled', 'destination', 'reports', 'nightstay', 'fuel'].includes(tabParam)) {
       setActivePageTab(tabParam);
       sessionStorage.setItem('gps_active_page_tab', tabParam);
     }
@@ -119,6 +120,140 @@ export default function GpsTracking() {
     setActivePageTab(newTab);
     setSearchParams({ tab: newTab });
     sessionStorage.setItem('gps_active_page_tab', newTab);
+  };
+
+  // Fuel Day Report States
+  const [fuelReportData, setFuelReportData] = useState([]);
+  const [fuelLoading, setFuelLoading] = useState(false);
+  const [fuelError, setFuelError] = useState(null);
+  const [fuelSelectedVehicle, setFuelSelectedVehicle] = useState('ALL');
+  const [fuelDatePreset, setFuelDatePreset] = useState('today');
+  const [fuelDateFrom, setFuelDateFrom] = useState(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return `${todayStr} 00:00`;
+  });
+  const [fuelDateTo, setFuelDateTo] = useState(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return `${todayStr} 23:59`;
+  });
+
+  const fetchFuelReportData = useCallback(async (overrideFrom, overrideTo, overrideVeh, forceRefresh = false) => {
+    const fromStr = overrideFrom || fuelDateFrom;
+    const toStr = overrideTo || fuelDateTo;
+    const vehStr = overrideVeh !== undefined ? overrideVeh : fuelSelectedVehicle;
+
+    setFuelLoading(true);
+    setFuelError(null);
+
+    try {
+      const url = `${API_BASE}/gps/fuel-report?vehicle_name=${encodeURIComponent(vehStr)}&date_from=${encodeURIComponent(fromStr)}&date_to=${encodeURIComponent(toStr)}${forceRefresh ? '&refresh=true' : ''}`;
+      const res = await apiFetch(url);
+      const json = await res.json();
+
+      if (res.ok && json && json.success && Array.isArray(json.data)) {
+        setFuelReportData(json.data);
+      } else {
+        setFuelReportData([]);
+        if (json && json.message) setFuelError(json.message);
+      }
+    } catch (err) {
+      console.error('[Fuel Day Report] Error:', err);
+      setFuelError(err.message || 'Failed to fetch fuel day report.');
+      setFuelReportData([]);
+    } finally {
+      setFuelLoading(false);
+    }
+  }, [fuelDateFrom, fuelDateTo, fuelSelectedVehicle]);
+
+  // Auto fetch fuel report when tab switches to 'fuel'
+  useEffect(() => {
+    if (activePageTab === 'fuel') {
+      fetchFuelReportData(undefined, undefined, undefined, true);
+    }
+  }, [activePageTab, fetchFuelReportData]);
+
+  const handleFuelPreset = (preset) => {
+    setFuelDatePreset(preset);
+    const now = new Date();
+    let fromStr = '';
+    let toStr = '';
+
+    if (preset === 'today') {
+      const dStr = now.toISOString().split('T')[0];
+      fromStr = `${dStr} 00:00`;
+      toStr = `${dStr} 23:59`;
+    } else if (preset === 'yesterday') {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      const dStr = y.toISOString().split('T')[0];
+      fromStr = `${dStr} 00:00`;
+      toStr = `${dStr} 23:59`;
+    } else if (preset === 'week') {
+      const w = new Date(now);
+      w.setDate(w.getDate() - 6);
+      fromStr = `${w.toISOString().split('T')[0]} 00:00`;
+      toStr = `${now.toISOString().split('T')[0]} 23:59`;
+    } else if (preset === 'month') {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      fromStr = `${firstDay.toISOString().split('T')[0]} 00:00`;
+      toStr = `${now.toISOString().split('T')[0]} 23:59`;
+    }
+
+    setFuelDateFrom(fromStr);
+    setFuelDateTo(toStr);
+    fetchFuelReportData(fromStr, toStr, fuelSelectedVehicle);
+  };
+
+  const handleExportFuelExcel = async () => {
+    if (!fuelReportData || fuelReportData.length === 0) return;
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Fuel Day Report');
+
+    worksheet.mergeCells('A1:F1');
+    const titleCell = worksheet.getCell('A1');
+    titleCell.value = `Pydah Transport - Fuel Day Report (${fuelDateFrom} to ${fuelDateTo})`;
+    titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF071B45' } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    worksheet.getRow(1).height = 30;
+
+    const headers = ['Vehicle Number / Unit', 'Route', 'Distance Travelled (KM)', 'Starting Fuel Level (L)', 'Ending Fuel Level (L)', 'Fuel Consumption (L)'];
+    const headerRow = worksheet.addRow(headers);
+    headerRow.height = 24;
+    headerRow.eachCell((cell) => {
+      cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+
+    fuelReportData.forEach((row) => {
+      const dataRow = worksheet.addRow([
+        row.busNumber || row.tggVehicleName || '—',
+        row.routeId || 'Unassigned',
+        row.kmsTravelled !== null && row.kmsTravelled !== undefined ? `${row.kmsTravelled} km` : '-',
+        row.initialFuel !== null && row.initialFuel !== undefined ? `${row.initialFuel} l` : '-',
+        row.finalFuel !== null && row.finalFuel !== undefined ? `${row.finalFuel} l` : '-',
+        row.fuelConsumption !== null && row.fuelConsumption !== undefined ? `${row.fuelConsumption} l` : '-'
+      ]);
+      dataRow.height = 20;
+      dataRow.eachCell((cell, colNumber) => {
+        cell.alignment = { horizontal: colNumber <= 2 ? 'left' : 'center', vertical: 'middle' };
+      });
+    });
+
+    worksheet.columns.forEach((col) => {
+      col.width = 24;
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `Fuel_Day_Report_${fuelDateFrom.split(' ')[0]}_to_${fuelDateTo.split(' ')[0]}.xlsx`;
+    anchor.click();
+    window.URL.revokeObjectURL(url);
   };
   const [fleetKmValues, setFleetKmValues] = useState({});
   const [fleetSearchQuery, setFleetSearchQuery] = useState('');
@@ -1464,6 +1599,7 @@ export default function GpsTracking() {
                   {activePageTab === 'live' && 'GPS Live Fleet Tracking Map'}
                   {(activePageTab === 'reports' || activePageTab === 'travelled') && 'Campus IN / OUT Reports & Distance Logs'}
                   {activePageTab === 'nightstay' && 'Night Stay IN / OUTs Reports'}
+                  {activePageTab === 'fuel' && 'Fuel Day Report'}
                   {activePageTab === 'destination' && 'GPS Campus Final Destination Geofences'}
                 </h1>
                 <span className="px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-md flex items-center gap-1 shrink-0">
@@ -1486,6 +1622,7 @@ export default function GpsTracking() {
                 {activePageTab === 'live' && (selectedVehicle ? `Tracing Vehicle: ${selectedVehicle.name}` : `All Vehicles Fleet Map (${vehicles.length} Vehicles) • Updated: ${lastUpdated.toLocaleTimeString()}`)}
                 {(activePageTab === 'reports' || activePageTab === 'travelled') && `Campus IN/OUT Reports, Distance Log & In/Out Arrival Logs (${vehicles.length} Buses)`}
                 {activePageTab === 'nightstay' && `Night Stay Stage Arrival (IN) & Departure (OUT) Reports (${vehicles.length} Buses)`}
+                {activePageTab === 'fuel' && `Daily Vehicle Fuel Consumption, KMs Travelled & Initial/Final Fuel Levels (${vehicles.length} Buses)`}
                 {activePageTab === 'destination' && `Campus Final Destination Geofence Arrival Settings & Arrival Reports`}
               </p>
             </div>
@@ -2503,6 +2640,244 @@ export default function GpsTracking() {
                 </div>
               );
             })()}
+          </div>
+        ) : activePageTab === 'fuel' ? (
+          /* Fuel Day Report View */
+          <div className="space-y-4 font-sans text-slate-800">
+            {/* Top Controls Card (Matching Reference Interface) */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                {/* Template Selector */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Template</label>
+                  <div className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Fuel size={14} className="text-amber-600" />
+                      Fuel Day Report
+                    </span>
+                    <span className="text-[10px] bg-amber-100 text-amber-800 font-extrabold px-1.5 py-0.5 rounded">TGG API</span>
+                  </div>
+                </div>
+
+                {/* Object / Vehicle Selector */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Object (Vehicle)</label>
+                  <select
+                    value={fuelSelectedVehicle}
+                    onChange={(e) => {
+                      setFuelSelectedVehicle(e.target.value);
+                      fetchFuelReportData(fuelDateFrom, fuelDateTo, e.target.value);
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                  >
+                    <option value="ALL">All Fleet Vehicles ({vehicles.length})</option>
+                    {vehicles.map((v) => (
+                      <option key={v.name} value={v.name}>
+                        {v.name} ({v.routeName || v.routeId || 'Bus'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Quick Interval Buttons */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Quick Interval</label>
+                  <div className="grid grid-cols-4 gap-1">
+                    {['today', 'yesterday', 'week', 'month'].map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => handleFuelPreset(p)}
+                        className={`py-2 px-1 text-[11px] font-bold rounded-lg transition-all text-center capitalize cursor-pointer border ${
+                          fuelDatePreset === p
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Action Controls & Excel Export */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const todayStr = new Date().toISOString().split('T')[0];
+                      const defaultFrom = `${todayStr} 00:00`;
+                      const defaultTo = `${todayStr} 23:59`;
+                      setFuelDateFrom(defaultFrom);
+                      setFuelDateTo(defaultTo);
+                      setFuelSelectedVehicle('ALL');
+                      setFuelDatePreset('today');
+                      fetchFuelReportData(defaultFrom, defaultTo, 'ALL');
+                    }}
+                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg border border-slate-200 transition-colors cursor-pointer"
+                  >
+                    Clear
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => fetchFuelReportData(fuelDateFrom, fuelDateTo, fuelSelectedVehicle, true)}
+                    disabled={fuelLoading}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <RefreshCw size={13} className={fuelLoading ? 'animate-spin' : ''} />
+                    <span>{fuelLoading ? 'Executing...' : 'Execute'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportFuelExcel}
+                    disabled={!fuelReportData || fuelReportData.length === 0}
+                    className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs border border-emerald-600"
+                    title="Download formatted Excel spreadsheet"
+                  >
+                    <FileSpreadsheet size={13} className="text-emerald-200" />
+                    <span>Export</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Manual Interval Date-Time Inputs */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">From Date & Time</label>
+                  <input
+                    type="text"
+                    value={fuelDateFrom}
+                    onChange={(e) => setFuelDateFrom(e.target.value)}
+                    placeholder="YYYY-MM-DD HH:mm"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">To Date & Time</label>
+                  <input
+                    type="text"
+                    value={fuelDateTo}
+                    onChange={(e) => setFuelDateTo(e.target.value)}
+                    placeholder="YYYY-MM-DD HH:mm"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Summary KPI Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Fleet KMs Travelled</span>
+                <span className="text-lg font-extrabold text-slate-900 mt-1 block">
+                  {(() => {
+                    const valid = fuelReportData.map(r => r.kmsTravelled).filter(v => v !== null && v !== undefined && !isNaN(v));
+                    return valid.length > 0 ? `${valid.reduce((a, b) => a + b, 0).toFixed(1)} km` : '-';
+                  })()}
+                </span>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Starting Fuel Level</span>
+                <span className="text-lg font-extrabold text-blue-700 mt-1 block">
+                  {(() => {
+                    const valid = fuelReportData.map(r => r.initialFuel).filter(v => v !== null && v !== undefined && !isNaN(v));
+                    return valid.length > 0 ? `${valid.reduce((a, b) => a + b, 0).toFixed(1)} l` : '-';
+                  })()}
+                </span>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ending Fuel Level</span>
+                <span className="text-lg font-extrabold text-amber-700 mt-1 block">
+                  {(() => {
+                    const valid = fuelReportData.map(r => r.finalFuel).filter(v => v !== null && v !== undefined && !isNaN(v));
+                    return valid.length > 0 ? `${valid.reduce((a, b) => a + b, 0).toFixed(1)} l` : '-';
+                  })()}
+                </span>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Fuel Consumption</span>
+                <span className="text-lg font-extrabold text-rose-600 mt-1 block">
+                  {(() => {
+                    const valid = fuelReportData.map(r => r.fuelConsumption).filter(v => v !== null && v !== undefined && !isNaN(v));
+                    return valid.length > 0 ? `${valid.reduce((a, b) => a + b, 0).toFixed(1)} l` : '-';
+                  })()}
+                </span>
+              </div>
+            </div>
+
+            {/* Fuel Report Content Table */}
+            {fuelLoading ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400 font-bold text-xs flex items-center justify-center gap-2">
+                <RefreshCw size={16} className="animate-spin text-amber-600" />
+                Executing Fuel Day Report query from TGG Service API...
+              </div>
+            ) : fuelError ? (
+              <div className="bg-rose-50 rounded-xl border border-rose-200 p-4 text-rose-700 text-xs text-center font-bold">
+                {fuelError}
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+                <div className="overflow-x-auto sidebar-scrollbar">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-[#071B45] text-white text-[11px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
+                        <th className="px-4 py-3">Vehicle Number / Unit</th>
+                        <th className="px-4 py-3">Assigned Route</th>
+                        <th className="px-4 py-3 text-center">KMs Travelled</th>
+                        <th className="px-4 py-3 text-center">Starting Fuel Level</th>
+                        <th className="px-4 py-3 text-center">Ending Fuel Level</th>
+                        <th className="px-4 py-3 text-center">Fuel Consumption</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs text-slate-800 font-medium">
+                      {(() => {
+                        const rowsToDisplay = fuelReportData.length > 0
+                          ? fuelReportData
+                          : vehicles.map(v => ({
+                              busNumber: v.name,
+                              tggVehicleName: v.name,
+                              routeId: extractRouteIdFromVehicleName(v.name) || 'Unassigned',
+                              kmsTravelled: null,
+                              initialFuel: null,
+                              finalFuel: null,
+                              fuelConsumption: null
+                            }));
+
+                        return rowsToDisplay.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-3 font-bold text-slate-900 font-mono">
+                              {row.busNumber || row.tggVehicleName}
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-slate-600">
+                              <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[11px] font-bold border border-blue-200">
+                                {row.routeId || 'Unassigned'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-center font-mono font-bold text-slate-900">
+                              {row.kmsTravelled !== null && row.kmsTravelled !== undefined ? `${row.kmsTravelled} km` : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-center font-mono font-semibold text-blue-700">
+                              {row.initialFuel !== null && row.initialFuel !== undefined ? `${row.initialFuel} l` : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-center font-mono font-semibold text-amber-700">
+                              {row.finalFuel !== null && row.finalFuel !== undefined ? `${row.finalFuel} l` : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-center font-mono font-bold text-rose-600">
+                              {row.fuelConsumption !== null && row.fuelConsumption !== undefined ? `${row.fuelConsumption} l` : '-'}
+                            </td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         ) : activePageTab === 'destination' ? (
           <GpsFinalDestinationModal

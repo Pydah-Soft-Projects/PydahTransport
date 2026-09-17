@@ -6,6 +6,7 @@ const {
   registerIncomingAlert,
   getRecentAlerts,
   fetchDailyKilometersFromTgg,
+  parseFuelDayReportFromTgg,
   extractPlateKey,
   extractRouteIdFromVehicleName,
   cleanVehicleName,
@@ -1530,6 +1531,107 @@ const getLiveBusLocation = async (req, res) => {
   }
 };
 
+const fuelReportCacheStore = new Map();
+const FUEL_REPORT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache TTL
+
+/**
+ * GET /api/gps/fuel-report?vehicle_name=X&date_from=Y&date_to=Z
+ * Fetches the "Fuel Day Report" from the TGG Reports API with in-memory caching.
+ */
+const fetchFuelDayReport = async (req, res) => {
+  try {
+    const { vehicle_name, date_from, date_to, refresh } = req.query;
+
+    const dfFrom = date_from ? (date_from.includes(' ') ? date_from : `${date_from} 00:00:00`) : '';
+    const dfTo = date_to ? (date_to.includes(' ') ? date_to : `${date_to} 23:59:59`) : '';
+    const targetVeh = vehicle_name || 'ALL';
+
+    const cacheKey = `${targetVeh}_${dfFrom}_${dfTo}`;
+    const now = Date.now();
+
+    if (!refresh && fuelReportCacheStore.has(cacheKey)) {
+      const cached = fuelReportCacheStore.get(cacheKey);
+      if (now - cached.timestamp < FUEL_REPORT_CACHE_TTL) {
+        return res.status(200).json({ success: true, data: cached.data, isCached: true });
+      }
+    }
+
+    const buses = await Bus.find({ status: 'Active' }).lean();
+    const routes = await Route.find({}).lean();
+    const routeMap = {};
+    routes.forEach(r => { routeMap[r.routeId] = r; });
+
+    const vehiclesRes = await fetchVehiclesListFromTgg();
+    const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
+
+    const isSingleVehicle = targetVeh !== 'ALL' && targetVeh !== 'All Vehicles';
+
+    let rawParsedRows = [];
+
+    if (isSingleVehicle) {
+      const tggVehicleName = await resolveTggVehicleName(targetVeh);
+      const result = await fetchReportsFromTgg({
+        vehicle_name: tggVehicleName,
+        date_from: dfFrom,
+        date_to: dfTo,
+        template: 'Fuel Day Report',
+        timeoutMs: 25000
+      });
+
+      if (result.success && result.data) {
+        rawParsedRows = parseFuelDayReportFromTgg(result.data);
+      }
+    } else {
+      // Query all fleet vehicles concurrently in fast chunks of 10
+      const CONCURRENCY = 10;
+      for (let i = 0; i < tggVehicles.length; i += CONCURRENCY) {
+        const chunk = tggVehicles.slice(i, i + CONCURRENCY);
+        const chunkResults = await Promise.all(chunk.map(async (v) => {
+          try {
+            const res = await fetchReportsFromTgg({
+              vehicle_name: v.name,
+              date_from: dfFrom,
+              date_to: dfTo,
+              template: 'Fuel Day Report',
+              timeoutMs: 25000
+            });
+            if (res.success && res.data) {
+              const rows = parseFuelDayReportFromTgg(res.data);
+              if (rows.length > 0) return rows;
+            }
+          } catch (e) {}
+          return [{
+            tggVehicleName: v.name,
+            kmsTravelled: null,
+            initialFuel: null,
+            finalFuel: null,
+            fuelConsumption: null
+          }];
+        }));
+
+        chunkResults.forEach(rows => rawParsedRows.push(...rows));
+      }
+    }
+
+    // Merge route details & bus information
+    const enrichedRows = rawParsedRows.map(r => {
+      const { matchedBus, routeId, routeName } = resolveVehicleRoute(r.tggVehicleName, buses, routeMap);
+      return {
+        ...r,
+        busNumber: matchedBus ? matchedBus.busNumber : r.tggVehicleName,
+        routeId,
+        routeName
+      };
+    });
+
+    fuelReportCacheStore.set(cacheKey, { timestamp: now, data: enrichedRows });
+
+    return res.status(200).json({ success: true, data: enrichedRows });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Failed to fetch fuel report' });
+  }
+};
+
 module.exports = {
   fetchLiveVehicles,
   fetchVehicleReports,
@@ -1548,5 +1650,7 @@ module.exports = {
   fetchDayInOutReport,
   fetch7DayInOutReport: fetchDayInOutReport,
   fetchNightStayReport,
+  fetchFuelDayReport,
   getLiveBusLocation
 };
+
