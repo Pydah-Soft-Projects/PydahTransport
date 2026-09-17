@@ -1,0 +1,327 @@
+{
+  "ALL_2026-09-17 00:00_2026-09-17 23:59": {
+    "timestamp": 1789630083941,
+    "data": [
+      {
+        "tggVehicleName": "R23_AP39UW4611",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-UW-4611",
+        "routeId": "R23",
+        "routeName": "Kakinada Local- SP Office, Dairtform, Kalpana, Via Main Road"
+      },
+      {
+        "tggVehicleName": "R19_AP39WG5857",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-WG-5857",
+        "routeId": "R31",
+        "routeName": "MACHAVARAM VIA KURADA"
+      },
+      {
+        "tggVehicleName": "AP40KX3936",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP40KX3936",
+        "routeId": "Unassigned",
+        "routeName": "Unassigned"
+      },
+      {
+        "tggVehicleName": "AP05CA2456",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP05CA2456",
+        "routeId": "Unassigned",
+        "routeName": "Unassigned"
+      },
+      {
+        "tggVehicleName": "AP40B3523",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP40B3523",
+        "routeId": "Unassigned",
+        "routeName": "Unassigned"
+      },
+      {
+        "tggVehicleName": "R07_AP39WH8273",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-WH-8273",
+        "routeId": "R19",
+        "routeName": "T.Kothapalli Via Guttenadeevi, Yanam, Neelapalli"
+      },
+      {
+        "tggVehicleName": "R12_AP05TD4258",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-05-TD-4258",
+        "routeId": "R12",
+        "routeName": "Ainavilli, Mukteswaram Via Mummidivaram, Tallarevu"
+      },
+      {
+        "tggVehicleName": "R08_AP05TC1003",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-05-TC-1003",
+        "routeId": "R29",
+        "routeName": "KAKINADA LOCAL"
+      },
+      {
+        "tggVehicleName": "R03_AP39WS0357",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-WS-0357",
+        "routeId": "R03",
+        "routeName": "Kakinada Local - Vakalapudi"
+      },
+      {
+        "tggVehicleName": "R25_AP39WS0358",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-WS-0358",
+        "routeId": "R25",
+        "routeName": "Bikkavolu, PB Devam, Vetlapalem, Madhavapatnam Via Chediga Kovvada"
+      },
+      {
+        "tggVehicleName": "R13_AP03TE2604",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-03-TE-2604",
+        "routeId": "R13",
+        "routeName": "Ramachandrapuram, Ooduru Via Velangi, Nadakuduru"
+      },
+      {
+        "tggVehicleName": "R14_AP05TD9302",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-05-TD-9302",
+        "routeId": "R30",
+        "routeName": "SARPAVARAM JUNCTION VIA NADAKUDURU"
+      },
+      {
+        "tggVehicleName": "AP30X1977",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-30-X-1977",
+        "routeId": "R22",
+        "routeName": "Kakinada Local Staff Bus"
+      },
+      {
+        "tggVehicleName": "R28_AP05TD9301",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-05-TD-9301",
+        "routeId": "R05",
+        "routeName": "G.Mamidada via A P Trayam, Kovvada"
+      },
+      {
+        "tggVehicleName": "R17_AP39WL1823",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-WL-1823",
+        "routeId": "R17",
+        "routeName": "Peddapuram Via Samalkot"
+      },
+      {
+        "tggVehicleName": "R27_AP05TD3943",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-05-TD-3943",
+        "routeId": "R27",
+        "routeName": "DSRM, GOLLAPALEM, GURAJANAPALLI"
+      },
+      {
+        "tggVehicleName": "R18_AP39VA2190",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-VA-2190",
+        "routeId": "R18",
+        "routeName": "Pallamkurru, Katrenikona Via Gunnepalli"
+      },
+      {
+        "tggVehicleName": "R02_AP39WH2173",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-WH-2173",
+        "routeId": "R02",
+        "routeName": "Kakinada Local - Bhavanarayana swamy temple"
+      },
+      {
+        "tggVehicleName": "R16_AP39WH0591",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-WH-0591",
+        "routeId": "R16",
+        "routeName": "Mandapeta,Valluru-Teki Via Gorripudi"
+      },
+      {
+        "tggVehicleName": "R15_AP39UY9054",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-UY-9054",
+        "routeId": "R01",
+        "routeName": "Yeleswaram, Burugupudi, Tamrada Via Kakinada"
+      },
+      {
+        "tggVehicleName": "R04_AP39WS0355",
+        "kmsTravelled": 0,
+        "initialFuel": 0,
+        "finalFuel": 0,
+        "fuelConsumption": 0,
+        "busNumber": "AP-39-WS-0355",
+        "routeId": "R07",
+        "routeName": "Konapapeta, U.Kothapalli,Uppada Via Rayudupalem"
+      },
+      {
+        "tggVehicleName": "R10_AP39UW7092",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-UW-7092",
+        "routeId": "R11",
+        "routeName": "Vannepudi, Gollaprolu Via Pithapuram"
+      },
+      {
+        "tggVehicleName": "R26_AP39UY9052",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-UY-9052",
+        "routeId": "R26",
+        "routeName": "Unduru, Panasapadu, Subbaiah Hotel, Gandhi Nagar, Gati Center Via MSN"
+      },
+      {
+        "tggVehicleName": "R11_AP39VA1852",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-VA-1852",
+        "routeId": "R08",
+        "routeName": "Kotipalli Via Gangavaram, Peddapurappadu"
+      },
+      {
+        "tggVehicleName": "R06_AP39WJ1165",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-WJ-1165",
+        "routeId": "R06",
+        "routeName": "Kothapeta Via Mandapeta, Alamuru"
+      },
+      {
+        "tggVehicleName": "R22_AP05TC1004",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-05-TC-1004",
+        "routeId": "R14",
+        "routeName": "Manjeru, Kajuluru Via Injaram"
+      },
+      {
+        "tggVehicleName": "R05_AP39UP7550",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-UP-7550",
+        "routeId": "R28",
+        "routeName": "Kakinada Local-Sarpavaram,Main Road"
+      },
+      {
+        "tggVehicleName": "R21_AP39UP8071",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "R21_AP39UP8071",
+        "routeId": "R21",
+        "routeName": "Paadagaya Koneru JU, Jaggayya Cheruvu Atchempeta Via Bhanugudi"
+      },
+      {
+        "tggVehicleName": "R01_AP39UP7549",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-UP-7549",
+        "routeId": "R10",
+        "routeName": "Pasarlapudi, Boda Scuru Via Amalapuram"
+      },
+      {
+        "tggVehicleName": "R24_AP39WS0354",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-WS-0354",
+        "routeId": "R24",
+        "routeName": "Tuni , Annavaram, Via Kathipudi, Durgada, APSP"
+      },
+      {
+        "tggVehicleName": "R09_AP39WG5853",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-WG-5853",
+        "routeId": "R32",
+        "routeName": "VIRAVA VIA PITHAPURAM"
+      },
+      {
+        "tggVehicleName": "R20_AP39VA1853",
+        "kmsTravelled": null,
+        "initialFuel": null,
+        "finalFuel": null,
+        "fuelConsumption": null,
+        "busNumber": "AP-39-VA-1853",
+        "routeId": "R20",
+        "routeName": "Kesavaram Via Anaparthi, Sampara"
+      }
+    ]
+  }
+}

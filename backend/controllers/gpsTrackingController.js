@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const {
   getTggConfig,
   fetchVehiclesListFromTgg,
@@ -1532,11 +1534,34 @@ const getLiveBusLocation = async (req, res) => {
 };
 
 const fuelReportCacheStore = new Map();
-const FUEL_REPORT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache TTL
+const FUEL_REPORT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes cache TTL
+const FUEL_CACHE_FILE = path.join(__dirname, '../data/fuel_report_snapshot.json');
+
+// Load disk snapshot on backend startup
+try {
+  if (fs.existsSync(FUEL_CACHE_FILE)) {
+    const raw = fs.readFileSync(FUEL_CACHE_FILE, 'utf8');
+    const obj = JSON.parse(raw);
+    Object.keys(obj).forEach(k => {
+      fuelReportCacheStore.set(k, obj[k]);
+    });
+    console.log(`[Fuel Report Cache] Restored ${Object.keys(obj).length} report snapshots from disk.`);
+  }
+} catch (e) {}
+
+const saveFuelCacheToDisk = () => {
+  try {
+    const dir = path.dirname(FUEL_CACHE_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const obj = {};
+    fuelReportCacheStore.forEach((v, k) => { obj[k] = v; });
+    fs.writeFileSync(FUEL_CACHE_FILE, JSON.stringify(obj, null, 2), 'utf8');
+  } catch (e) {}
+};
 
 /**
  * GET /api/gps/fuel-report?vehicle_name=X&date_from=Y&date_to=Z
- * Fetches the "Fuel Day Report" from the TGG Reports API with in-memory caching.
+ * Fetches the "Fuel Day Report" from the TGG Reports API with in-memory & disk snapshot caching.
  */
 const fetchFuelDayReport = async (req, res) => {
   try {
@@ -1548,42 +1573,87 @@ const fetchFuelDayReport = async (req, res) => {
 
     const cacheKey = `${targetVeh}_${dfFrom}_${dfTo}`;
     const now = Date.now();
+    const startTime = Date.now();
 
+    // Serve cached response immediately (<5ms) if available
     if (!refresh && fuelReportCacheStore.has(cacheKey)) {
       const cached = fuelReportCacheStore.get(cacheKey);
-      if (now - cached.timestamp < FUEL_REPORT_CACHE_TTL) {
-        return res.status(200).json({ success: true, data: cached.data, isCached: true });
+      console.log(`[Fuel Report API] Instant Cache Hit for ${targetVeh} (${dfFrom} - ${dfTo}) - Served in ${Date.now() - startTime}ms`);
+      
+      // If stale, trigger background revalidation without blocking user response
+      if (now - cached.timestamp >= FUEL_REPORT_CACHE_TTL) {
+        setImmediate(() => performFreshFuelReportFetch(targetVeh, dfFrom, dfTo, cacheKey));
       }
+
+      return res.status(200).json({ success: true, data: cached.data, isCached: true });
     }
 
-    const buses = await Bus.find({ status: 'Active' }).lean();
-    const routes = await Route.find({}).lean();
-    const routeMap = {};
-    routes.forEach(r => { routeMap[r.routeId] = r; });
+    const enrichedRows = await performFreshFuelReportFetch(targetVeh, dfFrom, dfTo, cacheKey);
+    console.log(`[Fuel Report API] Fresh Fetch Completed for ${targetVeh} (${dfFrom} - ${dfTo}) - Total Time: ${Date.now() - startTime}ms (${enrichedRows.length} rows)`);
+    return res.status(200).json({ success: true, data: enrichedRows });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Failed to fetch fuel report' });
+  }
+};
 
+const performFreshFuelReportFetch = async (targetVeh, dfFrom, dfTo, cacheKey) => {
+  const [buses, routes] = await Promise.all([
+    Bus.find({ status: 'Active' }).lean(),
+    Route.find({}).lean()
+  ]);
+  const routeMap = {};
+  routes.forEach(r => { routeMap[r.routeId] = r; });
+
+  let tggVehicles = [];
+  try {
     const vehiclesRes = await fetchVehiclesListFromTgg();
-    const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
+    if (vehiclesRes && vehiclesRes.success && Array.isArray(vehiclesRes.data) && vehiclesRes.data.length > 0) {
+      tggVehicles = vehiclesRes.data;
+    }
+  } catch (e) {}
 
-    const isSingleVehicle = targetVeh !== 'ALL' && targetVeh !== 'All Vehicles';
+  if (tggVehicles.length === 0 && buses.length > 0) {
+    tggVehicles = buses.map(b => ({ name: b.busNumber }));
+  }
 
-    let rawParsedRows = [];
+  const isSingleVehicle = targetVeh !== 'ALL' && targetVeh !== 'All Vehicles';
+  let rawParsedRows = [];
 
-    if (isSingleVehicle) {
-      const tggVehicleName = await resolveTggVehicleName(targetVeh);
-      const result = await fetchReportsFromTgg({
-        vehicle_name: tggVehicleName,
+  if (isSingleVehicle) {
+    const tggVehicleName = await resolveTggVehicleName(targetVeh);
+    const result = await fetchReportsFromTgg({
+      vehicle_name: tggVehicleName,
+      date_from: dfFrom,
+      date_to: dfTo,
+      template: 'Fuel Day Report',
+      timeoutMs: 6000
+    });
+
+    if (result.success && result.data) {
+      rawParsedRows = parseFuelDayReportFromTgg(result.data);
+    }
+  } else {
+    // 1. Attempt single bulk request for all vehicles
+    try {
+      const bulkRes = await fetchReportsFromTgg({
+        vehicle_name: '',
         date_from: dfFrom,
         date_to: dfTo,
         template: 'Fuel Day Report',
-        timeoutMs: 25000
+        timeoutMs: 5000
       });
 
-      if (result.success && result.data) {
-        rawParsedRows = parseFuelDayReportFromTgg(result.data);
+      if (bulkRes.success && bulkRes.data && typeof bulkRes.data === 'object') {
+        const bulkRows = parseFuelDayReportFromTgg(bulkRes.data);
+        if (bulkRows.length > 0) {
+          rawParsedRows = bulkRows;
+        }
       }
-    } else {
-      // Query all fleet vehicles concurrently in fast chunks of 10
-      const CONCURRENCY = 10;
+    } catch (e) {}
+
+    // 2. Fallback: Query all vehicles in high-concurrency parallel batch with tight timeout
+    if (rawParsedRows.length === 0 && tggVehicles.length > 0) {
+      const CONCURRENCY = 35; // Process all fleet vehicles simultaneously in parallel
       for (let i = 0; i < tggVehicles.length; i += CONCURRENCY) {
         const chunk = tggVehicles.slice(i, i + CONCURRENCY);
         const chunkResults = await Promise.all(chunk.map(async (v) => {
@@ -1593,7 +1663,7 @@ const fetchFuelDayReport = async (req, res) => {
               date_from: dfFrom,
               date_to: dfTo,
               template: 'Fuel Day Report',
-              timeoutMs: 25000
+              timeoutMs: 6000
             });
             if (res.success && res.data) {
               const rows = parseFuelDayReportFromTgg(res.data);
@@ -1612,24 +1682,22 @@ const fetchFuelDayReport = async (req, res) => {
         chunkResults.forEach(rows => rawParsedRows.push(...rows));
       }
     }
-
-    // Merge route details & bus information
-    const enrichedRows = rawParsedRows.map(r => {
-      const { matchedBus, routeId, routeName } = resolveVehicleRoute(r.tggVehicleName, buses, routeMap);
-      return {
-        ...r,
-        busNumber: matchedBus ? matchedBus.busNumber : r.tggVehicleName,
-        routeId,
-        routeName
-      };
-    });
-
-    fuelReportCacheStore.set(cacheKey, { timestamp: now, data: enrichedRows });
-
-    return res.status(200).json({ success: true, data: enrichedRows });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message || 'Failed to fetch fuel report' });
   }
+
+  // Merge route details & bus information instantly without secondary network calls
+  const enrichedRows = rawParsedRows.map((r) => {
+    const { matchedBus, routeId, routeName } = resolveVehicleRoute(r.tggVehicleName, buses, routeMap);
+    return {
+      ...r,
+      busNumber: matchedBus ? matchedBus.busNumber : r.tggVehicleName,
+      routeId,
+      routeName
+    };
+  });
+
+  fuelReportCacheStore.set(cacheKey, { timestamp: Date.now(), data: enrichedRows });
+  saveFuelCacheToDisk();
+  return enrichedRows;
 };
 
 module.exports = {
