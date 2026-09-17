@@ -668,17 +668,17 @@ const parseFuelDayReportFromTgg = (tggData) => {
             }
           }
 
-          // Parse Fuel levels & consumption (e.g. "287.61 l", "216.33 l")
+          // Parse Fuel levels & consumption (e.g. "9.52 l", "95.64 l", "86.12 l")
           if (valLower.includes('l') && !valLower.includes('km') && !valLower.includes('/')) {
             const num = parseNumWithUnit(valStr);
             if (num !== null && num >= 0) {
               // TGG Fuel Data specific cell indices:
-              // Index 1 = Initial Fuel, Index 3 = Fuel Consumption, Index 5 = Final Fuel
-              if (k === '1' && initialFuel === null) initialFuel = num;
-              else if (k === '3' && fuelConsumption === null) fuelConsumption = num;
-              else if (k === '5' && finalFuel === null) finalFuel = num;
+              // Index 2 = Fuel Consumption, Index 4 = Initial Fuel Level, Index 5 = Final Fuel Level
+              if (k === '2' && fuelConsumption === null) fuelConsumption = num;
               else if (k === '4' && initialFuel === null) initialFuel = num;
-              else if (k === '2' && finalFuel === null) finalFuel = num;
+              else if (k === '5' && finalFuel === null) finalFuel = num;
+              else if (k === '1' && initialFuel === null) initialFuel = num;
+              else if (k === '3' && fuelConsumption === null) fuelConsumption = num;
             }
           }
         }

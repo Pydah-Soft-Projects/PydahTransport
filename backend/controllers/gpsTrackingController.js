@@ -1280,29 +1280,18 @@ const fetchNightStayReport = async (req, res) => {
         const stayRadius = Number(stayPointStage?.radius) || 300; // Geofence radius in meters (default 300m)
 
         if (hasStageCoords) {
-          // 1. Primary Source: Fetch segmented GPS position logs from TGG Messages API
+          // 1. Primary Source: Fetch GPS position history logs from TGG Messages API (04:00 to 22:00 window per date)
           try {
             const { baseUrl, token, username, password } = getTggConfig();
             const msgUrl = `${baseUrl}/messages_api.php?token=${encodeURIComponent(token)}`;
 
-            // Build 2-hour segment queries for each date in requested date range
-            const segmentQueries = [];
-            dates.forEach(dateStr => {
-              // Morning departure window (04:00 to 12:00)
-              for (let hour = 4; hour <= 10; hour += 2) {
-                const sH = String(hour).padStart(2, '0');
-                const eH = String(hour + 2).padStart(2, '0');
-                segmentQueries.push({ start: `${dateStr} ${sH}:00:00`, end: `${dateStr} ${eH}:00:00` });
-              }
-              // Evening arrival window (16:00 to 22:00)
-              for (let hour = 16; hour <= 20; hour += 2) {
-                const sH = String(hour).padStart(2, '0');
-                const eH = String(hour + 2).padStart(2, '0');
-                segmentQueries.push({ start: `${dateStr} ${sH}:00:00`, end: `${dateStr} ${eH}:00:00` });
-              }
-            });
+            // Build 1 query window per date (04:00:00 to 22:00:00) instead of 7 segment spam calls
+            const dateQueries = dates.map(dateStr => ({
+              start: `${dateStr} 04:00:00`,
+              end: `${dateStr} 22:00:00`
+            }));
 
-            const segResults = await Promise.all(segmentQueries.map(async (seg) => {
+            const segResults = await Promise.all(dateQueries.map(async (seg) => {
               try {
                 const params = new URLSearchParams();
                 params.append('username', username);
@@ -1315,7 +1304,7 @@ const fetchNightStayReport = async (req, res) => {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                   body: params,
-                  signal: AbortSignal.timeout(5000)
+                  signal: AbortSignal.timeout(4500)
                 });
 
                 if (response.ok) {
@@ -1625,30 +1614,7 @@ const getLiveBusLocation = async (req, res) => {
 };
 
 const fuelReportCacheStore = new Map();
-const FUEL_REPORT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes cache TTL
-const FUEL_CACHE_FILE = path.join(__dirname, '../data/fuel_report_snapshot.json');
-
-// Load disk snapshot on backend startup
-try {
-  if (fs.existsSync(FUEL_CACHE_FILE)) {
-    const raw = fs.readFileSync(FUEL_CACHE_FILE, 'utf8');
-    const obj = JSON.parse(raw);
-    Object.keys(obj).forEach(k => {
-      fuelReportCacheStore.set(k, obj[k]);
-    });
-    console.log(`[Fuel Report Cache] Restored ${Object.keys(obj).length} report snapshots from disk.`);
-  }
-} catch (e) {}
-
-const saveFuelCacheToDisk = () => {
-  try {
-    const dir = path.dirname(FUEL_CACHE_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const obj = {};
-    fuelReportCacheStore.forEach((v, k) => { obj[k] = v; });
-    fs.writeFileSync(FUEL_CACHE_FILE, JSON.stringify(obj, null, 2), 'utf8');
-  } catch (e) {}
-};
+const FUEL_REPORT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes in-memory cache TTL
 
 /**
  * GET /api/gps/fuel-report?vehicle_name=X&date_from=Y&date_to=Z
@@ -1658,8 +1624,12 @@ const fetchFuelDayReport = async (req, res) => {
   try {
     const { vehicle_name, date_from, date_to, refresh } = req.query;
 
-    const dfFrom = date_from ? (date_from.includes(' ') ? date_from : `${date_from} 00:00:00`) : '';
-    const dfTo = date_to ? (date_to.includes(' ') ? date_to : `${date_to} 23:59:59`) : '';
+    let dfFrom = date_from || '';
+    let dfTo = date_to || '';
+    if (dfFrom && dfFrom.length === 16) dfFrom += ':00';
+    else if (dfFrom && !dfFrom.includes(' ')) dfFrom += ' 00:00:00';
+    if (dfTo && dfTo.length === 16) dfTo += ':59';
+    else if (dfTo && !dfTo.includes(' ')) dfTo += ' 23:59:59';
     const targetVeh = vehicle_name || 'ALL';
 
     const cacheKey = `${targetVeh}_${dfFrom}_${dfTo}`;
@@ -1688,94 +1658,100 @@ const fetchFuelDayReport = async (req, res) => {
 };
 
 const performFreshFuelReportFetch = async (targetVeh, dfFrom, dfTo, cacheKey) => {
-  const [buses, routes] = await Promise.all([
+  const [buses, routes, tggVehRes] = await Promise.all([
     Bus.find({ status: 'Active' }).lean(),
-    Route.find({}).lean()
+    Route.find({}).lean(),
+    fetchVehiclesListFromTgg()
   ]);
   const routeMap = {};
   routes.forEach(r => { routeMap[r.routeId] = r; });
-
-  let tggVehicles = [];
-  try {
-    const vehiclesRes = await fetchVehiclesListFromTgg();
-    if (vehiclesRes && vehiclesRes.success && Array.isArray(vehiclesRes.data) && vehiclesRes.data.length > 0) {
-      tggVehicles = vehiclesRes.data;
-    }
-  } catch (e) {}
-
-  if (tggVehicles.length === 0 && buses.length > 0) {
-    tggVehicles = buses.map(b => ({ name: b.busNumber }));
-  }
+  const tggVehicles = tggVehRes.success && Array.isArray(tggVehRes.data) ? tggVehRes.data : [];
 
   const isSingleVehicle = targetVeh !== 'ALL' && targetVeh !== 'All Vehicles';
-  let rawParsedRows = [];
+  let targetBuses = buses;
 
   if (isSingleVehicle) {
-    const tggVehicleName = await resolveTggVehicleName(targetVeh);
-    const result = await fetchReportsFromTgg({
-      vehicle_name: tggVehicleName,
-      date_from: dfFrom,
-      date_to: dfTo,
-      template: 'Fuel Day Report',
-      timeoutMs: 6000
+    const busKey = extractPlateKey(targetVeh);
+    targetBuses = buses.filter(b => {
+      const bKey = extractPlateKey(b.busNumber);
+      return bKey && busKey && (bKey === busKey || bKey.includes(busKey) || busKey.includes(bKey));
     });
-
-    if (result.success && result.data) {
-      rawParsedRows = parseFuelDayReportFromTgg(result.data);
-    }
-  } else {
-    // 1. Attempt single bulk request for all vehicles
-    try {
-      const bulkRes = await fetchReportsFromTgg({
-        vehicle_name: '',
-        date_from: dfFrom,
-        date_to: dfTo,
-        template: 'Fuel Day Report',
-        timeoutMs: 5000
-      });
-
-      if (bulkRes.success && bulkRes.data && typeof bulkRes.data === 'object') {
-        const bulkRows = parseFuelDayReportFromTgg(bulkRes.data);
-        if (bulkRows.length > 0) {
-          rawParsedRows = bulkRows;
-        }
-      }
-    } catch (e) {}
-
-    // 2. Fallback: Query all vehicles in high-concurrency parallel batch with tight timeout
-    if (rawParsedRows.length === 0 && tggVehicles.length > 0) {
-      const CONCURRENCY = 35; // Process all fleet vehicles simultaneously in parallel
-      for (let i = 0; i < tggVehicles.length; i += CONCURRENCY) {
-        const chunk = tggVehicles.slice(i, i + CONCURRENCY);
-        const chunkResults = await Promise.all(chunk.map(async (v) => {
-          try {
-            const res = await fetchReportsFromTgg({
-              vehicle_name: v.name,
-              date_from: dfFrom,
-              date_to: dfTo,
-              template: 'Fuel Day Report',
-              timeoutMs: 6000
-            });
-            if (res.success && res.data) {
-              const rows = parseFuelDayReportFromTgg(res.data);
-              if (rows.length > 0) return rows;
-            }
-          } catch (e) {}
-          return [{
-            tggVehicleName: v.name,
-            kmsTravelled: null,
-            initialFuel: null,
-            finalFuel: null,
-            fuelConsumption: null
-          }];
-        }));
-
-        chunkResults.forEach(rows => rawParsedRows.push(...rows));
-      }
+    if (targetBuses.length === 0) {
+      targetBuses = [{ busNumber: targetVeh }];
     }
   }
 
-  // Merge route details & bus information instantly without secondary network calls
+  const rawParsedRows = [];
+  const CONCURRENCY = isSingleVehicle ? 1 : 2;
+
+  for (let i = 0; i < targetBuses.length; i += CONCURRENCY) {
+    const chunk = targetBuses.slice(i, i + CONCURRENCY);
+    await Promise.all(chunk.map(async (bus) => {
+      const busKey = extractPlateKey(bus.registrationNumber || bus.busNumber);
+      const matchedTgg = tggVehicles.find(v => {
+        const vKey = extractPlateKey(v.name);
+        return vKey && busKey && (vKey === busKey || vKey.includes(busKey) || busKey.includes(vKey));
+      });
+      const tggVehicleName = matchedTgg?.name || bus.busNumber;
+
+      let kmsTravelled = null;
+      let initialFuel = null;
+      let finalFuel = null;
+      let fuelConsumption = null;
+
+      try {
+        const result = await fetchReportsFromTgg({
+          vehicle_name: tggVehicleName,
+          date_from: dfFrom,
+          date_to: dfTo,
+          template: 'Fuel Day Report',
+          timeoutMs: 15000
+        });
+
+        if (result.success && result.data) {
+          const parsed = parseFuelDayReportFromTgg(result.data);
+          if (parsed.length > 0) {
+            const r = parsed[0];
+            kmsTravelled = r.kmsTravelled;
+            initialFuel = r.initialFuel;
+            finalFuel = r.finalFuel;
+            fuelConsumption = r.fuelConsumption;
+          }
+        }
+      } catch (e) {}
+
+      // Fallback: If kmsTravelled missing, query Daily Report for distance
+      if (kmsTravelled === null) {
+        try {
+          const dRes = await fetchReportsFromTgg({
+            vehicle_name: tggVehicleName,
+            date_from: dfFrom,
+            date_to: dfTo,
+            template: 'Daily Report',
+            timeoutMs: 15000
+          });
+          if (dRes.success && dRes.data) {
+            const parsedKms = parseDailyKilometersFromTggReport(dRes.data, tggVehicleName);
+            const vals = Object.values(parsedKms).filter(v => v > 0);
+            if (vals.length > 0) {
+              kmsTravelled = Math.max(...vals);
+            }
+          }
+        } catch (e) {}
+      }
+
+      rawParsedRows.push({
+        tggVehicleName,
+        busNumber: bus.busNumber,
+        kmsTravelled,
+        initialFuel,
+        finalFuel,
+        fuelConsumption
+      });
+    }));
+  }
+
+  // Merge route details & bus information
   const enrichedRows = rawParsedRows.map((r) => {
     const { matchedBus, routeId, routeName } = resolveVehicleRoute(r.tggVehicleName, buses, routeMap);
     return {
@@ -1787,7 +1763,6 @@ const performFreshFuelReportFetch = async (targetVeh, dfFrom, dfTo, cacheKey) =>
   });
 
   fuelReportCacheStore.set(cacheKey, { timestamp: Date.now(), data: enrichedRows });
-  saveFuelCacheToDisk();
   return enrichedRows;
 };
 
@@ -1810,6 +1785,7 @@ module.exports = {
   fetch7DayInOutReport: fetchDayInOutReport,
   fetchNightStayReport,
   fetchFuelDayReport,
+  performFreshFuelReportFetch,
   getLiveBusLocation
 };
 
