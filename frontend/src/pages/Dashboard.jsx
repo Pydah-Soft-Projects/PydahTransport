@@ -32,6 +32,112 @@ const buildRenewalsPath = ({ expiredYear, targetYear, course = '', status = '' }
     return qs ? `/renewals?${qs}` : '/renewals';
 };
 
+const DashboardSkeleton = () => (
+    <div className="animate-pulse space-y-4">
+        {/* Top 4 Cards Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between h-[110px]">
+                    <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-slate-200 shrink-0" />
+                            <div className="space-y-2">
+                                <div className="h-2.5 bg-slate-200 rounded w-20" />
+                                <div className="h-6 bg-slate-300 rounded w-16" />
+                            </div>
+                        </div>
+                    </div>
+                    <div className="h-3 bg-slate-200 rounded w-28 mt-2" />
+                </div>
+            ))}
+        </div>
+
+        {/* Unassigned Bus Staff Card */}
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 mb-4">
+            <div className="flex justify-between items-center mb-3">
+                <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-slate-200 shrink-0" />
+                    <div className="space-y-1.5">
+                        <div className="h-4 bg-slate-300 rounded w-40" />
+                        <div className="h-2.5 bg-slate-200 rounded w-64" />
+                    </div>
+                </div>
+                <div className="h-8 bg-slate-200 rounded-lg w-28 shrink-0" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                        <div className="flex justify-between items-center">
+                            <div className="h-3.5 bg-slate-300 rounded w-20" />
+                            <div className="h-3 bg-slate-200 rounded w-16" />
+                        </div>
+                        <div className="flex gap-1">
+                            <div className="h-3 bg-slate-200 rounded w-14" />
+                            <div className="h-3 bg-slate-200 rounded w-14" />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+
+        {/* Middle 3 Columns */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            {[1, 2, 3].map((col) => (
+                <div key={col} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col h-[340px]">
+                    <div className="flex justify-between items-center mb-4">
+                        <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 bg-slate-200 rounded" />
+                            <div className="h-4 bg-slate-300 rounded w-28" />
+                        </div>
+                        <div className="h-3 bg-slate-200 rounded w-12" />
+                    </div>
+                    <div className="flex-1 space-y-3">
+                        {[1, 2, 3, 4, 5].map((row) => (
+                            <div key={row} className="space-y-1">
+                                <div className="flex justify-between">
+                                    <div className="h-3 bg-slate-300 rounded w-24" />
+                                    <div className="h-3 bg-slate-200 rounded w-10" />
+                                </div>
+                                <div className="h-1 bg-slate-200 rounded-full w-full" />
+                            </div>
+                        ))}
+                    </div>
+                    <div className="pt-2 border-t border-slate-100 flex justify-between items-center mt-2">
+                        <div className="h-3 bg-slate-200 rounded w-20" />
+                        <div className="h-4 bg-slate-300 rounded w-10" />
+                    </div>
+                </div>
+            ))}
+        </div>
+
+        {/* Renewals Overview Section */}
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+            <div className="flex justify-between items-center mb-3">
+                <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-slate-200 rounded" />
+                    <div className="space-y-1">
+                        <div className="h-4 bg-slate-300 rounded w-36" />
+                        <div className="h-2.5 bg-slate-200 rounded w-28" />
+                    </div>
+                </div>
+                <div className="h-6 bg-slate-200 rounded w-24" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="rounded-xl border border-slate-100 bg-slate-50 p-4 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-slate-200 shrink-0" />
+                        <div className="space-y-1.5 flex-1">
+                            <div className="h-2.5 bg-slate-200 rounded w-20" />
+                            <div className="h-5 bg-slate-300 rounded w-12" />
+                            <div className="h-2 bg-slate-200 rounded w-24" />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    </div>
+);
+
 const Dashboard = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
@@ -276,9 +382,7 @@ const Dashboard = () => {
             </div>
 
             {loading ? (
-                <div className="min-h-[300px] flex items-center justify-center">
-                    <Loader size={36} text="Loading dashboard analytics..." />
-                </div>
+                <DashboardSkeleton />
             ) : (
                 <>
                     {/* TOP CARDS */}

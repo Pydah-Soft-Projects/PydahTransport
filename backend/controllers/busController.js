@@ -519,7 +519,9 @@ const getBusesOverview = async (req, res) => {
             }
         }
 
-        const mongoStudents = await TransportRequest.find(studentQuery).lean();
+        const mongoStudents = await TransportRequest.find(studentQuery)
+            .select('bus_id route_id status academic_year admission_number is_expired not_interested')
+            .lean();
         // Resolve student request expiry details dynamically from SQL
         await resolveStudentExpiries(mongoStudents, mysqlPool);
 
@@ -530,7 +532,9 @@ const getBusesOverview = async (req, res) => {
             return (r.academic_year || fallbackAcademicYear) === academicYear;
         });
 
-        const mongoEmployees = await EmployeeTransportRequest.find(employeeQuery).lean();
+        const mongoEmployees = await EmployeeTransportRequest.find(employeeQuery)
+            .select('bus_id route_id status academic_year employee_id')
+            .lean();
         const activeEmployees = mongoEmployees.filter((r) => 
             liveOccupancy || (r.academic_year || fallbackAcademicYear) === academicYear
         );

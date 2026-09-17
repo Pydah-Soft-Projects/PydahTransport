@@ -46,6 +46,91 @@ const sortStagesByRouteOrder = (stageNames = [], routeStages = []) => {
     });
 };
 
+const FleetKpiSkeleton = () => (
+    <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-3 animate-pulse">
+        {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
+                <div className="min-w-0 space-y-2 flex-1">
+                    <div className="h-2.5 bg-slate-200 rounded w-20" />
+                    <div className="h-5 bg-slate-300 rounded w-16" />
+                </div>
+                <div className="w-8 h-8 rounded-lg bg-slate-200 shrink-0" />
+            </div>
+        ))}
+    </div>
+);
+
+const FleetTableSkeleton = () => (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full animate-pulse">
+        <div className="block md:hidden divide-y divide-slate-100 p-4 space-y-4">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((i) => (
+                <div key={i} className="pt-3 first:pt-0 space-y-3">
+                    <div className="flex justify-between items-center">
+                        <div className="h-4 bg-slate-200 rounded w-32" />
+                        <div className="h-4 bg-slate-200 rounded w-16" />
+                    </div>
+                    <div className="h-10 bg-slate-100 rounded-xl" />
+                    <div className="h-2 bg-slate-200 rounded-full" />
+                </div>
+            ))}
+        </div>
+
+        <div className="hidden md:block overflow-x-auto w-full">
+            <table className="w-full text-left border-collapse min-w-[750px]">
+                <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-400 font-bold tracking-wider">
+                        <th className="px-3 py-2">Route</th>
+                        <th className="px-3 py-2">Zone</th>
+                        <th className="px-3 py-2">Bus Details</th>
+                        <th className="px-3 py-2">Capacity</th>
+                        <th className="px-3 py-2">Seats Filled</th>
+                        <th className="px-3 py-2">Vacant Seats</th>
+                        <th className="px-3 py-2">Renewals</th>
+                        <th className="px-3 py-2">Occupancy</th>
+                        <th className="px-3 py-2 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
+                        <tr key={i}>
+                            <td className="px-3 py-3"><div className="h-4 bg-slate-200 rounded w-36" /></td>
+                            <td className="px-3 py-3"><div className="h-3 bg-slate-200 rounded w-16" /></td>
+                            <td className="px-3 py-3"><div className="h-4 bg-slate-200 rounded w-20" /></td>
+                            <td className="px-3 py-3"><div className="h-4 bg-slate-200 rounded w-10" /></td>
+                            <td className="px-3 py-3"><div className="h-4 bg-slate-200 rounded w-10" /></td>
+                            <td className="px-3 py-3"><div className="h-4 bg-slate-200 rounded w-10" /></td>
+                            <td className="px-3 py-3"><div className="h-4 bg-slate-200 rounded w-10" /></td>
+                            <td className="px-3 py-3"><div className="h-3 bg-slate-200 rounded w-20" /></td>
+                            <td className="px-3 py-3 text-right">
+                                <div className="flex justify-end gap-1.5">
+                                    <div className="h-6 bg-slate-200 rounded w-12" />
+                                    <div className="h-6 bg-slate-200 rounded w-12" />
+                                </div>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    </div>
+);
+
+const PassengerListSkeleton = () => (
+    <div className="space-y-2 p-3 bg-slate-50/60 rounded-xl animate-pulse">
+        <div className="flex gap-2 pb-2 border-b border-slate-200">
+            <div className="h-4 bg-slate-200 rounded w-20" />
+            <div className="h-4 bg-slate-200 rounded w-20" />
+            <div className="h-4 bg-slate-200 rounded w-20" />
+        </div>
+        {[1, 2, 3].map((i) => (
+            <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-100">
+                <div className="h-3.5 bg-slate-200 rounded w-40" />
+                <div className="h-3.5 bg-slate-200 rounded w-24" />
+            </div>
+        ))}
+    </div>
+);
+
 const Fleet = () => {
     const [list, setList] = useState([]);
     const [unassignedPassengerCount, setUnassignedPassengerCount] = useState(0);
@@ -437,22 +522,20 @@ const Fleet = () => {
                             <button
                                 type="button"
                                 onClick={() => setOccupancyMode('live')}
-                                className={`flex-1 py-1 px-2 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer text-center ${
-                                    occupancyMode === 'live'
+                                className={`flex-1 py-1 px-2 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer text-center ${occupancyMode === 'live'
                                         ? 'bg-blue-600 text-white shadow-xs'
                                         : 'text-slate-500 hover:bg-slate-50'
-                                }`}
+                                    }`}
                             >
                                 Live
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setOccupancyMode('academicYear')}
-                                className={`flex-1 py-1 px-2 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer text-center ${
-                                    occupancyMode === 'academicYear'
+                                className={`flex-1 py-1 px-2 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer text-center ${occupancyMode === 'academicYear'
                                         ? 'bg-blue-600 text-white shadow-xs'
                                         : 'text-slate-500 hover:bg-slate-50'
-                                }`}
+                                    }`}
                             >
                                 AY
                             </button>
@@ -584,7 +667,9 @@ const Fleet = () => {
                 </div>
             </Modal>
 
-            {!loading && list.length > 0 && (
+            {loading ? (
+                <FleetKpiSkeleton />
+            ) : list.length > 0 && (
                 <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
                         <div className="min-w-0">
@@ -646,8 +731,8 @@ const Fleet = () => {
                     {unassignedRouteBreakdown.length > 0 && (
                         <div className="pl-7 flex flex-wrap gap-1.5">
                             {unassignedRouteBreakdown.map((routeData) => (
-                                <span 
-                                    key={routeData.routeId} 
+                                <span
+                                    key={routeData.routeId}
                                     className="inline-flex items-center px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 text-[10px] font-bold border border-amber-200 shadow-sm"
                                 >
                                     {routeData.total} from {routeData.routeName} ({routeData.routeId})
@@ -666,9 +751,7 @@ const Fleet = () => {
             )}
 
             {loading ? (
-                <div className="min-h-[300px] flex items-center justify-center">
-                    <Loader size={32} text="Loading fleet overview..." />
-                </div>
+                <FleetTableSkeleton />
             ) : list.length === 0 ? (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-10 text-center flex flex-col items-center">
                     <div className="bg-slate-50 p-4 rounded-full mb-4">
@@ -802,9 +885,7 @@ const Fleet = () => {
                                     {isExpanded && (
                                         <div className="mt-3 pt-3 border-t border-slate-200 bg-slate-50/70 p-3 rounded-xl space-y-3">
                                             {passengersLoading ? (
-                                                <p className="text-xs text-slate-400 italic flex items-center gap-1.5">
-                                                    <Loader2 size={12} className="animate-spin" /> Loading passengers...
-                                                </p>
+                                                <PassengerListSkeleton />
                                             ) : passengers.length === 0 ? (
                                                 <p className="text-xs text-slate-400 italic">No passengers assigned to this bus.</p>
                                             ) : (() => {
@@ -1096,9 +1177,7 @@ const Fleet = () => {
                                                 <tr className="bg-slate-50/70">
                                                     <td colSpan={9} className="px-5 py-4">
                                                         {passengersLoading ? (
-                                                            <p className="text-xs text-slate-400 italic flex items-center gap-1.5">
-                                                                <Loader2 size={12} className="animate-spin" /> Loading passengers...
-                                                            </p>
+                                                            <PassengerListSkeleton />
                                                         ) : passengers.length === 0 ? (
                                                             <p className="text-xs text-slate-400 italic">No passengers assigned to this bus.</p>
                                                         ) : (() => {
