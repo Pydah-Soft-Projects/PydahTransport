@@ -647,64 +647,63 @@ const parseFuelDayReportFromTgg = (tggData) => {
     let finalFuel = null;
     let fuelConsumption = null;
 
-    // 1. Process "Summary Report" if available
-    const summarySec = vehObj["Summary Report"] || vehObj["Summary"] || vehObj.Summary;
-    if (summarySec && typeof summarySec === 'object') {
-      const cList = extractAllCObjects(summarySec);
+    const scanSection = (secObj) => {
+      if (!secObj || typeof secObj !== 'object') return;
+      const cList = extractAllCObjects(secObj);
       for (const cObj of cList) {
-        if (typeof cObj !== 'object') continue;
-
-        if (cObj["10"] && String(cObj["10"]).toLowerCase().includes('km')) {
-          kmsTravelled = parseNumWithUnit(cObj["10"]);
-        }
-        if (cObj["4"] && String(cObj["4"]).toLowerCase().includes('l')) {
-          const val = parseNumWithUnit(cObj["4"]);
-          if (val !== null && val > 0) initialFuel = val;
-        }
-        if (cObj["5"] && String(cObj["5"]).toLowerCase().includes('l')) {
-          const val = parseNumWithUnit(cObj["5"]);
-          if (val !== null && val > 0) finalFuel = val;
-        }
-        if (cObj["2"] && String(cObj["2"]).toLowerCase().includes('l')) {
-          const val = parseNumWithUnit(cObj["2"]);
-          if (val !== null && val > 0) fuelConsumption = val;
-        }
-
+        if (!cObj || typeof cObj !== 'object') continue;
         for (const k of Object.keys(cObj)) {
-          const valStr = String(cObj[k] || '');
-          if (valStr.toLowerCase().includes('km') && kmsTravelled === null) {
-            kmsTravelled = parseNumWithUnit(valStr);
-          }
-        }
-      }
-    }
+          const raw = cObj[k];
+          if (raw === null || raw === undefined) continue;
+          const valStr = (typeof raw === 'object' && raw.t) ? String(raw.t) : String(raw);
+          const valLower = valStr.toLowerCase();
 
-    // 2. Process "Trips details" / "Trips" for fallback distance & fuel if needed
-    const tripsSec = vehObj["Trips details"] || vehObj["Trips"] || vehObj.Trips;
-    if (tripsSec && typeof tripsSec === 'object') {
-      const cList = extractAllCObjects(tripsSec);
-      for (const cObj of cList) {
-        for (const k of Object.keys(cObj)) {
-          const valStr = String(cObj[k] || '');
-          if (valStr.toLowerCase().includes('km')) {
-            const d = parseNumWithUnit(valStr);
-            if (d !== null && (kmsTravelled === null || d > kmsTravelled)) {
-              kmsTravelled = d;
+          // Parse KMs Travelled (e.g. "606.41 km", "45.2 km")
+          if (valLower.includes('km') && !valLower.includes('km/h') && !valLower.includes('km/l') && !valLower.includes('l/100')) {
+            const num = parseNumWithUnit(valStr);
+            if (num !== null && num >= 0) {
+              if (kmsTravelled === null || num > kmsTravelled) {
+                kmsTravelled = num;
+              }
             }
           }
-          if (valStr.toLowerCase().includes('l')) {
-            const f = parseNumWithUnit(valStr);
-            if (f !== null && f > 0) {
-              if (k === '8' && initialFuel === null) initialFuel = f;
-              if (k === '9' && finalFuel === null) finalFuel = f;
-              if (k === '6' && fuelConsumption === null) fuelConsumption = f;
+
+          // Parse Fuel levels & consumption (e.g. "287.61 l", "216.33 l")
+          if (valLower.includes('l') && !valLower.includes('km') && !valLower.includes('/')) {
+            const num = parseNumWithUnit(valStr);
+            if (num !== null && num >= 0) {
+              // TGG Fuel Data specific cell indices:
+              // Index 1 = Initial Fuel, Index 3 = Fuel Consumption, Index 5 = Final Fuel
+              if (k === '1' && initialFuel === null) initialFuel = num;
+              else if (k === '3' && fuelConsumption === null) fuelConsumption = num;
+              else if (k === '5' && finalFuel === null) finalFuel = num;
+              else if (k === '4' && initialFuel === null) initialFuel = num;
+              else if (k === '2' && finalFuel === null) finalFuel = num;
             }
           }
         }
       }
+    };
+
+    // 1. Scan "Total KMs Travelled" or "Mileage" or "Distance"
+    if (vehObj["Total KMs Travelled"] || vehObj["Mileage"] || vehObj["Distance"]) {
+      scanSection(vehObj["Total KMs Travelled"] || vehObj["Mileage"] || vehObj["Distance"]);
     }
 
-    // 3. If initialFuel & finalFuel exist but fuelConsumption is missing, calculate consumption
+    // 2. Scan "Fuel Data" or "Summary Report" or "Summary"
+    if (vehObj["Fuel Data"] || vehObj["Summary Report"] || vehObj["Summary"]) {
+      scanSection(vehObj["Fuel Data"] || vehObj["Summary Report"] || vehObj["Summary"]);
+    }
+
+    // 3. Scan "Trips details" or "Trips"
+    if (vehObj["Trips details"] || vehObj["Trips"]) {
+      scanSection(vehObj["Trips details"] || vehObj["Trips"]);
+    }
+
+    // 4. Fallback: Scan entire vehObj
+    scanSection(vehObj);
+
+    // Calculate fuel consumption if missing but initial & final exist
     if (initialFuel !== null && finalFuel !== null && (fuelConsumption === null || fuelConsumption === 0)) {
       if (initialFuel >= finalFuel) {
         fuelConsumption = Math.round((initialFuel - finalFuel) * 100) / 100;
