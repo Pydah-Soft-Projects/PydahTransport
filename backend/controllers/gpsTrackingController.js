@@ -17,6 +17,25 @@ const GpsFinalDestination = require('../models/GpsFinalDestination');
 const campusService = require('../services/campusService');
 
 /**
+ * Calculates Haversine distance in meters between two lat/lng coordinates
+ */
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  if (!Number.isFinite(lat1) || !Number.isFinite(lon1) || !Number.isFinite(lat2) || !Number.isFinite(lon2)) return Infinity;
+  const R = 6371e3; // metres
+  const phi1 = lat1 * Math.PI / 180;
+  const phi2 = lat2 * Math.PI / 180;
+  const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+  const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+            Math.cos(phi1) * Math.cos(phi2) *
+            Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+};
+
+/**
  * Resolves allowed bus query filter based on logged in user campus permissions & query params
  */
 const getCampusBusQueryFilter = async (req) => {
@@ -1256,7 +1275,65 @@ const fetchNightStayReport = async (req, res) => {
           daysMap[d] = { firstIn: null, lastOut: null, kilometers: 0 };
         });
 
+        const stayRadius = Number(stayPointStage?.radius) || 300; // Geofence radius in meters (default 300m)
+
         if (hasStageCoords) {
+          // 1. Primary Source: Fetch live/historical bus GPS position logs from Messages API
+          try {
+            const msgRes = await fetchVehicleMessagesFromTgg({
+              vehicle_name: tggVehicleName,
+              date_from: dateFromStr,
+              date_to: dateToStr
+            });
+
+            if (msgRes.success && Array.isArray(msgRes.data) && msgRes.data.length > 0) {
+              const logs = msgRes.data;
+              // Sort logs chronologically
+              logs.sort((a, b) => new Date(a.timestamp || a.time) - new Date(b.timestamp || b.time));
+
+              logs.forEach(pt => {
+                const rawTime = pt.timestamp || pt.time || pt.date;
+                if (!rawTime) return;
+
+                const normDate = normalizeDateStr(rawTime);
+                if (!normDate || !daysMap[normDate]) return;
+
+                const timeParts = String(rawTime).trim().split(' ');
+                const timeStr = timeParts[1] ? timeParts[1].substring(0, 5) : (rawTime.length >= 16 ? rawTime.substring(11, 16) : null);
+                if (!timeStr) return;
+
+                const pLat = parseFloat(pt.latitude || pt.lat || pt.y);
+                const pLng = parseFloat(pt.longitude || pt.lng || pt.x);
+
+                if (Number.isFinite(pLat) && Number.isFinite(pLng)) {
+                  const dist = calculateDistance(stageLat, stageLng, pLat, pLng);
+                  const isInside = dist <= stayRadius;
+
+                  if (isInside) {
+                    // OUT Column: Morning departure from Night Stay Point (between 04:00 and 12:00)
+                    // Track latest time point recorded inside the geofence before bus departed for route
+                    if (timeStr >= '04:00' && timeStr < '12:00') {
+                      if (!daysMap[normDate].lastOut || timeStr > daysMap[normDate].lastOut) {
+                        daysMap[normDate].lastOut = timeStr;
+                      }
+                    }
+
+                    // IN Column: Evening/Night Arrival at Night Stay Point (after 16:00 / 4:00 PM)
+                    // Track earliest time point when bus entered the night stay geofence
+                    if (timeStr >= '16:00') {
+                      if (!daysMap[normDate].firstIn || timeStr < daysMap[normDate].firstIn) {
+                        daysMap[normDate].firstIn = timeStr;
+                      }
+                    }
+                  }
+                }
+              });
+            }
+          } catch (err) {
+            console.warn(`[GPS] Position history fetch failed for Night Stay on ${tggVehicleName}:`, err.message);
+          }
+
+          // 2. Secondary Fallback: Check TGG geofence report if position history didn't populate both IN & OUT
           try {
             const tggReport = await fetchReportsFromTgg({
               vehicle_name: tggVehicleName,
@@ -1269,30 +1346,22 @@ const fetchNightStayReport = async (req, res) => {
               const gfLogs = parseGeofencesFromTgg(tggReport.data, tggVehicleName);
 
               gfLogs.forEach(log => {
-                // OUT Column: Morning departure from Night Stay Point (before 12:00 PM)
                 if (log.timeOut && log.timeOut !== '—') {
                   const normOutDate = normalizeDateStr(log.timeOut);
                   const outTime = log.timeOut.split(' ')[1]?.substring(0, 5);
                   if (normOutDate && daysMap[normOutDate] && outTime) {
-                    if (outTime < '12:00') {
-                      if (!daysMap[normOutDate].lastOut || outTime < daysMap[normOutDate].lastOut) {
-                        daysMap[normOutDate].lastOut = outTime;
-                      }
-                    } else if (!daysMap[normOutDate].lastOut) {
-                      daysMap[normOutDate].lastOut = outTime;
+                    if (!daysMap[normOutDate].lastOut) {
+                      if (outTime < '12:00') daysMap[normOutDate].lastOut = outTime;
                     }
                   }
                 }
 
-                // IN Column: Evening/Night Arrival at Night Stay Point (after 5:00 PM / 17:00)
                 if (log.timeIn && log.timeIn !== '—') {
                   const normInDate = normalizeDateStr(log.timeIn);
                   const inTime = log.timeIn.split(' ')[1]?.substring(0, 5);
                   if (normInDate && daysMap[normInDate] && inTime) {
-                    if (inTime >= '17:00') {
-                      if (!daysMap[normInDate].firstIn || inTime < daysMap[normInDate].firstIn) {
-                        daysMap[normInDate].firstIn = inTime;
-                      }
+                    if (!daysMap[normInDate].firstIn && inTime >= '16:00') {
+                      daysMap[normInDate].firstIn = inTime;
                     }
                   }
                 }
@@ -1317,7 +1386,7 @@ const fetchNightStayReport = async (req, res) => {
               });
             }
           } catch (err) {
-            console.warn(`[GPS] nightstay report fetch failed for ${tggVehicleName}:`, err.message);
+            console.warn(`[GPS] nightstay report fallback fetch failed for ${tggVehicleName}:`, err.message);
           }
         }
 
