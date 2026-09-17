@@ -1280,16 +1280,75 @@ const fetchNightStayReport = async (req, res) => {
         const stayRadius = Number(stayPointStage?.radius) || 300; // Geofence radius in meters (default 300m)
 
         if (hasStageCoords) {
-          // 1. Primary Source: Fetch live/historical bus GPS position logs from Messages API
+          // 1. Primary Source: Fetch segmented GPS position logs from TGG Messages API
           try {
-            const msgRes = await fetchVehicleMessagesFromTgg({
-              vehicle_name: tggVehicleName,
-              date_from: dateFromStr,
-              date_to: dateToStr
+            const { baseUrl, token, username, password } = getTggConfig();
+            const msgUrl = `${baseUrl}/messages_api.php?token=${encodeURIComponent(token)}`;
+
+            // Build 2-hour segment queries for each date in requested date range
+            const segmentQueries = [];
+            dates.forEach(dateStr => {
+              // Morning departure window (04:00 to 12:00)
+              for (let hour = 4; hour <= 10; hour += 2) {
+                const sH = String(hour).padStart(2, '0');
+                const eH = String(hour + 2).padStart(2, '0');
+                segmentQueries.push({ start: `${dateStr} ${sH}:00:00`, end: `${dateStr} ${eH}:00:00` });
+              }
+              // Evening arrival window (16:00 to 22:00)
+              for (let hour = 16; hour <= 20; hour += 2) {
+                const sH = String(hour).padStart(2, '0');
+                const eH = String(hour + 2).padStart(2, '0');
+                segmentQueries.push({ start: `${dateStr} ${sH}:00:00`, end: `${dateStr} ${eH}:00:00` });
+              }
             });
 
-            if (msgRes.success && Array.isArray(msgRes.data) && msgRes.data.length > 0) {
-              const logs = msgRes.data;
+            const segResults = await Promise.all(segmentQueries.map(async (seg) => {
+              try {
+                const params = new URLSearchParams();
+                params.append('username', username);
+                params.append('password', password);
+                params.append('date_from', seg.start);
+                params.append('date_to', seg.end);
+                params.append('vehicle_name', tggVehicleName);
+
+                const response = await fetch(msgUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                  body: params,
+                  signal: AbortSignal.timeout(5000)
+                });
+
+                if (response.ok) {
+                  const rawText = await response.text();
+                  try {
+                    const parsed = JSON.parse(rawText.trim());
+                    const points = [];
+                    for (const vehKey of Object.keys(parsed)) {
+                      const vehData = parsed[vehKey];
+                      if (vehData && typeof vehData === 'object') {
+                        for (const logKey of Object.keys(vehData)) {
+                          const log = vehData[logKey];
+                          if (log && log.y && log.x) {
+                            points.push({
+                              timestamp: log.time || log.timestamp || '',
+                              latitude: parseFloat(log.y),
+                              longitude: parseFloat(log.x)
+                            });
+                          }
+                        }
+                      }
+                    }
+                    return points;
+                  } catch (e) { return []; }
+                }
+                return [];
+              } catch (e) { return []; }
+            }));
+
+            let logs = [];
+            segResults.forEach(pts => { if (Array.isArray(pts)) logs.push(...pts); });
+
+            if (logs.length > 0) {
               // Sort logs chronologically
               logs.sort((a, b) => new Date(a.timestamp || a.time) - new Date(b.timestamp || b.time));
 
@@ -1313,7 +1372,6 @@ const fetchNightStayReport = async (req, res) => {
 
                   if (isInside) {
                     // OUT Column: Morning departure from Night Stay Point (between 04:00 and 12:00)
-                    // Track latest time point recorded inside the geofence before bus departed for route
                     if (timeStr >= '04:00' && timeStr < '12:00') {
                       if (!daysMap[normDate].lastOut || timeStr > daysMap[normDate].lastOut) {
                         daysMap[normDate].lastOut = timeStr;
@@ -1321,7 +1379,6 @@ const fetchNightStayReport = async (req, res) => {
                     }
 
                     // IN Column: Evening/Night Arrival at Night Stay Point (after 16:00 / 4:00 PM)
-                    // Track earliest time point when bus entered the night stay geofence
                     if (timeStr >= '16:00') {
                       if (!daysMap[normDate].firstIn || timeStr < daysMap[normDate].firstIn) {
                         daysMap[normDate].firstIn = timeStr;
@@ -1335,7 +1392,7 @@ const fetchNightStayReport = async (req, res) => {
             console.warn(`[GPS] Position history fetch failed for Night Stay on ${tggVehicleName}:`, err.message);
           }
 
-          // 2. Secondary Fallback: Check TGG geofence report if position history didn't populate both IN & OUT
+          // 2. Fetch Daily Report solely to extract daily kilometers (distance)
           try {
             const tggReport = await fetchReportsFromTgg({
               vehicle_name: tggVehicleName,
@@ -1345,41 +1402,6 @@ const fetchNightStayReport = async (req, res) => {
             });
 
             if (tggReport.success && tggReport.data) {
-              const gfLogs = parseGeofencesFromTgg(tggReport.data, tggVehicleName);
-
-              gfLogs.forEach(log => {
-                if (log.timeOut && log.timeOut !== '—') {
-                  const normOutDate = normalizeDateStr(log.timeOut);
-                  const outTime = log.timeOut.split(' ')[1]?.substring(0, 5);
-                  if (normOutDate && daysMap[normOutDate] && outTime) {
-                    if (!daysMap[normOutDate].lastOut) {
-                      if (outTime < '12:00') daysMap[normOutDate].lastOut = outTime;
-                    }
-                  }
-                }
-
-                if (log.timeIn && log.timeIn !== '—') {
-                  const normInDate = normalizeDateStr(log.timeIn);
-                  const inTime = log.timeIn.split(' ')[1]?.substring(0, 5);
-                  if (normInDate && daysMap[normInDate] && inTime) {
-                    if (!daysMap[normInDate].firstIn && inTime >= '16:00') {
-                      daysMap[normInDate].firstIn = inTime;
-                    }
-                  }
-                }
-
-                if (log.mileage && log.mileage !== '—') {
-                  const mMatch = String(log.mileage).match(/([\d.]+)/);
-                  if (mMatch) {
-                    const mVal = Math.round(parseFloat(mMatch[1]) * 10) / 10;
-                    const logDate = normalizeDateStr(log.timeIn || log.timeOut);
-                    if (logDate && daysMap[logDate] && mVal > 0) {
-                      daysMap[logDate].kilometers = Math.max(daysMap[logDate].kilometers, mVal);
-                    }
-                  }
-                }
-              });
-
               const parsedKms = parseDailyKilometersFromTggReport(tggReport.data, tggVehicleName);
               Object.keys(parsedKms).forEach(dStr => {
                 if (daysMap[dStr] && parsedKms[dStr] > 0) {
