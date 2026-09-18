@@ -132,6 +132,73 @@ const PassengerReport = forwardRef(({
 
     const allPassengers = useMemo(() => (passengers || []), [passengers]);
 
+    const studentPassengers = useMemo(() => {
+        return allPassengers.filter(p => !p.user_type || p.user_type === 'student');
+    }, [allPassengers]);
+
+    const employeePassengers = useMemo(() => {
+        return allPassengers.filter(p => p.user_type === 'employee');
+    }, [allPassengers]);
+
+    const collegeGroups = useMemo(() => {
+        const groups = {};
+        studentPassengers.forEach(p => {
+            const collegeName = p.college || p.application_college_code || 'Unassigned College';
+            if (!groups[collegeName]) groups[collegeName] = [];
+            groups[collegeName].push(p);
+        });
+        return groups;
+    }, [studentPassengers]);
+
+    const courseGroups = useMemo(() => {
+        const groups = {};
+        studentPassengers.forEach(p => {
+            const courseName = p.course || p.application_course_code || 'Unassigned Course';
+            if (!groups[courseName]) groups[courseName] = [];
+            groups[courseName].push(p);
+        });
+        return groups;
+    }, [studentPassengers]);
+
+    const getBaseCourseName = (courseStr = '') => {
+        const s = String(courseStr).trim();
+        if (!s) return 'Unassigned Course';
+        if (/b\.?\s*tech/i.test(s)) return 'B.Tech';
+        if (/diploma/i.test(s)) return 'Diploma';
+        if (/b\.?\s*pharm/i.test(s)) return 'B.Pharmacy';
+        if (/m\.?\s*tech/i.test(s)) return 'M.Tech';
+        if (/mba/i.test(s)) return 'MBA';
+        if (/mca/i.test(s)) return 'MCA';
+        if (/degree/i.test(s)) return 'Degree';
+        return s;
+    };
+
+    const mainCourseGroups = useMemo(() => {
+        const groups = {};
+        studentPassengers.forEach(p => {
+            const rawCourse = p.course || p.application_course_code || 'Unassigned Course';
+            const baseName = getBaseCourseName(rawCourse);
+            if (!groups[baseName]) {
+                groups[baseName] = {
+                    students: [],
+                    subCourses: {}
+                };
+            }
+            groups[baseName].students.push(p);
+
+            if (!groups[baseName].subCourses[rawCourse]) {
+                groups[baseName].subCourses[rawCourse] = [];
+            }
+            groups[baseName].subCourses[rawCourse].push(p);
+        });
+        return groups;
+    }, [studentPassengers]);
+
+    const isUsingBusPass = (p) => {
+        const st = (p.status || '').toLowerCase();
+        return st === 'approved' || Boolean(p.application_number || p.bus_id);
+    };
+
     const globalCourseStats = useMemo(
         () => buildCourseStats(allPassengers),
         [allPassengers]
@@ -389,75 +456,240 @@ const PassengerReport = forwardRef(({
 
 
             {isRequestsReport ? (
-                <div className="requests-flat-report mt-2">
-                    {/* Student Requests */}
-                    {(passengers || []).filter(p => !p.user_type || p.user_type === 'student').length > 0 && (
-                        <div className="report-sub-section" style={{ marginBottom: '16px' }}>
-                            <h3 className="subsection-heading" style={{ marginTop: '12px' }}>Student Requests</h3>
-                            <table className="passenger-table">
-                                <thead>
-                                    <tr>
-                                        <th className="col-sno">#</th>
-                                        <th className="col-name">Passenger Name</th>
-                                        <th className="col-id">ID / Admission</th>
-                                        <th className="col-type">Type</th>
-                                        <th className="col-course">Course</th>
-                                        <th className="col-route">Route</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(passengers || []).filter(p => !p.user_type || p.user_type === 'student').map((p, idx) => (
-                                        <tr key={p.id || p._id || idx}>
-                                            <td className="col-sno">{idx + 1}</td>
-                                            <td className="col-name">{p.student_name || p.employee_name || '—'}</td>
-                                            <td className="col-id">{p.admission_no || p.admission_number || p.emp_no || '—'}</td>
-                                            <td className="col-type">
-                                                <span className="type-student">Student</span>
+                <div className="requests-report-container mt-2">
+                    {/* ABSTRACT SUMMARY SECTION */}
+                    {showAbstract && (
+                        <div className={`abstract-requests-section ${showDetailed ? 'page-break' : ''}`}>
+                            {/* 1. College Summary Abstract Table */}
+                            <div className="college-section" style={{ marginBottom: '20px' }}>
+                                <h2 className="section-heading" style={{ fontSize: '10px', borderBottom: '1.5px solid #000', paddingBottom: '3px', marginBottom: '8px' }}>
+                                    College-Wise Students Breakdown
+                                </h2>
+                                <table className="report-table" style={{ marginBottom: '10px' }}>
+                                    <thead>
+                                        <tr>
+                                            <th style={{ width: '5%', textAlign: 'center' }}>S.No</th>
+                                            <th style={{ textAlign: 'left' }}>College / Course Name</th>
+                                            <th style={{ width: '13%', textAlign: 'center' }}>Total Students</th>
+                                            <th style={{ width: '9%', textAlign: 'center' }}>1st Year</th>
+                                            <th style={{ width: '9%', textAlign: 'center' }}>2nd Year</th>
+                                            <th style={{ width: '9%', textAlign: 'center' }}>3rd Year</th>
+                                            <th style={{ width: '9%', textAlign: 'center' }}>4th Year</th>
+                                            <th style={{ width: '16%', textAlign: 'center' }}>Bus Pass Users</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {Object.keys(collegeGroups).sort().map((collegeName, idx) => {
+                                            const collegeStudents = collegeGroups[collegeName];
+                                            const cY1 = collegeStudents.filter(p => Number(p.year_of_study || 1) === 1).length;
+                                            const cY2 = collegeStudents.filter(p => Number(p.year_of_study) === 2).length;
+                                            const cY3 = collegeStudents.filter(p => Number(p.year_of_study) === 3).length;
+                                            const cY4 = collegeStudents.filter(p => Number(p.year_of_study) === 4).length;
+                                            const cBusPass = collegeStudents.filter(isUsingBusPass).length;
+
+                                            const collegeCoursesMap = {};
+                                            collegeStudents.forEach(p => {
+                                                const courseName = p.course || p.application_course_code || 'Unassigned Course';
+                                                if (!collegeCoursesMap[courseName]) collegeCoursesMap[courseName] = [];
+                                                collegeCoursesMap[courseName].push(p);
+                                            });
+
+                                            return (
+                                                <React.Fragment key={collegeName}>
+                                                    <tr style={{ background: '#f0f0f0', fontWeight: 'bold' }}>
+                                                        <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                                        <td style={{ textAlign: 'left', fontWeight: 'bold' }}>{collegeName}</td>
+                                                        <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{collegeStudents.length}</td>
+                                                        <td style={{ textAlign: 'center' }}>{cY1}</td>
+                                                        <td style={{ textAlign: 'center' }}>{cY2}</td>
+                                                        <td style={{ textAlign: 'center' }}>{cY3}</td>
+                                                        <td style={{ textAlign: 'center' }}>{cY4}</td>
+                                                        <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{cBusPass}</td>
+                                                    </tr>
+                                                    {Object.keys(collegeCoursesMap).sort().map((courseName) => {
+                                                        const crsList = collegeCoursesMap[courseName];
+                                                        const crsY1 = crsList.filter(p => Number(p.year_of_study || 1) === 1).length;
+                                                        const crsY2 = crsList.filter(p => Number(p.year_of_study) === 2).length;
+                                                        const crsY3 = crsList.filter(p => Number(p.year_of_study) === 3).length;
+                                                        const crsY4 = crsList.filter(p => Number(p.year_of_study) === 4).length;
+                                                        const crsBusPass = crsList.filter(isUsingBusPass).length;
+                                                        return (
+                                                            <tr key={`${collegeName}-${courseName}`}>
+                                                                <td></td>
+                                                                <td style={{ textAlign: 'left', paddingLeft: '16px', color: '#333' }}>
+                                                                    ↳ {courseName}
+                                                                </td>
+                                                                <td style={{ textAlign: 'center' }}>{crsList.length}</td>
+                                                                <td style={{ textAlign: 'center' }}>{crsY1}</td>
+                                                                <td style={{ textAlign: 'center' }}>{crsY2}</td>
+                                                                <td style={{ textAlign: 'center' }}>{crsY3}</td>
+                                                                <td style={{ textAlign: 'center' }}>{crsY4}</td>
+                                                                <td style={{ textAlign: 'center' }}>{crsBusPass}</td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </React.Fragment>
+                                            );
+                                        })}
+                                        <tr className="abstract-total-row">
+                                            <td colSpan={2} style={{ textAlign: 'left', fontWeight: 'bold' }}>Total</td>
+                                            <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{studentPassengers.length}</td>
+                                            <td style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                                                {studentPassengers.filter(p => Number(p.year_of_study || 1) === 1).length}
                                             </td>
-                                            <td className="col-course">
-                                                {p.course || '—'}
-                                                {p.branch ? ` (${p.branch})` : ''}
+                                            <td style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                                                {studentPassengers.filter(p => Number(p.year_of_study) === 2).length}
                                             </td>
-                                            <td className="col-route">
-                                                {p.route_name || '—'}
+                                            <td style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                                                {studentPassengers.filter(p => Number(p.year_of_study) === 3).length}
+                                            </td>
+                                            <td style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                                                {studentPassengers.filter(p => Number(p.year_of_study) === 4).length}
+                                            </td>
+                                            <td style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                                                {studentPassengers.filter(isUsingBusPass).length}
                                             </td>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
 
-                    {/* Employee Requests */}
-                    {(passengers || []).filter(p => p.user_type === 'employee').length > 0 && (
-                        <div className="report-sub-section">
-                            <h3 className="subsection-heading">Employee Requests</h3>
-                            <table className="passenger-table">
-                                <thead>
-                                    <tr>
-                                        <th className="col-sno">#</th>
-                                        <th className="col-name" style={{ width: '32%' }}>Passenger Name</th>
-                                        <th className="col-id" style={{ width: '9%' }}>ID / Admission</th>
-                                        <th className="col-type" style={{ width: '7%' }}>Type</th>
-                                        <th className="col-route" style={{ width: '47%' }}>Route</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(passengers || []).filter(p => p.user_type === 'employee').map((p, idx) => (
-                                        <tr key={p.id || p._id || idx}>
-                                            <td className="col-sno">{idx + 1}</td>
-                                            <td className="col-name">{p.student_name || p.employee_name || '—'}</td>
-                                            <td className="col-id">{p.admission_no || p.admission_number || p.emp_no || '—'}</td>
-                                            <td className="col-type">
-                                                <span className="type-employee">Employee</span>
-                                            </td>
-                                            <td className="col-route">
-                                                {p.route_name || '—'}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                    {/* DETAILED STUDENT LISTS SECTION */}
+                    {showDetailed && (
+                        <div className="detailed-requests-section">
+                            {/* Detailed Students List grouped by College */}
+                            {Object.keys(collegeGroups).sort().map((collegeName) => {
+                                const list = collegeGroups[collegeName];
+                                return (
+                                    <div key={collegeName} className="no-break" style={{ marginBottom: '10px' }}>
+                                        <div style={{ background: '#e6e6e6', padding: '3px 6px', fontWeight: 'bold', fontSize: '8px', border: '1px solid #000', borderBottom: 'none', display: 'flex', justifyContent: 'space-between' }}>
+                                            <span>COLLEGE: {collegeName.toUpperCase()}</span>
+                                            <span>Total Students: {list.length}</span>
+                                        </div>
+                                        <table className="passenger-table" style={{ margin: 0 }}>
+                                            <thead>
+                                                <tr>
+                                                    <th className="col-sno">#</th>
+                                                    <th className="col-name">Student Name</th>
+                                                    <th className="col-id">ID / Adm No</th>
+                                                    <th className="col-course">Course & Branch</th>
+                                                    <th className="col-route">Route & Stage</th>
+                                                    <th style={{ width: '14%', textAlign: 'center' }}>Bus Pass Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {list.map((p, idx) => {
+                                                    const hasPass = isUsingBusPass(p);
+                                                    return (
+                                                        <tr key={p.id || p._id || idx}>
+                                                            <td className="col-sno">{idx + 1}</td>
+                                                            <td className="col-name">{p.student_name || '—'}</td>
+                                                            <td className="col-id">{p.admission_no || p.admission_number || '—'}</td>
+                                                            <td className="col-course">
+                                                                {p.course || '—'}{p.branch ? ` (${p.branch})` : ''}
+                                                            </td>
+                                                            <td className="col-route">
+                                                                {p.route_name || 'Unassigned'} {p.stage_name ? `• ${p.stage_name}` : ''}
+                                                            </td>
+                                                            <td style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                                                                {hasPass ? 'Active Pass' : (p.status ? p.status.toUpperCase() : 'PENDING')}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                );
+                            })}
+
+                            {/* Detailed Students List grouped by Course */}
+                            {Object.keys(courseGroups).sort().map((courseName) => {
+                                const list = courseGroups[courseName];
+                                const y1 = list.filter(p => Number(p.year_of_study || 1) === 1).length;
+                                const y2 = list.filter(p => Number(p.year_of_study) === 2).length;
+                                const y3 = list.filter(p => Number(p.year_of_study) === 3).length;
+                                const y4 = list.filter(p => Number(p.year_of_study) === 4).length;
+                                const busPassCount = list.filter(isUsingBusPass).length;
+                                return (
+                                    <div key={courseName} className="no-break" style={{ marginBottom: '10px' }}>
+                                        <div style={{ background: '#e6e6e6', padding: '3px 6px', fontWeight: 'bold', fontSize: '8px', border: '1px solid #000', borderBottom: 'none', display: 'flex', justifyContent: 'space-between' }}>
+                                            <span>COURSE: {courseName.toUpperCase()}</span>
+                                            <span>Total: {list.length} | 1st Yr: {y1}, 2nd Yr: {y2}, 3rd Yr: {y3}, 4th Yr: {y4} | Bus Pass Users: {busPassCount}</span>
+                                        </div>
+                                        <table className="passenger-table" style={{ margin: 0 }}>
+                                            <thead>
+                                                <tr>
+                                                    <th className="col-sno">#</th>
+                                                    <th className="col-name">Student Name</th>
+                                                    <th className="col-id">ID / Adm No</th>
+                                                    <th style={{ width: '8%', textAlign: 'center' }}>Year</th>
+                                                    <th style={{ width: '20%', textAlign: 'left' }}>College</th>
+                                                    <th className="col-route">Route & Stage</th>
+                                                    <th style={{ width: '15%', textAlign: 'center' }}>Bus Pass Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {list.map((p, idx) => {
+                                                    const hasPass = isUsingBusPass(p);
+                                                    return (
+                                                        <tr key={p.id || p._id || idx}>
+                                                            <td className="col-sno">{idx + 1}</td>
+                                                            <td className="col-name">{p.student_name || '—'}</td>
+                                                            <td className="col-id">{p.admission_no || p.admission_number || '—'}</td>
+                                                            <td style={{ textAlign: 'center' }}>
+                                                                {p.year_of_study ? `${p.year_of_study} Yr` : '—'}
+                                                            </td>
+                                                            <td style={{ textAlign: 'left' }}>{p.college || '—'}</td>
+                                                            <td className="col-route">
+                                                                {p.route_name || 'Unassigned'} {p.stage_name ? `• ${p.stage_name}` : ''}
+                                                            </td>
+                                                            <td style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                                                                {hasPass ? 'Active Pass' : (p.status ? p.status.toUpperCase() : 'PENDING')}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                );
+                            })}
+
+                            {/* Employee Requests (if any) */}
+                            {employeePassengers.length > 0 && (
+                                <div className="employee-section" style={{ marginTop: '14px' }}>
+                                    <h2 className="section-heading" style={{ fontSize: '10px', borderBottom: '1.5px solid #000', paddingBottom: '3px', marginBottom: '8px' }}>
+                                        Employee Transport Requests
+                                    </h2>
+                                    <table className="passenger-table">
+                                        <thead>
+                                            <tr>
+                                                <th className="col-sno">#</th>
+                                                <th className="col-name" style={{ width: '32%' }}>Employee Name</th>
+                                                <th className="col-id" style={{ width: '15%' }}>Emp ID</th>
+                                                <th style={{ width: '20%' }}>Department</th>
+                                                <th className="col-route" style={{ width: '33%' }}>Route & Stage</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {employeePassengers.map((p, idx) => (
+                                                <tr key={p.id || p._id || idx}>
+                                                    <td className="col-sno">{idx + 1}</td>
+                                                    <td className="col-name">{p.employee_name || p.student_name || '—'}</td>
+                                                    <td className="col-id">{p.emp_no || '—'}</td>
+                                                    <td>{p.department || 'Employee'}</td>
+                                                    <td className="col-route">
+                                                        {p.route_name || 'Unassigned'} {p.stage_name ? `• ${p.stage_name}` : ''}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

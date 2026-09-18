@@ -273,15 +273,18 @@ const TransportRequests = () => {
     const [fetchingIdCard, setFetchingIdCard] = useState(false);
     const [idCardPreviewCount, setIdCardPreviewCount] = useState(null);
     const [downloadingReport, setDownloadingReport] = useState(false);
+    const [reportModalOpen, setReportModalOpen] = useState(false);
+    const [includeReportAbstract, setIncludeReportAbstract] = useState(true);
+    const [includeReportDetailed, setIncludeReportDetailed] = useState(true);
     const [selectedRequestIds, setSelectedRequestIds] = useState([]);
     // Stores the full row data for every selected ID so names remain visible
     // even after the filter/search changes and that row is no longer in `requests`.
     const [selectedRequestsMap, setSelectedRequestsMap] = useState({});
     const [idCardPrintMode, setIdCardPrintMode] = useState('range');
     const academicYearOptions = getAcademicYearOptions();
-
     const admitCardRef = useRef();
     const idCardSheetRef = useRef();
+
     const handlePrintAdmitCardClick = async (p) => {
         if (fetchingPass || fetchingIdCard) return;
         setFetchingPass(true);
@@ -338,7 +341,6 @@ const TransportRequests = () => {
                 body: JSON.stringify({
                     template: 'transport-bus-idcard-sheet',
                     data: {
-                        // Prefer Mongo _id — numeric request id can collide with employee emp_no
                         requestIds: [req._id || req.id],
                         userType: req.user_type || (req.emp_no && !req.admission_number ? 'employee' : 'student'),
                         academicYear: req.academic_year || academicYear,
@@ -361,11 +363,19 @@ const TransportRequests = () => {
         }
     };
 
-    const handleDownloadReport = async () => {
-        if (downloadingReport || currentRequests.length === 0) return;
+    const openReportModal = () => {
+        setReportModalOpen(true);
+    };
+
+    const handleDownloadReport = async (incAbstract = includeReportAbstract, incDetailed = includeReportDetailed) => {
+        const targetList = selectedRequestIds.length > 0
+            ? Object.values(selectedRequestsMap)
+            : (filteredRequestsByType.length > 0 ? filteredRequestsByType : requests);
+
+        if (downloadingReport || targetList.length === 0) return;
         setDownloadingReport(true);
         try {
-            const requestIds = currentRequests.map(r => r.id || r._id);
+            const requestIds = targetList.map(r => r.id || r._id);
             const response = await apiFetch(`${API_BASE}/print`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -374,8 +384,8 @@ const TransportRequests = () => {
                     data: {
                         requestIds,
                         academicYear: academicYear || undefined,
-                        includeAbstract: false,
-                        includeDetailed: true,
+                        includeAbstract: incAbstract,
+                        includeDetailed: incDetailed,
                         isRequestsReport: true,
                     }
                 })
@@ -1165,8 +1175,8 @@ const TransportRequests = () => {
                 <div className="grid grid-cols-3 gap-1.5 w-full sm:w-auto sm:flex sm:items-center sm:gap-3">
                     <button
                         type="button"
-                        onClick={handleDownloadReport}
-                        disabled={downloadingReport || loading || currentRequests.length === 0}
+                        onClick={openReportModal}
+                        disabled={downloadingReport || loading || requests.length === 0}
                         className="flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 sm:py-1.5 rounded-xl sm:rounded-lg bg-emerald-600 text-white font-bold sm:font-semibold text-[11px] sm:text-xs hover:bg-emerald-700 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed text-center min-w-0"
                     >
                         <FileText size={13} className="shrink-0" />
@@ -2585,6 +2595,83 @@ const TransportRequests = () => {
                 cardsPerPage={idCardPerPage}
                 padToFullPage={idCardPadToFullPage}
             />
+
+            {/* Report Section Selection Modal */}
+            <Modal
+                isOpen={reportModalOpen}
+                onClose={() => setReportModalOpen(false)}
+                title="Print Passenger Report"
+                maxWidth="max-w-md"
+            >
+                <div className="space-y-4 pt-1">
+                    <p className="text-sm font-medium text-slate-600">
+                        Choose which sections to include in the report.
+                    </p>
+
+                    <div className="space-y-3">
+                        {/* Abstract Option Card */}
+                        <label className={`flex items-start gap-3.5 p-4 rounded-2xl border-2 transition-all cursor-pointer ${
+                            includeReportAbstract ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}>
+                            <input
+                                type="checkbox"
+                                checked={includeReportAbstract}
+                                onChange={(e) => setIncludeReportAbstract(e.target.checked)}
+                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <div>
+                                <h4 className="text-sm font-bold text-slate-900">Abstract</h4>
+                                <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                                    Route-wise summary table with totals for students and employees.
+                                </p>
+                            </div>
+                        </label>
+
+                        {/* Detailed Option Card */}
+                        <label className={`flex items-start gap-3.5 p-4 rounded-2xl border-2 transition-all cursor-pointer ${
+                            includeReportDetailed ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}>
+                            <input
+                                type="checkbox"
+                                checked={includeReportDetailed}
+                                onChange={(e) => setIncludeReportDetailed(e.target.checked)}
+                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <div>
+                                <h4 className="text-sm font-bold text-slate-900">Detailed</h4>
+                                <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                                    Stage-wise passenger list with names, IDs, course, and bus details.
+                                </p>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div className="flex gap-3 pt-3">
+                        <button
+                            type="button"
+                            onClick={() => setReportModalOpen(false)}
+                            className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold text-xs hover:bg-slate-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (!includeReportAbstract && !includeReportDetailed) {
+                                    alert('Please select at least one section to include in the report.');
+                                    return;
+                                }
+                                setReportModalOpen(false);
+                                handleDownloadReport(includeReportAbstract, includeReportDetailed);
+                            }}
+                            disabled={downloadingReport}
+                            className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 shadow-sm disabled:opacity-50"
+                        >
+                            {downloadingReport ? 'Preparing…' : 'Generate Report'}
+                        </button>
+                    </div>
+                </div>
+            </Modal>
         </Layout >
     );
 };

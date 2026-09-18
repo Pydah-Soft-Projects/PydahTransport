@@ -560,72 +560,87 @@ const fetchPassengerReportData = async (data) => {
     const campusFilter = await getCampusRouteFilter(data.campus);
 
     if (data.requestIds && data.requestIds.length > 0) {
-        const ids = data.requestIds;
-        const mysqlIds = ids.filter(id => !isNaN(Number(id))).map(Number);
-        const mongoIds = ids.filter(id => typeof id === 'string' && isNaN(Number(id)));
+        const ids = data.requestIds.map(id => String(id));
+        const numericIds = ids.map(id => Number(id)).filter(n => !isNaN(n));
+        const validObjectIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === String(id));
 
-        if (mysqlIds.length > 0 && mysqlPool) {
-            const query = `
-                SELECT tr.*, 
-                       COALESCE(tr.year_of_study, s1.current_year, s2.current_year) as year_of_study,
-                       COALESCE(s1.course, s2.course) as course,
-                       COALESCE(s1.branch, s2.branch) as branch,
-                       COALESCE(s1.student_photo, s2.student_photo) as student_photo,
-                       COALESCE(s1.student_data, s2.student_data) as student_data,
-                       COALESCE(s1.pin_no, s2.pin_no) as pin_no
-                FROM transport_requests tr 
-                LEFT JOIN students s1 ON tr.admission_number = s1.admission_number 
-                LEFT JOIN students s2 ON tr.admission_number = s2.admission_no AND s1.id IS NULL
-                WHERE tr.id IN (${mysqlIds.map(() => '?').join(',')})
-            `;
-            const [rows] = await mysqlPool.query(query, mysqlIds);
-            passengers = (rows || []).map((r) => ({
-                ...r,
-                id: r.id,
-                student_photo: resolveStudentPhoto(r),
-                user_type: 'student',
-            }));
+        const studentOrConditions = [];
+        if (validObjectIds.length > 0) studentOrConditions.push({ _id: { $in: validObjectIds } });
+        if (numericIds.length > 0) studentOrConditions.push({ id: { $in: numericIds } });
+        studentOrConditions.push({ admission_number: { $in: ids } });
+
+        const studentMongoRequests = await TransportRequest.find({ $or: studentOrConditions }).lean();
+
+        const empOrConditions = [];
+        if (validObjectIds.length > 0) empOrConditions.push({ _id: { $in: validObjectIds } });
+        if (numericIds.length > 0) empOrConditions.push({ id: { $in: numericIds } });
+        empOrConditions.push({ emp_no: { $in: ids } });
+
+        const employeeMongoRequests = await EmployeeTransportRequest.find({ $or: empOrConditions }).lean();
+
+        const admissionNos = [...new Set(studentMongoRequests.map(r => r.admission_number).filter(Boolean))];
+        let studentMap = {};
+        if (mysqlPool && admissionNos.length > 0) {
+            try {
+                const [studentRows] = await mysqlPool.query(
+                    `SELECT admission_number, admission_no, college, course, branch, pin_no, current_year
+                     FROM students
+                     WHERE admission_number IN (?) OR admission_no IN (?)`,
+                    [admissionNos, admissionNos]
+                );
+                for (const s of (studentRows || [])) {
+                    if (s.admission_number) studentMap[s.admission_number] = s;
+                    if (s.admission_no) studentMap[s.admission_no] = s;
+                }
+            } catch (err) {
+                console.error('Error fetching student details from MySQL in print.service:', err.message);
+            }
         }
 
-        if (mongoIds.length > 0) {
-            const studentMongoRequests = await TransportRequest.find({ _id: { $in: mongoIds } }).lean();
-            const studentPassengers = studentMongoRequests.map(r => ({
+        const studentPassengers = studentMongoRequests.map((r) => {
+            const student = (r.admission_number && studentMap[r.admission_number]) || {};
+            return {
                 ...r,
-                id: r._id.toString(),
-                user_type: 'student'
-            }));
+                id: r.id != null ? r.id : String(r._id),
+                user_type: 'student',
+                college: student.college || r.college || r.application_college_code || 'Unassigned College',
+                course: student.course || r.course || r.application_course_code || 'Unassigned Course',
+                branch: student.branch || r.branch || '',
+                pin_no: student.pin_no || r.pin_no || 'N/A',
+                year_of_study: r.year_of_study || student.current_year || 1,
+            };
+        });
 
-            const mongoRequests = await EmployeeTransportRequest.find({ _id: { $in: mongoIds } }).lean();
-            
-            const empNos = [...new Set(mongoRequests.map(r => r.emp_no).filter(Boolean))];
-            let employeePhotoMap = {};
-            if (empNos.length > 0) {
-                try {
-                    const Employee = getEmployeeModel();
-                    if (Employee) {
-                        const empDocs = await Employee.find({ emp_no: { $in: empNos } }, 'emp_no profilePhoto').lean();
-                        for (const emp of empDocs) {
-                            if (emp.emp_no && emp.profilePhoto) {
-                                employeePhotoMap[emp.emp_no] = emp.profilePhoto;
-                            }
+        const empNos = [...new Set(employeeMongoRequests.map(r => r.emp_no).filter(Boolean))];
+        let employeePhotoMap = {};
+        if (empNos.length > 0) {
+            try {
+                const Employee = getEmployeeModel();
+                if (Employee) {
+                    const empDocs = await Employee.find({ emp_no: { $in: empNos } }, 'emp_no profilePhoto').lean();
+                    for (const emp of empDocs) {
+                        if (emp.emp_no && emp.profilePhoto) {
+                            employeePhotoMap[emp.emp_no] = emp.profilePhoto;
                         }
                     }
-                } catch (err) {
-                    console.error('Error fetching employee photos in batch:', err.message);
                 }
+            } catch (err) {
+                console.error('Error fetching employee photos in batch:', err.message);
             }
-
-            const mongoPassengers = mongoRequests.map((r) => ({
-                ...r,
-                id: r._id.toString(),
-                admission_number: r.emp_no,
-                student_name: r.employee_name,
-                user_type: 'employee',
-                course: 'Employee',
-                student_photo: r.emp_no ? (employeePhotoMap[r.emp_no] || null) : null,
-            }));
-            passengers = [...passengers, ...studentPassengers, ...mongoPassengers];
         }
+
+        const mongoPassengers = employeeMongoRequests.map((r) => ({
+            ...r,
+            id: r._id.toString(),
+            admission_number: r.emp_no,
+            student_name: r.employee_name,
+            user_type: 'employee',
+            college: r.department || 'Employee',
+            course: 'Employee',
+            student_photo: r.emp_no ? (employeePhotoMap[r.emp_no] || null) : null,
+        }));
+
+        passengers = [...studentPassengers, ...mongoPassengers];
     } else if (data.busId) {
         passengers = await fetchBusPassengers(data.busId, academicYear, activeOnly, data.campus, false);
     } else {
@@ -646,39 +661,39 @@ const fetchPassengerReportData = async (data) => {
         const studentMongoRequests = await TransportRequest.find(studentMongoQuery).lean();
         const filteredStudentRequests = studentMongoRequests;
 
-    // Resolve student request expiry details dynamically from SQL
-    await resolveStudentExpiries(filteredStudentRequests, mysqlPool);
+        await resolveStudentExpiries(filteredStudentRequests, mysqlPool);
 
-    const admissionNos = [...new Set(filteredStudentRequests.map(r => r.admission_number).filter(Boolean))];
-    let studentMap = {};
-    if (mysqlPool && admissionNos.length > 0) {
-        const [studentRows] = await mysqlPool.query(
-            `SELECT admission_number, admission_no, course, branch, pin_no
-             FROM students
-             WHERE admission_number IN (?) OR admission_no IN (?)`,
-            [admissionNos, admissionNos]
-        );
-        for (const s of studentRows) {
-            if (s.admission_number) studentMap[s.admission_number] = s;
-            if (s.admission_no) studentMap[s.admission_no] = s;
+        const admissionNos = [...new Set(filteredStudentRequests.map(r => r.admission_number).filter(Boolean))];
+        let studentMap = {};
+        if (mysqlPool && admissionNos.length > 0) {
+            const [studentRows] = await mysqlPool.query(
+                `SELECT admission_number, admission_no, college, course, branch, pin_no
+                 FROM students
+                 WHERE admission_number IN (?) OR admission_no IN (?)`,
+                [admissionNos, admissionNos]
+            );
+            for (const s of studentRows) {
+                if (s.admission_number) studentMap[s.admission_number] = s;
+                if (s.admission_no) studentMap[s.admission_no] = s;
+            }
         }
-    }
 
-    passengers = filteredStudentRequests.map((r) => {
-        const student = (r.admission_number && studentMap[r.admission_number]) || {};
-        const isExpired = r.is_expired;
-        return {
-            ...r,
-            id: r.id != null ? r.id : String(r._id),
-            user_type: 'student',
-            course: student.course || 'N/A',
-            branch: student.branch || 'N/A',
-            student_photo: null,
-            student_data: null,
-            pin_no: student.pin_no || 'N/A',
-            is_expired: isExpired,
-        };
-    });
+        passengers = filteredStudentRequests.map((r) => {
+            const student = (r.admission_number && studentMap[r.admission_number]) || {};
+            const isExpired = r.is_expired;
+            return {
+                ...r,
+                id: r.id != null ? r.id : String(r._id),
+                user_type: 'student',
+                college: student.college || r.college || r.application_college_code || 'Unassigned College',
+                course: student.course || r.course || r.application_course_code || 'Unassigned Course',
+                branch: student.branch || r.branch || 'N/A',
+                student_photo: null,
+                student_data: null,
+                pin_no: student.pin_no || 'N/A',
+                is_expired: isExpired,
+            };
+        });
 
         if (activeOnly) {
             passengers = passengers.filter((p) => !p.is_expired);
