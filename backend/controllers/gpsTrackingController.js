@@ -598,25 +598,40 @@ const parseDailyKilometersFromTggReport = (tggData, vehName) => {
       const cObj = rowItem?.c || rowItem;
       if (cObj && typeof cObj === 'object') {
         let rowDate = null;
-        let kmVal = 0;
+        let kmVal = null;
         for (const key of Object.keys(cObj)) {
-          const val = String(cObj[key] || '');
+          const val = String(cObj[key] || '').trim();
           const normD = normalizeDateStr(val);
           if (normD) {
             rowDate = normD;
-          }
-          if (val.toLowerCase().includes('km') || /^\d+(\.\d+)?$/.test(val.trim())) {
+          } else if (val.toLowerCase().includes('km')) {
             const m = val.match(/([\d.]+)/);
             if (m) {
               const n = parseFloat(m[1]);
-              if (!isNaN(n) && n > 0 && n < 2000) {
-                kmVal = Math.max(kmVal, n);
+              if (!isNaN(n) && n >= 0 && n < 2000) {
+                kmVal = Math.max(kmVal || 0, n);
               }
             }
           }
         }
-        if (rowDate && kmVal > 0) {
+        // Fallback: If no cell explicitly contained "km", search numeric columns excluding column "0" (S.No / Serial Number)
+        if (rowDate && kmVal === null) {
+          for (const key of Object.keys(cObj)) {
+            if (key === '0' || key === 'sno' || key === 's_no') continue; // skip serial number index
+            const val = String(cObj[key] || '').trim();
+            if (val && val !== rowDate && /^\d+(\.\d+)?$/.test(val)) {
+              const n = parseFloat(val);
+              if (!isNaN(n) && n >= 0 && n < 2000) {
+                kmVal = Math.max(kmVal || 0, n);
+              }
+            }
+          }
+        }
+
+        if (rowDate && kmVal !== null && kmVal > 0) {
           kmByDate[rowDate] = Math.round(kmVal * 10) / 10;
+        } else if (rowDate) {
+          kmByDate[rowDate] = 0;
         }
       }
     });
@@ -1167,9 +1182,15 @@ const fetchDayInOutReport = async (req, res) => {
             if (prevDay) {
               if (!currentDay.firstIn && prevDay.firstIn) currentDay.firstIn = prevDay.firstIn;
               if (!currentDay.lastOut && prevDay.lastOut) currentDay.lastOut = prevDay.lastOut;
-              if ((!currentDay.kilometers || currentDay.kilometers === 0) && prevDay.kilometers > 0) {
-                currentDay.kilometers = prevDay.kilometers;
+              if (currentDay.firstIn || currentDay.lastOut) {
+                if ((!currentDay.kilometers || currentDay.kilometers === 0) && prevDay.kilometers > 0) {
+                  currentDay.kilometers = prevDay.kilometers;
+                }
+              } else {
+                currentDay.kilometers = 0;
               }
+            } else if (!currentDay.firstIn && !currentDay.lastOut) {
+              currentDay.kilometers = 0;
             }
           });
         }

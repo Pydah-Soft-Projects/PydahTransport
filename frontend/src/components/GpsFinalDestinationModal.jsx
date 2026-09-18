@@ -5,6 +5,21 @@ import { Save, Loader2, Crosshair, MapPin, Eye, Plus, X, Clock, Calendar, AlertC
 const DEFAULT_CENTER = { lat: 16.9891, lng: 82.2475 };
 const DEFAULT_RADIUS = 200;
 
+const isLateArrival = (timeStr) => {
+  if (!timeStr || timeStr === '—' || timeStr === '...' || timeStr === '-') return false;
+  const clean = String(timeStr).trim();
+  const timePart = clean.includes(' ') ? clean.split(' ')[1] : clean;
+  const parts = timePart.split(':');
+  if (parts.length < 2) return false;
+  const hours = parseInt(parts[0], 10);
+  const minutes = parseInt(parts[1], 10);
+  const seconds = parts.length >= 3 ? parseInt(parts[2], 10) : 0;
+  if (isNaN(hours) || isNaN(minutes)) return false;
+  if (hours > 9) return true;
+  if (hours === 9 && (minutes > 0 || (seconds && seconds > 0))) return true;
+  return false;
+};
+
 export default function GpsFinalDestinationModal({ campuses = [] }) {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedCampus, setSelectedCampus] = useState('');
@@ -723,16 +738,40 @@ export default function GpsFinalDestinationModal({ campuses = [] }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 text-xs font-semibold text-slate-700">
-                  {reportData.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-5 py-3 font-bold text-slate-900">{row.busNumber}</td>
-                      <td className="px-5 py-3 text-slate-500">{row.routeName}</td>
-                      <td className="px-5 py-3 text-emerald-700">{row.mrngIn === '—' ? '—' : row.mrngIn}</td>
-                      <td className="px-5 py-3 text-rose-600">{row.mrngOut === '—' ? '—' : row.mrngOut}</td>
-                      <td className="px-5 py-3 text-emerald-700">{row.evngIn === '—' ? '—' : row.evngIn}</td>
-                      <td className="px-5 py-3 text-rose-600">{row.evngOut === '—' ? '—' : row.evngOut}</td>
-                    </tr>
-                  ))}
+                  {reportData.map((row, idx) => {
+                    const isMrngLate = isLateArrival(row.mrngIn);
+                    const isEvngLate = isLateArrival(row.evngIn);
+                    return (
+                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-5 py-3 font-bold text-slate-900 text-xs">{row.busNumber}</td>
+                        <td className="px-5 py-3 text-slate-500 text-xs">{row.routeName}</td>
+                        <td className="px-5 py-3 font-mono text-xs font-black">
+                          {row.mrngIn === '—' ? (
+                            <span className="text-slate-300 font-bold">—</span>
+                          ) : (
+                            <span className={`px-2 py-0.5 rounded font-black border ${
+                              isMrngLate ? 'bg-red-100 text-red-700 border-red-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            }`}>
+                              {row.mrngIn} {isMrngLate ? '(Late)' : ''}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-emerald-700 font-mono text-xs font-extrabold">{row.mrngOut === '—' ? <span className="text-slate-300 font-bold">—</span> : row.mrngOut}</td>
+                        <td className="px-5 py-3 font-mono text-xs font-black">
+                          {row.evngIn === '—' ? (
+                            <span className="text-slate-300 font-bold">—</span>
+                          ) : (
+                            <span className={`px-2 py-0.5 rounded font-black border ${
+                              isEvngLate ? 'bg-red-100 text-red-700 border-red-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            }`}>
+                              {row.evngIn}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-emerald-700 font-mono text-xs font-extrabold">{row.evngOut === '—' ? <span className="text-slate-300 font-bold">—</span> : row.evngOut}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

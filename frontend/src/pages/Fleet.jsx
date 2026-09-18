@@ -975,9 +975,9 @@ const Fleet = () => {
                     </div>
 
                     {/* Desktop View Table */}
-                    <div className="hidden md:block overflow-x-auto w-full">
+                    <div className="hidden md:block overflow-x-auto sidebar-scrollbar w-full relative">
                         <table className="w-full text-left border-collapse min-w-[750px]">
-                            <thead>
+                            <thead className="sticky top-0 z-30 shadow-xs bg-slate-50">
                                 <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider">
                                     <th
                                         onClick={() => handleSort('route')}

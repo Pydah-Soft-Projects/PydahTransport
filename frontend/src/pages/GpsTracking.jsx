@@ -66,6 +66,21 @@ const extractRouteIdFromVehicleName = (name) => {
   return m ? m[1].toUpperCase() : null;
 };
 
+const isLateArrival = (timeStr) => {
+  if (!timeStr || timeStr === '—' || timeStr === '...' || timeStr === '-') return false;
+  const clean = String(timeStr).trim();
+  const timePart = clean.includes(' ') ? clean.split(' ')[1] : clean;
+  const parts = timePart.split(':');
+  if (parts.length < 2) return false;
+  const hours = parseInt(parts[0], 10);
+  const minutes = parseInt(parts[1], 10);
+  const seconds = parts.length >= 3 ? parseInt(parts[2], 10) : 0;
+  if (isNaN(hours) || isNaN(minutes)) return false;
+  if (hours > 9) return true;
+  if (hours === 9 && (minutes > 0 || (seconds && seconds > 0))) return true;
+  return false;
+};
+
 const extractPlateKey = (name) => {
   if (!name) return '';
   const raw = String(name).trim();
@@ -1162,8 +1177,9 @@ export default function GpsTracking() {
             inCell.value = inTime || '—';
             inCell.alignment = { horizontal: 'center', vertical: 'middle' };
             if (inTime) {
-              inCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: '15803D' } };
-              inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DCFCE7' } };
+              const isLate = isLateArrival(inTime);
+              inCell.font = { name: 'Segoe UI', size: 10.5, bold: true, color: { argb: isLate ? 'B91C1C' : '15803D' } };
+              inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isLate ? 'FEE2E2' : 'DCFCE7' } };
             } else {
               inCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
               inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
@@ -1174,8 +1190,9 @@ export default function GpsTracking() {
             inCell.value = inTime || '—';
             inCell.alignment = { horizontal: 'center', vertical: 'middle' };
             if (inTime) {
-              inCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: '15803D' } };
-              inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DCFCE7' } };
+              const isLate = isLateArrival(inTime);
+              inCell.font = { name: 'Segoe UI', size: 10.5, bold: true, color: { argb: isLate ? 'B91C1C' : '15803D' } };
+              inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isLate ? 'FEE2E2' : 'DCFCE7' } };
             } else {
               inCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
               inCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
@@ -1186,8 +1203,8 @@ export default function GpsTracking() {
             outCell.value = outTime || '—';
             outCell.alignment = { horizontal: 'center', vertical: 'middle' };
             if (outTime) {
-              outCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'B91C1C' } };
-              outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
+              outCell.font = { name: 'Segoe UI', size: 10.5, bold: true, color: { argb: '15803D' } };
+              outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DCFCE7' } };
             } else {
               outCell.font = { name: 'Segoe UI', size: 9, color: { argb: '94A3B8' } };
               outCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgPattern } };
@@ -2452,18 +2469,18 @@ export default function GpsTracking() {
 
               return (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-                  <div className="overflow-x-auto sidebar-scrollbar">
+                  <div className="overflow-x-auto sidebar-scrollbar relative">
                     <table 
                       className="w-full text-left border-collapse" 
-                      style={{ minWidth: `${304 + nsDates.length * 88}px` }}
+                      style={{ minWidth: `${304 + nsDates.length * 100}px` }}
                     >
-                      <thead>
+                      <thead className="sticky top-0 z-30 shadow-sm">
                         {/* Header Row 1: Route, Bus Number, Stay Point, Date Columns */}
                         <tr className="bg-[#071B45] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('route')}
-                            className="px-1.5 py-1.5 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-20 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
+                            className="px-1.5 py-1.5 sticky top-0 left-0 bg-[#071B45] hover:bg-[#0A2558] z-40 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
                             title="Click to sort by Route ID"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2480,7 +2497,7 @@ export default function GpsTracking() {
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('bus')}
-                            className="px-1.5 py-1.5 sticky left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-20 w-[108px] min-w-[108px] max-w-[108px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            className="px-1.5 py-1.5 sticky top-0 left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-40 w-[108px] min-w-[108px] max-w-[108px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
                             title="Click to sort by Bus Number"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2496,7 +2513,7 @@ export default function GpsTracking() {
                           </th>
                           <th 
                             rowSpan={2} 
-                            className="px-2 py-1.5 sticky left-[176px] bg-[#071B45] z-20 w-[128px] min-w-[128px] max-w-[128px] align-middle border-r border-slate-700 select-none"
+                            className="px-2 py-1.5 sticky top-0 left-[176px] bg-[#071B45] z-40 w-[128px] min-w-[128px] max-w-[128px] align-middle border-r border-slate-700 select-none"
                           >
                             <span>Night Stay Point</span>
                           </th>
@@ -2508,7 +2525,7 @@ export default function GpsTracking() {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
 
                             return (
-                              <th key={dateStr} colSpan={2} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[88px] min-w-[88px] ${isToday ? 'bg-blue-900/90' : ''}`}>
+                              <th key={dateStr} colSpan={2} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[100px] min-w-[100px] sticky top-0 z-30 bg-[#071B45] ${isToday ? 'bg-blue-900' : ''}`}>
                                 <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
                                 <div className="text-[8px] text-blue-200 tracking-normal capitalize font-semibold leading-tight">{isToday ? 'Today' : 'Night Stay'}</div>
                               </th>
@@ -2517,13 +2534,13 @@ export default function GpsTracking() {
                         </tr>
 
                         {/* Header Row 2: OUT / IN Sub-columns */}
-                        <tr className="bg-[#0b2256] text-slate-200 text-[8.5px] font-bold uppercase tracking-wider border-b border-slate-700">
+                        <tr className="bg-[#0b2256] text-slate-200 text-[9px] font-bold uppercase tracking-wider border-b border-slate-700 sticky top-[27px] z-30">
                           {nsDates.map((dateStr) => {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
                             return (
                               <React.Fragment key={`sub-${dateStr}`}>
-                                <th className={`py-1 text-center border-r border-slate-700/50 w-[44px] min-w-[44px] text-rose-300 ${isToday ? 'bg-blue-900/40' : ''}`}>OUT</th>
-                                <th className={`py-1 text-center border-r border-slate-700/80 w-[44px] min-w-[44px] text-emerald-300 ${isToday ? 'bg-blue-900/40' : ''}`}>IN</th>
+                                <th className={`py-1 text-center border-r border-slate-700/50 w-[50px] min-w-[50px] text-rose-300 ${isToday ? 'bg-blue-900/40' : ''}`}>OUT</th>
+                                <th className={`py-1 text-center border-r border-slate-700/80 w-[50px] min-w-[50px] text-emerald-300 ${isToday ? 'bg-blue-900/40' : ''}`}>IN</th>
                               </React.Fragment>
                             );
                           })}
@@ -2570,28 +2587,40 @@ export default function GpsTracking() {
                               return (
                                 <React.Fragment key={`${row.busNumber}-${dateStr}`}>
                                   {/* OUT Column */}
-                                  <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-[44px] min-w-[44px]">
+                                  <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[11px] w-[50px] min-w-[50px]">
                                     {nightStayLoading ? (
-                                      <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                      <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                     ) : outTime ? (
-                                      <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-700 font-extrabold border border-rose-200/80 inline-block whitespace-nowrap text-[9px]" title="Departure Time from Stay Point">
+                                      <span className="px-1 py-0.5 rounded bg-emerald-50 text-emerald-700 font-extrabold border border-emerald-200/80 inline-block whitespace-nowrap text-[11px]" title="Departure Time from Stay Point">
                                         {outTime}
                                       </span>
                                     ) : (
-                                      <span className="text-slate-300 font-bold text-[9px]">—</span>
+                                      <span className="text-slate-300 font-bold text-[10px]">—</span>
                                     )}
                                   </td>
 
                                   {/* IN Column */}
-                                  <td className="px-0.5 py-1 text-center border-r border-slate-200 align-middle font-mono text-[9px] w-[44px] min-w-[44px]">
+                                  <td className="px-0.5 py-1 text-center border-r border-slate-200 align-middle font-mono text-[11px] w-[50px] min-w-[50px]">
                                     {nightStayLoading ? (
-                                      <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                      <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                     ) : inTime ? (
-                                      <span className="px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 font-extrabold border border-emerald-200/80 inline-block whitespace-nowrap text-[9px]" title="Arrival Time at Stay Point">
-                                        {inTime}
-                                      </span>
+                                      (() => {
+                                        const isLate = isLateArrival(inTime);
+                                        return (
+                                          <span
+                                            className={`px-1 py-0.5 rounded font-black border inline-block whitespace-nowrap text-[11px] ${
+                                              isLate
+                                                ? 'bg-red-100 text-red-700 border-red-300'
+                                                : 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
+                                            }`}
+                                            title={isLate ? "Arrival Time (LATE - Reached after 9:00 AM)" : "Arrival Time (On Time)"}
+                                          >
+                                            {inTime}
+                                          </span>
+                                        );
+                                      })()
                                     ) : (
-                                      <span className="text-slate-300 font-bold text-[9px]">—</span>
+                                      <span className="text-slate-300 font-bold text-[10px]">—</span>
                                     )}
                                   </td>
                                 </React.Fragment>
@@ -2657,7 +2686,7 @@ export default function GpsTracking() {
                   <div className="overflow-x-auto sidebar-scrollbar">
                     <table 
                       className="w-full text-left border-collapse"
-                      style={{ minWidth: `${180 + displayDates.length * 136 + 28}px` }}
+                      style={{ minWidth: `${180 + displayDates.length * 152 + 28}px` }}
                     >
                       <thead>
                         {/* Header Row 1: Route, Bus Number, Date Column Groups */}
@@ -2704,7 +2733,7 @@ export default function GpsTracking() {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
 
                             return (
-                              <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[136px] min-w-[136px] ${isToday ? 'bg-blue-900/90' : ''}`}>
+                              <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[152px] min-w-[152px] ${isToday ? 'bg-blue-900' : ''}`}>
                                 <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
                                 <div className="text-[8px] font-medium text-slate-300 uppercase leading-tight">{dayName} {isToday ? '(Today)' : ''}</div>
                               </th>
@@ -2714,12 +2743,12 @@ export default function GpsTracking() {
                         </tr>
 
                         {/* Header Row 2: IN / OUT / KMS Sub-headers under each date */}
-                        <tr className="bg-[#0A2558] text-slate-200 text-[8.5px] uppercase font-extrabold tracking-wider border-b border-slate-700 select-none">
+                        <tr className="bg-[#0A2558] text-slate-200 text-[9px] uppercase font-extrabold tracking-wider border-b border-slate-700 select-none">
                           {displayDates.map((dateStr) => (
                             <React.Fragment key={'sub_' + dateStr}>
-                              <th className="py-1 text-center border-r border-slate-700/60 text-emerald-300 bg-emerald-950/40 w-[44px] min-w-[44px]">IN</th>
-                              <th className="py-1 text-center border-r border-slate-700/80 text-rose-300 bg-rose-950/40 w-[44px] min-w-[44px]">OUT</th>
-                              <th className="py-1 text-center border-r border-slate-700/80 text-amber-300 bg-amber-950/40 w-[48px] min-w-[48px]">KMS</th>
+                              <th className="py-1 text-center border-r border-slate-700/60 text-emerald-300 bg-emerald-950/40 w-[50px] min-w-[50px]">IN</th>
+                              <th className="py-1 text-center border-r border-slate-700/80 text-rose-300 bg-rose-950/40 w-[50px] min-w-[50px]">OUT</th>
+                              <th className="py-1 text-center border-r border-slate-700/80 text-amber-300 bg-amber-950/40 w-[52px] min-w-[52px]">KMS</th>
                             </React.Fragment>
                           ))}
                         </tr>
@@ -2772,41 +2801,53 @@ export default function GpsTracking() {
                                   return (
                                     <React.Fragment key={dateStr}>
                                       {/* IN Column */}
-                                      <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-[44px] min-w-[44px]">
+                                      <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[11px] w-[50px] min-w-[50px]">
                                         {reportLoading ? (
-                                          <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                          <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                         ) : inTime ? (
-                                          <span className="px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 font-extrabold border border-emerald-200/80 inline-block whitespace-nowrap text-[9px]" title="Arrival Time">
-                                            {inTime}
-                                          </span>
+                                          (() => {
+                                            const isLate = isLateArrival(inTime);
+                                            return (
+                                              <span
+                                                className={`px-1 py-0.5 rounded font-black border inline-block whitespace-nowrap text-[11px] ${
+                                                  isLate
+                                                    ? 'bg-red-100 text-red-700 border-red-300'
+                                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
+                                                }`}
+                                                title={isLate ? "Arrival Time (LATE - Reached after 9:00 AM)" : "Arrival Time (On Time)"}
+                                              >
+                                                {inTime}
+                                              </span>
+                                            );
+                                          })()
                                         ) : (
-                                          <span className="text-slate-300 font-bold text-[9px]">—</span>
+                                          <span className="text-slate-300 font-bold text-[10px]">—</span>
                                         )}
                                       </td>
 
                                       {/* OUT Column */}
-                                      <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[9px] w-[44px] min-w-[44px]">
+                                      <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[11px] w-[50px] min-w-[50px]">
                                         {reportLoading ? (
-                                          <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                          <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                         ) : outTime ? (
-                                          <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-700 font-extrabold border border-rose-200/80 inline-block whitespace-nowrap text-[9px]" title="Departure Time">
+                                          <span className="px-1 py-0.5 rounded bg-emerald-50 text-emerald-700 font-extrabold border border-emerald-200/80 inline-block whitespace-nowrap text-[11px]" title="Departure Time">
                                             {outTime}
                                           </span>
                                         ) : (
-                                          <span className="text-slate-300 font-bold text-[9px]">—</span>
+                                          <span className="text-slate-300 font-bold text-[10px]">—</span>
                                         )}
                                       </td>
 
                                       {/* KMS Column */}
-                                      <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[8.5px] w-[48px] min-w-[48px]">
+                                      <td className="px-0.5 py-1 text-center border-r border-slate-100 align-middle font-mono text-[10px] w-[52px] min-w-[52px]">
                                         {reportLoading ? (
-                                          <div className="w-8 h-3 bg-slate-200/80 animate-pulse rounded mx-auto" />
+                                          <div className="w-9 h-3.5 bg-slate-200/80 animate-pulse rounded mx-auto" />
                                         ) : (kmVal && kmVal > 0) ? (
-                                          <span className="px-0.5 py-0.2 rounded bg-amber-50 text-amber-800 font-extrabold border border-amber-200/80 inline-block whitespace-nowrap text-[8.5px]" title="Total Distance Travelled">
+                                          <span className="px-1 py-0.5 rounded bg-amber-50 text-amber-800 font-extrabold border border-amber-200/80 inline-block whitespace-nowrap text-[10px]" title="Total Distance Travelled">
                                             {kmVal} km
                                           </span>
                                         ) : (
-                                          <span className="text-slate-300 font-bold text-[9px]">—</span>
+                                          <span className="text-slate-300 font-bold text-[10px]">—</span>
                                         )}
                                       </td>
                                     </React.Fragment>
@@ -2852,17 +2893,34 @@ export default function GpsTracking() {
                                                 <th className="px-3 py-1.5">Distance</th>
                                               </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-slate-100 text-[10px] text-slate-700 font-semibold">
-                                              {gfRows.map((gf, idx) => (
-                                                <tr key={idx} className="hover:bg-slate-50">
-                                                  <td className="px-3 py-1.5 text-slate-400">{idx + 1}</td>
-                                                  <td className="px-3 py-1.5 font-bold text-slate-800">{gf.geofence || gf.name || 'Campus Main Geofence'}</td>
-                                                  <td className="px-3 py-1.5 text-emerald-700 font-mono font-bold">{formatGeofenceTime(gf.timeIn || gf.time_in)}</td>
-                                                  <td className="px-3 py-1.5 text-rose-600 font-mono font-bold">{formatGeofenceTime(gf.timeOut || gf.time_out)}</td>
-                                                  <td className="px-3 py-1.5">{gf.duration || '—'}</td>
-                                                  <td className="px-3 py-1.5">{gf.mileage || '—'}</td>
-                                                </tr>
-                                              ))}
+                                            <tbody className="divide-y divide-slate-100 text-[11px] text-slate-700 font-semibold">
+                                              {gfRows.map((gf, idx) => {
+                                                const formattedIn = formatGeofenceTime(gf.timeIn || gf.time_in);
+                                                const isLate = isLateArrival(formattedIn);
+                                                const formattedOut = formatGeofenceTime(gf.timeOut || gf.time_out);
+                                                return (
+                                                  <tr key={idx} className="hover:bg-slate-50">
+                                                    <td className="px-3 py-1.5 text-slate-400">{idx + 1}</td>
+                                                    <td className="px-3 py-1.5 font-bold text-slate-800">{gf.geofence || gf.name || 'Campus Main Geofence'}</td>
+                                                    <td className="px-3 py-1.5 font-mono text-[11px]">
+                                                      {formattedIn === '—' ? (
+                                                        <span className="text-slate-300 font-bold">—</span>
+                                                      ) : (
+                                                        <span className={`px-1.5 py-0.5 rounded font-black border ${
+                                                          isLate ? 'bg-red-100 text-red-700 border-red-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                        }`}>
+                                                          {formattedIn} {isLate ? '(Late)' : ''}
+                                                        </span>
+                                                      )}
+                                                    </td>
+                                                    <td className="px-3 py-1.5 font-mono text-[11px] font-extrabold text-emerald-700">
+                                                      {formattedOut === '—' ? <span className="text-slate-300 font-bold">—</span> : formattedOut}
+                                                    </td>
+                                                    <td className="px-3 py-1.5 font-mono text-[11px]">{gf.duration || '—'}</td>
+                                                    <td className="px-3 py-1.5 font-mono text-[11px]">{gf.mileage || '—'}</td>
+                                                  </tr>
+                                                );
+                                              })}
                                             </tbody>
                                           </table>
                                         </div>
