@@ -60,8 +60,21 @@ const protect = async (req, res, next) => {
     return res.status(401).json({ message: 'Not authorized, no token' });
 };
 
+const hasAdministrativeAccess = (user) => {
+    if (!user) return false;
+    if (isLegacySuperAdmin(user)) return true;
+
+    const roles = Array.isArray(user.roles) ? user.roles : [];
+    const permissions = Array.isArray(user.permissions) ? user.permissions : [];
+
+    if (roles.includes('admin') || roles.includes('superadmin')) return true;
+    if (permissions.includes('all') || permissions.includes('user_management')) return true;
+
+    return false;
+};
+
 const admin = (req, res, next) => {
-    if (req.user && req.user.roles && req.user.roles.includes('admin')) {
+    if (hasAdministrativeAccess(req.user)) {
         next();
     } else {
         console.warn(`Admin access denied for user: ${req.user ? req.user._id : 'Unknown'}. Roles: ${req.user ? JSON.stringify(req.user.roles) : 'none'}`);
@@ -74,8 +87,9 @@ const isLegacySuperAdmin = (user) => Boolean(user?.username && !user?.emp_no);
 const userHasPermission = (user, permission) => {
     if (!user) return false;
     if (isLegacySuperAdmin(user)) return true;
-    if (Array.isArray(user.roles) && user.roles.includes('admin')) return true;
+    const roles = Array.isArray(user.roles) ? user.roles : [];
     const permissions = Array.isArray(user.permissions) ? user.permissions : [];
+    if (roles.includes('admin') || roles.includes('superadmin')) return true;
     if (permissions.includes(permission)) return true;
     // Legacy: module access used to mean full inventory rights
     if (

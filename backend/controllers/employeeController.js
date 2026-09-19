@@ -1,6 +1,30 @@
 const { getEmployeeConnection } = require('../config/db');
+const Bus = require('../models/Bus');
 
-// @desc    Get all employees with designation 'DRIVER' from HRMS
+const normalizeAssignedStaffName = (name) =>
+    String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+const getUnassignedStaffList = async (employees, assignedField) => {
+    const assignedNames = new Set();
+
+    const assignedRecords = await Bus.find({
+        [assignedField]: { $exists: true, $ne: '' }
+    }).select([assignedField]).lean();
+
+    assignedRecords.forEach((record) => {
+        const rawValue = record[assignedField];
+        if (rawValue) {
+            assignedNames.add(normalizeAssignedStaffName(rawValue));
+        }
+    });
+
+    return employees.filter((employee) => {
+        const employeeName = normalizeAssignedStaffName(employee.employee_name || employee.name || '');
+        return employeeName && !assignedNames.has(employeeName);
+    });
+};
+
+// @desc    Get all unassigned employees with designation 'DRIVER' from HRMS
 // @route   GET /api/employees/drivers
 // @access  Private/Admin
 const getDrivers = async (req, res) => {
@@ -31,14 +55,15 @@ const getDrivers = async (req, res) => {
             is_active: 1
         }).toArray();
 
-        res.json(drivers);
+        const unassignedDrivers = await getUnassignedStaffList(drivers, 'driverName');
+        res.json(unassignedDrivers);
     } catch (error) {
         console.error('Error fetching drivers:', error);
         res.status(500).json({ message: 'Failed to fetch drivers' });
     }
 };
 
-// @desc    Get all employees with designation 'CLEANER' from HRMS
+// @desc    Get all unassigned employees with designation 'CLEANER' from HRMS
 // @route   GET /api/employees/cleaners
 // @access  Private/Admin
 const getCleaners = async (req, res) => {
@@ -69,7 +94,8 @@ const getCleaners = async (req, res) => {
             is_active: 1
         }).toArray();
 
-        res.json(cleaners);
+        const unassignedCleaners = await getUnassignedStaffList(cleaners, 'attendantName');
+        res.json(unassignedCleaners);
     } catch (error) {
         console.error('Error fetching cleaners:', error);
         res.status(500).json({ message: 'Failed to fetch cleaners' });
