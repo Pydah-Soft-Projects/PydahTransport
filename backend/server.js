@@ -8,6 +8,7 @@ const { connectDB, connectFeeDB, connectEmployeeDB } = require('./config/db');
 const { expireStaffTransportRequests } = require('./jobs/expireStaffTransportRequests');
 const { expireStudentTransportRequests } = require('./jobs/expireStudentTransportRequests');
 const { unassignLeftBusStaff } = require('./jobs/unassignLeftBusStaff');
+const { initGpsSyncWorker } = require('./jobs/gpsSyncWorker');
 
 const app = express();
 
@@ -92,6 +93,9 @@ startDbs()
         });
  
         console.log('[Cron] Expiry jobs scheduled — runs daily at 02:00 AM IST');
+
+        // ── GPS Reports Background Ingestion Engine ─────────────────────────────
+        initGpsSyncWorker();
     })
     .catch((err) => {
         console.error('Failed to start:', err);

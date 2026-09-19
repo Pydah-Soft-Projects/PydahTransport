@@ -45,6 +45,73 @@ const extractRouteIdFromVehicleName = (name) => {
   return m ? m[1].toUpperCase() : null;
 };
 
+/**
+ * Smart matching helper to map a local Bus model object (or busNumber string)
+ * to a TGG vehicle object from the TGG API vehicles list.
+ *
+ * Handles:
+ * 1. Exact vehicle name match: v.name === input
+ * 2. Exact plate key match: extractPlateKey(v.name) === extractPlateKey(input)
+ * 3. Series + 4-digit number match: e.g. "up8071" in "ap05up8071" matches "ap39up8071" (handles RTO code mismatches like AP05 vs AP39)
+ * 4. Route ID match: e.g. assignedRouteId "R21" matches "R21_AP39UP8071"
+ * 5. Last 4 digits match: e.g. "8071"
+ */
+const findMatchingTggVehicle = (busOrName, tggVehicles = []) => {
+  if (!busOrName || !Array.isArray(tggVehicles) || tggVehicles.length === 0) return null;
+
+  const busObj = typeof busOrName === 'object' ? busOrName : { busNumber: String(busOrName) };
+  const rawBusNumber = busObj.busNumber || busObj.registrationNumber || busObj.name || String(busOrName);
+  const cleanInput = String(rawBusNumber).trim();
+  const routeId = busObj.assignedRouteId || extractRouteIdFromVehicleName(cleanInput);
+  const targetPlateKey = extractPlateKey(cleanInput); // e.g. "ap05up8071"
+
+  // 1. Exact string match
+  const exact = tggVehicles.find(v => String(v.name || '').trim() === cleanInput);
+  if (exact) return exact;
+
+  // 2. Exact plate key match
+  if (targetPlateKey) {
+    const tier1 = tggVehicles.find(v => extractPlateKey(v.name) === targetPlateKey);
+    if (tier1) return tier1;
+  }
+
+  // 3. Series + 4-digit number match (ignoring RTO state code e.g. AP05 vs AP39)
+  // e.g. "ap05up8071" -> series+digits "up8071"
+  if (targetPlateKey) {
+    const seriesDigitMatch = targetPlateKey.match(/([a-z]{1,3}\d{3,4})$/i);
+    if (seriesDigitMatch) {
+      const suffixKey = seriesDigitMatch[1].toLowerCase(); // "up8071"
+      const tier2 = tggVehicles.find(v => {
+        const vKey = extractPlateKey(v.name);
+        return vKey.endsWith(suffixKey);
+      });
+      if (tier2) return tier2;
+    }
+  }
+
+  // 4. Assigned Route ID match (e.g. assignedRouteId "R21" -> "R21_AP39UP8071")
+  if (routeId) {
+    const cleanRoute = String(routeId).trim().toUpperCase();
+    const tier3 = tggVehicles.find(v => {
+      const vRoute = extractRouteIdFromVehicleName(v.name);
+      return vRoute && vRoute === cleanRoute;
+    });
+    if (tier3) return tier3;
+  }
+
+  // 5. Last 4 digits match (e.g. "8071")
+  const digitsMatch = cleanInput.replace(/\D/g, '').slice(-4);
+  if (digitsMatch && digitsMatch.length === 4) {
+    const tier4 = tggVehicles.find(v => {
+      const vDigits = String(v.name).replace(/\D/g, '').slice(-4);
+      return vDigits === digitsMatch;
+    });
+    if (tier4) return tier4;
+  }
+
+  return null;
+};
+
 // In-memory store for received Geofence alerts
 const alertStore = [];
 
@@ -730,17 +797,168 @@ const parseFuelDayReportFromTgg = (tggData) => {
   return results;
 };
 
+const normalizeDateStrInTgg = (rawStr) => {
+  if (!rawStr) return null;
+  const cleaned = String(rawStr).trim();
+  const datePart = cleaned.includes(' ') ? cleaned.split(' ')[0] : cleaned;
+  
+  const dMy = datePart.match(/^(\d{2})[\/\.](\d{2})[\/\.](\d{4})$/);
+  if (dMy) {
+    const [, d, m, y] = dMy;
+    return `${y}-${m}-${d}`;
+  }
+  const yMd = datePart.match(/^(\d{4})[\/\.](\d{2})[\/\.](\d{2})$/);
+  if (yMd) {
+    const [, y, m, d] = yMd;
+    return `${y}-${m}-${d}`;
+  }
+  
+  const dt = new Date(cleaned);
+  if (!isNaN(dt.getTime())) {
+    const yyyy = dt.getFullYear();
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  return null;
+};
+
+/**
+ * Helper to extract daily kilometers dictionary ({ 'YYYY-MM-DD': kmValue }) from TGG report response
+ */
+const parseDailyKilometersFromTggReport = (tggData, vehName) => {
+  const kmByDate = {};
+  if (!tggData || typeof tggData !== 'object') return kmByDate;
+
+  let vehObj = tggData[vehName] || null;
+  if (!vehObj && vehName) {
+    const targetKey = extractPlateKey(vehName);
+    const targetDigits = String(vehName).replace(/\D/g, '').slice(-4);
+    for (const k of Object.keys(tggData)) {
+      if (extractPlateKey(k) === targetKey || (targetDigits.length === 4 && String(k).replace(/\D/g, '').slice(-4) === targetDigits)) {
+        vehObj = tggData[k];
+        break;
+      }
+    }
+  }
+
+  const sections = vehObj || tggData;
+  const distanceReport = sections["Mileage"] || sections["Total KMs Travelled"] || sections["Summary"] || sections["Distance"];
+  if (!distanceReport) return kmByDate;
+
+  const subObjList = Array.isArray(distanceReport) ? [distanceReport] : Object.values(distanceReport);
+  subObjList.forEach(subObj => {
+    const rows = Array.isArray(subObj) ? subObj : (subObj && typeof subObj === 'object' ? Object.values(subObj) : []);
+    rows.forEach(rowItem => {
+      const cObj = rowItem?.c || rowItem;
+      if (cObj && typeof cObj === 'object') {
+        let rowDate = null;
+        let kmVal = null;
+        for (const key of Object.keys(cObj)) {
+          const val = String(cObj[key] || '').trim();
+          const normD = normalizeDateStrInTgg(val);
+          if (normD) {
+            rowDate = normD;
+          } else if (val.toLowerCase().includes('km')) {
+            const m = val.match(/([\d.]+)/);
+            if (m) {
+              const n = parseFloat(m[1]);
+              if (!isNaN(n) && n >= 0 && n < 2000) {
+                kmVal = Math.max(kmVal || 0, n);
+              }
+            }
+          }
+        }
+        if (rowDate && kmVal === null) {
+          for (const key of Object.keys(cObj)) {
+            if (key === '0' || key === 'sno' || key === 's_no') continue;
+            const val = String(cObj[key] || '').trim();
+            if (val && val !== rowDate && /^\d+(\.\d+)?$/.test(val)) {
+              const n = parseFloat(val);
+              if (!isNaN(n) && n >= 0 && n < 2000) {
+                kmVal = Math.max(kmVal || 0, n);
+              }
+            }
+          }
+        }
+
+        if (rowDate && kmVal !== null && kmVal > 0) {
+          kmByDate[rowDate] = Math.round(kmVal * 10) / 10;
+        } else if (rowDate) {
+          kmByDate[rowDate] = 0;
+        }
+      }
+    });
+  });
+
+  return kmByDate;
+};
+
+/**
+ * Helper to extract geofence logs (timeIn, timeOut, mileage) from TGG report response
+ */
+const parseGeofencesFromTgg = (tggData, vehName) => {
+  if (!tggData || typeof tggData !== 'object') return [];
+
+  let vehTarget = tggData[vehName] || null;
+  if (!vehTarget && vehName) {
+    const targetKey = extractPlateKey(vehName);
+    const targetDigits = String(vehName).replace(/\D/g, '').slice(-4);
+    for (const k of Object.keys(tggData)) {
+      if (extractPlateKey(k) === targetKey || (targetDigits.length === 4 && String(k).replace(/\D/g, '').slice(-4) === targetDigits)) {
+        vehTarget = tggData[k];
+        break;
+      }
+    }
+  }
+
+  const activeContainer = vehTarget || tggData;
+  let geofenceContainer = null;
+  if (activeContainer.Geofences) {
+    geofenceContainer = activeContainer.Geofences[vehName] || activeContainer.Geofences;
+  } else if (tggData.Geofences?.[vehName]) {
+    geofenceContainer = tggData.Geofences[vehName];
+  } else if (tggData.Geofences) {
+    geofenceContainer = tggData.Geofences;
+  }
+
+  if (!geofenceContainer) return [];
+
+  const rawEntries = Array.isArray(geofenceContainer) ? geofenceContainer : Object.values(geofenceContainer);
+
+  return rawEntries.map((entry) => {
+    const c = entry?.c || entry || {};
+    const tIn = c['2']?.t || c.timeIn || c.time_in || '—';
+    const tOut = c['3']?.t || c.timeOut || c.time_out || '—';
+    return {
+      geofence: c['1'] || c.name || c.geofence || 'Campus Main Geofence',
+      timeIn: tIn,
+      latIn: c['2']?.y ?? null,
+      lngIn: c['2']?.x ?? null,
+      timeOut: tOut,
+      latOut: c['3']?.y ?? null,
+      lngOut: c['3']?.x ?? null,
+      duration: c['4'] || c.duration || '—',
+      mileage: c['5'] || c.mileage || '—',
+    };
+  });
+};
+
 module.exports = {
   getTggConfig,
   cleanVehicleName,
   extractPlateKey,
   extractRouteIdFromVehicleName,
+  findMatchingTggVehicle,
   fetchVehiclesListFromTgg,
   fetchReportsFromTgg,
   fetchVehicleMessagesFromTgg,
   registerIncomingAlert,
   getRecentAlerts,
   fetchDailyKilometersFromTgg,
-  parseFuelDayReportFromTgg
+  parseFuelDayReportFromTgg,
+  parseDailyKilometersFromTggReport,
+  parseGeofencesFromTgg
 };
 
