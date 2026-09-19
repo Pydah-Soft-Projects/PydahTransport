@@ -103,16 +103,43 @@ const parseTggResponse = (rawText) => {
     }
   }
 
-  // Ensure lat, long, speed are numbers
+  // Ensure lat, long, speed are numbers & normalize status
   return vehicleList.map(v => {
     if (!v || typeof v !== 'object') return null;
+    const speed = parseFloat(v.speed || v.sp || 0);
+
+    const rawStatus = v.status || v.vehicle_status || v.state || v.motion_status || '';
+    let status = 'Stopped';
+
+    if (rawStatus) {
+      const sLower = String(rawStatus).toLowerCase();
+      if (sLower.includes('move') || sLower.includes('running') || sLower.includes('moving')) {
+        status = 'Moving';
+      } else if (sLower.includes('idle')) {
+        status = 'Idle';
+      } else if (sLower.includes('stop')) {
+        status = 'Stopped';
+      } else if (sLower.includes('off') || sLower.includes('disconnect')) {
+        status = 'Offline';
+      } else {
+        status = String(rawStatus);
+      }
+    } else if (speed > 0) {
+      status = 'Moving';
+    } else {
+      const isEngineOn = v.ignition === true || v.ignition === 1 || String(v.ignition).toLowerCase() === 'on' ||
+                         v.engine === true || v.engine === 1 || String(v.engine).toLowerCase() === 'on';
+      status = isEngineOn ? 'Idle' : 'Stopped';
+    }
+
     return {
       ...v,
       name: v.name || v.vehicle_name || v.unit || 'Unknown Vehicle',
       units: v.units || v.unit_id || v.unit || '',
       latitude: parseFloat(v.latitude || v.lat || v.y || 0),
       longitude: parseFloat(v.longitude || v.lng || v.lon || v.x || 0),
-      speed: parseFloat(v.speed || 0),
+      speed,
+      status,
       timestamp: v.timestamp || v.time || v.date || '',
       uiiframe: v.uiiframe || v.iframe || ''
     };

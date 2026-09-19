@@ -132,6 +132,8 @@ const TransportRequestsSkeleton = () => {
 
 const TransportRequests = () => {
     const [requests, setRequests] = useState([]);
+    const [expiryMap, setExpiryMap] = useState({});
+    const pendingExpiriesRef = useRef(new Set());
     const [routes, setRoutes] = useState([]);
     const [courses, setCourses] = useState([]);
     const [colleges, setColleges] = useState([]);
@@ -145,6 +147,20 @@ const TransportRequests = () => {
     const [userTypeFilter, setUserTypeFilter] = useState('student'); // 'student' or 'employee'
     const [sortField, setSortField] = useState('application_number');
     const [sortOrder, setSortOrder] = useState('desc');
+
+    const getMergedRequest = React.useCallback((req) => {
+        if (!req) return req;
+        const id = req.id || req._id;
+        const expiryInfo = expiryMap[id];
+        if (expiryInfo) {
+            return {
+                ...req,
+                effective_expiry_date: expiryInfo.effective_expiry_date,
+                is_expired: expiryInfo.is_expired,
+            };
+        }
+        return req;
+    }, [expiryMap]);
 
     const handleSort = (field) => {
         if (sortField === field) {
@@ -613,7 +629,8 @@ const TransportRequests = () => {
         }
     };
 
-    const openDetailModal = async (req) => {
+    const openDetailModal = async (rawReq) => {
+        const req = getMergedRequest(rawReq);
         // Open modal immediately with list data so it appears responsive
         setDetailModal({ open: true, request: req, loading: true });
         try {
@@ -979,7 +996,8 @@ const TransportRequests = () => {
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, [academicYear, routeFilter, collegeFilter, courseFilter, statusFilter, searchQuery]);
 
-    const isExpiredPass = (req) => {
+    const isExpiredPass = (rawReq) => {
+        const req = getMergedRequest(rawReq);
         const normalizedStatus = (req.status || '').toLowerCase();
         return normalizedStatus === 'expired' || (normalizedStatus === 'approved' && Boolean(req.is_expired));
     };
@@ -1003,6 +1021,65 @@ const TransportRequests = () => {
     const indexOfFirstRow = indexOfLastRow - rowsPerPage;
     const currentRequests = filteredRequestsByType.slice(indexOfFirstRow, indexOfLastRow);
     const totalPages = Math.ceil(filteredRequestsByType.length / rowsPerPage);
+
+    // Asynchronous resolution of student expiries in background (visible rows first)
+    useEffect(() => {
+        if (!currentRequests || currentRequests.length === 0) return;
+
+        const missingIds = currentRequests
+            .filter((r) => r.user_type !== 'employee' && (r.effective_expiry_date === null || r.effective_expiry_date === undefined))
+            .map((r) => r.id || r._id)
+            .filter((id) => id && !expiryMap[id] && !pendingExpiriesRef.current.has(String(id)));
+
+        if (missingIds.length === 0) return;
+
+        missingIds.forEach((id) => pendingExpiriesRef.current.add(String(id)));
+
+        apiFetch(`${API_BASE}/transport-requests/resolve-expiries`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ requestIds: missingIds }),
+        })
+            .then((res) => res.json())
+            .then((data) => {
+                if (data && data.expiries) {
+                    setExpiryMap((prev) => ({ ...prev, ...data.expiries }));
+                }
+            })
+            .catch((err) => {
+                console.error('Error resolving visible expiries:', err);
+            });
+    }, [currentRequests, expiryMap]);
+
+    // Progressive background resolution of all remaining missing expiries in batches
+    useEffect(() => {
+        if (!requests || requests.length === 0) return;
+
+        const missingIds = requests
+            .filter((r) => r.user_type !== 'employee' && (r.effective_expiry_date === null || r.effective_expiry_date === undefined))
+            .map((r) => r.id || r._id)
+            .filter((id) => id && !expiryMap[id] && !pendingExpiriesRef.current.has(String(id)));
+
+        if (missingIds.length === 0) return;
+
+        const batch = missingIds.slice(0, 50);
+        batch.forEach((id) => pendingExpiriesRef.current.add(String(id)));
+
+        apiFetch(`${API_BASE}/transport-requests/resolve-expiries`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ requestIds: batch }),
+        })
+            .then((res) => res.json())
+            .then((data) => {
+                if (data && data.expiries) {
+                    setExpiryMap((prev) => ({ ...prev, ...data.expiries }));
+                }
+            })
+            .catch((err) => {
+                console.error('Error resolving background expiries batch:', err);
+            });
+    }, [requests, expiryMap]);
 
     const openApproveModal = async (requestId) => {
         setApproveModal({ open: true, requestId, data: null, selectedBusId: '', loading: true, error: null });
@@ -1462,12 +1539,14 @@ const TransportRequests = () => {
                     </div>
                     {/* Mobile View Card List (< 768px) */}
                     <div className="block md:hidden divide-y divide-slate-100">
-                        {currentRequests.map((req) => (
-                            <div
-                                key={req.id}
-                                onClick={() => openDetailModal(req)}
-                                className="p-4 space-y-2.5 hover:bg-slate-50/60 transition-colors cursor-pointer"
-                            >
+                        {currentRequests.map((rawReq) => {
+                            const req = getMergedRequest(rawReq);
+                            return (
+                                <div
+                                    key={req.id}
+                                    onClick={() => openDetailModal(req)}
+                                    className="p-4 space-y-2.5 hover:bg-slate-50/60 transition-colors cursor-pointer"
+                                >
                                 <div className="flex items-start justify-between gap-2">
                                     <div className="flex items-center gap-2 min-w-0" onClick={(e) => e.stopPropagation()}>
                                         {(req.status || '').toLowerCase() === 'approved' ? (
@@ -1537,13 +1616,21 @@ const TransportRequests = () => {
                                     </div>
                                 </div>
 
-                                {req.effective_expiry_date && req.user_type !== 'employee' && (
-                                    <p className="text-[10px] text-slate-400 font-semibold">
-                                        Effective Expiry: {formatDate(req.effective_expiry_date)}
-                                    </p>
+                                {req.user_type !== 'employee' && (
+                                    req.effective_expiry_date ? (
+                                        <p className="text-[10px] text-slate-400 font-semibold">
+                                            Effective Expiry: {formatDate(req.effective_expiry_date)}
+                                        </p>
+                                    ) : (
+                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                            <span className="text-[10px] text-slate-400 font-semibold">Effective Expiry:</span>
+                                            <span className="inline-block h-2.5 w-16 bg-slate-200 rounded animate-pulse"></span>
+                                        </div>
+                                    )
                                 )}
                             </div>
-                        ))}
+                        );
+                    })}
                     </div>
 
                     {/* Desktop View Table */}
@@ -1605,12 +1692,14 @@ const TransportRequests = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                                {currentRequests.map((req) => (
-                                    <tr
-                                        key={req.id}
-                                        onClick={() => openDetailModal(req)}
-                                        className="hover:bg-slate-50/60 transition-colors border-b border-slate-100/60 cursor-pointer text-xs"
-                                    >
+                                {currentRequests.map((rawReq) => {
+                                    const req = getMergedRequest(rawReq);
+                                    return (
+                                        <tr
+                                            key={req.id}
+                                            onClick={() => openDetailModal(req)}
+                                            className="hover:bg-slate-50/60 transition-colors border-b border-slate-100/60 cursor-pointer text-xs"
+                                        >
                                         <td className="px-3 py-2 w-8" onClick={(e) => e.stopPropagation()}>
                                             {(req.status || '').toLowerCase() === 'approved' ? (
                                                 <input
@@ -1675,15 +1764,23 @@ const TransportRequests = () => {
                                                     {statusDisplay(req.status)}
                                                 </span>
                                             )}
-                                            {req.effective_expiry_date && req.user_type !== 'employee' && (
-                                                <p className="text-[9px] text-slate-400 font-semibold mt-1">
-                                                    Until {formatDate(req.effective_expiry_date)}
-                                                    {req.course_expiry_date ? ` (course Y${req.year_of_study || '?'})` : ''}
-                                                </p>
+                                            {req.user_type !== 'employee' && (
+                                                req.effective_expiry_date ? (
+                                                    <p className="text-[9px] text-slate-400 font-semibold mt-1">
+                                                        Until {formatDate(req.effective_expiry_date)}
+                                                        {req.course_expiry_date ? ` (course Y${req.year_of_study || '?'})` : ''}
+                                                    </p>
+                                                ) : (
+                                                    <div className="flex items-center gap-1 text-[9px] text-slate-300 font-semibold mt-1">
+                                                        <span>Until</span>
+                                                        <span className="inline-block h-2 w-14 bg-slate-200 rounded animate-pulse"></span>
+                                                    </div>
+                                                )
                                             )}
                                         </td>
                                     </tr>
-                                ))}
+                                );
+                            })}
                             </tbody>
                         </table>
                     </div>
@@ -1954,15 +2051,38 @@ const TransportRequests = () => {
                                             )}
                                         </div>
                                     </div>
-                                    {req.effective_expiry_date && !isEmployee && (
-                                        <DetailItem icon={Clock} label="Valid Until" value={formatDate(req.effective_expiry_date)} />
-                                    )}
-                                    {req.is_expired != null && !isEmployee && (
-                                        <DetailItem
-                                            icon={Clock}
-                                            label="Pass Status"
-                                            value={req.is_expired ? 'Expired' : 'Valid'}
-                                        />
+                                    {!isEmployee && (
+                                        req.effective_expiry_date ? (
+                                            <>
+                                                <DetailItem icon={Clock} label="Valid Until" value={formatDate(req.effective_expiry_date)} />
+                                                <DetailItem
+                                                    icon={Clock}
+                                                    label="Pass Status"
+                                                    value={req.is_expired ? 'Expired' : 'Valid'}
+                                                />
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
+                                                    <div className="p-1.5 rounded-md bg-white text-slate-400 shrink-0 border border-slate-100">
+                                                        <Clock size={14} />
+                                                    </div>
+                                                    <div className="min-w-0 space-y-1">
+                                                        <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Valid Until</p>
+                                                        <div className="h-3.5 w-20 bg-slate-200 rounded animate-pulse"></div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
+                                                    <div className="p-1.5 rounded-md bg-white text-slate-400 shrink-0 border border-slate-100">
+                                                        <Clock size={14} />
+                                                    </div>
+                                                    <div className="min-w-0 space-y-1">
+                                                        <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Pass Status</p>
+                                                        <div className="h-3.5 w-14 bg-slate-200 rounded animate-pulse"></div>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )
                                     )}
                                 </div>
                             </div>

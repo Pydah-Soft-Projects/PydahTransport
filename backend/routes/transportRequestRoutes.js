@@ -22,10 +22,12 @@ const {
     triggerStaffExpiry,
     getAttendanceRecords,
     getStudentAttendanceDetails,
+    resolveBatchExpiries,
 } = require('../controllers/transportRequestController');
 
 router.get('/', getTransportRequests);
 router.post('/', createTransportRequest);
+router.post('/resolve-expiries', resolveBatchExpiries);
 router.get('/route-buses', getRouteBusVacancy);
 router.get('/approved-passengers', getApprovedPassengers);
 router.get('/id-cards-print', getIdCardsForPrint);

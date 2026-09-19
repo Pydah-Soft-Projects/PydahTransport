@@ -1413,27 +1413,40 @@ export default function GpsTracking() {
     }
   };
 
+  const getVehicleEffectiveStatus = (v) => {
+    if (v.status) return v.status;
+    if ((v.speed || 0) > 0) return 'Moving';
+    return 'Stopped';
+  };
+
   // Filter vehicles
   const filteredVehicles = vehicles.filter(v => {
     const matchesSearch =
       (v.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (v.units || '').toString().includes(searchQuery);
 
-    if (statusFilter === 'moving') return matchesSearch && (v.speed || 0) > 0;
-    if (statusFilter === 'idle') return matchesSearch && (!v.speed || v.speed === 0);
+    const effStatus = getVehicleEffectiveStatus(v);
+    if (statusFilter === 'moving') return matchesSearch && (effStatus === 'Moving' || (v.speed || 0) > 0);
+    if (statusFilter === 'idle') return matchesSearch && effStatus === 'Idle';
+    if (statusFilter === 'stopped') return matchesSearch && (effStatus === 'Stopped' || effStatus === 'Offline');
     return matchesSearch;
   });
 
-  const movingCount = vehicles.filter(v => (v.speed || 0) > 0).length;
-  const idleCount = vehicles.filter(v => (!v.speed || v.speed === 0)).length;
+  const movingCount = vehicles.filter(v => getVehicleEffectiveStatus(v) === 'Moving' || (v.speed || 0) > 0).length;
+  const idleCount = vehicles.filter(v => getVehicleEffectiveStatus(v) === 'Idle').length;
+  const stoppedCount = vehicles.filter(v => getVehicleEffectiveStatus(v) === 'Stopped' || getVehicleEffectiveStatus(v) === 'Offline').length;
 
-  // Custom styled bus icon marker helper (Neon Green for Moving, Blue for Active)
-  const createVehicleIcon = useCallback((isMoving) => {
+  // Custom styled bus icon marker helper
+  const createVehicleIcon = useCallback((isMoving, vehStatus = '') => {
     if (!window.L) return null;
-    const bgColor = isMoving ? '#10B981' : '#3B82F6';
-    const shadowColor = isMoving ? 'rgba(16, 185, 129, 0.6)' : 'rgba(59, 130, 246, 0.6)';
-    const pulseBg = isMoving ? 'rgba(16, 185, 129, 0.25)' : 'rgba(59, 130, 246, 0.25)';
-    const pulseBorder = isMoving ? '#10B981' : '#3B82F6';
+    let bgColor = '#3B82F6';
+    if (vehStatus === 'Moving' || isMoving) bgColor = '#10B981';
+    else if (vehStatus === 'Idle') bgColor = '#F59E0B';
+    else if (vehStatus === 'Stopped') bgColor = '#EF4444';
+    else if (vehStatus === 'Offline') bgColor = '#64748B';
+
+    const shadowColor = bgColor;
+    const pulseBorder = bgColor;
 
     return window.L.divIcon({
       className: 'custom-bus-marker',
@@ -1666,17 +1679,21 @@ export default function GpsTracking() {
           const latLng = [veh.latitude, veh.longitude];
           bounds.extend(latLng);
 
-          const isMoving = (veh.speed || 0) > 0;
-          const icon = createVehicleIcon(isMoving);
+          const vStatus = getVehicleEffectiveStatus(veh);
+          const isMoving = vStatus === 'Moving' || (veh.speed || 0) > 0;
+          const icon = createVehicleIcon(isMoving, vStatus);
           const key = veh.units || veh.name;
 
-          const isOffline = Boolean(veh.isFallback) || veh.telemetryStatus === 'provider_unavailable' || veh.providerOffline;
+          const isOffline = Boolean(veh.isFallback) || veh.telemetryStatus === 'provider_unavailable' || veh.providerOffline || vStatus === 'Offline';
+          const popupColor = isMoving ? '#059669' : vStatus === 'Idle' ? '#d97706' : vStatus === 'Offline' ? '#475569' : '#dc2626';
+          const statusText = isMoving ? `🚌 Speed: ${veh.speed} km/h (Moving)` : vStatus === 'Idle' ? `⏸ Idle (${veh.speed || 0} km/h)` : vStatus === 'Offline' ? `⚪ Offline` : '⏹ Stopped';
+
           const popupHtml = `
             <div style="font-family: sans-serif; font-size: 12px; padding: 2px;">
               <strong style="font-size: 13px; color: #0f172a;">${veh.name}</strong><br/>
               <span style="color: #64748b;">Unit ID: ${veh.units}</span><br/>
-              <span style="color: ${isMoving ? '#059669' : '#dc2626'}; font-weight: bold;">
-                ${isMoving ? `🚌 Speed: ${veh.speed} km/h` : '⏹ Stopped'}
+              <span style="color: ${popupColor}; font-weight: bold;">
+                ${statusText}
               </span><br/>
               ${isOffline
                 ? '<div style="margin-top: 4px; padding: 2px 6px; background: #fffbe6; border: 1px solid #ffe58f; color: #d46b08; border-radius: 4px; font-weight: bold; font-size: 10px; display: inline-block;">⚠️ Estimated Position (Provider Offline)</div>'
@@ -1736,15 +1753,20 @@ export default function GpsTracking() {
       const key = selectedVehicle.units || selectedVehicle.name;
 
       if (typeof lat === 'number' && typeof lng === 'number') {
-        const isMoving = (selectedVehicle.speed || 0) > 0;
-        const isOffline = Boolean(selectedVehicle.isFallback) || selectedVehicle.telemetryStatus === 'provider_unavailable' || selectedVehicle.providerOffline;
-        const icon = createVehicleIcon(isMoving);
+        const vStatus = getVehicleEffectiveStatus(selectedVehicle);
+        const isMoving = vStatus === 'Moving' || (selectedVehicle.speed || 0) > 0;
+        const isOffline = Boolean(selectedVehicle.isFallback) || selectedVehicle.telemetryStatus === 'provider_unavailable' || selectedVehicle.providerOffline || vStatus === 'Offline';
+        const icon = createVehicleIcon(isMoving, vStatus);
+
+        const popupColor = isMoving ? '#059669' : vStatus === 'Idle' ? '#d97706' : vStatus === 'Offline' ? '#475569' : '#dc2626';
+        const statusText = isMoving ? `🚌 Speed: ${selectedVehicle.speed} km/h (Moving)` : vStatus === 'Idle' ? `⏸ Idle (${selectedVehicle.speed || 0} km/h)` : vStatus === 'Offline' ? `⚪ Offline` : '⏹ Stopped';
+
         const popupHtml = `
           <div style="font-family: sans-serif; font-size: 12px; padding: 2px;">
             <strong style="font-size: 13px; color: #0f172a;">${selectedVehicle.name}</strong><br/>
             <span style="color: #64748b;">Unit ID: ${selectedVehicle.units}</span><br/>
-            <span style="color: ${isMoving ? '#059669' : '#dc2626'}; font-weight: bold;">
-              ${isMoving ? `🚌 Speed: ${selectedVehicle.speed} km/h` : '⏹ Stopped'}
+            <span style="color: ${popupColor}; font-weight: bold;">
+              ${statusText}
             </span><br/>
             ${isOffline
               ? '<div style="margin-top: 4px; padding: 2px 6px; background: #fffbe6; border: 1px solid #ffe58f; color: #d46b08; border-radius: 4px; font-weight: bold; font-size: 10px; display: inline-block;">⚠️ Estimated Position (Provider Offline)</div>'
@@ -2117,10 +2139,10 @@ export default function GpsTracking() {
                   </span>
                 </button>
 
-                <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs text-slate-600 font-medium">
+                <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 text-[11px] text-slate-600 font-medium overflow-x-auto no-scrollbar">
                   <button
                     onClick={() => setStatusFilter('all')}
-                    className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
+                    className={`flex-1 py-1 px-1 rounded-md transition-all text-center whitespace-nowrap cursor-pointer ${
                       statusFilter === 'all' ? 'bg-white text-blue-700 font-bold shadow-xs' : 'hover:text-slate-900'
                     }`}
                   >
@@ -2128,7 +2150,7 @@ export default function GpsTracking() {
                   </button>
                   <button
                     onClick={() => setStatusFilter('moving')}
-                    className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
+                    className={`flex-1 py-1 px-1 rounded-md transition-all text-center whitespace-nowrap cursor-pointer ${
                       statusFilter === 'moving' ? 'bg-emerald-600 text-white font-bold shadow-xs' : 'hover:text-slate-900'
                     }`}
                   >
@@ -2136,11 +2158,19 @@ export default function GpsTracking() {
                   </button>
                   <button
                     onClick={() => setStatusFilter('idle')}
-                    className={`flex-1 py-1 rounded-md transition-all text-center cursor-pointer ${
-                      statusFilter === 'idle' ? 'bg-rose-600 text-white font-bold shadow-xs' : 'hover:text-slate-900'
+                    className={`flex-1 py-1 px-1 rounded-md transition-all text-center whitespace-nowrap cursor-pointer ${
+                      statusFilter === 'idle' ? 'bg-amber-500 text-white font-bold shadow-xs' : 'hover:text-slate-900'
                     }`}
                   >
-                    Stopped ({idleCount})
+                    Idle ({idleCount})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter('stopped')}
+                    className={`flex-1 py-1 px-1 rounded-md transition-all text-center whitespace-nowrap cursor-pointer ${
+                      statusFilter === 'stopped' ? 'bg-rose-600 text-white font-bold shadow-xs' : 'hover:text-slate-900'
+                    }`}
+                  >
+                    Stopped ({stoppedCount})
                   </button>
                 </div>
               </div>
@@ -2154,7 +2184,8 @@ export default function GpsTracking() {
                 ) : (
                   filteredVehicles.map(veh => {
                     const isSelected = selectedVehicle && selectedVehicle.name === veh.name;
-                    const isMoving = (veh.speed || 0) > 0;
+                    const vStatus = getVehicleEffectiveStatus(veh);
+                    const isMoving = vStatus === 'Moving' || (veh.speed || 0) > 0;
 
                     return (
                       <div
@@ -2174,10 +2205,20 @@ export default function GpsTracking() {
                             className={`px-2 py-0.5 text-[10px] font-bold rounded-md border ${
                               isMoving
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : vStatus === 'Idle'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : vStatus === 'Offline'
+                                ? 'bg-slate-100 text-slate-600 border-slate-200'
                                 : 'bg-rose-50 text-rose-700 border-rose-200'
                             }`}
                           >
-                            {isMoving ? `🟢 Moving (${veh.speed} km/h)` : '🔴 Stopped'}
+                            {isMoving
+                              ? `🟢 Moving (${veh.speed || 0} km/h)`
+                              : vStatus === 'Idle'
+                              ? `🟡 Idle`
+                              : vStatus === 'Offline'
+                              ? `⚪ Offline`
+                              : '🔴 Stopped'}
                           </span>
                         </div>
 

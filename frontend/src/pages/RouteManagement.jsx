@@ -578,7 +578,17 @@ const RouteSummaryMap = ({ stages, finalDestinations = [], campusId }) => {
     );
 };
 
-const RouteNetworkAllMap = ({ routes, finalDestinations = [], buses = [] }) => {
+const RouteNetworkAllMap = ({
+    routes = [],
+    finalDestinations = [],
+    buses = [],
+    getEffectiveRouteBus = () => ({ bus: null, status: 'unassigned' }),
+    draftQueue = [],
+    clearDraftQueue = () => {},
+    setIsFinalizeModalOpen = () => {},
+    batchSubmitting = false,
+    removeDraftItem = () => {}
+}) => {
     const mapContainerRef = useRef(null);
     const mapInstanceRef = useRef(null);
     const [selectedRouteIds, setSelectedRouteIds] = useState([]);
@@ -3551,7 +3561,17 @@ const RouteManagement = () => {
 
 
                     {networkViewTab === 'map' ? (
-                        <RouteNetworkAllMap routes={filteredRoutes} finalDestinations={finalDestinations} buses={buses} />
+                        <RouteNetworkAllMap
+                            routes={filteredRoutes}
+                            finalDestinations={finalDestinations}
+                            buses={buses}
+                            getEffectiveRouteBus={getEffectiveRouteBus}
+                            draftQueue={draftQueue}
+                            clearDraftQueue={clearDraftQueue}
+                            setIsFinalizeModalOpen={setIsFinalizeModalOpen}
+                            batchSubmitting={batchSubmitting}
+                            removeDraftItem={removeDraftItem}
+                        />
                     ) : loading ? (
                         <div className="flex items-center justify-center py-20">
                             <Loader size={40} text="Loading route data..." />

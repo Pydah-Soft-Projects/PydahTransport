@@ -822,11 +822,33 @@ const getTransportRequests = async (req, res) => {
 
         const filteredStudentMongoRows = await TransportRequest.find(studentMongoQuery).lean();
 
-        // Resolve student request expiry details dynamically from SQL
-        await resolveStudentExpiries(filteredStudentMongoRows, mysqlPool);
+        const shouldResolveFullExpiry = req.query.includeExpiry === 'true' || status === 'expired' || status === 'active';
+        let studentMap = {};
 
-        // Reuse student info loaded by resolveStudentExpiries
-        const studentMap = filteredStudentMongoRows._studentMap || {};
+        if (shouldResolveFullExpiry) {
+            // Resolve student request expiry details dynamically from SQL
+            await resolveStudentExpiries(filteredStudentMongoRows, mysqlPool);
+            studentMap = filteredStudentMongoRows._studentMap || {};
+        } else if (filteredStudentMongoRows.length > 0) {
+            // Fast student basic info lookup only
+            const admissionNos = [...new Set(filteredStudentMongoRows.map(r => r.admission_number).filter(Boolean))];
+            if (admissionNos.length > 0 && mysqlPool) {
+                try {
+                    const [studentRows] = await mysqlPool.query(
+                        `SELECT admission_number, admission_no, course, branch, pin_no, college, batch, current_year, student_mobile, parent_mobile1
+                         FROM students
+                         WHERE admission_number IN (?) OR admission_no IN (?)`,
+                        [admissionNos, admissionNos]
+                    );
+                    for (const s of studentRows) {
+                        if (s.admission_number) studentMap[s.admission_number] = s;
+                        if (s.admission_no) studentMap[s.admission_no] = s;
+                    }
+                } catch (err) {
+                    console.error('Error fetching basic student info:', err);
+                }
+            }
+        }
 
         const formattedStudentRows = [];
 
@@ -845,7 +867,7 @@ const getTransportRequests = async (req, res) => {
             if (restrictedColleges !== null && (!itemCollege || !restrictedColleges.includes(itemCollege))) continue;
             if (hasCourseRestriction && (!itemCourse || !req.user.courses.includes(itemCourse))) continue;
 
-            const isExpired = r.is_expired;
+            const isExpired = r.is_expired ?? false;
 
             if (status === 'expired' && (!isExpired || r.status !== 'approved')) continue;
             if (status === 'active' && (isExpired || r.status !== 'approved')) continue;
@@ -862,7 +884,7 @@ const getTransportRequests = async (req, res) => {
                 pin_no: itemPinNo,
                 student_mobile: student.student_mobile || null,
                 parent_mobile1: student.parent_mobile1 || null,
-                effective_expiry_date: r.effective_expiry_date,
+                effective_expiry_date: r.effective_expiry_date || null,
                 is_expired: isExpired,
             });
         }
@@ -3669,6 +3691,7 @@ module.exports = {
     triggerStaffExpiry,
     getAttendanceRecords,
     getStudentAttendanceDetails,
+    resolveBatchExpiries,
 };
 
 // @route   GET /api/transport-requests/attendance
@@ -3853,5 +3876,48 @@ async function triggerStaffExpiry(req, res) {
     } catch (err) {
         console.error('triggerStaffExpiry error:', err);
         return res.status(500).json({ message: 'Failed to run staff expiry check.' });
+    }
+}
+
+// @desc    Resolve student expiries for a batch of transport request IDs
+// @route   POST /api/transport-requests/resolve-expiries
+// @access  Private/Admin
+async function resolveBatchExpiries(req, res) {
+    try {
+        const { requestIds } = req.body;
+        if (!Array.isArray(requestIds) || requestIds.length === 0) {
+            return res.json({ success: true, expiries: {} });
+        }
+
+        const mongoIds = requestIds.filter(id => mongoose.Types.ObjectId.isValid(id));
+        const numericIds = requestIds.map(id => Number(id)).filter(id => !isNaN(id));
+
+        const studentRequests = await TransportRequest.find({
+            $or: [
+                { _id: { $in: mongoIds } },
+                { id: { $in: numericIds } }
+            ]
+        }).lean();
+
+        if (studentRequests.length > 0) {
+            await resolveStudentExpiries(studentRequests, mysqlPool);
+        }
+
+        const expiries = {};
+        for (const r of studentRequests) {
+            const expData = {
+                effective_expiry_date: r.effective_expiry_date || null,
+                is_expired: Boolean(r.is_expired)
+            };
+            expiries[String(r._id)] = expData;
+            if (r.id != null) {
+                expiries[String(r.id)] = expData;
+            }
+        }
+
+        return res.json({ success: true, expiries });
+    } catch (error) {
+        console.error('Error in resolveBatchExpiries:', error);
+        return res.status(500).json({ message: 'Failed to resolve expiries' });
     }
 }

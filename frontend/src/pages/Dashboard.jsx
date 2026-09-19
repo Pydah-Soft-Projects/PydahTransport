@@ -236,11 +236,13 @@ const Dashboard = () => {
                 const routes = await routeRes.json();
                 const passengerStats = await statsRes.json();
 
-                const totalDist = routes.reduce((acc, curr) => acc + (curr.totalDistance || 0), 0);
-                const unassignedList = Array.isArray(buses) ? buses.filter(b => !b.driverName) : [];
+                const allBuses = Array.isArray(buses) ? buses : [];
+                const activeBuses = allBuses.filter(b => b.status !== 'Inactive' && b.status !== 'Retired');
+                const totalDist = Array.isArray(routes) ? routes.reduce((acc, curr) => acc + (curr.totalDistance || 0), 0) : 0;
+                const unassignedList = activeBuses.filter(b => !b.driverName);
 
                 setStats({
-                    buses: Array.isArray(buses) ? buses.length : 0,
+                    buses: activeBuses.length,
                     unassignedCount: unassignedList.length,
                     unassignedBuses: unassignedList,
                     routes: Array.isArray(routes) ? routes.length : 0,
