@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, MapPin, Edit3, Trash2, Plus, User, Search, UserPlus, X, Check, Mail, Phone, Building2 } from 'lucide-react';
+import { Shield, MapPin, Edit3, Trash2, Plus, User, Users, Search, UserPlus, X, Check, Mail, Phone, Building2 } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import { apiFetch } from '../utils/api';
 import { campusIdsMatch, getCampusId, userHasCampus } from '../utils/campus';
+import { normalizeAndMatchRoles, ROLE_LABELS } from '../utils/roleUtils';
 
 const UserManagement = () => {
     // Tab state
@@ -26,6 +27,7 @@ const UserManagement = () => {
     const [isAddAdminModalOpen, setIsAddAdminModalOpen] = useState(false);
     const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false);
     const [isSuperAdminModalOpen, setIsSuperAdminModalOpen] = useState(false);
+    const [selectedRoleUsersModal, setSelectedRoleUsersModal] = useState({ open: false, role: null, users: [] });
 
     // Form state for user edit (Image 3)
     const [editRole, setEditRole] = useState('office_staff');
@@ -141,9 +143,6 @@ const UserManagement = () => {
         support_staff: [
             'dashboard',
             'gps_tracking'
-        ],
-        user: [
-            'dashboard'
         ]
     };
 
@@ -153,7 +152,7 @@ const UserManagement = () => {
         { id: 'ao', label: 'AO (Administrative Officer)' },
         { id: 'manager', label: 'Manager' },
         { id: 'admin', label: 'Admin' },
-        { id: 'user', label: 'User' }
+        { id: 'support_staff', label: 'Support Staff' }
     ];
 
     const ROLE_PERMISSIONS_LIST = [
@@ -347,7 +346,8 @@ const UserManagement = () => {
 
         setSelectedUser(user);
         setSelectedEmployee(null);
-        const currentRole = user.roles && user.roles.length > 0 ? user.roles[0] : 'office_staff';
+        const normalizedRoles = normalizeAndMatchRoles(user.roles, user.permissions);
+        const currentRole = normalizedRoles[0] || 'office_staff';
         setEditRole(currentRole);
         setEditEmail(user.email || user.official_email || user.personal_email || '');
         setEditMobile(user.phone || user.phone_number || user.mobile || user.alt_phone_number || '');
@@ -607,7 +607,7 @@ const UserManagement = () => {
 
         // Role filter
         if (filterRole !== 'all') {
-            const userRoles = user.roles || [];
+            const userRoles = normalizeAndMatchRoles(user.roles, user.permissions);
             if (!userRoles.includes(filterRole)) return false;
         }
 
@@ -776,9 +776,10 @@ const UserManagement = () => {
                             </div>
                         ) : (
                             filteredUsers.map((user) => {
-                                const displayRoleKey = user.roles && user.roles[0] ? user.roles[0] : 'office_staff';
+                                const userRoles = normalizeAndMatchRoles(user.roles, user.permissions);
+                                const displayRoleKey = userRoles[0] || 'office_staff';
                                 const roleOption = ROLE_OPTIONS.find(r => r.id === displayRoleKey);
-                                const displayRole = roleOption ? roleOption.label : displayRoleKey;
+                                const displayRole = roleOption ? roleOption.label : (ROLE_LABELS[displayRoleKey] || displayRoleKey);
                                 const userName = user.employee_name || user.name || 'User';
                                 const initial = (userName.charAt(0) || 'U').toUpperCase();
 
@@ -914,9 +915,10 @@ const UserManagement = () => {
                                     </tr>
                                 ) : (
                                     filteredUsers.map((user) => {
-                                        const displayRoleKey = user.roles && user.roles[0] ? user.roles[0] : 'office_staff';
+                                        const userRoles = normalizeAndMatchRoles(user.roles, user.permissions);
+                                        const displayRoleKey = userRoles[0] || 'office_staff';
                                         const roleOption = ROLE_OPTIONS.find(r => r.id === displayRoleKey);
-                                        const displayRole = roleOption ? roleOption.label : displayRoleKey;
+                                        const displayRole = roleOption ? roleOption.label : (ROLE_LABELS[displayRoleKey] || displayRoleKey);
 
                                         return (
                                             <tr key={user._id} className="hover:bg-slate-50/70 transition-colors">
@@ -1031,34 +1033,99 @@ const UserManagement = () => {
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
-                        {rolesList.map(role => (
-                            <div key={role.id} className="border border-slate-200 rounded-xl p-3.5 sm:p-4 hover:shadow-sm transition-all bg-slate-50/40 flex flex-col justify-between">
-                                <div>
-                                    <div className="flex justify-between items-start mb-2 gap-2">
-                                        <h4 className="font-bold text-slate-900 text-sm">{role.name}</h4>
-                                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 font-bold text-[10px] rounded-full border border-blue-200 shrink-0">
-                                            {role.id}
-                                        </span>
+                        {rolesList.map(role => {
+                            const assignedUsers = users.filter(u => {
+                                const userRoles = normalizeAndMatchRoles(u.roles, u.permissions);
+                                return userRoles.includes(role.id);
+                            });
+
+                            return (
+                                <div key={role.id} className="border border-slate-200 rounded-xl p-3.5 sm:p-4 hover:shadow-sm transition-all bg-slate-50/40 flex flex-col justify-between">
+                                    <div>
+                                        <div className="flex justify-between items-start mb-2 gap-2">
+                                            <h4 className="font-bold text-slate-900 text-sm">{role.name}</h4>
+                                            <span className="px-2 py-0.5 bg-blue-50 text-blue-700 font-bold text-[10px] rounded-full border border-blue-200 shrink-0 font-mono">
+                                                {role.id}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 mb-4 leading-relaxed">{role.description}</p>
                                     </div>
-                                    <p className="text-xs text-slate-500 mb-4">{role.description}</p>
+                                    <div className="pt-3 border-t border-slate-200/60 flex justify-between items-center text-xs">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedRoleUsersModal({ open: true, role, users: assignedUsers })}
+                                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs border border-blue-200/80 transition-colors cursor-pointer"
+                                            title="Click to view assigned users"
+                                        >
+                                            <Users size={13} />
+                                            <span>{assignedUsers.length} active users</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleEditRoleClick(role)}
+                                            className="text-slate-600 hover:text-slate-900 font-bold text-xs cursor-pointer px-2 py-1 rounded-md hover:bg-slate-100 transition-colors"
+                                        >
+                                            Edit Role
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="pt-3 border-t border-slate-200/60 flex justify-between items-center text-xs">
-                                    <span className="text-slate-400 font-medium">
-                                        {users.filter(u => u.roles && u.roles.includes(role.id)).length} active users
-                                    </span>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleEditRoleClick(role)}
-                                        className="text-blue-600 hover:text-blue-800 font-bold text-xs cursor-pointer"
-                                    >
-                                        Edit Role
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             )}
+
+            {/* ROLE ASSIGNED USERS LIST MODAL */}
+            <Modal
+                isOpen={selectedRoleUsersModal.open}
+                onClose={() => setSelectedRoleUsersModal({ open: false, role: null, users: [] })}
+                title={`Assigned Users — ${selectedRoleUsersModal.role?.name || ''} (${selectedRoleUsersModal.users.length})`}
+                maxWidth="max-w-2xl"
+            >
+                <div className="space-y-4">
+                    <p className="text-xs text-slate-500">
+                        List of active system users assigned to the <strong className="text-slate-800">{selectedRoleUsersModal.role?.name}</strong> role (<span className="font-mono text-slate-600">{selectedRoleUsersModal.role?.id}</span>).
+                    </p>
+
+                    {selectedRoleUsersModal.users.length === 0 ? (
+                        <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-200 text-slate-400 font-semibold text-xs">
+                            No users currently assigned to this role.
+                        </div>
+                    ) : (
+                        <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
+                            {selectedRoleUsersModal.users.map((u) => {
+                                const userName = u.employee_name || u.name || 'User';
+                                const initial = (userName.charAt(0) || 'U').toUpperCase();
+                                return (
+                                    <div key={u._id} className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0">
+                                                {initial}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <h4 className="font-bold text-slate-900 text-xs truncate">{userName}</h4>
+                                                <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                                                    ID: {u.emp_no || u.username || '—'} {u.email ? `• ${u.email}` : ''} {u.phone ? `• ${u.phone}` : ''}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedRoleUsersModal({ open: false, role: null, users: [] });
+                                                handleManageRole(u);
+                                            }}
+                                            className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors cursor-pointer shrink-0"
+                                        >
+                                            Edit Role
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            </Modal>
 
             {/* CREATE / EDIT ROLE MODAL */}
             <Modal isOpen={isCreateRoleModalOpen} onClose={() => setIsCreateRoleModalOpen(false)} title={editingRole ? `Edit Role: ${editingRole.name}` : "Create New Role"} maxWidth="max-w-4xl">

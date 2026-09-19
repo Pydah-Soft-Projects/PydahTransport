@@ -8,6 +8,7 @@ const { connectDB, connectFeeDB, connectEmployeeDB } = require('./config/db');
 const { expireStaffTransportRequests } = require('./jobs/expireStaffTransportRequests');
 const { expireStudentTransportRequests } = require('./jobs/expireStudentTransportRequests');
 const { unassignLeftBusStaff } = require('./jobs/unassignLeftBusStaff');
+const { normalizeAllUserRoles } = require('./scripts/normalizeUserRolesInDb');
 
 const app = express();
 
@@ -69,6 +70,7 @@ const startDbs = async () => {
     await connectDB();
     await connectEmployeeDB();
     await connectFeeDB();
+    await normalizeAllUserRoles();
 };
 
 startDbs()

@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const UserRole = require('../models/UserRole');
 const { getEmployeeModel } = require('../models/Employee');
+const { normalizeUserRoles } = require('../utils/roleUtils');
 
 const protect = async (req, res, next) => {
     let token;
@@ -41,12 +42,13 @@ const protect = async (req, res, next) => {
             // If it was an employee, attach roles from local DB
             if (!req.user.roles) {
                 const userRole = await UserRole.findOne({ employeeId: req.user._id }).lean();
-                req.user.roles = userRole ? userRole.roles : ['user'];
+                req.user.roles = userRole ? userRole.roles : ['office_staff'];
                 req.user.permissions = userRole ? userRole.permissions : [];
                 req.user.campuses = userRole ? (userRole.campuses || []) : [];
                 req.user.colleges = userRole ? (userRole.colleges || []) : [];
                 req.user.courses = userRole ? (userRole.courses || []) : [];
             }
+            req.user = normalizeUserRoles(req.user);
 
             return next();
         } catch (error) {
@@ -114,11 +116,14 @@ const optionalAuth = async (req, res, next) => {
 
             if (req.user && !req.user.roles) {
                 const userRole = await UserRole.findOne({ employeeId: req.user._id }).lean();
-                req.user.roles = userRole ? userRole.roles : ['user'];
+                req.user.roles = userRole ? userRole.roles : ['office_staff'];
                 req.user.permissions = userRole ? userRole.permissions : [];
                 req.user.campuses = userRole ? (userRole.campuses || []) : [];
                 req.user.colleges = userRole ? (userRole.colleges || []) : [];
                 req.user.courses = userRole ? (userRole.courses || []) : [];
+            }
+            if (req.user) {
+                req.user = normalizeUserRoles(req.user);
             }
         } catch (error) {
             // Ignore invalid/expired token in optional auth

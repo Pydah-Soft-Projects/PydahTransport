@@ -2,6 +2,7 @@ const { getEmployeeModel } = require('../models/Employee');
 const UserRole = require('../models/UserRole');
 const campusService = require('../services/campusService');
 const Admin = require('../models/Admin');
+const { normalizeAndMatchRoles, normalizeUserRoles } = require('../utils/roleUtils');
 
 // @desc    Get all users (Employees + Roles)
 // @route   GET /api/users
@@ -88,7 +89,7 @@ const getUsers = async (req, res) => {
             const roleData = roleMap[emp._id.toString()] || {};
             const email = extractEmployeeEmail(emp, roleData);
             const phone = extractEmployeePhone(emp, roleData);
-            return {
+            const userObj = {
                 ...emp,
                 roles: roleData.roles || ['user'],
                 permissions: roleData.permissions || [],
@@ -98,6 +99,7 @@ const getUsers = async (req, res) => {
                 email,
                 phone
             };
+            return normalizeUserRoles(userObj);
         });
 
         // 0. Fetch Super Admins
@@ -150,13 +152,13 @@ const updateUserRole = async (req, res) => {
             return res.status(404).json({ message: 'Employee not found' });
         }
  
-        // Update or Create UserRole in Local DB
-        // Ensure roles is an array
-        const rolesArray = Array.isArray(roles) ? roles : [roles];
+        // Normalize and validate incoming roles against allowed system roles & permissions
+        const userPerms = permissions || [];
+        const validatedRoles = normalizeAndMatchRoles(roles, userPerms);
 
         const updateFields = {
-            roles: rolesArray,
-            permissions: permissions || [],
+            roles: validatedRoles.length > 0 ? validatedRoles : ['user'],
+            permissions: userPerms,
             campuses: campusService.normalizeCampusIds(campuses || []),
             colleges: colleges || [],
             courses: courses || []

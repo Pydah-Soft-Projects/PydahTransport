@@ -3889,15 +3889,23 @@ async function resolveBatchExpiries(req, res) {
             return res.json({ success: true, expiries: {} });
         }
 
-        const mongoIds = requestIds.filter(id => mongoose.Types.ObjectId.isValid(id));
-        const numericIds = requestIds.map(id => Number(id)).filter(id => !isNaN(id));
+        const mongoIds = requestIds.filter(id => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id));
+        const numericIds = requestIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
 
-        const studentRequests = await TransportRequest.find({
-            $or: [
-                { _id: { $in: mongoIds } },
-                { id: { $in: numericIds } }
-            ]
-        }).lean();
+        const orConditions = [];
+        if (mongoIds.length > 0) {
+            orConditions.push({ _id: { $in: mongoIds } });
+        }
+        if (numericIds.length > 0) {
+            orConditions.push({ id: { $in: numericIds } });
+        }
+
+        if (orConditions.length === 0) {
+            return res.json({ success: true, expiries: {} });
+        }
+
+        const query = orConditions.length === 1 ? orConditions[0] : { $or: orConditions };
+        const studentRequests = await TransportRequest.find(query).lean();
 
         if (studentRequests.length > 0) {
             await resolveStudentExpiries(studentRequests, mysqlPool);
@@ -3921,3 +3929,4 @@ async function resolveBatchExpiries(req, res) {
         return res.status(500).json({ message: 'Failed to resolve expiries' });
     }
 }
+
