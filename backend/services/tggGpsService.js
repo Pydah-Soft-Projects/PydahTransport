@@ -713,12 +713,35 @@ const parseFuelDayReportFromTgg = (tggData) => {
     let initialFuel = null;
     let finalFuel = null;
     let fuelConsumption = null;
+    let realVehName = null;
 
     const scanSection = (secObj) => {
       if (!secObj || typeof secObj !== 'object') return;
       const cList = extractAllCObjects(secObj);
       for (const cObj of cList) {
         if (!cObj || typeof cObj !== 'object') continue;
+
+        // Label-value row format (Statistics table in TGG API)
+        const labelText = String(cObj['1']?.t || cObj['1'] || cObj['0']?.t || cObj['0'] || '').toLowerCase().trim();
+        const valueText = String(cObj['2']?.t || cObj['2'] || cObj['1']?.t || cObj['1'] || '').trim();
+
+        if (labelText === 'unit' || labelText === 'vehicle' || labelText.includes('unit')) {
+          if (valueText && valueText !== '—' && !realVehName) {
+            realVehName = valueText;
+          }
+        }
+
+        if (labelText.includes('initial') && labelText.includes('fuel')) {
+          const num = parseNumWithUnit(valueText);
+          if (num !== null) initialFuel = num;
+        } else if (labelText.includes('final') && labelText.includes('fuel')) {
+          const num = parseNumWithUnit(valueText);
+          if (num !== null) finalFuel = num;
+        } else if (labelText.includes('consumption') && labelText.includes('fuel')) {
+          const num = parseNumWithUnit(valueText);
+          if (num !== null) fuelConsumption = num;
+        }
+
         for (const k of Object.keys(cObj)) {
           const raw = cObj[k];
           if (raw === null || raw === undefined) continue;
@@ -739,8 +762,6 @@ const parseFuelDayReportFromTgg = (tggData) => {
           if (valLower.includes('l') && !valLower.includes('km') && !valLower.includes('/')) {
             const num = parseNumWithUnit(valStr);
             if (num !== null && num >= 0) {
-              // TGG Fuel Data specific cell indices:
-              // Index 2 = Fuel Consumption, Index 4 = Initial Fuel Level, Index 5 = Final Fuel Level
               if (k === '2' && fuelConsumption === null) fuelConsumption = num;
               else if (k === '4' && initialFuel === null) initialFuel = num;
               else if (k === '5' && finalFuel === null) finalFuel = num;
@@ -752,22 +773,15 @@ const parseFuelDayReportFromTgg = (tggData) => {
       }
     };
 
-    // 1. Scan "Total KMs Travelled" or "Mileage" or "Distance"
+    if (vehObj["Statistics"]) {
+      scanSection(vehObj["Statistics"]);
+    }
     if (vehObj["Total KMs Travelled"] || vehObj["Mileage"] || vehObj["Distance"]) {
       scanSection(vehObj["Total KMs Travelled"] || vehObj["Mileage"] || vehObj["Distance"]);
     }
-
-    // 2. Scan "Fuel Data" or "Summary Report" or "Summary"
     if (vehObj["Fuel Data"] || vehObj["Summary Report"] || vehObj["Summary"]) {
       scanSection(vehObj["Fuel Data"] || vehObj["Summary Report"] || vehObj["Summary"]);
     }
-
-    // 3. Scan "Trips details" or "Trips"
-    if (vehObj["Trips details"] || vehObj["Trips"]) {
-      scanSection(vehObj["Trips details"] || vehObj["Trips"]);
-    }
-
-    // 4. Fallback: Scan entire vehObj
     scanSection(vehObj);
 
     // Calculate fuel consumption if missing but initial & final exist
@@ -778,7 +792,7 @@ const parseFuelDayReportFromTgg = (tggData) => {
     }
 
     return {
-      tggVehicleName: vName,
+      tggVehicleName: realVehName || vName,
       kmsTravelled: kmsTravelled !== null ? Math.round(kmsTravelled * 10) / 10 : null,
       initialFuel: initialFuel !== null ? Math.round(initialFuel * 100) / 100 : null,
       finalFuel: finalFuel !== null ? Math.round(finalFuel * 100) / 100 : null,
@@ -786,8 +800,15 @@ const parseFuelDayReportFromTgg = (tggData) => {
     };
   };
 
-  for (const key of Object.keys(tggData)) {
-    const vehObj = tggData[key];
+  let activeData = tggData;
+  if (tggData["Fuel Day Report"] && typeof tggData["Fuel Day Report"] === 'object') {
+    activeData = tggData["Fuel Day Report"];
+  } else if (tggData["Fuel Report"] && typeof tggData["Fuel Report"] === 'object') {
+    activeData = tggData["Fuel Report"];
+  }
+
+  for (const key of Object.keys(activeData)) {
+    const vehObj = activeData[key];
     if (vehObj && typeof vehObj === 'object') {
       const res = processVehicle(key, vehObj);
       if (res) results.push(res);

@@ -401,7 +401,9 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
 const syncFuelDayReportForDates = async (dates, forceRefresh = false, targetBusNumber = null) => {
   if (!Array.isArray(dates) || dates.length === 0) return { success: true, count: 0 };
 
-  let buses = await Bus.find({ status: 'Active' }).lean();
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  let buses = await Bus.find({ status: 'Active', hasFuelSensor: true }).lean();
   if (targetBusNumber) {
     const tKey = extractPlateKey(targetBusNumber);
     const tDigits = String(targetBusNumber).replace(/\D/g, '').slice(-4);
@@ -411,7 +413,12 @@ const syncFuelDayReportForDates = async (dates, forceRefresh = false, targetBusN
       const bDigits = String(b.busNumber).replace(/\D/g, '').slice(-4);
       return (bKey && tKey && bKey === tKey) || (rKey && tKey && rKey === tKey) || (tDigits && bDigits === tDigits) || b.busNumber === targetBusNumber;
     });
-    buses = filtered.length > 0 ? filtered : [{ busNumber: targetBusNumber, campus: null }];
+    buses = filtered;
+  }
+
+  if (buses.length === 0) {
+    console.log(`[GpsSyncService] No active buses with fuel sensor enabled to sync fuel day report.`);
+    return { success: true, count: 0 };
   }
   const routes = await Route.find({}).lean();
   const routeMap = {};
@@ -506,9 +513,9 @@ const syncFuelDayReportForDates = async (dates, forceRefresh = false, targetBusN
             lastSyncedAt: new Date()
           };
 
-          if (initialFuel > 0 || !existingFuel) updateFuelFields.initialFuelLiters = initialFuel;
-          if (finalFuel > 0 || !existingFuel) updateFuelFields.finalFuelLiters = finalFuel;
-          if (fuelConsumption > 0 || !existingFuel) updateFuelFields.fuelConsumedLiters = fuelConsumption;
+          updateFuelFields.initialFuelLiters = initialFuel;
+          updateFuelFields.finalFuelLiters = finalFuel;
+          updateFuelFields.fuelConsumedLiters = fuelConsumption;
           if (kmsTravelled > 0 || !existingFuel) updateFuelFields.distanceTravelledKm = kmsTravelled;
 
           await GpsFuelReport.updateOne(
