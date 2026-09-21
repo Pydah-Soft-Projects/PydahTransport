@@ -249,6 +249,7 @@ const getBusDetails = async (req, res) => {
                 status: bus.status,
                 assignedRouteId: bus.assignedRouteId,
                 campus: bus.campus,
+                hasFuelSensor: bus.hasFuelSensor,
             },
             route: route ? {
                 _id: route._id,
@@ -640,6 +641,7 @@ const getBusesOverview = async (req, res) => {
                     type: bus.type,
                     status: bus.status,
                     assignedRouteId: bus.assignedRouteId,
+                    hasFuelSensor: bus.hasFuelSensor,
                 },
                 route: route ? { routeId: route.routeId, routeName: route.routeName, zone: route.zone } : null,
                 seatsFilled,
@@ -905,6 +907,9 @@ const updateBus = async (req, res) => {
             ? campusService.normalizeCampusId(req.body.campus)
             : bus.campus;
 
+        if (req.body.hasFuelSensor !== undefined) {
+            bus.hasFuelSensor = Boolean(req.body.hasFuelSensor);
+        }
         if (req.body.vehicleModel !== undefined) {
             bus.vehicleModel = req.body.vehicleModel;
         }

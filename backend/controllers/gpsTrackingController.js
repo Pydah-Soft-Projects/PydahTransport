@@ -176,12 +176,13 @@ const fetchLiveVehicles = async (req, res) => {
     });
 
     const mappedData = result.data.map(veh => {
-      const { routeId, routeName } = resolveVehicleRoute(veh.name, buses, routeMap);
+      const { matchedBus, routeId, routeName } = resolveVehicleRoute(veh.name, buses, routeMap);
 
       return {
         ...veh,
         routeId,
-        routeName
+        routeName,
+        hasFuelSensor: matchedBus ? Boolean(matchedBus.hasFuelSensor) : false
       };
     });
 
@@ -1057,16 +1058,15 @@ const fetchDayInOutReport = async (req, res) => {
 
     let existingDbDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
 
+    const todayStr = new Date().toISOString().split('T')[0];
     const existingDateBusKeys = new Set(existingDbDocs.map(d => `${d.date}_${extractPlateKey(d.busNumber)}`));
     let needsSync = forceRefresh;
     if (!needsSync) {
       for (const bus of buses) {
         const bKey = extractPlateKey(bus.busNumber);
         for (const dateStr of dates) {
-          const doc = existingDbDocs.find(d => d.date === dateStr && (
-            d.busNumber === bus.busNumber || extractPlateKey(d.busNumber) === bKey
-          ));
-          if (!doc || doc.syncStatus === 'INCOMPLETE' || (doc.firstInTime === '—' && doc.lastOutTime === '—')) {
+          // Sync missing past dates only; avoid re-triggering TGG API sync when past date records already exist in MongoDB
+          if (!existingDateBusKeys.has(`${dateStr}_${bKey}`) && dateStr !== todayStr) {
             needsSync = true;
             break;
           }
@@ -1085,21 +1085,21 @@ const fetchDayInOutReport = async (req, res) => {
     const routeMap = {};
     routes.forEach(r => { routeMap[r.routeId] = r; });
 
+    // Pre-index existing DB docs for fast O(1) rendering
+    const docMap = new Map();
+    existingDbDocs.forEach(d => {
+      const pKey = extractPlateKey(d.busNumber) || extractPlateKey(d.tggVehicleName);
+      if (pKey) docMap.set(`${d.date}_${pKey}`, d);
+      docMap.set(`${d.date}_${d.busNumber}`, d);
+    });
+
     const reportRows = buses.map(bus => {
       const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
       const daysMap = {};
       const busPlateKey = extractPlateKey(bus.busNumber);
-      const busDigits = String(bus.busNumber).replace(/\D/g, '').slice(-4);
 
       dates.forEach(dateStr => {
-        const doc = existingDbDocs.find(d => d.date === dateStr && (
-          d.busNumber === bus.busNumber ||
-          extractPlateKey(d.busNumber) === busPlateKey ||
-          extractPlateKey(d.tggVehicleName) === busPlateKey ||
-          (routeId && extractRouteIdFromVehicleName(d.tggVehicleName) === routeId) ||
-          (busDigits && busDigits.length === 4 && String(d.busNumber).replace(/\D/g, '').slice(-4) === busDigits) ||
-          (busDigits && busDigits.length === 4 && String(d.tggVehicleName).replace(/\D/g, '').slice(-4) === busDigits)
-        ));
+        const doc = docMap.get(`${dateStr}_${busPlateKey}`) || docMap.get(`${dateStr}_${bus.busNumber}`);
         daysMap[dateStr] = {
           firstIn: doc && doc.firstInTime && doc.firstInTime !== '—' ? doc.firstInTime : null,
           lastOut: doc && doc.lastOutTime && doc.lastOutTime !== '—' ? doc.lastOutTime : null,
@@ -1404,12 +1404,23 @@ const fetchFuelDayReport = async (req, res) => {
     let existingFuelDocs = await GpsFuelReport.find({ date: { $in: dates } }).lean();
 
     const { query: busQueryFilter } = await getCampusBusQueryFilter(req);
-    const buses = await Bus.find(busQueryFilter).lean();
+    const fuelBusQueryFilter = { ...busQueryFilter, hasFuelSensor: true };
+    const buses = await Bus.find(fuelBusQueryFilter).lean();
+
+    let targetBuses = buses;
+    const isSingleVehicle = vehicle_name && vehicle_name !== 'ALL' && vehicle_name !== 'All Vehicles';
+    if (isSingleVehicle) {
+      const busKey = extractPlateKey(vehicle_name);
+      targetBuses = buses.filter(b => {
+        const bKey = extractPlateKey(b.busNumber);
+        return bKey && busKey && (bKey === busKey || bKey.includes(busKey) || busKey.includes(bKey));
+      });
+    }
 
     const existingKeys = new Set(existingFuelDocs.map(d => `${d.date}_${d.busNumber}`));
     let needsSync = forceRefresh;
     if (!needsSync) {
-      for (const bus of buses) {
+      for (const bus of targetBuses) {
         for (const dateStr of dates) {
           if (!existingKeys.has(`${dateStr}_${bus.busNumber}`)) {
             needsSync = true;
@@ -1422,23 +1433,14 @@ const fetchFuelDayReport = async (req, res) => {
 
     if (needsSync) {
       console.log(`[FuelReport API] Triggering DB sync for dates: ${dates.join(', ')}...`);
-      await syncFuelDayReportForDates(dates, forceRefresh);
+      const targetBusNum = isSingleVehicle ? (targetBuses[0]?.busNumber || vehicle_name) : null;
+      await syncFuelDayReportForDates(dates, forceRefresh, targetBusNum);
       existingFuelDocs = await GpsFuelReport.find({ date: { $in: dates } }).lean();
     }
 
     const routes = await Route.find({}).lean();
     const routeMap = {};
     routes.forEach(r => { routeMap[r.routeId] = r; });
-
-    let targetBuses = buses;
-    const isSingleVehicle = vehicle_name && vehicle_name !== 'ALL' && vehicle_name !== 'All Vehicles';
-    if (isSingleVehicle) {
-      const busKey = extractPlateKey(vehicle_name);
-      targetBuses = buses.filter(b => {
-        const bKey = extractPlateKey(b.busNumber);
-        return bKey && busKey && (bKey === busKey || bKey.includes(busKey) || busKey.includes(bKey));
-      });
-    }
 
     const enrichedRows = targetBuses.map(bus => {
       const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);

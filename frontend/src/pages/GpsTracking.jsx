@@ -239,47 +239,25 @@ export default function GpsTracking() {
       return;
     }
 
-    // All Fleet Vehicles Mode: Fetch vehicle by vehicle in 2-concurrent chunks
-    const targetVehList = vehicles.length > 0 ? vehicles : [];
-    const initLoadingMap = {};
-    targetVehList.forEach(v => { initLoadingMap[v.name] = true; });
-    setFuelLoadingVehicles(initLoadingMap);
-
-    const accumulatedData = [];
-    const CONCURRENCY = 2;
-
-    for (let i = 0; i < targetVehList.length; i += CONCURRENCY) {
-      const chunk = targetVehList.slice(i, i + CONCURRENCY);
-      await Promise.all(chunk.map(async (v) => {
+    // All Fleet Vehicles Mode: Fetch fuel report directly for all fuel-sensor buses
+    try {
+      const url = `${API_BASE}/gps/fuel-report?vehicle_name=ALL&date_from=${encodeURIComponent(fromStr)}&date_to=${encodeURIComponent(toStr)}${forceRefresh ? '&refresh=true' : ''}`;
+      const res = await apiFetch(url);
+      const json = await res.json();
+      if (res.ok && json && json.success && Array.isArray(json.data)) {
+        setFuelReportData(json.data);
+        fuelCacheRef.current[cacheKey] = json.data;
         try {
-          const url = `${API_BASE}/gps/fuel-report?vehicle_name=${encodeURIComponent(v.name)}&date_from=${encodeURIComponent(fromStr)}&date_to=${encodeURIComponent(toStr)}${forceRefresh ? '&refresh=true' : ''}`;
-          const res = await apiFetch(url);
-          const json = await res.json();
-          if (res.ok && json && json.success && Array.isArray(json.data) && json.data.length > 0) {
-            const rowData = json.data[0];
-            accumulatedData.push(rowData);
-            setFuelReportData((prev) => {
-              const vKey = extractPlateKey(v.name);
-              const filtered = prev.filter(r => extractPlateKey(r.tggVehicleName || r.busNumber) !== vKey);
-              return [...filtered, rowData];
-            });
-          }
-        } catch (e) {
-        } finally {
-          setFuelLoadingVehicles((prev) => ({ ...prev, [v.name]: false }));
-        }
-      }));
+          localStorage.setItem(`fuel_cache_${cacheKey}`, JSON.stringify(json.data));
+        } catch (e) {}
+      }
+    } catch (err) {
+      console.error('[Fuel Day Report] Fetch error:', err);
+      setFuelError(err.message || 'Failed to fetch fuel report data');
+    } finally {
+      setFuelLoadingVehicles({});
+      setFuelLoading(false);
     }
-
-    if (accumulatedData.length > 0) {
-      fuelCacheRef.current[cacheKey] = accumulatedData;
-      try {
-        localStorage.setItem(`fuel_cache_${cacheKey}`, JSON.stringify(accumulatedData));
-      } catch (e) {}
-    }
-
-    setFuelLoadingVehicles({});
-    setFuelLoading(false);
   }, [fuelDateFrom, fuelDateTo, fuelSelectedVehicle, vehicles]);
 
   // Auto fetch fuel report when tab switches to 'fuel' (using cache when available)
@@ -338,8 +316,19 @@ export default function GpsTracking() {
 
     let mergedRows = [];
 
-    if (vehicles.length > 0) {
-      mergedRows = vehicles.map((v) => {
+    const fuelBuses = vehicles.filter((v) => v.hasFuelSensor === true);
+    if (fuelReportData.length > 0) {
+      mergedRows = fuelReportData.map((r) => ({
+        tggVehicleName: r.tggVehicleName || r.busNumber,
+        busNumber: r.tggVehicleName || r.busNumber,
+        routeId: r.routeId || extractRouteIdFromVehicleName(r.tggVehicleName || r.busNumber) || 'Unassigned',
+        kmsTravelled: r.kmsTravelled ?? null,
+        initialFuel: r.initialFuel ?? null,
+        finalFuel: r.finalFuel ?? null,
+        fuelConsumption: r.fuelConsumption ?? null
+      }));
+    } else if (fuelBuses.length > 0) {
+      mergedRows = fuelBuses.map((v) => {
         const key1 = String(v.name).trim().toUpperCase();
         const key2 = extractPlateKey(v.name);
         const match = fuelMap.get(key1) || (key2 ? fuelMap.get(key2) : null);
@@ -355,28 +344,8 @@ export default function GpsTracking() {
           fuelConsumption: match ? match.fuelConsumption : null
         };
       });
-    } else if (fuelReportData.length > 0) {
-      mergedRows = fuelReportData.map((r) => ({
-        tggVehicleName: r.tggVehicleName || r.busNumber,
-        busNumber: r.tggVehicleName || r.busNumber,
-        routeId: r.routeId || extractRouteIdFromVehicleName(r.tggVehicleName || r.busNumber) || 'Unassigned',
-        kmsTravelled: r.kmsTravelled ?? null,
-        initialFuel: r.initialFuel ?? null,
-        finalFuel: r.finalFuel ?? null,
-        fuelConsumption: r.fuelConsumption ?? null
-      }));
     } else {
-      // Predisplayed fleet skeleton rows while initial vehicles/data are loading
-      const defaultRoutes = ['R01', 'R02', 'R03', 'R04', 'R05', 'R06', 'R07', 'R08', 'R09', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15'];
-      mergedRows = defaultRoutes.map((rCode, idx) => ({
-        tggVehicleName: `${rCode}_AP39UP${8051 + idx}`,
-        busNumber: `${rCode}_AP39UP${8051 + idx}`,
-        routeId: rCode,
-        kmsTravelled: null,
-        initialFuel: null,
-        finalFuel: null,
-        fuelConsumption: null
-      }));
+      mergedRows = [];
     }
 
     if (!fuelSortField) return mergedRows;
@@ -410,6 +379,9 @@ export default function GpsTracking() {
   const sortedDropdownVehicles = React.useMemo(() => {
     if (!vehicles || vehicles.length === 0) return [];
 
+    const fuelBuses = vehicles.filter(v => v.hasFuelSensor === true);
+    const targetVehicles = activePageTab === 'fuel' && fuelBuses.length > 0 ? fuelBuses : vehicles;
+
     const routeMap = new Map();
     if (Array.isArray(sortedFuelRows)) {
       sortedFuelRows.forEach((r) => {
@@ -422,7 +394,7 @@ export default function GpsTracking() {
       });
     }
 
-    const items = vehicles.map((v) => {
+    const items = targetVehicles.map((v) => {
       const k1 = String(v.name).trim().toUpperCase();
       const k2 = extractPlateKey(v.name);
       const assignedRoute = routeMap.get(k1) || (k2 ? routeMap.get(k2) : null) || extractRouteIdFromVehicleName(v.name) || 'Route';
@@ -440,7 +412,7 @@ export default function GpsTracking() {
       if (numA !== numB) return numA - numB;
       return String(a.name).localeCompare(String(b.name), undefined, { numeric: true });
     });
-  }, [vehicles, sortedFuelRows]);
+  }, [vehicles, sortedFuelRows, activePageTab]);
 
   const handleExportFuelExcel = async () => {
     if (!filteredFuelRows || filteredFuelRows.length === 0) return;
@@ -3051,7 +3023,7 @@ export default function GpsTracking() {
                     }}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                   >
-                    <option value="ALL">All Fleet Vehicles ({vehicles.length > 0 ? vehicles.length : 32})</option>
+                    <option value="ALL">All Fuel Sensor Buses ({sortedDropdownVehicles.length})</option>
                     {sortedDropdownVehicles.map((v) => (
                       <option key={v.name} value={v.name}>
                         {v.name} ({v.assignedRoute || 'Route'})
@@ -3120,7 +3092,7 @@ export default function GpsTracking() {
                     className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                   >
                     <RefreshCw size={13} className={fuelLoading ? 'animate-spin' : ''} />
-                    <span>{fuelLoading ? 'Executing...' : 'Execute'}</span>
+                    <span>{fuelLoading ? 'Syncing...' : 'Sync & Refresh'}</span>
                   </button>
 
                   <button
