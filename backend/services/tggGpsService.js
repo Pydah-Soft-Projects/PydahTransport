@@ -377,6 +377,102 @@ const messagesCacheStore = new Map();
 const MESSAGES_CACHE_TTL = 30000; // 30s cache TTL for position history logs
 
 /**
+ * Helper to safely extract HH:mm time string from any TGG timestamp format (UNIX, ISO, space-separated)
+ */
+const formatTimestampToHHmm = (rawTime) => {
+  if (!rawTime) return null;
+  const str = String(rawTime).trim();
+  // Case 1: UNIX timestamp in seconds (e.g. 1726588800) or milliseconds
+  if (!isNaN(str) && Number(str) > 100000000) {
+    const num = Number(str);
+    const date = new Date(num > 10000000000 ? num : num * 1000);
+    const hrs = String(date.getHours()).padStart(2, '0');
+    const mins = String(date.getMinutes()).padStart(2, '0');
+    return `${hrs}:${mins}`;
+  }
+  // Case 2: Space separated "2026-09-17 16:45:00"
+  const spaceParts = str.split(' ');
+  if (spaceParts.length >= 2 && spaceParts[1].includes(':')) {
+    return spaceParts[1].substring(0, 5);
+  }
+  // Case 3: ISO string "2026-09-17T16:45:00.000Z"
+  if (str.includes('T') && str.includes(':')) {
+    const tParts = str.split('T');
+    if (tParts[1]) return tParts[1].substring(0, 5);
+  }
+  // Case 4: Standard parseable date
+  const parsedDate = new Date(str);
+  if (!isNaN(parsedDate.getTime())) {
+    const hrs = String(parsedDate.getHours()).padStart(2, '0');
+    const mins = String(parsedDate.getMinutes()).padStart(2, '0');
+    return `${hrs}:${mins}`;
+  }
+  return null;
+};
+
+/**
+ * Recursive parser for TGG messages_api.php position history response
+ */
+const parseMessagesApiResponse = (rawText) => {
+  if (!rawText || typeof rawText !== 'string') return [];
+  const trimmed = rawText.trim();
+  if (!trimmed) return [];
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    try {
+      let cleaned = trimmed.replace(/^\{\s*\[/, '[').replace(/\]\s*\}$/, ']');
+      parsed = JSON.parse(cleaned);
+    } catch (err) {
+      return [];
+    }
+  }
+
+  const points = [];
+  const extractPointsFromDict = (dict) => {
+    if (!dict || typeof dict !== 'object') return;
+    if (Array.isArray(dict)) {
+      dict.forEach(item => extractPointsFromDict(item));
+      return;
+    }
+
+    const latVal = dict.latitude ?? dict.lat ?? dict.y;
+    const lngVal = dict.longitude ?? dict.lng ?? dict.lon ?? dict.x;
+    const timeVal = dict.timestamp || dict.time || dict.date || dict.t || dict.dt;
+
+    if (latVal != null && lngVal != null && timeVal) {
+      const latitude = parseFloat(latVal);
+      const longitude = parseFloat(lngVal);
+      if (Number.isFinite(latitude) && Number.isFinite(longitude) && latitude !== 0 && longitude !== 0) {
+        const timeStr = formatTimestampToHHmm(timeVal);
+        points.push({
+          timestamp: String(timeVal),
+          time: String(timeVal),
+          timeStr,
+          latitude,
+          longitude,
+          lat: latitude,
+          lng: longitude,
+          speed: parseFloat(dict.speed || 0)
+        });
+        return;
+      }
+    }
+
+    Object.values(dict).forEach(subVal => {
+      if (subVal && typeof subVal === 'object') {
+        extractPointsFromDict(subVal);
+      }
+    });
+  };
+
+  extractPointsFromDict(parsed);
+  return points;
+};
+
+/**
  * 3. Read Vehicle Latitude and Longitude (Messages API)
  * API Request: https://pfmsledger.in/tggapi/messages_api.php?token=TOKEN_ID
  * POST parameters: username, password, date_from, date_to, vehicle_name (Optional)
@@ -421,7 +517,10 @@ const fetchVehicleMessagesFromTgg = async (historyQuery = {}) => {
     params.append('date_from', dateFrom);
     params.append('date_to', dateTo);
     if (historyQuery.vehicle_name) {
-      params.append('vehicle_name', cleanVehicleName(historyQuery.vehicle_name));
+      const vName = cleanVehicleName(historyQuery.vehicle_name);
+      params.append('vehicle_name', vName);
+      params.append('unit_name', vName);
+      params.append('unit', vName);
     }
 
     const response = await fetch(url, {
@@ -430,7 +529,7 @@ const fetchVehicleMessagesFromTgg = async (historyQuery = {}) => {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
       body: params,
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(10000)
     });
 
     const rawText = await response.text();
@@ -438,7 +537,7 @@ const fetchVehicleMessagesFromTgg = async (historyQuery = {}) => {
       throw new Error(`TGG Messages API status ${response.status}`);
     }
 
-    const logs = parseTggResponse(rawText);
+    const logs = parseMessagesApiResponse(rawText);
     messagesCacheStore.set(cacheKey, { timestamp: now, data: logs });
     console.log(`[TGG Messages API] Fetched ${logs.length} position history logs for: ${historyQuery.vehicle_name || 'All'} (${dateFrom} to ${dateTo})`);
     return {

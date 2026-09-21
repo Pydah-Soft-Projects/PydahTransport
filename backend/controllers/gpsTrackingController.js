@@ -1180,7 +1180,6 @@ const fetchNightStayReport = async (req, res) => {
     if (needsSync) {
       console.log(`[NightStayReport API] Triggering DB sync for dates: ${dates.join(', ')}...`);
       await syncNightStayReportForDates(dates, forceRefresh);
-      await syncDayInOutReportForDates(dates, forceRefresh);
       existingDbDocs = await GpsNightStayReport.find({ date: { $in: dates } }).lean();
       dailyDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
     }
@@ -1188,6 +1187,16 @@ const fetchNightStayReport = async (req, res) => {
     const routes = await Route.find({}).lean();
     const routeMap = {};
     routes.forEach(r => { routeMap[r.routeId] = r; });
+
+    // Filter buses to only those whose assigned route has an explicitly configured Night Stay Point
+    const configuredBuses = buses.filter(bus => {
+      const { routeId } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
+      const routeObj = routeMap[routeId];
+      if (!routeObj) return false;
+      const hasDirectStayPoint = Boolean(routeObj.nightStayPoint?.stageName) || (Number.isFinite(Number(routeObj.nightStayPoint?.latitude)) && Number(routeObj.nightStayPoint?.latitude) !== 0);
+      const hasStageStayPoint = Array.isArray(routeObj.stages) && routeObj.stages.some(s => s.isNightStayPoint);
+      return hasDirectStayPoint || hasStageStayPoint;
+    });
 
     // Build O(1) Maps for ultra-fast lookup
     const dailyMap = new Map();
@@ -1212,7 +1221,7 @@ const fetchNightStayReport = async (req, res) => {
       }
     });
 
-    const reportRows = buses.map(bus => {
+    const reportRows = configuredBuses.map(bus => {
       const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
       const routeObj = routeMap[routeId];
       let stayPointStage = routeObj?.nightStayPoint;
@@ -1221,7 +1230,7 @@ const fetchNightStayReport = async (req, res) => {
           stayPointStage = routeObj.stages.find(s => s.isNightStayPoint) || null;
         }
       }
-      const stayPointName = stayPointStage?.stageName || routeObj?.nightStayPoint?.stageName || 'Campus / Assigned Night Stay';
+      const stayPointName = stayPointStage?.stageName || routeObj?.nightStayPoint?.stageName || 'Night Stay Point';
       const isDefaultStayPoint = !routeObj?.nightStayPoint && !routeObj?.stages?.some(s => s.isNightStayPoint);
       const stageLat = Number(stayPointStage?.latitude);
       const stageLng = Number(stayPointStage?.longitude);
@@ -1240,11 +1249,8 @@ const fetchNightStayReport = async (req, res) => {
                      (busPlateKey ? dailyMap.get(`${dateStr}_${busPlateKey}`) : null) ||
                      (busDigits.length === 4 ? dailyMap.get(`${dateStr}_digits_${busDigits}`) : null);
 
-        const firstIn = (nsDoc && nsDoc.firstInTime && nsDoc.firstInTime !== '—') ? nsDoc.firstInTime :
-                        (dDoc && dDoc.firstInTime && dDoc.firstInTime !== '—') ? dDoc.firstInTime : null;
-
-        const lastOut = (nsDoc && nsDoc.lastOutTime && nsDoc.lastOutTime !== '—') ? nsDoc.lastOutTime :
-                        (dDoc && dDoc.lastOutTime && dDoc.lastOutTime !== '—') ? dDoc.lastOutTime : null;
+        const firstIn = (nsDoc && nsDoc.firstInTime && nsDoc.firstInTime !== '—') ? nsDoc.firstInTime : null;
+        const lastOut = (nsDoc && nsDoc.lastOutTime && nsDoc.lastOutTime !== '—') ? nsDoc.lastOutTime : null;
 
         daysMap[dateStr] = {
           firstIn,

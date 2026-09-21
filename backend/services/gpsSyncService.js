@@ -10,6 +10,7 @@
 const {
   fetchVehiclesListFromTgg,
   fetchReportsFromTgg,
+  fetchVehicleMessagesFromTgg,
   parseFuelDayReportFromTgg,
   parseDailyKilometersFromTggReport,
   parseGeofencesFromTgg,
@@ -240,106 +241,6 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
         console.warn(`[GpsSync] Daily report fetch failed for ${tggVehicleName}:`, err.message);
       }
 
-      // 2. If stay point coordinates exist, augment with Messages API history
-      if (hasStageCoords) {
-        try {
-          const { baseUrl, token, username, password } = getTggConfig();
-          const msgUrl = `${baseUrl}/messages_api.php?token=${encodeURIComponent(token)}`;
-
-          const dateQueries = datesToSync.map(dateStr => ({
-            start: `${dateStr} 04:00:00`,
-            end: `${dateStr} 22:00:00`
-          }));
-
-          const segResults = await Promise.all(dateQueries.map(async (seg) => {
-            try {
-              const params = new URLSearchParams();
-              params.append('username', username);
-              params.append('password', password);
-              params.append('date_from', seg.start);
-              params.append('date_to', seg.end);
-              params.append('vehicle_name', tggVehicleName);
-
-              const response = await fetch(msgUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: params,
-                signal: AbortSignal.timeout(4500)
-              });
-
-              if (response.ok) {
-                const rawText = await response.text();
-                try {
-                  const parsed = JSON.parse(rawText.trim());
-                  const points = [];
-                  for (const vehKey of Object.keys(parsed)) {
-                    const vehData = parsed[vehKey];
-                    if (vehData && typeof vehData === 'object') {
-                      for (const logKey of Object.keys(vehData)) {
-                        const log = vehData[logKey];
-                        if (log && log.y && log.x) {
-                          points.push({
-                            timestamp: log.time || log.timestamp || '',
-                            latitude: parseFloat(log.y),
-                            longitude: parseFloat(log.x)
-                          });
-                        }
-                      }
-                    }
-                  }
-                  return points;
-                } catch (e) { return []; }
-              }
-              return [];
-            } catch (e) { return []; }
-          }));
-
-          let logs = [];
-          segResults.forEach(pts => { if (Array.isArray(pts)) logs.push(...pts); });
-
-          if (logs.length > 0) {
-            logs.sort((a, b) => new Date(a.timestamp || a.time) - new Date(b.timestamp || b.time));
-
-            logs.forEach(pt => {
-              const rawTime = pt.timestamp || pt.time || pt.date;
-              if (!rawTime) return;
-
-              const normDate = normalizeDateStr(rawTime);
-              if (!normDate || !daysMap[normDate]) return;
-
-              const timeParts = String(rawTime).trim().split(' ');
-              const timeStr = timeParts[1] ? timeParts[1].substring(0, 5) : (rawTime.length >= 16 ? rawTime.substring(11, 16) : null);
-              if (!timeStr) return;
-
-              const pLat = parseFloat(pt.latitude || pt.lat || pt.y);
-              const pLng = parseFloat(pt.longitude || pt.lng || pt.x);
-
-              if (Number.isFinite(pLat) && Number.isFinite(pLng)) {
-                const dist = calculateDistanceMeters(stageLat, stageLng, pLat, pLng);
-                const isInside = dist <= stayRadius;
-
-                if (isInside) {
-                  // Morning departure (OUT)
-                  if (timeStr >= '04:00' && timeStr < '12:00') {
-                    if (daysMap[normDate].lastOut === '—' || timeStr > daysMap[normDate].lastOut) {
-                      daysMap[normDate].lastOut = timeStr;
-                    }
-                  }
-                  // Evening arrival (IN)
-                  if (timeStr >= '16:00') {
-                    if (daysMap[normDate].firstIn === '—' || timeStr < daysMap[normDate].firstIn) {
-                      daysMap[normDate].firstIn = timeStr;
-                    }
-                  }
-                }
-              }
-            });
-          }
-        } catch (err) {
-          console.warn(`[GpsSync] Messages API failed for ${tggVehicleName}:`, err.message);
-        }
-      }
-
       // Upsert into GpsDailyReport MongoDB collection with safe non-destructive update
       for (const dStr of datesToSync) {
         const dData = daysMap[dStr];
@@ -563,26 +464,38 @@ const syncNightStayReportForDates = async (dates, forceRefresh = false, targetBu
   const routeMap = {};
   routes.forEach(r => { routeMap[r.routeId] = r; });
 
+  // Only sync buses whose assigned route has an explicitly configured Night Stay Point
+  const configuredBuses = buses.filter(bus => {
+    const { routeId } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
+    const routeObj = routeMap[routeId];
+    if (!routeObj) return false;
+    const hasDirectStayPoint = Boolean(routeObj.nightStayPoint?.stageName) || (Number.isFinite(Number(routeObj.nightStayPoint?.latitude)) && Number(routeObj.nightStayPoint?.latitude) !== 0);
+    const hasStageStayPoint = Array.isArray(routeObj.stages) && routeObj.stages.some(s => s.isNightStayPoint);
+    return hasDirectStayPoint || hasStageStayPoint;
+  });
+
+  // Purge any default unconfigured docs from MongoDB for these dates
+  await GpsNightStayReport.deleteMany({
+    date: { $in: dates },
+    $or: [
+      { nightStayLocation: 'Campus / Assigned Night Stay' },
+      { nightStayLocation: 'Night Stay Point' },
+      { routeId: null }
+    ]
+  });
+
   const vehiclesRes = await fetchVehiclesListFromTgg();
   const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
 
-  const dailyDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
-  const dailyDocMap = {};
-  dailyDocs.forEach(d => {
-    if (d.date && d.busNumber) {
-      dailyDocMap[`${d.date}_${d.busNumber}`] = d;
-    }
-  });
-
   const todayStr = new Date().toISOString().split('T')[0];
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 3;
   let totalSaved = 0;
 
-  for (let i = 0; i < buses.length; i += BATCH_SIZE) {
-    const batch = buses.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < configuredBuses.length; i += BATCH_SIZE) {
+    const batch = configuredBuses.slice(i, i + BATCH_SIZE);
 
     await Promise.all(batch.map(async (bus) => {
-      const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
+      const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, configuredBuses, routeMap);
       const routeObj = routeMap[routeId];
 
       let stayPointStage = routeObj?.nightStayPoint;
@@ -592,16 +505,61 @@ const syncNightStayReportForDates = async (dates, forceRefresh = false, targetBu
         }
       }
 
-      const stayPointName = stayPointStage?.stageName || routeObj?.nightStayPoint?.stageName || 'Campus / Assigned Night Stay';
-      const stageLat = Number(stayPointStage?.latitude) || null;
-      const stageLng = Number(stayPointStage?.longitude) || null;
+      const stayPointName = stayPointStage?.stageName || routeObj?.nightStayPoint?.stageName || 'Night Stay Point';
+      const stageLat = Number(stayPointStage?.latitude ?? routeObj?.nightStayPoint?.latitude) || null;
+      const stageLng = Number(stayPointStage?.longitude ?? routeObj?.nightStayPoint?.longitude) || null;
+      const stayRadius = Number(stayPointStage?.radius ?? routeObj?.nightStayPoint?.radius) || 500;
 
       const matchedTgg = findMatchingTggVehicle(bus, tggVehicles);
       const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
 
       for (const dStr of dates) {
         const isToday = (dStr === todayStr);
-        const dDoc = dailyDocMap[`${dStr}_${bus.busNumber}`];
+        let firstInTime = '—';
+        let lastOutTime = '—';
+
+        if (Number.isFinite(stageLat) && Number.isFinite(stageLng) && stageLat !== 0 && stageLng !== 0) {
+          try {
+            const msgRes = await fetchVehicleMessagesFromTgg({
+              vehicle_name: tggVehicleName,
+              date_from: `${dStr} 04:00:00`,
+              date_to: `${dStr} 23:00:00`
+            });
+
+            if (msgRes.success && Array.isArray(msgRes.data) && msgRes.data.length > 0) {
+              const insideLogs = [];
+
+              msgRes.data.forEach(log => {
+                const pLat = parseFloat(log.latitude || log.lat || log.y);
+                const pLng = parseFloat(log.longitude || log.lng || log.x);
+                const timeStr = log.timeStr || (log.timestamp && log.timestamp.includes(' ') ? log.timestamp.split(' ')[1]?.substring(0, 5) : null);
+
+                if (Number.isFinite(pLat) && Number.isFinite(pLng) && timeStr) {
+                  const dist = calculateDistanceMeters(stageLat, stageLng, pLat, pLng);
+                  if (dist <= stayRadius) {
+                    insideLogs.push({ timeStr, rawTime: log.timestamp });
+                  }
+                }
+              });
+
+              if (insideLogs.length > 0) {
+                // Evening Arrival at Night Stay Point (OUT column in UI)
+                const eveLogs = insideLogs.filter(l => l.timeStr >= '15:00');
+                if (eveLogs.length > 0) {
+                  lastOutTime = eveLogs[0].timeStr;
+                }
+
+                // Morning Departure from Night Stay Point (IN column in UI)
+                const mornLogs = insideLogs.filter(l => l.timeStr >= '04:00' && l.timeStr <= '11:00');
+                if (mornLogs.length > 0) {
+                  firstInTime = mornLogs[mornLogs.length - 1].timeStr;
+                }
+              }
+            }
+          } catch (e) {
+            console.warn(`[GpsSync] Night stay position calculation error for ${bus.busNumber}:`, e.message);
+          }
+        }
 
         await GpsNightStayReport.updateOne(
           { date: dStr, busNumber: bus.busNumber },
@@ -615,8 +573,8 @@ const syncNightStayReportForDates = async (dates, forceRefresh = false, targetBu
               lat: stageLat,
               lng: stageLng,
               stopDurationMinutes: 480, // Default overnight stay 8 hrs
-              firstInTime: dDoc?.firstInTime || '—',
-              lastOutTime: dDoc?.lastOutTime || '—',
+              firstInTime,
+              lastOutTime,
               syncStatus: isToday ? 'INCOMPLETE' : 'COMPLETE',
               lastSyncedAt: new Date()
             }
