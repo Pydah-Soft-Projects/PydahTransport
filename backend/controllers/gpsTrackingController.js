@@ -1157,17 +1157,23 @@ const fetchNightStayReport = async (req, res) => {
     let existingDbDocs = await GpsNightStayReport.find({ date: { $in: dates } }).lean();
     let dailyDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
 
-    const existingDateBusKeys = new Set(existingDbDocs.map(d => `${d.date}_${d.busNumber}`));
+    const todayStr = new Date().toISOString().split('T')[0];
     let needsSync = forceRefresh;
     if (!needsSync) {
-      for (const bus of buses) {
-        for (const dateStr of dates) {
-          if (!existingDateBusKeys.has(`${dateStr}_${bus.busNumber}`)) {
+      if (existingDbDocs.length === 0) {
+        needsSync = true;
+      } else {
+        const nonTodayDates = dates.filter(d => d !== todayStr);
+        if (nonTodayDates.length > 0) {
+          const dbDatesSet = new Set(existingDbDocs.map(d => d.date));
+          const missingPastDates = nonTodayDates.filter(d => !dbDatesSet.has(d));
+          if (missingPastDates.length > 0) {
             needsSync = true;
-            break;
           }
         }
-        if (needsSync) break;
+        if (!existingDbDocs.some(d => d.date === todayStr)) {
+          needsSync = true;
+        }
       }
     }
 
@@ -1182,6 +1188,29 @@ const fetchNightStayReport = async (req, res) => {
     const routes = await Route.find({}).lean();
     const routeMap = {};
     routes.forEach(r => { routeMap[r.routeId] = r; });
+
+    // Build O(1) Maps for ultra-fast lookup
+    const dailyMap = new Map();
+    dailyDocs.forEach(d => {
+      if (d.date) {
+        dailyMap.set(`${d.date}_${d.busNumber}`, d);
+        const pKey = extractPlateKey(d.busNumber || d.tggVehicleName);
+        if (pKey) dailyMap.set(`${d.date}_${pKey}`, d);
+        const digits = String(d.busNumber || d.tggVehicleName).replace(/\D/g, '').slice(-4);
+        if (digits.length === 4) dailyMap.set(`${d.date}_digits_${digits}`, d);
+      }
+    });
+
+    const nightStayMap = new Map();
+    existingDbDocs.forEach(n => {
+      if (n.date) {
+        nightStayMap.set(`${n.date}_${n.busNumber}`, n);
+        const pKey = extractPlateKey(n.busNumber || n.tggVehicleName);
+        if (pKey) nightStayMap.set(`${n.date}_${pKey}`, n);
+        const digits = String(n.busNumber || n.tggVehicleName).replace(/\D/g, '').slice(-4);
+        if (digits.length === 4) nightStayMap.set(`${n.date}_digits_${digits}`, n);
+      }
+    });
 
     const reportRows = buses.map(bus => {
       const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
@@ -1203,17 +1232,23 @@ const fetchNightStayReport = async (req, res) => {
       const busDigits = String(bus.busNumber).replace(/\D/g, '').slice(-4);
 
       dates.forEach(dateStr => {
-        const dDoc = dailyDocs.find(d => d.date === dateStr && (
-          d.busNumber === bus.busNumber ||
-          extractPlateKey(d.busNumber) === busPlateKey ||
-          extractPlateKey(d.tggVehicleName) === busPlateKey ||
-          (routeId && extractRouteIdFromVehicleName(d.tggVehicleName) === routeId) ||
-          (busDigits && busDigits.length === 4 && String(d.busNumber).replace(/\D/g, '').slice(-4) === busDigits) ||
-          (busDigits && busDigits.length === 4 && String(d.tggVehicleName).replace(/\D/g, '').slice(-4) === busDigits)
-        ));
+        const nsDoc = nightStayMap.get(`${dateStr}_${bus.busNumber}`) ||
+                      (busPlateKey ? nightStayMap.get(`${dateStr}_${busPlateKey}`) : null) ||
+                      (busDigits.length === 4 ? nightStayMap.get(`${dateStr}_digits_${busDigits}`) : null);
+
+        const dDoc = dailyMap.get(`${dateStr}_${bus.busNumber}`) ||
+                     (busPlateKey ? dailyMap.get(`${dateStr}_${busPlateKey}`) : null) ||
+                     (busDigits.length === 4 ? dailyMap.get(`${dateStr}_digits_${busDigits}`) : null);
+
+        const firstIn = (nsDoc && nsDoc.firstInTime && nsDoc.firstInTime !== '—') ? nsDoc.firstInTime :
+                        (dDoc && dDoc.firstInTime && dDoc.firstInTime !== '—') ? dDoc.firstInTime : null;
+
+        const lastOut = (nsDoc && nsDoc.lastOutTime && nsDoc.lastOutTime !== '—') ? nsDoc.lastOutTime :
+                        (dDoc && dDoc.lastOutTime && dDoc.lastOutTime !== '—') ? dDoc.lastOutTime : null;
+
         daysMap[dateStr] = {
-          firstIn: dDoc && dDoc.firstInTime && dDoc.firstInTime !== '—' ? dDoc.firstInTime : null,
-          lastOut: dDoc && dDoc.lastOutTime && dDoc.lastOutTime !== '—' ? dDoc.lastOutTime : null,
+          firstIn,
+          lastOut,
           kilometers: dDoc?.totalKms || 0
         };
       });

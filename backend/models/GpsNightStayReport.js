@@ -45,6 +45,14 @@ const gpsNightStayReportSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  firstInTime: {
+    type: String,
+    default: '—'
+  },
+  lastOutTime: {
+    type: String,
+    default: '—'
+  },
   syncStatus: {
     type: String,
     enum: ['COMPLETE', 'INCOMPLETE'],

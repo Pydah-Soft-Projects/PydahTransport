@@ -566,6 +566,14 @@ const syncNightStayReportForDates = async (dates, forceRefresh = false, targetBu
   const vehiclesRes = await fetchVehiclesListFromTgg();
   const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
 
+  const dailyDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
+  const dailyDocMap = {};
+  dailyDocs.forEach(d => {
+    if (d.date && d.busNumber) {
+      dailyDocMap[`${d.date}_${d.busNumber}`] = d;
+    }
+  });
+
   const todayStr = new Date().toISOString().split('T')[0];
   const BATCH_SIZE = 5;
   let totalSaved = 0;
@@ -593,6 +601,7 @@ const syncNightStayReportForDates = async (dates, forceRefresh = false, targetBu
 
       for (const dStr of dates) {
         const isToday = (dStr === todayStr);
+        const dDoc = dailyDocMap[`${dStr}_${bus.busNumber}`];
 
         await GpsNightStayReport.updateOne(
           { date: dStr, busNumber: bus.busNumber },
@@ -606,6 +615,8 @@ const syncNightStayReportForDates = async (dates, forceRefresh = false, targetBu
               lat: stageLat,
               lng: stageLng,
               stopDurationMinutes: 480, // Default overnight stay 8 hrs
+              firstInTime: dDoc?.firstInTime || '—',
+              lastOutTime: dDoc?.lastOutTime || '—',
               syncStatus: isToday ? 'INCOMPLETE' : 'COMPLETE',
               lastSyncedAt: new Date()
             }
