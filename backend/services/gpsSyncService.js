@@ -413,11 +413,16 @@ const syncFuelDayReportForDates = async (dates, forceRefresh = false, targetBusN
       const bDigits = String(b.busNumber).replace(/\D/g, '').slice(-4);
       return (bKey && tKey && bKey === tKey) || (rKey && tKey && rKey === tKey) || (tDigits && bDigits === tDigits) || b.busNumber === targetBusNumber;
     });
-    buses = filtered;
+    buses = filtered.length > 0 ? filtered : [{ busNumber: targetBusNumber, campus: null }];
+  } else if (buses.length === 0) {
+    const vehiclesRes = await fetchVehiclesListFromTgg();
+    if (vehiclesRes.success && Array.isArray(vehiclesRes.data)) {
+      buses = vehiclesRes.data.map(v => ({ busNumber: v.name, campus: null }));
+    }
   }
 
   if (buses.length === 0) {
-    console.log(`[GpsSyncService] No active buses with fuel sensor enabled to sync fuel day report.`);
+    console.log(`[GpsSyncService] No active buses available to sync fuel day report.`);
     return { success: true, count: 0 };
   }
   const routes = await Route.find({}).lean();
@@ -476,8 +481,8 @@ const syncFuelDayReportForDates = async (dates, forceRefresh = false, targetBusN
           vehicle_name: tggVehicleName,
           date_from: dateFromStr,
           date_to: dateToStr,
-          template: 'Fuel Report',
-          timeoutMs: 8000
+          template: 'Fuel Day Report',
+          timeoutMs: 25000
         });
         if (reportRes.success && reportRes.data && !reportRes.data.Unitid_err) {
           fuelReportData = reportRes.data;

@@ -1415,6 +1415,14 @@ const fetchFuelDayReport = async (req, res) => {
         const bKey = extractPlateKey(b.busNumber);
         return bKey && busKey && (bKey === busKey || bKey.includes(busKey) || busKey.includes(bKey));
       });
+      if (targetBuses.length === 0) {
+        targetBuses = [{ busNumber: vehicle_name, campus: null }];
+      }
+    } else if (targetBuses.length === 0) {
+      const vehiclesRes = await fetchVehiclesListFromTgg();
+      if (vehiclesRes.success && Array.isArray(vehiclesRes.data)) {
+        targetBuses = vehiclesRes.data.map(v => ({ busNumber: v.name, campus: null }));
+      }
     }
 
     const existingKeys = new Set(existingFuelDocs.map(d => `${d.date}_${d.busNumber}`));
