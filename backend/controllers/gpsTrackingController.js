@@ -1063,7 +1063,10 @@ const fetchDayInOutReport = async (req, res) => {
       for (const bus of buses) {
         const bKey = extractPlateKey(bus.busNumber);
         for (const dateStr of dates) {
-          if (!existingDateBusKeys.has(`${dateStr}_${bKey}`)) {
+          const doc = existingDbDocs.find(d => d.date === dateStr && (
+            d.busNumber === bus.busNumber || extractPlateKey(d.busNumber) === bKey
+          ));
+          if (!doc || doc.syncStatus === 'INCOMPLETE' || (doc.firstInTime === '—' && doc.lastOutTime === '—')) {
             needsSync = true;
             break;
           }
@@ -1475,18 +1478,19 @@ const fetchFuelDayReport = async (req, res) => {
  */
 const triggerManualReportSync = async (req, res) => {
   try {
-    const { date_from, date_to, busNumber, bus_number, vehicle_name } = req.body || req.query || {};
+    const { date_from, date_to, busNumber, bus_number, vehicle_name, reportType, report_type } = req.body || req.query || {};
     const targetBus = busNumber || bus_number || vehicle_name || null;
+    const rType = reportType || report_type || 'day_in_out';
     const dateToParam = date_to || new Date().toISOString().split('T')[0];
     const dateFromParam = date_from || dateToParam;
     const dates = buildDateRangeArray(dateFromParam, dateToParam);
 
-    console.log(`[ManualSync] Sync requested for dates: ${dates.join(', ')}${targetBus ? ` for bus: ${targetBus}` : ''} by user: ${req.user?.username || 'admin'}`);
-    const syncRes = await syncAllReportsForDates(dates, true, targetBus);
+    console.log(`[ManualSync] Sync requested for dates: ${dates.join(', ')} (Type: ${rType})${targetBus ? ` for bus: ${targetBus}` : ''} by user: ${req.user?.username || 'admin'}`);
+    const syncRes = await syncAllReportsForDates(dates, true, targetBus, rType);
 
     return res.status(200).json({
       success: true,
-      message: `Successfully synced reports for ${dates.length} date(s)${targetBus ? ` (${targetBus})` : ''}`,
+      message: `Successfully synced ${rType} reports for ${dates.length} date(s)${targetBus ? ` (${targetBus})` : ''}`,
       details: syncRes
     });
   } catch (err) {

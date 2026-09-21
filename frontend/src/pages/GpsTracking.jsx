@@ -587,7 +587,9 @@ export default function GpsTracking() {
       setReportDates(requestedDates);
     }
 
-    if (!forceRefresh) {
+    if (forceRefresh) {
+      sessionStorage.removeItem(cacheKey);
+    } else {
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) {
         try {
@@ -667,11 +669,12 @@ export default function GpsTracking() {
       setSyncingVehicle(prev => ({ ...prev, [busNumber]: true }));
       const fromD = fleetDateFrom || new Date().toISOString().split('T')[0];
       const toD = fleetDateTo || fromD;
+      const reportType = activePageTab === 'nightstay' ? 'night_stay' : activePageTab === 'fuel' ? 'fuel' : 'day_in_out';
 
       const res = await apiFetch(`${API_BASE}/gps/sync-reports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ busNumber, date_from: fromD, date_to: toD })
+        body: JSON.stringify({ busNumber, date_from: fromD, date_to: toD, reportType })
       });
       const json = await res.json();
       if (res.ok && json.success) {
@@ -696,11 +699,12 @@ export default function GpsTracking() {
       setSyncingReports(true);
       const fromD = fleetDateFrom || new Date().toISOString().split('T')[0];
       const toD = fleetDateTo || fromD;
+      const reportType = activePageTab === 'nightstay' ? 'night_stay' : activePageTab === 'fuel' ? 'fuel' : 'day_in_out';
       
       const res = await apiFetch(`${API_BASE}/gps/sync-reports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date_from: fromD, date_to: toD })
+        body: JSON.stringify({ date_from: fromD, date_to: toD, reportType })
       });
       const json = await res.json();
       if (res.ok && json.success) {

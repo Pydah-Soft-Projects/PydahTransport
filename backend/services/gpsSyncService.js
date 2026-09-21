@@ -48,6 +48,18 @@ const normalizeDateStr = (rawStr) => {
   const clean = String(rawStr).trim();
   const datePart = clean.includes(' ') ? clean.split(' ')[0] : clean;
   if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+
+  const dMy = datePart.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (dMy) {
+    const [, d, m, y] = dMy;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  const yMd = datePart.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+  if (yMd) {
+    const [, y, m, d] = yMd;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+
   const d = new Date(clean);
   if (isNaN(d.getTime())) return null;
   const yyyy = d.getFullYear();
@@ -113,23 +125,7 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
   const dateToStr = `${dates[dates.length - 1]} 23:59:59`;
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // Attempt single bulk API call to TGG for Daily Report if syncing entire fleet (~1.5s)
-  let fleetReportData = null;
-  try {
-    const fleetRes = await fetchReportsFromTgg({
-      vehicle_name: targetBusNumber ? targetBusNumber : undefined,
-      date_from: dateFromStr,
-      date_to: dateToStr,
-      template: 'Daily Report'
-    });
-    if (fleetRes.success && fleetRes.data) {
-      fleetReportData = fleetRes.data;
-    }
-  } catch (e) {
-    console.warn('[GpsSync] Fleet TGG Daily Report fetch notice:', e.message);
-  }
-
-  const BATCH_SIZE = 4;
+  const BATCH_SIZE = 2;
   let totalSaved = 0;
 
   for (let i = 0; i < buses.length; i += BATCH_SIZE) {
@@ -160,23 +156,17 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
 
       const stayRadius = Number(stayPointStage?.radius) || 300;
 
-      // 1. Parse TGG Daily Report (Geofences + Mileage Summary)
+      // 1. Fetch TGG Daily Report per vehicle (Geofences + Mileage Summary)
       try {
-        let tggReportData = fleetReportData;
-        if (!tggReportData) {
-          const tggReport = await fetchReportsFromTgg({
-            vehicle_name: tggVehicleName,
-            date_from: dateFromStr,
-            date_to: dateToStr,
-            template: 'Daily Report'
-          });
-          if (tggReport.success && tggReport.data) {
-            tggReportData = tggReport.data;
-          }
-        }
+        const tggReport = await fetchReportsFromTgg({
+          vehicle_name: tggVehicleName,
+          date_from: dateFromStr,
+          date_to: dateToStr,
+          template: 'Daily Report'
+        });
 
-        if (tggReportData) {
-          const gfLogs = parseGeofencesFromTgg(tggReportData, tggVehicleName);
+        if (tggReport.success && tggReport.data && !tggReport.data.Unitid_err) {
+          const gfLogs = parseGeofencesFromTgg(tggReport.data, tggVehicleName);
 
           gfLogs.forEach(log => {
             if (log.timeIn && log.timeIn !== '—') {
@@ -211,7 +201,7 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
             }
           });
 
-          const parsedKms = parseDailyKilometersFromTggReport(tggReportData, tggVehicleName);
+          const parsedKms = parseDailyKilometersFromTggReport(tggReport.data, tggVehicleName);
           Object.keys(parsedKms).forEach(dStr => {
             if (daysMap[dStr] && parsedKms[dStr] > 0) {
               daysMap[dStr].kilometers = Math.max(daysMap[dStr].kilometers, parsedKms[dStr]);
@@ -371,7 +361,7 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
     }));
 
     // Delay between batch calls to prevent TGG API rate limits
-    await sleep(300);
+    await sleep(250);
   }
 
   return { success: true, count: totalSaved };
@@ -457,7 +447,10 @@ const syncFuelDayReportForDates = async (dates, forceRefresh = false, targetBusN
         let fuelConsumption = 0;
 
         if (fuelReportData) {
-          const parsedFuel = parseFuelDayReportFromTgg(fuelReportData);
+          const parsedArray = parseFuelDayReportFromTgg(fuelReportData);
+          const parsedFuel = Array.isArray(parsedArray)
+            ? (parsedArray.find(p => extractPlateKey(p.tggVehicleName) === extractPlateKey(tggVehicleName)) || parsedArray[0] || {})
+            : (parsedArray || {});
           initialFuel = parsedFuel.initialFuel || 0;
           finalFuel = parsedFuel.finalFuel || 0;
           fuelConsumption = parsedFuel.fuelConsumption || 0;
@@ -584,17 +577,31 @@ const syncNightStayReportForDates = async (dates, forceRefresh = false, targetBu
 };
 
 /**
- * Master sync function to run all 3 GPS report syncs for a given date range
+ * Master sync function to run GPS report syncs based on requested reportType
+ * reportType options: 'day_in_out' (or 'day'), 'night_stay' (or 'night'), 'fuel', or 'all'
  */
-const syncAllReportsForDates = async (dates, forceRefresh = false, targetBusNumber = null) => {
-  console.log(`[GpsSyncService] Starting sync for dates: ${dates.join(', ')}${targetBusNumber ? ` (Bus: ${targetBusNumber})` : ''}...`);
+const syncAllReportsForDates = async (dates, forceRefresh = false, targetBusNumber = null, reportType = 'day_in_out') => {
+  const rType = String(reportType || 'day_in_out').toLowerCase();
+  console.log(`[GpsSyncService] Starting sync for dates: ${dates.join(', ')} (Type: ${rType})${targetBusNumber ? ` (Bus: ${targetBusNumber})` : ''}...`);
   const t0 = Date.now();
 
-  const [dayRes, fuelRes, nightRes] = await Promise.all([
-    syncDayInOutReportForDates(dates, forceRefresh, targetBusNumber),
-    syncFuelDayReportForDates(dates, forceRefresh, targetBusNumber),
-    syncNightStayReportForDates(dates, forceRefresh, targetBusNumber)
-  ]);
+  let dayRes = { success: true, count: 0 };
+  let fuelRes = { success: true, count: 0 };
+  let nightRes = { success: true, count: 0 };
+
+  if (rType === 'all') {
+    // Run sequentially instead of Promise.all to prevent overloading TGG API rate limits
+    dayRes = await syncDayInOutReportForDates(dates, forceRefresh, targetBusNumber);
+    fuelRes = await syncFuelDayReportForDates(dates, forceRefresh, targetBusNumber);
+    nightRes = await syncNightStayReportForDates(dates, forceRefresh, targetBusNumber);
+  } else if (rType === 'fuel') {
+    fuelRes = await syncFuelDayReportForDates(dates, forceRefresh, targetBusNumber);
+  } else if (rType === 'night_stay' || rType === 'night') {
+    nightRes = await syncNightStayReportForDates(dates, forceRefresh, targetBusNumber);
+  } else {
+    // Default to day_in_out
+    dayRes = await syncDayInOutReportForDates(dates, forceRefresh, targetBusNumber);
+  }
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
   console.log(`[GpsSyncService] Sync finished in ${elapsed}s! Saved ${dayRes.count} day records, ${fuelRes.count} fuel records, ${nightRes.count} night stay records.`);
