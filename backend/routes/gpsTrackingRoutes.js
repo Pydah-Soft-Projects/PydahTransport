@@ -19,6 +19,7 @@ const {
   fetch7DayInOutReport,
   fetchNightStayReport,
   fetchFuelDayReport,
+  triggerManualReportSync,
   getLiveBusLocation
 } = require('../controllers/gpsTrackingController');
 
@@ -73,5 +74,9 @@ router.get('/geofence-report', fetchGeofenceReport);
 
 // 9. Consolidated raw history logs for the entire day (split into 2-hour segments internally)
 router.get('/daily-history', fetchDailyHistory);
+
+// 10. Manual Report Data Ingestion & Sync Trigger
+router.post('/sync-reports', triggerManualReportSync);
+router.get('/sync-reports', triggerManualReportSync);
 
 module.exports = router;

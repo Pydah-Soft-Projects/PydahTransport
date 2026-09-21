@@ -12,11 +12,21 @@ const {
   extractPlateKey,
   extractRouteIdFromVehicleName,
   cleanVehicleName,
+  findMatchingTggVehicle
 } = require('../services/tggGpsService');
 const Bus = require('../models/Bus');
 const Route = require('../models/Route');
 const GpsFinalDestination = require('../models/GpsFinalDestination');
+const GpsDailyReport = require('../models/GpsDailyReport');
+const GpsFuelReport = require('../models/GpsFuelReport');
+const GpsNightStayReport = require('../models/GpsNightStayReport');
 const campusService = require('../services/campusService');
+const {
+  syncDayInOutReportForDates,
+  syncFuelDayReportForDates,
+  syncNightStayReportForDates,
+  syncAllReportsForDates
+} = require('../services/gpsSyncService');
 
 /**
  * Calculates Haversine distance in meters between two lat/lng coordinates
@@ -112,14 +122,8 @@ const resolveTggVehicleName = async (inputName) => {
   try {
     const vehiclesRes = await fetchVehiclesListFromTgg();
     if (vehiclesRes.success && Array.isArray(vehiclesRes.data) && vehiclesRes.data.length > 0) {
-      const inputKey = extractPlateKey(raw);
-      const exact = vehiclesRes.data.find((v) => String(v.name || '').trim() === raw);
-      if (exact?.name) return exact.name;
-
-      if (inputKey) {
-        const byPlate = vehiclesRes.data.find((v) => extractPlateKey(v.name) === inputKey);
-        if (byPlate?.name) return byPlate.name;
-      }
+      const matched = findMatchingTggVehicle(raw, vehiclesRes.data);
+      if (matched?.name) return matched.name;
     }
   } catch (err) {
     console.warn('[GPS] resolveTggVehicleName fallback:', err.message);
@@ -172,12 +176,13 @@ const fetchLiveVehicles = async (req, res) => {
     });
 
     const mappedData = result.data.map(veh => {
-      const { routeId, routeName } = resolveVehicleRoute(veh.name, buses, routeMap);
+      const { matchedBus, routeId, routeName } = resolveVehicleRoute(veh.name, buses, routeMap);
 
       return {
         ...veh,
         routeId,
-        routeName
+        routeName,
+        hasFuelSensor: matchedBus ? Boolean(matchedBus.hasFuelSensor) : false
       };
     });
 
@@ -1040,7 +1045,6 @@ const fetchDayInOutReport = async (req, res) => {
     let dates = buildDateRangeArray(dateFromParam, dateToParam);
 
     if (dates.length === 0) {
-      // Default array of 5 dates ending on dateToParam
       const end = new Date(`${dateToParam}T12:00:00`);
       const start = new Date(end);
       start.setDate(start.getDate() - 4);
@@ -1049,171 +1053,79 @@ const fetchDayInOutReport = async (req, res) => {
       dates = buildDateRangeArray(yFrom, yTo);
     }
 
-    const userIdStr = req.user?._id ? String(req.user._id) : 'anon';
-    const cacheKey = `day_inout_${userIdStr}_${dateFromParam || 'default'}_${dateToParam}_${req.query.campus || 'all'}`;
-    // Use in-memory cache if fresh (10-minute TTL) unless forceRefresh is true
-    if (!forceRefresh && global._7dayInOutCache && global._7dayInOutCache[cacheKey] && (Date.now() - global._7dayInOutCache[cacheKey].timestamp < 600000)) {
-      return res.status(200).json(global._7dayInOutCache[cacheKey].data);
-    }
-
     const { query: busQueryFilter } = await getCampusBusQueryFilter(req);
     const buses = await Bus.find(busQueryFilter).lean();
+
+    let existingDbDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const existingDateBusKeys = new Set(existingDbDocs.map(d => `${d.date}_${extractPlateKey(d.busNumber)}`));
+    let needsSync = forceRefresh;
+    if (!needsSync) {
+      for (const bus of buses) {
+        const bKey = extractPlateKey(bus.busNumber);
+        for (const dateStr of dates) {
+          // Sync missing past dates only; avoid re-triggering TGG API sync when past date records already exist in MongoDB
+          if (!existingDateBusKeys.has(`${dateStr}_${bKey}`) && dateStr !== todayStr) {
+            needsSync = true;
+            break;
+          }
+        }
+        if (needsSync) break;
+      }
+    }
+
+    if (needsSync) {
+      console.log(`[DayInOutReport API] Triggering DB sync for dates: ${dates.join(', ')}...`);
+      await syncDayInOutReportForDates(dates, forceRefresh);
+      existingDbDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
+    }
+
     const routes = await Route.find({}).lean();
     const routeMap = {};
-    routes.forEach(r => {
-      routeMap[r.routeId] = r;
+    routes.forEach(r => { routeMap[r.routeId] = r; });
+
+    // Pre-index existing DB docs for fast O(1) rendering
+    const docMap = new Map();
+    existingDbDocs.forEach(d => {
+      const pKey = extractPlateKey(d.busNumber) || extractPlateKey(d.tggVehicleName);
+      if (pKey) docMap.set(`${d.date}_${pKey}`, d);
+      docMap.set(`${d.date}_${d.busNumber}`, d);
     });
 
-    const vehiclesRes = await fetchVehiclesListFromTgg();
-    const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
+    const reportRows = buses.map(bus => {
+      const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
+      const daysMap = {};
+      const busPlateKey = extractPlateKey(bus.busNumber);
 
-    const dateFromStr = `${dates[0]} 00:00:00`;
-    const dateToStr = `${dates[dates.length - 1]} 23:59:59`;
-    const todayStr = new Date().toISOString().split('T')[0];
-    const nowHHMM = new Date().toTimeString().substring(0, 5);
-
-    // Process buses concurrently in fast chunks of 6
-    const CONCURRENCY = 6;
-    const reportRows = [];
-    for (let i = 0; i < buses.length; i += CONCURRENCY) {
-      const chunk = buses.slice(i, i + CONCURRENCY);
-      const chunkResults = await Promise.all(chunk.map(async (bus) => {
-        const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
-        const plateKey = extractPlateKey(bus.busNumber);
-        const matchedTgg = tggVehicles.find((v) => extractPlateKey(v.name) === plateKey);
-        const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
-
-        const daysMap = {};
-        dates.forEach(d => {
-          daysMap[d] = { firstIn: null, lastOut: null, kilometers: 0 };
-        });
-
-        // 1. Fetch IN/OUT Geofence logs and daily mileage from single TGG range report
-        try {
-          const tggReport = await fetchReportsFromTgg({
-            vehicle_name: tggVehicleName,
-            date_from: dateFromStr,
-            date_to: dateToStr,
-            template: 'Daily Report'
-          });
-
-          if (tggReport.success && tggReport.data) {
-            const gfLogs = parseGeofencesFromTgg(tggReport.data, tggVehicleName);
-            
-            // Group TGG geofence logs by normalized date for IN/OUT and log mileage
-            gfLogs.forEach(log => {
-              if (log.timeIn && log.timeIn !== '—') {
-                const normInDate = normalizeDateStr(log.timeIn);
-                const inTime = log.timeIn.split(' ')[1]?.substring(0, 5); // HH:mm
-                if (normInDate && daysMap[normInDate] && inTime) {
-                  if (!daysMap[normInDate].firstIn || inTime < daysMap[normInDate].firstIn) {
-                    daysMap[normInDate].firstIn = inTime;
-                  }
-                }
-              }
-
-              if (log.timeOut && log.timeOut !== '—') {
-                const normOutDate = normalizeDateStr(log.timeOut);
-                const outTime = log.timeOut.split(' ')[1]?.substring(0, 5); // HH:mm
-                if (normOutDate && daysMap[normOutDate] && outTime) {
-                  if (!daysMap[normOutDate].lastOut || outTime > daysMap[normOutDate].lastOut) {
-                    daysMap[normOutDate].lastOut = outTime;
-                  }
-                }
-              }
-
-              // Extract mileage from geofence row if available
-              if (log.mileage && log.mileage !== '—') {
-                const mMatch = String(log.mileage).match(/([\d.]+)/);
-                if (mMatch) {
-                  const mVal = Math.round(parseFloat(mMatch[1]) * 10) / 10;
-                  const logDate = normalizeDateStr(log.timeIn || log.timeOut);
-                  if (logDate && daysMap[logDate] && mVal > 0) {
-                    daysMap[logDate].kilometers = Math.max(daysMap[logDate].kilometers, mVal);
-                  }
-                }
-              }
-            });
-
-            // Extract daily kilometers directly from Mileage/Summary section in single tggReport
-            const parsedKms = parseDailyKilometersFromTggReport(tggReport.data, tggVehicleName);
-            Object.keys(parsedKms).forEach(dStr => {
-              if (daysMap[dStr] && parsedKms[dStr] > 0) {
-                daysMap[dStr].kilometers = Math.max(daysMap[dStr].kilometers, parsedKms[dStr]);
-              }
-            });
-          }
-        } catch (err) {
-          console.warn(`[GPS] geofence report fetch failed for ${tggVehicleName}:`, err.message);
-        }
-
-        // 3. Validation for dates (suppress future OUT times for Today, no mock data)
-        dates.forEach(dateStr => {
-          const dayObj = daysMap[dateStr];
-          const isToday = dateStr === todayStr;
-
-          // For TODAY, if recorded lastOut is in the future relative to current time, reset to null
-          if (isToday && dayObj.lastOut && dayObj.lastOut > nowHHMM) {
-            dayObj.lastOut = null;
-          }
-        });
-
-        return {
-          busNumber: bus.busNumber,
-          tggVehicleName,
-          routeId,
-          routeName,
-          days: daysMap
+      dates.forEach(dateStr => {
+        const doc = docMap.get(`${dateStr}_${busPlateKey}`) || docMap.get(`${dateStr}_${bus.busNumber}`);
+        daysMap[dateStr] = {
+          firstIn: doc && doc.firstInTime && doc.firstInTime !== '—' ? doc.firstInTime : null,
+          lastOut: doc && doc.lastOutTime && doc.lastOutTime !== '—' ? doc.lastOutTime : null,
+          kilometers: doc?.totalKms || 0
         };
-      }));
-
-      reportRows.push(...chunkResults);
-    }
-
-    // Merge with previous cache to preserve valid historical readings if TGG API temporarily returned empty
-    const previousCache = global._7dayInOutCache?.[cacheKey]?.data?.data;
-    if (previousCache && Array.isArray(previousCache)) {
-      reportRows.forEach(row => {
-        const prevRow = previousCache.find(p => p.busNumber === row.busNumber);
-        if (prevRow && prevRow.days) {
-          Object.keys(row.days).forEach(dStr => {
-            const currentDay = row.days[dStr];
-            const prevDay = prevRow.days[dStr];
-            if (prevDay) {
-              if (!currentDay.firstIn && prevDay.firstIn) currentDay.firstIn = prevDay.firstIn;
-              if (!currentDay.lastOut && prevDay.lastOut) currentDay.lastOut = prevDay.lastOut;
-              if (currentDay.firstIn || currentDay.lastOut) {
-                if ((!currentDay.kilometers || currentDay.kilometers === 0) && prevDay.kilometers > 0) {
-                  currentDay.kilometers = prevDay.kilometers;
-                }
-              } else {
-                currentDay.kilometers = 0;
-              }
-            } else if (!currentDay.firstIn && !currentDay.lastOut) {
-              currentDay.kilometers = 0;
-            }
-          });
-        }
       });
-    }
 
-    const responsePayload = {
+      return {
+        busNumber: bus.busNumber,
+        tggVehicleName: bus.busNumber,
+        routeId,
+        routeName,
+        days: daysMap
+      };
+    });
+
+    return res.status(200).json({
       success: true,
       dates,
-      data: reportRows
-    };
-
-    if (!global._7dayInOutCache) global._7dayInOutCache = {};
-    global._7dayInOutCache[cacheKey] = {
-      timestamp: Date.now(),
-      data: responsePayload
-    };
-
-    return res.status(200).json(responsePayload);
+      data: reportRows,
+      isDbSource: true
+    });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message || 'Failed to generate 7-day IN/OUT report'
+      message: error.message || 'Failed to generate Day IN/OUT report'
     });
   }
 };
@@ -1239,261 +1151,136 @@ const fetchNightStayReport = async (req, res) => {
       dates = buildDateRangeArray(yFrom, yTo);
     }
 
-    const userIdStr = req.user?._id ? String(req.user._id) : 'anon';
-    const cacheKey = `nightstay_${userIdStr}_${dateFromParam || 'default'}_${dateToParam}_${req.query.campus || 'all'}`;
-
-    if (!global._nightStayCache || forceRefresh) {
-      global._nightStayCache = {};
-    }
-
-    if (!forceRefresh && global._nightStayCache[cacheKey] && (Date.now() - global._nightStayCache[cacheKey].timestamp < 600000)) {
-      return res.status(200).json(global._nightStayCache[cacheKey].data);
-    }
-
     const { query: busQueryFilter } = await getCampusBusQueryFilter(req);
     const buses = await Bus.find(busQueryFilter).lean();
+
+    let existingDbDocs = await GpsNightStayReport.find({ date: { $in: dates } }).lean();
+    let dailyDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    let needsSync = forceRefresh;
+    if (!needsSync) {
+      if (existingDbDocs.length === 0) {
+        needsSync = true;
+      } else {
+        const nonTodayDates = dates.filter(d => d !== todayStr);
+        if (nonTodayDates.length > 0) {
+          const dbDatesSet = new Set(existingDbDocs.map(d => d.date));
+          const missingPastDates = nonTodayDates.filter(d => !dbDatesSet.has(d));
+          if (missingPastDates.length > 0) {
+            needsSync = true;
+          }
+        }
+        if (!existingDbDocs.some(d => d.date === todayStr)) {
+          needsSync = true;
+        }
+      }
+    }
+
+    if (needsSync) {
+      console.log(`[NightStayReport API] Triggering DB sync for dates: ${dates.join(', ')}...`);
+      await syncNightStayReportForDates(dates, forceRefresh);
+      existingDbDocs = await GpsNightStayReport.find({ date: { $in: dates } }).lean();
+      dailyDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
+    }
+
     const routes = await Route.find({}).lean();
     const routeMap = {};
-    routes.forEach(r => {
-      routeMap[r.routeId] = r;
+    routes.forEach(r => { routeMap[r.routeId] = r; });
+
+    // Filter buses to only those whose assigned route has an explicitly configured Night Stay Point
+    const configuredBuses = buses.filter(bus => {
+      const { routeId } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
+      const routeObj = routeMap[routeId];
+      if (!routeObj) return false;
+      const hasDirectStayPoint = Boolean(routeObj.nightStayPoint?.stageName) || (Number.isFinite(Number(routeObj.nightStayPoint?.latitude)) && Number(routeObj.nightStayPoint?.latitude) !== 0);
+      const hasStageStayPoint = Array.isArray(routeObj.stages) && routeObj.stages.some(s => s.isNightStayPoint);
+      return hasDirectStayPoint || hasStageStayPoint;
     });
 
-    const vehiclesRes = await fetchVehiclesListFromTgg();
-    const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
+    // Build O(1) Maps for ultra-fast lookup
+    const dailyMap = new Map();
+    dailyDocs.forEach(d => {
+      if (d.date) {
+        dailyMap.set(`${d.date}_${d.busNumber}`, d);
+        const pKey = extractPlateKey(d.busNumber || d.tggVehicleName);
+        if (pKey) dailyMap.set(`${d.date}_${pKey}`, d);
+        const digits = String(d.busNumber || d.tggVehicleName).replace(/\D/g, '').slice(-4);
+        if (digits.length === 4) dailyMap.set(`${d.date}_digits_${digits}`, d);
+      }
+    });
 
-    const dateFromStr = `${dates[0]} 00:00:00`;
-    const dateToStr = `${dates[dates.length - 1]} 23:59:59`;
-    const todayStr = new Date().toISOString().split('T')[0];
-    const nowHHMM = new Date().toTimeString().substring(0, 5);
+    const nightStayMap = new Map();
+    existingDbDocs.forEach(n => {
+      if (n.date) {
+        nightStayMap.set(`${n.date}_${n.busNumber}`, n);
+        const pKey = extractPlateKey(n.busNumber || n.tggVehicleName);
+        if (pKey) nightStayMap.set(`${n.date}_${pKey}`, n);
+        const digits = String(n.busNumber || n.tggVehicleName).replace(/\D/g, '').slice(-4);
+        if (digits.length === 4) nightStayMap.set(`${n.date}_digits_${digits}`, n);
+      }
+    });
 
-    const CONCURRENCY = 6;
-    const reportRows = [];
-
-    for (let i = 0; i < buses.length; i += CONCURRENCY) {
-      const chunk = buses.slice(i, i + CONCURRENCY);
-      const chunkResults = await Promise.all(chunk.map(async (bus) => {
-        const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
-        const routeObj = routeMap[routeId];
-
-        // Resolve Stay Point: explicit routeObj.nightStayPoint OR stage marked with isNightStayPoint
-        let stayPointStage = routeObj?.nightStayPoint;
-        if (!stayPointStage || !Number.isFinite(Number(stayPointStage.latitude)) || !Number.isFinite(Number(stayPointStage.longitude)) || Number(stayPointStage.latitude) === 0) {
-          if (routeObj && Array.isArray(routeObj.stages) && routeObj.stages.length > 0) {
-            stayPointStage = routeObj.stages.find(s => s.isNightStayPoint) || null;
-          }
+    const reportRows = configuredBuses.map(bus => {
+      const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
+      const routeObj = routeMap[routeId];
+      let stayPointStage = routeObj?.nightStayPoint;
+      if (!stayPointStage || !Number.isFinite(Number(stayPointStage.latitude)) || !Number.isFinite(Number(stayPointStage.longitude)) || Number(stayPointStage.latitude) === 0) {
+        if (routeObj && Array.isArray(routeObj.stages) && routeObj.stages.length > 0) {
+          stayPointStage = routeObj.stages.find(s => s.isNightStayPoint) || null;
         }
+      }
+      const stayPointName = stayPointStage?.stageName || routeObj?.nightStayPoint?.stageName || 'Night Stay Point';
+      const isDefaultStayPoint = !routeObj?.nightStayPoint && !routeObj?.stages?.some(s => s.isNightStayPoint);
+      const stageLat = Number(stayPointStage?.latitude);
+      const stageLng = Number(stayPointStage?.longitude);
+      const hasStageCoords = Number.isFinite(stageLat) && Number.isFinite(stageLng) && stageLat !== 0 && stageLng !== 0;
 
-        const stayPointName = stayPointStage?.stageName || routeObj?.nightStayPoint?.stageName || 'Default Stay Point';
-        const isDefaultStayPoint = !routeObj?.nightStayPoint && !routeObj?.stages?.some(s => s.isNightStayPoint);
-        const stageLat = Number(stayPointStage?.latitude);
-        const stageLng = Number(stayPointStage?.longitude);
-        const hasStageCoords = Number.isFinite(stageLat) && Number.isFinite(stageLng) && stageLat !== 0 && stageLng !== 0;
+      const daysMap = {};
+      const busPlateKey = extractPlateKey(bus.busNumber);
+      const busDigits = String(bus.busNumber).replace(/\D/g, '').slice(-4);
 
-        const plateKey = extractPlateKey(bus.busNumber);
-        const matchedTgg = tggVehicles.find((v) => extractPlateKey(v.name) === plateKey);
-        const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
+      dates.forEach(dateStr => {
+        const nsDoc = nightStayMap.get(`${dateStr}_${bus.busNumber}`) ||
+                      (busPlateKey ? nightStayMap.get(`${dateStr}_${busPlateKey}`) : null) ||
+                      (busDigits.length === 4 ? nightStayMap.get(`${dateStr}_digits_${busDigits}`) : null);
 
-        const daysMap = {};
-        dates.forEach(d => {
-          daysMap[d] = { firstIn: null, lastOut: null, kilometers: 0 };
-        });
+        const dDoc = dailyMap.get(`${dateStr}_${bus.busNumber}`) ||
+                     (busPlateKey ? dailyMap.get(`${dateStr}_${busPlateKey}`) : null) ||
+                     (busDigits.length === 4 ? dailyMap.get(`${dateStr}_digits_${busDigits}`) : null);
 
-        const stayRadius = Number(stayPointStage?.radius) || 300; // Geofence radius in meters (default 300m)
+        const firstIn = (nsDoc && nsDoc.firstInTime && nsDoc.firstInTime !== '—') ? nsDoc.firstInTime : null;
+        const lastOut = (nsDoc && nsDoc.lastOutTime && nsDoc.lastOutTime !== '—') ? nsDoc.lastOutTime : null;
 
-        if (hasStageCoords) {
-          // 1. Primary Source: Fetch GPS position history logs from TGG Messages API (04:00 to 22:00 window per date)
-          try {
-            const { baseUrl, token, username, password } = getTggConfig();
-            const msgUrl = `${baseUrl}/messages_api.php?token=${encodeURIComponent(token)}`;
-
-            // Build 1 query window per date (04:00:00 to 22:00:00) instead of 7 segment spam calls
-            const dateQueries = dates.map(dateStr => ({
-              start: `${dateStr} 04:00:00`,
-              end: `${dateStr} 22:00:00`
-            }));
-
-            const segResults = await Promise.all(dateQueries.map(async (seg) => {
-              try {
-                const params = new URLSearchParams();
-                params.append('username', username);
-                params.append('password', password);
-                params.append('date_from', seg.start);
-                params.append('date_to', seg.end);
-                params.append('vehicle_name', tggVehicleName);
-
-                const response = await fetch(msgUrl, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                  body: params,
-                  signal: AbortSignal.timeout(4500)
-                });
-
-                if (response.ok) {
-                  const rawText = await response.text();
-                  try {
-                    const parsed = JSON.parse(rawText.trim());
-                    const points = [];
-                    for (const vehKey of Object.keys(parsed)) {
-                      const vehData = parsed[vehKey];
-                      if (vehData && typeof vehData === 'object') {
-                        for (const logKey of Object.keys(vehData)) {
-                          const log = vehData[logKey];
-                          if (log && log.y && log.x) {
-                            points.push({
-                              timestamp: log.time || log.timestamp || '',
-                              latitude: parseFloat(log.y),
-                              longitude: parseFloat(log.x)
-                            });
-                          }
-                        }
-                      }
-                    }
-                    return points;
-                  } catch (e) { return []; }
-                }
-                return [];
-              } catch (e) { return []; }
-            }));
-
-            let logs = [];
-            segResults.forEach(pts => { if (Array.isArray(pts)) logs.push(...pts); });
-
-            if (logs.length > 0) {
-              // Sort logs chronologically
-              logs.sort((a, b) => new Date(a.timestamp || a.time) - new Date(b.timestamp || b.time));
-
-              logs.forEach(pt => {
-                const rawTime = pt.timestamp || pt.time || pt.date;
-                if (!rawTime) return;
-
-                const normDate = normalizeDateStr(rawTime);
-                if (!normDate || !daysMap[normDate]) return;
-
-                const timeParts = String(rawTime).trim().split(' ');
-                const timeStr = timeParts[1] ? timeParts[1].substring(0, 5) : (rawTime.length >= 16 ? rawTime.substring(11, 16) : null);
-                if (!timeStr) return;
-
-                const pLat = parseFloat(pt.latitude || pt.lat || pt.y);
-                const pLng = parseFloat(pt.longitude || pt.lng || pt.x);
-
-                if (Number.isFinite(pLat) && Number.isFinite(pLng)) {
-                  const dist = calculateDistance(stageLat, stageLng, pLat, pLng);
-                  const isInside = dist <= stayRadius;
-
-                  if (isInside) {
-                    // OUT Column: Morning departure from Night Stay Point (between 04:00 and 12:00)
-                    if (timeStr >= '04:00' && timeStr < '12:00') {
-                      if (!daysMap[normDate].lastOut || timeStr > daysMap[normDate].lastOut) {
-                        daysMap[normDate].lastOut = timeStr;
-                      }
-                    }
-
-                    // IN Column: Evening/Night Arrival at Night Stay Point (after 16:00 / 4:00 PM)
-                    if (timeStr >= '16:00') {
-                      if (!daysMap[normDate].firstIn || timeStr < daysMap[normDate].firstIn) {
-                        daysMap[normDate].firstIn = timeStr;
-                      }
-                    }
-                  }
-                }
-              });
-            }
-          } catch (err) {
-            console.warn(`[GPS] Position history fetch failed for Night Stay on ${tggVehicleName}:`, err.message);
-          }
-
-          // 2. Fetch Daily Report solely to extract daily kilometers (distance)
-          try {
-            const tggReport = await fetchReportsFromTgg({
-              vehicle_name: tggVehicleName,
-              date_from: dateFromStr,
-              date_to: dateToStr,
-              template: 'Daily Report'
-            });
-
-            if (tggReport.success && tggReport.data) {
-              const parsedKms = parseDailyKilometersFromTggReport(tggReport.data, tggVehicleName);
-              Object.keys(parsedKms).forEach(dStr => {
-                if (daysMap[dStr] && parsedKms[dStr] > 0) {
-                  daysMap[dStr].kilometers = Math.max(daysMap[dStr].kilometers, parsedKms[dStr]);
-                }
-              });
-            }
-          } catch (err) {
-            console.warn(`[GPS] nightstay report fallback fetch failed for ${tggVehicleName}:`, err.message);
-          }
-        }
-
-        // If stay point has no valid coordinates, clear IN/OUT times
-        if (!hasStageCoords) {
-          dates.forEach(dateStr => {
-            daysMap[dateStr].firstIn = null;
-            daysMap[dateStr].lastOut = null;
-          });
-        }
-
-        return {
-          busNumber: bus.busNumber,
-          tggVehicleName,
-          routeId,
-          routeName,
-          stayPointName,
-          isDefaultStayPoint,
-          hasStageCoords,
-          days: daysMap
+        daysMap[dateStr] = {
+          firstIn,
+          lastOut,
+          kilometers: dDoc?.totalKms || 0
         };
-      }));
-
-      reportRows.push(...chunkResults);
-    }
-
-    const previousCache = global._nightStayCache?.[cacheKey]?.data?.data;
-    if (previousCache && Array.isArray(previousCache)) {
-      reportRows.forEach(row => {
-        if (!row.hasStageCoords) {
-          Object.keys(row.days).forEach(dStr => {
-            row.days[dStr].firstIn = null;
-            row.days[dStr].lastOut = null;
-          });
-          return;
-        }
-        const prevRow = previousCache.find(p => p.busNumber === row.busNumber);
-        if (prevRow && prevRow.days) {
-          Object.keys(row.days).forEach(dStr => {
-            const currentDay = row.days[dStr];
-            const prevDay = prevRow.days[dStr];
-            if (prevDay) {
-              if (!currentDay.firstIn && prevDay.firstIn && prevDay.firstIn >= '17:00') {
-                currentDay.firstIn = prevDay.firstIn;
-              }
-              if (!currentDay.lastOut && prevDay.lastOut) {
-                currentDay.lastOut = prevDay.lastOut;
-              }
-              if ((!currentDay.kilometers || currentDay.kilometers === 0) && prevDay.kilometers > 0) {
-                currentDay.kilometers = prevDay.kilometers;
-              }
-            }
-          });
-        }
       });
-    }
 
-    const responsePayload = {
+      return {
+        busNumber: bus.busNumber,
+        tggVehicleName: bus.busNumber,
+        routeId,
+        routeName,
+        stayPointName,
+        isDefaultStayPoint,
+        hasStageCoords,
+        days: daysMap
+      };
+    });
+
+    return res.status(200).json({
       success: true,
       dates,
-      data: reportRows
-    };
-
-    global._nightStayCache[cacheKey] = {
-      timestamp: Date.now(),
-      data: responsePayload
-    };
-
-    return res.status(200).json(responsePayload);
+      data: reportRows,
+      isDbSource: true
+    });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message || 'Failed to generate Night Stay IN/OUT report'
+      message: error.message || 'Failed to generate Night Stay report'
     });
   }
 };
@@ -1641,150 +1428,128 @@ const FUEL_REPORT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes in-memory cache TTL
  * GET /api/gps/fuel-report?vehicle_name=X&date_from=Y&date_to=Z
  * Fetches the "Fuel Day Report" from the TGG Reports API with in-memory & disk snapshot caching.
  */
+/**
+ * GET /api/gps/fuel-report?vehicle_name=X&date_from=Y&date_to=Z
+ * Fetches Fuel Day Report directly from MongoDB with fallback sync
+ */
 const fetchFuelDayReport = async (req, res) => {
   try {
     const { vehicle_name, date_from, date_to, refresh } = req.query;
 
-    let dfFrom = date_from || '';
-    let dfTo = date_to || '';
-    if (dfFrom && dfFrom.length === 16) dfFrom += ':00';
-    else if (dfFrom && !dfFrom.includes(' ')) dfFrom += ' 00:00:00';
-    if (dfTo && dfTo.length === 16) dfTo += ':59';
-    else if (dfTo && !dfTo.includes(' ')) dfTo += ' 23:59:59';
-    const targetVeh = vehicle_name || 'ALL';
+    let dfFrom = date_from ? date_from.split(' ')[0] : new Date().toISOString().split('T')[0];
+    let dfTo = date_to ? date_to.split(' ')[0] : new Date().toISOString().split('T')[0];
+    let dates = buildDateRangeArray(dfFrom, dfTo);
+    if (dates.length === 0) dates = [dfFrom];
 
-    const cacheKey = `${targetVeh}_${dfFrom}_${dfTo}`;
-    const now = Date.now();
-    const startTime = Date.now();
+    const forceRefresh = refresh === 'true';
+    let existingFuelDocs = await GpsFuelReport.find({ date: { $in: dates } }).lean();
 
-    // Serve cached response immediately (<5ms) if available
-    if (!refresh && fuelReportCacheStore.has(cacheKey)) {
-      const cached = fuelReportCacheStore.get(cacheKey);
-      console.log(`[Fuel Report API] Instant Cache Hit for ${targetVeh} (${dfFrom} - ${dfTo}) - Served in ${Date.now() - startTime}ms`);
-      
-      // If stale, trigger background revalidation without blocking user response
-      if (now - cached.timestamp >= FUEL_REPORT_CACHE_TTL) {
-        setImmediate(() => performFreshFuelReportFetch(targetVeh, dfFrom, dfTo, cacheKey));
+    const { query: busQueryFilter } = await getCampusBusQueryFilter(req);
+    const fuelBusQueryFilter = { ...busQueryFilter, hasFuelSensor: true };
+    const buses = await Bus.find(fuelBusQueryFilter).lean();
+
+    let targetBuses = buses;
+    const isSingleVehicle = vehicle_name && vehicle_name !== 'ALL' && vehicle_name !== 'All Vehicles';
+    if (isSingleVehicle) {
+      const busKey = extractPlateKey(vehicle_name);
+      targetBuses = buses.filter(b => {
+        const bKey = extractPlateKey(b.busNumber);
+        return bKey && busKey && (bKey === busKey || bKey.includes(busKey) || busKey.includes(bKey));
+      });
+      if (targetBuses.length === 0) {
+        targetBuses = [{ busNumber: vehicle_name, campus: null }];
       }
-
-      return res.status(200).json({ success: true, data: cached.data, isCached: true });
+    } else if (targetBuses.length === 0) {
+      const vehiclesRes = await fetchVehiclesListFromTgg();
+      if (vehiclesRes.success && Array.isArray(vehiclesRes.data)) {
+        targetBuses = vehiclesRes.data.map(v => ({ busNumber: v.name, campus: null }));
+      }
     }
 
-    const enrichedRows = await performFreshFuelReportFetch(targetVeh, dfFrom, dfTo, cacheKey);
-    console.log(`[Fuel Report API] Fresh Fetch Completed for ${targetVeh} (${dfFrom} - ${dfTo}) - Total Time: ${Date.now() - startTime}ms (${enrichedRows.length} rows)`);
-    return res.status(200).json({ success: true, data: enrichedRows });
+    const existingKeys = new Set(existingFuelDocs.map(d => `${d.date}_${d.busNumber}`));
+    let needsSync = forceRefresh;
+    if (!needsSync) {
+      for (const bus of targetBuses) {
+        for (const dateStr of dates) {
+          if (!existingKeys.has(`${dateStr}_${bus.busNumber}`)) {
+            needsSync = true;
+            break;
+          }
+        }
+        if (needsSync) break;
+      }
+    }
+
+    if (needsSync) {
+      console.log(`[FuelReport API] Triggering DB sync for dates: ${dates.join(', ')}...`);
+      const targetBusNum = isSingleVehicle ? (targetBuses[0]?.busNumber || vehicle_name) : null;
+      await syncFuelDayReportForDates(dates, forceRefresh, targetBusNum);
+      existingFuelDocs = await GpsFuelReport.find({ date: { $in: dates } }).lean();
+    }
+
+    const routes = await Route.find({}).lean();
+    const routeMap = {};
+    routes.forEach(r => { routeMap[r.routeId] = r; });
+
+    const enrichedRows = targetBuses.map(bus => {
+      const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
+      const busPlateKey = extractPlateKey(bus.busNumber);
+      const busDigits = String(bus.busNumber).replace(/\D/g, '').slice(-4);
+
+      const doc = existingFuelDocs.find(d => 
+        d.busNumber === bus.busNumber ||
+        extractPlateKey(d.busNumber) === busPlateKey ||
+        extractPlateKey(d.tggVehicleName) === busPlateKey ||
+        (routeId && extractRouteIdFromVehicleName(d.tggVehicleName) === routeId) ||
+        (busDigits && busDigits.length === 4 && String(d.busNumber).replace(/\D/g, '').slice(-4) === busDigits) ||
+        (busDigits && busDigits.length === 4 && String(d.tggVehicleName).replace(/\D/g, '').slice(-4) === busDigits)
+      );
+
+      return {
+        busNumber: bus.busNumber,
+        tggVehicleName: doc?.tggVehicleName || bus.busNumber,
+        routeId,
+        routeName,
+        initialFuel: doc?.initialFuelLiters || 0,
+        finalFuel: doc?.finalFuelLiters || 0,
+        fuelConsumption: doc?.fuelConsumedLiters || 0,
+        kmsTravelled: doc?.distanceTravelledKm || 0
+      };
+    });
+
+    return res.status(200).json({ success: true, data: enrichedRows, isDbSource: true });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message || 'Failed to fetch fuel report' });
   }
 };
 
-const performFreshFuelReportFetch = async (targetVeh, dfFrom, dfTo, cacheKey) => {
-  const [buses, routes, tggVehRes] = await Promise.all([
-    Bus.find({ status: 'Active' }).lean(),
-    Route.find({}).lean(),
-    fetchVehiclesListFromTgg()
-  ]);
-  const routeMap = {};
-  routes.forEach(r => { routeMap[r.routeId] = r; });
-  const tggVehicles = tggVehRes.success && Array.isArray(tggVehRes.data) ? tggVehRes.data : [];
+/**
+ * POST /api/gps/sync-reports
+ * Manually triggers background sync for requested date range
+ */
+const triggerManualReportSync = async (req, res) => {
+  try {
+    const { date_from, date_to, busNumber, bus_number, vehicle_name, reportType, report_type } = req.body || req.query || {};
+    const targetBus = busNumber || bus_number || vehicle_name || null;
+    const rType = reportType || report_type || 'day_in_out';
+    const dateToParam = date_to || new Date().toISOString().split('T')[0];
+    const dateFromParam = date_from || dateToParam;
+    const dates = buildDateRangeArray(dateFromParam, dateToParam);
 
-  const isSingleVehicle = targetVeh !== 'ALL' && targetVeh !== 'All Vehicles';
-  let targetBuses = buses;
+    console.log(`[ManualSync] Sync requested for dates: ${dates.join(', ')} (Type: ${rType})${targetBus ? ` for bus: ${targetBus}` : ''} by user: ${req.user?.username || 'admin'}`);
+    const syncRes = await syncAllReportsForDates(dates, true, targetBus, rType);
 
-  if (isSingleVehicle) {
-    const busKey = extractPlateKey(targetVeh);
-    targetBuses = buses.filter(b => {
-      const bKey = extractPlateKey(b.busNumber);
-      return bKey && busKey && (bKey === busKey || bKey.includes(busKey) || busKey.includes(bKey));
+    return res.status(200).json({
+      success: true,
+      message: `Successfully synced ${rType} reports for ${dates.length} date(s)${targetBus ? ` (${targetBus})` : ''}`,
+      details: syncRes
     });
-    if (targetBuses.length === 0) {
-      targetBuses = [{ busNumber: targetVeh }];
-    }
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Failed to execute manual GPS reports sync'
+    });
   }
-
-  const rawParsedRows = [];
-  const CONCURRENCY = isSingleVehicle ? 1 : 2;
-
-  for (let i = 0; i < targetBuses.length; i += CONCURRENCY) {
-    const chunk = targetBuses.slice(i, i + CONCURRENCY);
-    await Promise.all(chunk.map(async (bus) => {
-      const busKey = extractPlateKey(bus.registrationNumber || bus.busNumber);
-      const matchedTgg = tggVehicles.find(v => {
-        const vKey = extractPlateKey(v.name);
-        return vKey && busKey && (vKey === busKey || vKey.includes(busKey) || busKey.includes(vKey));
-      });
-      const tggVehicleName = matchedTgg?.name || bus.busNumber;
-
-      let kmsTravelled = null;
-      let initialFuel = null;
-      let finalFuel = null;
-      let fuelConsumption = null;
-
-      try {
-        const result = await fetchReportsFromTgg({
-          vehicle_name: tggVehicleName,
-          date_from: dfFrom,
-          date_to: dfTo,
-          template: 'Fuel Day Report',
-          timeoutMs: 15000
-        });
-
-        if (result.success && result.data) {
-          const parsed = parseFuelDayReportFromTgg(result.data);
-          if (parsed.length > 0) {
-            const r = parsed[0];
-            kmsTravelled = r.kmsTravelled;
-            initialFuel = r.initialFuel;
-            finalFuel = r.finalFuel;
-            fuelConsumption = r.fuelConsumption;
-          }
-        }
-      } catch (e) {}
-
-      // Fallback: If kmsTravelled missing, query Daily Report for distance
-      if (kmsTravelled === null) {
-        try {
-          const dRes = await fetchReportsFromTgg({
-            vehicle_name: tggVehicleName,
-            date_from: dfFrom,
-            date_to: dfTo,
-            template: 'Daily Report',
-            timeoutMs: 15000
-          });
-          if (dRes.success && dRes.data) {
-            const parsedKms = parseDailyKilometersFromTggReport(dRes.data, tggVehicleName);
-            const vals = Object.values(parsedKms).filter(v => v > 0);
-            if (vals.length > 0) {
-              kmsTravelled = Math.max(...vals);
-            }
-          }
-        } catch (e) {}
-      }
-
-      rawParsedRows.push({
-        tggVehicleName,
-        busNumber: bus.busNumber,
-        kmsTravelled,
-        initialFuel,
-        finalFuel,
-        fuelConsumption
-      });
-    }));
-  }
-
-  // Merge route details & bus information
-  const enrichedRows = rawParsedRows.map((r) => {
-    const { matchedBus, routeId, routeName } = resolveVehicleRoute(r.tggVehicleName, buses, routeMap);
-    return {
-      ...r,
-      busNumber: matchedBus ? matchedBus.busNumber : r.tggVehicleName,
-      routeId,
-      routeName
-    };
-  });
-
-  fuelReportCacheStore.set(cacheKey, { timestamp: Date.now(), data: enrichedRows });
-  return enrichedRows;
 };
 
 module.exports = {
@@ -1806,7 +1571,7 @@ module.exports = {
   fetch7DayInOutReport: fetchDayInOutReport,
   fetchNightStayReport,
   fetchFuelDayReport,
-  performFreshFuelReportFetch,
+  triggerManualReportSync,
   getLiveBusLocation
 };
 

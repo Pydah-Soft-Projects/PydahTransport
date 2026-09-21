@@ -239,47 +239,25 @@ export default function GpsTracking() {
       return;
     }
 
-    // All Fleet Vehicles Mode: Fetch vehicle by vehicle in 2-concurrent chunks
-    const targetVehList = vehicles.length > 0 ? vehicles : [];
-    const initLoadingMap = {};
-    targetVehList.forEach(v => { initLoadingMap[v.name] = true; });
-    setFuelLoadingVehicles(initLoadingMap);
-
-    const accumulatedData = [];
-    const CONCURRENCY = 2;
-
-    for (let i = 0; i < targetVehList.length; i += CONCURRENCY) {
-      const chunk = targetVehList.slice(i, i + CONCURRENCY);
-      await Promise.all(chunk.map(async (v) => {
+    // All Fleet Vehicles Mode: Fetch fuel report directly for all fuel-sensor buses
+    try {
+      const url = `${API_BASE}/gps/fuel-report?vehicle_name=ALL&date_from=${encodeURIComponent(fromStr)}&date_to=${encodeURIComponent(toStr)}${forceRefresh ? '&refresh=true' : ''}`;
+      const res = await apiFetch(url);
+      const json = await res.json();
+      if (res.ok && json && json.success && Array.isArray(json.data)) {
+        setFuelReportData(json.data);
+        fuelCacheRef.current[cacheKey] = json.data;
         try {
-          const url = `${API_BASE}/gps/fuel-report?vehicle_name=${encodeURIComponent(v.name)}&date_from=${encodeURIComponent(fromStr)}&date_to=${encodeURIComponent(toStr)}${forceRefresh ? '&refresh=true' : ''}`;
-          const res = await apiFetch(url);
-          const json = await res.json();
-          if (res.ok && json && json.success && Array.isArray(json.data) && json.data.length > 0) {
-            const rowData = json.data[0];
-            accumulatedData.push(rowData);
-            setFuelReportData((prev) => {
-              const vKey = extractPlateKey(v.name);
-              const filtered = prev.filter(r => extractPlateKey(r.tggVehicleName || r.busNumber) !== vKey);
-              return [...filtered, rowData];
-            });
-          }
-        } catch (e) {
-        } finally {
-          setFuelLoadingVehicles((prev) => ({ ...prev, [v.name]: false }));
-        }
-      }));
+          localStorage.setItem(`fuel_cache_${cacheKey}`, JSON.stringify(json.data));
+        } catch (e) {}
+      }
+    } catch (err) {
+      console.error('[Fuel Day Report] Fetch error:', err);
+      setFuelError(err.message || 'Failed to fetch fuel report data');
+    } finally {
+      setFuelLoadingVehicles({});
+      setFuelLoading(false);
     }
-
-    if (accumulatedData.length > 0) {
-      fuelCacheRef.current[cacheKey] = accumulatedData;
-      try {
-        localStorage.setItem(`fuel_cache_${cacheKey}`, JSON.stringify(accumulatedData));
-      } catch (e) {}
-    }
-
-    setFuelLoadingVehicles({});
-    setFuelLoading(false);
   }, [fuelDateFrom, fuelDateTo, fuelSelectedVehicle, vehicles]);
 
   // Auto fetch fuel report when tab switches to 'fuel' (using cache when available)
@@ -338,8 +316,19 @@ export default function GpsTracking() {
 
     let mergedRows = [];
 
-    if (vehicles.length > 0) {
-      mergedRows = vehicles.map((v) => {
+    const fuelBuses = vehicles.filter((v) => v.hasFuelSensor === true);
+    if (fuelReportData.length > 0) {
+      mergedRows = fuelReportData.map((r) => ({
+        tggVehicleName: r.tggVehicleName || r.busNumber,
+        busNumber: r.tggVehicleName || r.busNumber,
+        routeId: r.routeId || extractRouteIdFromVehicleName(r.tggVehicleName || r.busNumber) || 'Unassigned',
+        kmsTravelled: r.kmsTravelled ?? null,
+        initialFuel: r.initialFuel ?? null,
+        finalFuel: r.finalFuel ?? null,
+        fuelConsumption: r.fuelConsumption ?? null
+      }));
+    } else if (fuelBuses.length > 0) {
+      mergedRows = fuelBuses.map((v) => {
         const key1 = String(v.name).trim().toUpperCase();
         const key2 = extractPlateKey(v.name);
         const match = fuelMap.get(key1) || (key2 ? fuelMap.get(key2) : null);
@@ -355,28 +344,8 @@ export default function GpsTracking() {
           fuelConsumption: match ? match.fuelConsumption : null
         };
       });
-    } else if (fuelReportData.length > 0) {
-      mergedRows = fuelReportData.map((r) => ({
-        tggVehicleName: r.tggVehicleName || r.busNumber,
-        busNumber: r.tggVehicleName || r.busNumber,
-        routeId: r.routeId || extractRouteIdFromVehicleName(r.tggVehicleName || r.busNumber) || 'Unassigned',
-        kmsTravelled: r.kmsTravelled ?? null,
-        initialFuel: r.initialFuel ?? null,
-        finalFuel: r.finalFuel ?? null,
-        fuelConsumption: r.fuelConsumption ?? null
-      }));
     } else {
-      // Predisplayed fleet skeleton rows while initial vehicles/data are loading
-      const defaultRoutes = ['R01', 'R02', 'R03', 'R04', 'R05', 'R06', 'R07', 'R08', 'R09', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15'];
-      mergedRows = defaultRoutes.map((rCode, idx) => ({
-        tggVehicleName: `${rCode}_AP39UP${8051 + idx}`,
-        busNumber: `${rCode}_AP39UP${8051 + idx}`,
-        routeId: rCode,
-        kmsTravelled: null,
-        initialFuel: null,
-        finalFuel: null,
-        fuelConsumption: null
-      }));
+      mergedRows = [];
     }
 
     if (!fuelSortField) return mergedRows;
@@ -410,6 +379,9 @@ export default function GpsTracking() {
   const sortedDropdownVehicles = React.useMemo(() => {
     if (!vehicles || vehicles.length === 0) return [];
 
+    const fuelBuses = vehicles.filter(v => v.hasFuelSensor === true);
+    const targetVehicles = activePageTab === 'fuel' && fuelBuses.length > 0 ? fuelBuses : vehicles;
+
     const routeMap = new Map();
     if (Array.isArray(sortedFuelRows)) {
       sortedFuelRows.forEach((r) => {
@@ -422,7 +394,7 @@ export default function GpsTracking() {
       });
     }
 
-    const items = vehicles.map((v) => {
+    const items = targetVehicles.map((v) => {
       const k1 = String(v.name).trim().toUpperCase();
       const k2 = extractPlateKey(v.name);
       const assignedRoute = routeMap.get(k1) || (k2 ? routeMap.get(k2) : null) || extractRouteIdFromVehicleName(v.name) || 'Route';
@@ -440,7 +412,7 @@ export default function GpsTracking() {
       if (numA !== numB) return numA - numB;
       return String(a.name).localeCompare(String(b.name), undefined, { numeric: true });
     });
-  }, [vehicles, sortedFuelRows]);
+  }, [vehicles, sortedFuelRows, activePageTab]);
 
   const handleExportFuelExcel = async () => {
     if (!filteredFuelRows || filteredFuelRows.length === 0) return;
@@ -587,7 +559,9 @@ export default function GpsTracking() {
       setReportDates(requestedDates);
     }
 
-    if (!forceRefresh) {
+    if (forceRefresh) {
+      sessionStorage.removeItem(cacheKey);
+    } else {
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) {
         try {
@@ -658,6 +632,70 @@ export default function GpsTracking() {
     return [];
   });
   const [nightStayLoading, setNightStayLoading] = useState(false);
+  const [syncingReports, setSyncingReports] = useState(false);
+  const [syncingVehicle, setSyncingVehicle] = useState({});
+
+  const handleSyncSingleVehicle = async (busNumber, e) => {
+    if (e) e.stopPropagation();
+    try {
+      setSyncingVehicle(prev => ({ ...prev, [busNumber]: true }));
+      const fromD = fleetDateFrom || new Date().toISOString().split('T')[0];
+      const toD = fleetDateTo || fromD;
+      const reportType = activePageTab === 'nightstay' ? 'night_stay' : activePageTab === 'fuel' ? 'fuel' : 'day_in_out';
+
+      const res = await apiFetch(`${API_BASE}/gps/sync-reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ busNumber, date_from: fromD, date_to: toD, reportType })
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        sessionStorage.clear();
+        if (activePageTab === 'nightstay') {
+          await fetchNightStayReportData(fromD, toD, false);
+        } else if (activePageTab === 'fuel') {
+          await fetchFuelReportData(fromD, toD, fuelSelectedVehicle, false);
+        } else {
+          await fetchDayReport(fromD, toD, false);
+        }
+      }
+    } catch (err) {
+      console.error(`Single vehicle sync failed for ${busNumber}:`, err);
+    } finally {
+      setSyncingVehicle(prev => ({ ...prev, [busNumber]: false }));
+    }
+  };
+
+  const handleManualSyncReports = async () => {
+    try {
+      setSyncingReports(true);
+      const fromD = fleetDateFrom || new Date().toISOString().split('T')[0];
+      const toD = fleetDateTo || fromD;
+      const reportType = activePageTab === 'nightstay' ? 'night_stay' : activePageTab === 'fuel' ? 'fuel' : 'day_in_out';
+      
+      const res = await apiFetch(`${API_BASE}/gps/sync-reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date_from: fromD, date_to: toD, reportType })
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        // Clear stale session caches
+        sessionStorage.clear();
+        if (activePageTab === 'nightstay') {
+          await fetchNightStayReportData(fromD, toD, true);
+        } else if (activePageTab === 'fuel') {
+          await fetchFuelReportData(fromD, toD, fuelSelectedVehicle, true);
+        } else {
+          await fetchDayReport(fromD, toD, true);
+        }
+      }
+    } catch (err) {
+      console.error('Manual sync error:', err);
+    } finally {
+      setSyncingReports(false);
+    }
+  };
 
   const fetchNightStayReportData = useCallback(async (overrideFrom, overrideTo, forceRefresh = false) => {
     const fromStr = overrideFrom || fleetDateFrom;
@@ -686,15 +724,11 @@ export default function GpsTracking() {
       }
     }
 
-    if (forceRefresh || nightStayData.length === 0) {
-      setNightStayLoading(true);
-    }
-
+    setNightStayLoading(true);
     try {
       const url = `${API_BASE}/gps/nightstay-report?date_from=${fromStr}&date_to=${toStr}${forceRefresh ? '&refresh=true' : ''}`;
       const res = await apiFetch(url);
       const json = await res.json();
-
       if (res.ok && json.success && Array.isArray(json.data)) {
         setNightStayData(json.data);
         const resolvedDates = (json.dates && json.dates.length > 0) ? json.dates : requestedDates;
@@ -708,19 +742,15 @@ export default function GpsTracking() {
     } finally {
       setNightStayLoading(false);
     }
-  }, [fleetDateFrom, fleetDateTo, nightStayData.length]);
+  }, [fleetDateFrom, fleetDateTo]);
 
   useEffect(() => {
     if (activePageTab === 'reports' || activePageTab === 'travelled') {
-      if (report7DayData.length === 0) {
-        fetchDayReport();
-      }
+      fetchDayReport();
     } else if (activePageTab === 'nightstay') {
-      if (nightStayData.length === 0) {
-        fetchNightStayReportData();
-      }
+      fetchNightStayReportData();
     }
-  }, [activePageTab, fetchDayReport, fetchNightStayReportData, report7DayData.length, nightStayData.length]);
+  }, [activePageTab, fetchDayReport, fetchNightStayReportData]);
 
   // Final Destination modal
   const [campuses, setCampuses] = useState([]);
@@ -1937,18 +1967,13 @@ export default function GpsTracking() {
               </button>
 
               <button 
-                onClick={() => {
-                  if (activePageTab === 'nightstay') {
-                    fetchNightStayReportData(fleetDateFrom, fleetDateTo, true);
-                  } else {
-                    fetchDayReport(fleetDateFrom, fleetDateTo, true);
-                  }
-                }}
-                disabled={activePageTab === 'nightstay' ? nightStayLoading : reportLoading}
+                onClick={handleManualSyncReports}
+                disabled={syncingReports || (activePageTab === 'nightstay' ? nightStayLoading : reportLoading)}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                title="Sync latest reports from TGG API to DB and refresh"
               >
-                <RefreshCw size={12} className={(activePageTab === 'nightstay' ? nightStayLoading : reportLoading) ? 'animate-spin' : ''} />
-                <span>{(activePageTab === 'nightstay' ? nightStayLoading : reportLoading) ? 'Loading...' : 'Refresh Logs'}</span>
+                <RefreshCw size={12} className={(syncingReports || (activePageTab === 'nightstay' ? nightStayLoading : reportLoading)) ? 'animate-spin' : ''} />
+                <span>{syncingReports ? 'Syncing DB...' : (activePageTab === 'nightstay' ? nightStayLoading : reportLoading) ? 'Loading...' : 'Sync & Refresh'}</span>
               </button>
 
               <button 
@@ -2510,18 +2535,18 @@ export default function GpsTracking() {
 
               return (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-                  <div className="overflow-x-auto sidebar-scrollbar relative">
+                  <div className="overflow-auto max-h-[calc(100vh-100px)] min-h-[550px] sidebar-scrollbar relative">
                     <table 
                       className="w-full text-left border-collapse" 
                       style={{ minWidth: `${304 + nsDates.length * 100}px` }}
                     >
-                      <thead className="sticky top-0 z-30 shadow-sm">
+                      <thead className="sticky top-0 z-30 shadow-sm bg-[#071B45]">
                         {/* Header Row 1: Route, Bus Number, Stay Point, Date Columns */}
                         <tr className="bg-[#071B45] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('route')}
-                            className="px-1.5 py-1.5 sticky top-0 left-0 bg-[#071B45] hover:bg-[#0A2558] z-40 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
+                            className="px-1.5 py-1.5 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-40 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
                             title="Click to sort by Route ID"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2538,7 +2563,7 @@ export default function GpsTracking() {
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('bus')}
-                            className="px-1.5 py-1.5 sticky top-0 left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-40 w-[108px] min-w-[108px] max-w-[108px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            className="px-1.5 py-1.5 sticky left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-40 w-[108px] min-w-[108px] max-w-[108px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
                             title="Click to sort by Bus Number"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2554,7 +2579,7 @@ export default function GpsTracking() {
                           </th>
                           <th 
                             rowSpan={2} 
-                            className="px-2 py-1.5 sticky top-0 left-[176px] bg-[#071B45] z-40 w-[128px] min-w-[128px] max-w-[128px] align-middle border-r border-slate-700 select-none"
+                            className="px-2 py-1.5 sticky left-[176px] bg-[#071B45] z-40 w-[128px] min-w-[128px] max-w-[128px] align-middle border-r border-slate-700 select-none"
                           >
                             <span>Night Stay Point</span>
                           </th>
@@ -2566,7 +2591,7 @@ export default function GpsTracking() {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
 
                             return (
-                              <th key={dateStr} colSpan={2} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[100px] min-w-[100px] sticky top-0 z-30 bg-[#071B45] ${isToday ? 'bg-blue-900' : ''}`}>
+                              <th key={dateStr} colSpan={2} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[100px] min-w-[100px] bg-[#071B45] ${isToday ? 'bg-blue-900' : ''}`}>
                                 <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
                                 <div className="text-[8px] text-blue-200 tracking-normal capitalize font-semibold leading-tight">{isToday ? 'Today' : 'Night Stay'}</div>
                               </th>
@@ -2575,13 +2600,13 @@ export default function GpsTracking() {
                         </tr>
 
                         {/* Header Row 2: OUT / IN Sub-columns */}
-                        <tr className="bg-[#0b2256] text-slate-200 text-[9px] font-bold uppercase tracking-wider border-b border-slate-700 sticky top-[27px] z-30">
+                        <tr className="bg-[#0b2256] text-slate-200 text-[9px] font-bold uppercase tracking-wider border-b border-slate-700">
                           {nsDates.map((dateStr) => {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
                             return (
                               <React.Fragment key={`sub-${dateStr}`}>
-                                <th className={`py-1 text-center border-r border-slate-700/50 w-[50px] min-w-[50px] text-rose-300 ${isToday ? 'bg-blue-900/40' : ''}`}>OUT</th>
-                                <th className={`py-1 text-center border-r border-slate-700/80 w-[50px] min-w-[50px] text-emerald-300 ${isToday ? 'bg-blue-900/40' : ''}`}>IN</th>
+                                <th className={`py-1 text-center border-r border-slate-700/50 w-[50px] min-w-[50px] text-rose-300 ${isToday ? 'bg-blue-900/40' : 'bg-[#0b2256]'}`}>OUT</th>
+                                <th className={`py-1 text-center border-r border-slate-700/80 w-[50px] min-w-[50px] text-emerald-300 ${isToday ? 'bg-blue-900/40' : 'bg-[#0b2256]'}`}>IN</th>
                               </React.Fragment>
                             );
                           })}
@@ -2598,7 +2623,17 @@ export default function GpsTracking() {
 
                             {/* Bus Number */}
                             <td className="px-1.5 py-1.5 font-mono font-bold text-slate-900 sticky left-[68px] bg-white group-hover:bg-blue-50 z-10 border-r border-slate-100 align-middle shadow-2xs w-[108px] min-w-[108px] max-w-[108px] text-[10.5px] truncate">
-                              <span className="truncate block" title={row.tggVehicleName || row.busNumber}>{row.tggVehicleName || row.busNumber}</span>
+                              <div className="flex items-center justify-between gap-1 w-full overflow-hidden">
+                                <span className="truncate block" title={row.tggVehicleName || row.busNumber}>{row.tggVehicleName || row.busNumber}</span>
+                                <button
+                                  onClick={(e) => handleSyncSingleVehicle(row.busNumber, e)}
+                                  disabled={syncingVehicle[row.busNumber]}
+                                  title={`Re-sync report data specifically for ${row.busNumber}`}
+                                  className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded transition-all shrink-0 cursor-pointer disabled:opacity-40"
+                                >
+                                  <RefreshCw size={10} className={syncingVehicle[row.busNumber] ? "animate-spin text-blue-600" : ""} />
+                                </button>
+                              </div>
                             </td>
 
                             {/* Stay Point Name */}
@@ -2724,18 +2759,18 @@ export default function GpsTracking() {
 
               return (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-                  <div className="overflow-x-auto sidebar-scrollbar">
+                  <div className="overflow-auto max-h-[calc(100vh-100px)] min-h-[550px] sidebar-scrollbar relative">
                     <table 
                       className="w-full text-left border-collapse"
                       style={{ minWidth: `${180 + displayDates.length * 152 + 28}px` }}
                     >
-                      <thead>
+                      <thead className="sticky top-0 z-30 shadow-sm bg-[#071B45]">
                         {/* Header Row 1: Route, Bus Number, Date Column Groups */}
                         <tr className="bg-[#071B45] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('route')}
-                            className="px-1.5 py-1.5 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-20 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
+                            className="px-1.5 py-1.5 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-40 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
                             title="Click to sort by Route ID"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2752,7 +2787,7 @@ export default function GpsTracking() {
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('bus')}
-                            className="px-1.5 py-1.5 sticky left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-20 w-[112px] min-w-[112px] max-w-[112px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            className="px-1.5 py-1.5 sticky left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-40 w-[112px] min-w-[112px] max-w-[112px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
                             title="Click to sort by Bus Number"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2774,22 +2809,22 @@ export default function GpsTracking() {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
 
                             return (
-                              <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[152px] min-w-[152px] ${isToday ? 'bg-blue-900' : ''}`}>
+                              <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[152px] min-w-[152px] bg-[#071B45] ${isToday ? 'bg-blue-900' : ''}`}>
                                 <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
                                 <div className="text-[8px] font-medium text-slate-300 uppercase leading-tight">{dayName} {isToday ? '(Today)' : ''}</div>
                               </th>
                             );
                           })}
-                          <th rowSpan={2} className="w-[28px] min-w-[28px] border-l border-slate-700 align-middle"></th>
+                          <th rowSpan={2} className="w-[28px] min-w-[28px] border-l border-slate-700 align-middle bg-[#071B45]"></th>
                         </tr>
 
                         {/* Header Row 2: IN / OUT / KMS Sub-headers under each date */}
                         <tr className="bg-[#0A2558] text-slate-200 text-[9px] uppercase font-extrabold tracking-wider border-b border-slate-700 select-none">
                           {displayDates.map((dateStr) => (
                             <React.Fragment key={'sub_' + dateStr}>
-                              <th className="py-1 text-center border-r border-slate-700/60 text-emerald-300 bg-emerald-950/40 w-[50px] min-w-[50px]">IN</th>
-                              <th className="py-1 text-center border-r border-slate-700/80 text-rose-300 bg-rose-950/40 w-[50px] min-w-[50px]">OUT</th>
-                              <th className="py-1 text-center border-r border-slate-700/80 text-amber-300 bg-amber-950/40 w-[52px] min-w-[52px]">KMS</th>
+                              <th className="py-1 text-center border-r border-slate-700/60 text-emerald-300 bg-[#062446] w-[50px] min-w-[50px]">IN</th>
+                              <th className="py-1 text-center border-r border-slate-700/80 text-rose-300 bg-[#2b0d1e] w-[50px] min-w-[50px]">OUT</th>
+                              <th className="py-1 text-center border-r border-slate-700/80 text-amber-300 bg-[#2d2208] w-[52px] min-w-[52px]">KMS</th>
                             </React.Fragment>
                           ))}
                         </tr>
@@ -2829,7 +2864,17 @@ export default function GpsTracking() {
 
                                 {/* Bus Number */}
                                 <td className={`px-1.5 py-1.5 font-extrabold text-slate-800 sticky left-[68px] z-10 w-[112px] min-w-[112px] max-w-[112px] whitespace-nowrap border-r border-slate-200 text-[10.5px] font-mono truncate ${isExpanded ? 'bg-blue-50' : 'bg-white'}`} title={row.tggVehicleName || row.busNumber}>
-                                  {row.tggVehicleName || row.busNumber}
+                                  <div className="flex items-center justify-between gap-1 w-full overflow-hidden">
+                                    <span className="truncate">{row.tggVehicleName || row.busNumber}</span>
+                                    <button
+                                      onClick={(e) => handleSyncSingleVehicle(row.busNumber, e)}
+                                      disabled={syncingVehicle[row.busNumber]}
+                                      title={`Re-sync report data specifically for ${row.busNumber}`}
+                                      className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded transition-all shrink-0 cursor-pointer disabled:opacity-40"
+                                    >
+                                      <RefreshCw size={10} className={syncingVehicle[row.busNumber] ? "animate-spin text-blue-600" : ""} />
+                                    </button>
+                                  </div>
                                 </td>
 
                                 {/* Divided IN, OUT & KMS Columns per date */}
@@ -3019,7 +3064,7 @@ export default function GpsTracking() {
                     }}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                   >
-                    <option value="ALL">All Fleet Vehicles ({vehicles.length > 0 ? vehicles.length : 32})</option>
+                    <option value="ALL">All Fuel Sensor Buses ({sortedDropdownVehicles.length})</option>
                     {sortedDropdownVehicles.map((v) => (
                       <option key={v.name} value={v.name}>
                         {v.name} ({v.assignedRoute || 'Route'})
@@ -3088,7 +3133,7 @@ export default function GpsTracking() {
                     className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                   >
                     <RefreshCw size={13} className={fuelLoading ? 'animate-spin' : ''} />
-                    <span>{fuelLoading ? 'Executing...' : 'Execute'}</span>
+                    <span>{fuelLoading ? 'Syncing...' : 'Sync & Refresh'}</span>
                   </button>
 
                   <button
@@ -3272,7 +3317,17 @@ export default function GpsTracking() {
                               </span>
                             </td>
                             <td className="px-4 py-3 font-bold text-slate-900 font-mono">
-                              {row.tggVehicleName || row.busNumber}
+                              <div className="flex items-center justify-between gap-1">
+                                <span>{row.tggVehicleName || row.busNumber}</span>
+                                <button
+                                  onClick={(e) => handleSyncSingleVehicle(row.busNumber || row.tggVehicleName, e)}
+                                  disabled={syncingVehicle[row.busNumber || row.tggVehicleName]}
+                                  title={`Re-sync fuel report data specifically for ${row.busNumber || row.tggVehicleName}`}
+                                  className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded transition-all cursor-pointer disabled:opacity-40"
+                                >
+                                  <RefreshCw size={11} className={syncingVehicle[row.busNumber || row.tggVehicleName] ? "animate-spin text-blue-600" : ""} />
+                                </button>
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-center font-mono font-bold text-slate-900">
                               {isRowLoading ? (

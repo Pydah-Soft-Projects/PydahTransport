@@ -44,6 +44,10 @@ const busSchema = new mongoose.Schema({
         type: Number,
         default: null
     },
+    hasFuelSensor: {
+        type: Boolean,
+        default: false
+    },
     taxes: [{
         taxHeader: {
             type: String,

@@ -107,7 +107,8 @@ const BusManagement = () => {
         status: 'Active',
         campus: '',
         driverName: '',
-        attendantName: ''
+        attendantName: '',
+        hasFuelSensor: false
     });
     const [isTaxesModalOpen, setIsTaxesModalOpen] = useState(false);
     const [selectedBusForTaxes, setSelectedBusForTaxes] = useState(null);
@@ -370,10 +371,10 @@ const BusManagement = () => {
     }, [buses]);
 
     const handleChange = (e) => {
-        const { name, value } = e.target;
+        const { name, value, type, checked } = e.target;
         setFormData(prev => ({
             ...prev,
-            [name]: value
+            [name]: type === 'checkbox' ? checked : value
         }));
     };
 
@@ -399,7 +400,8 @@ const BusManagement = () => {
             status: vehicle.status,
             campus: getCampusId(vehicle.campus) || '',
             driverName: vehicle.driverName || '',
-            attendantName: vehicle.attendantName || ''
+            attendantName: vehicle.attendantName || '',
+            hasFuelSensor: Boolean(vehicle.hasFuelSensor)
         });
         setEditingId(vehicle._id);
         setIsModalOpen(true);
@@ -445,7 +447,8 @@ const BusManagement = () => {
             status: 'Active',
             campus: '',
             driverName: '',
-            attendantName: ''
+            attendantName: '',
+            hasFuelSensor: false
         });
     };
 
@@ -1893,6 +1896,21 @@ const BusManagement = () => {
                             <option value="Retired">Retired</option>
                         </select>
                     </div>
+                    {!isOtherVehicleMode && (
+                        <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                            <input
+                                type="checkbox"
+                                id="hasFuelSensor"
+                                name="hasFuelSensor"
+                                checked={formData.hasFuelSensor}
+                                onChange={handleChange}
+                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 border-slate-300 cursor-pointer"
+                            />
+                            <label htmlFor="hasFuelSensor" className="text-sm font-semibold text-slate-700 cursor-pointer select-none">
+                                Fuel Sensor Installed
+                            </label>
+                        </div>
+                    )}
                     <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mt-4">
                         {editingId ? (isOtherVehicleMode ? 'Update Vehicle Details' : 'Update Bus Details') : (isOtherVehicleMode ? 'Create Vehicle' : 'Create Bus')}
                     </button>

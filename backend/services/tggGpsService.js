@@ -45,6 +45,73 @@ const extractRouteIdFromVehicleName = (name) => {
   return m ? m[1].toUpperCase() : null;
 };
 
+/**
+ * Smart matching helper to map a local Bus model object (or busNumber string)
+ * to a TGG vehicle object from the TGG API vehicles list.
+ *
+ * Handles:
+ * 1. Exact vehicle name match: v.name === input
+ * 2. Exact plate key match: extractPlateKey(v.name) === extractPlateKey(input)
+ * 3. Series + 4-digit number match: e.g. "up8071" in "ap05up8071" matches "ap39up8071" (handles RTO code mismatches like AP05 vs AP39)
+ * 4. Route ID match: e.g. assignedRouteId "R21" matches "R21_AP39UP8071"
+ * 5. Last 4 digits match: e.g. "8071"
+ */
+const findMatchingTggVehicle = (busOrName, tggVehicles = []) => {
+  if (!busOrName || !Array.isArray(tggVehicles) || tggVehicles.length === 0) return null;
+
+  const busObj = typeof busOrName === 'object' ? busOrName : { busNumber: String(busOrName) };
+  const rawBusNumber = busObj.busNumber || busObj.registrationNumber || busObj.name || String(busOrName);
+  const cleanInput = String(rawBusNumber).trim();
+  const routeId = busObj.assignedRouteId || extractRouteIdFromVehicleName(cleanInput);
+  const targetPlateKey = extractPlateKey(cleanInput); // e.g. "ap05up8071"
+
+  // 1. Exact string match
+  const exact = tggVehicles.find(v => String(v.name || '').trim() === cleanInput);
+  if (exact) return exact;
+
+  // 2. Exact plate key match
+  if (targetPlateKey) {
+    const tier1 = tggVehicles.find(v => extractPlateKey(v.name) === targetPlateKey);
+    if (tier1) return tier1;
+  }
+
+  // 3. Series + 4-digit number match (ignoring RTO state code e.g. AP05 vs AP39)
+  // e.g. "ap05up8071" -> series+digits "up8071"
+  if (targetPlateKey) {
+    const seriesDigitMatch = targetPlateKey.match(/([a-z]{1,3}\d{3,4})$/i);
+    if (seriesDigitMatch) {
+      const suffixKey = seriesDigitMatch[1].toLowerCase(); // "up8071"
+      const tier2 = tggVehicles.find(v => {
+        const vKey = extractPlateKey(v.name);
+        return vKey.endsWith(suffixKey);
+      });
+      if (tier2) return tier2;
+    }
+  }
+
+  // 4. Assigned Route ID match (e.g. assignedRouteId "R21" -> "R21_AP39UP8071")
+  if (routeId) {
+    const cleanRoute = String(routeId).trim().toUpperCase();
+    const tier3 = tggVehicles.find(v => {
+      const vRoute = extractRouteIdFromVehicleName(v.name);
+      return vRoute && vRoute === cleanRoute;
+    });
+    if (tier3) return tier3;
+  }
+
+  // 5. Last 4 digits match (e.g. "8071")
+  const digitsMatch = cleanInput.replace(/\D/g, '').slice(-4);
+  if (digitsMatch && digitsMatch.length === 4) {
+    const tier4 = tggVehicles.find(v => {
+      const vDigits = String(v.name).replace(/\D/g, '').slice(-4);
+      return vDigits === digitsMatch;
+    });
+    if (tier4) return tier4;
+  }
+
+  return null;
+};
+
 // In-memory store for received Geofence alerts
 const alertStore = [];
 
@@ -337,6 +404,102 @@ const messagesCacheStore = new Map();
 const MESSAGES_CACHE_TTL = 30000; // 30s cache TTL for position history logs
 
 /**
+ * Helper to safely extract HH:mm time string from any TGG timestamp format (UNIX, ISO, space-separated)
+ */
+const formatTimestampToHHmm = (rawTime) => {
+  if (!rawTime) return null;
+  const str = String(rawTime).trim();
+  // Case 1: UNIX timestamp in seconds (e.g. 1726588800) or milliseconds
+  if (!isNaN(str) && Number(str) > 100000000) {
+    const num = Number(str);
+    const date = new Date(num > 10000000000 ? num : num * 1000);
+    const hrs = String(date.getHours()).padStart(2, '0');
+    const mins = String(date.getMinutes()).padStart(2, '0');
+    return `${hrs}:${mins}`;
+  }
+  // Case 2: Space separated "2026-09-17 16:45:00"
+  const spaceParts = str.split(' ');
+  if (spaceParts.length >= 2 && spaceParts[1].includes(':')) {
+    return spaceParts[1].substring(0, 5);
+  }
+  // Case 3: ISO string "2026-09-17T16:45:00.000Z"
+  if (str.includes('T') && str.includes(':')) {
+    const tParts = str.split('T');
+    if (tParts[1]) return tParts[1].substring(0, 5);
+  }
+  // Case 4: Standard parseable date
+  const parsedDate = new Date(str);
+  if (!isNaN(parsedDate.getTime())) {
+    const hrs = String(parsedDate.getHours()).padStart(2, '0');
+    const mins = String(parsedDate.getMinutes()).padStart(2, '0');
+    return `${hrs}:${mins}`;
+  }
+  return null;
+};
+
+/**
+ * Recursive parser for TGG messages_api.php position history response
+ */
+const parseMessagesApiResponse = (rawText) => {
+  if (!rawText || typeof rawText !== 'string') return [];
+  const trimmed = rawText.trim();
+  if (!trimmed) return [];
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    try {
+      let cleaned = trimmed.replace(/^\{\s*\[/, '[').replace(/\]\s*\}$/, ']');
+      parsed = JSON.parse(cleaned);
+    } catch (err) {
+      return [];
+    }
+  }
+
+  const points = [];
+  const extractPointsFromDict = (dict) => {
+    if (!dict || typeof dict !== 'object') return;
+    if (Array.isArray(dict)) {
+      dict.forEach(item => extractPointsFromDict(item));
+      return;
+    }
+
+    const latVal = dict.latitude ?? dict.lat ?? dict.y;
+    const lngVal = dict.longitude ?? dict.lng ?? dict.lon ?? dict.x;
+    const timeVal = dict.timestamp || dict.time || dict.date || dict.t || dict.dt;
+
+    if (latVal != null && lngVal != null && timeVal) {
+      const latitude = parseFloat(latVal);
+      const longitude = parseFloat(lngVal);
+      if (Number.isFinite(latitude) && Number.isFinite(longitude) && latitude !== 0 && longitude !== 0) {
+        const timeStr = formatTimestampToHHmm(timeVal);
+        points.push({
+          timestamp: String(timeVal),
+          time: String(timeVal),
+          timeStr,
+          latitude,
+          longitude,
+          lat: latitude,
+          lng: longitude,
+          speed: parseFloat(dict.speed || 0)
+        });
+        return;
+      }
+    }
+
+    Object.values(dict).forEach(subVal => {
+      if (subVal && typeof subVal === 'object') {
+        extractPointsFromDict(subVal);
+      }
+    });
+  };
+
+  extractPointsFromDict(parsed);
+  return points;
+};
+
+/**
  * 3. Read Vehicle Latitude and Longitude (Messages API)
  * API Request: https://pfmsledger.in/tggapi/messages_api.php?token=TOKEN_ID
  * POST parameters: username, password, date_from, date_to, vehicle_name (Optional)
@@ -381,7 +544,10 @@ const fetchVehicleMessagesFromTgg = async (historyQuery = {}) => {
     params.append('date_from', dateFrom);
     params.append('date_to', dateTo);
     if (historyQuery.vehicle_name) {
-      params.append('vehicle_name', cleanVehicleName(historyQuery.vehicle_name));
+      const vName = cleanVehicleName(historyQuery.vehicle_name);
+      params.append('vehicle_name', vName);
+      params.append('unit_name', vName);
+      params.append('unit', vName);
     }
 
     const response = await fetch(url, {
@@ -390,7 +556,7 @@ const fetchVehicleMessagesFromTgg = async (historyQuery = {}) => {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
       body: params,
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(10000)
     });
 
     const rawText = await response.text();
@@ -398,7 +564,7 @@ const fetchVehicleMessagesFromTgg = async (historyQuery = {}) => {
       throw new Error(`TGG Messages API status ${response.status}`);
     }
 
-    const logs = parseTggResponse(rawText);
+    const logs = parseMessagesApiResponse(rawText);
     messagesCacheStore.set(cacheKey, { timestamp: now, data: logs });
     console.log(`[TGG Messages API] Fetched ${logs.length} position history logs for: ${historyQuery.vehicle_name || 'All'} (${dateFrom} to ${dateTo})`);
     return {
@@ -673,12 +839,35 @@ const parseFuelDayReportFromTgg = (tggData) => {
     let initialFuel = null;
     let finalFuel = null;
     let fuelConsumption = null;
+    let realVehName = null;
 
     const scanSection = (secObj) => {
       if (!secObj || typeof secObj !== 'object') return;
       const cList = extractAllCObjects(secObj);
       for (const cObj of cList) {
         if (!cObj || typeof cObj !== 'object') continue;
+
+        // Label-value row format (Statistics table in TGG API)
+        const labelText = String(cObj['1']?.t || cObj['1'] || cObj['0']?.t || cObj['0'] || '').toLowerCase().trim();
+        const valueText = String(cObj['2']?.t || cObj['2'] || cObj['1']?.t || cObj['1'] || '').trim();
+
+        if (labelText === 'unit' || labelText === 'vehicle' || labelText.includes('unit')) {
+          if (valueText && valueText !== '—' && !realVehName) {
+            realVehName = valueText;
+          }
+        }
+
+        if (labelText.includes('initial') && labelText.includes('fuel')) {
+          const num = parseNumWithUnit(valueText);
+          if (num !== null) initialFuel = num;
+        } else if (labelText.includes('final') && labelText.includes('fuel')) {
+          const num = parseNumWithUnit(valueText);
+          if (num !== null) finalFuel = num;
+        } else if (labelText.includes('consumption') && labelText.includes('fuel')) {
+          const num = parseNumWithUnit(valueText);
+          if (num !== null) fuelConsumption = num;
+        }
+
         for (const k of Object.keys(cObj)) {
           const raw = cObj[k];
           if (raw === null || raw === undefined) continue;
@@ -699,8 +888,6 @@ const parseFuelDayReportFromTgg = (tggData) => {
           if (valLower.includes('l') && !valLower.includes('km') && !valLower.includes('/')) {
             const num = parseNumWithUnit(valStr);
             if (num !== null && num >= 0) {
-              // TGG Fuel Data specific cell indices:
-              // Index 2 = Fuel Consumption, Index 4 = Initial Fuel Level, Index 5 = Final Fuel Level
               if (k === '2' && fuelConsumption === null) fuelConsumption = num;
               else if (k === '4' && initialFuel === null) initialFuel = num;
               else if (k === '5' && finalFuel === null) finalFuel = num;
@@ -712,22 +899,15 @@ const parseFuelDayReportFromTgg = (tggData) => {
       }
     };
 
-    // 1. Scan "Total KMs Travelled" or "Mileage" or "Distance"
+    if (vehObj["Statistics"]) {
+      scanSection(vehObj["Statistics"]);
+    }
     if (vehObj["Total KMs Travelled"] || vehObj["Mileage"] || vehObj["Distance"]) {
       scanSection(vehObj["Total KMs Travelled"] || vehObj["Mileage"] || vehObj["Distance"]);
     }
-
-    // 2. Scan "Fuel Data" or "Summary Report" or "Summary"
     if (vehObj["Fuel Data"] || vehObj["Summary Report"] || vehObj["Summary"]) {
       scanSection(vehObj["Fuel Data"] || vehObj["Summary Report"] || vehObj["Summary"]);
     }
-
-    // 3. Scan "Trips details" or "Trips"
-    if (vehObj["Trips details"] || vehObj["Trips"]) {
-      scanSection(vehObj["Trips details"] || vehObj["Trips"]);
-    }
-
-    // 4. Fallback: Scan entire vehObj
     scanSection(vehObj);
 
     // Calculate fuel consumption if missing but initial & final exist
@@ -738,7 +918,7 @@ const parseFuelDayReportFromTgg = (tggData) => {
     }
 
     return {
-      tggVehicleName: vName,
+      tggVehicleName: realVehName || vName,
       kmsTravelled: kmsTravelled !== null ? Math.round(kmsTravelled * 10) / 10 : null,
       initialFuel: initialFuel !== null ? Math.round(initialFuel * 100) / 100 : null,
       finalFuel: finalFuel !== null ? Math.round(finalFuel * 100) / 100 : null,
@@ -746,8 +926,15 @@ const parseFuelDayReportFromTgg = (tggData) => {
     };
   };
 
-  for (const key of Object.keys(tggData)) {
-    const vehObj = tggData[key];
+  let activeData = tggData;
+  if (tggData["Fuel Day Report"] && typeof tggData["Fuel Day Report"] === 'object') {
+    activeData = tggData["Fuel Day Report"];
+  } else if (tggData["Fuel Report"] && typeof tggData["Fuel Report"] === 'object') {
+    activeData = tggData["Fuel Report"];
+  }
+
+  for (const key of Object.keys(activeData)) {
+    const vehObj = activeData[key];
     if (vehObj && typeof vehObj === 'object') {
       const res = processVehicle(key, vehObj);
       if (res) results.push(res);
@@ -757,17 +944,168 @@ const parseFuelDayReportFromTgg = (tggData) => {
   return results;
 };
 
+const normalizeDateStrInTgg = (rawStr) => {
+  if (!rawStr) return null;
+  const cleaned = String(rawStr).trim();
+  const datePart = cleaned.includes(' ') ? cleaned.split(' ')[0] : cleaned;
+  
+  const dMy = datePart.match(/^(\d{2})[\/\.](\d{2})[\/\.](\d{4})$/);
+  if (dMy) {
+    const [, d, m, y] = dMy;
+    return `${y}-${m}-${d}`;
+  }
+  const yMd = datePart.match(/^(\d{4})[\/\.](\d{2})[\/\.](\d{2})$/);
+  if (yMd) {
+    const [, y, m, d] = yMd;
+    return `${y}-${m}-${d}`;
+  }
+  
+  const dt = new Date(cleaned);
+  if (!isNaN(dt.getTime())) {
+    const yyyy = dt.getFullYear();
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  return null;
+};
+
+/**
+ * Helper to extract daily kilometers dictionary ({ 'YYYY-MM-DD': kmValue }) from TGG report response
+ */
+const parseDailyKilometersFromTggReport = (tggData, vehName) => {
+  const kmByDate = {};
+  if (!tggData || typeof tggData !== 'object') return kmByDate;
+
+  let vehObj = tggData[vehName] || null;
+  if (!vehObj && vehName) {
+    const targetKey = extractPlateKey(vehName);
+    const targetDigits = String(vehName).replace(/\D/g, '').slice(-4);
+    for (const k of Object.keys(tggData)) {
+      if (extractPlateKey(k) === targetKey || (targetDigits.length === 4 && String(k).replace(/\D/g, '').slice(-4) === targetDigits)) {
+        vehObj = tggData[k];
+        break;
+      }
+    }
+  }
+
+  const sections = vehObj || tggData;
+  const distanceReport = sections["Mileage"] || sections["Total KMs Travelled"] || sections["Summary"] || sections["Distance"];
+  if (!distanceReport) return kmByDate;
+
+  const subObjList = Array.isArray(distanceReport) ? [distanceReport] : Object.values(distanceReport);
+  subObjList.forEach(subObj => {
+    const rows = Array.isArray(subObj) ? subObj : (subObj && typeof subObj === 'object' ? Object.values(subObj) : []);
+    rows.forEach(rowItem => {
+      const cObj = rowItem?.c || rowItem;
+      if (cObj && typeof cObj === 'object') {
+        let rowDate = null;
+        let kmVal = null;
+        for (const key of Object.keys(cObj)) {
+          const val = String(cObj[key] || '').trim();
+          const normD = normalizeDateStrInTgg(val);
+          if (normD) {
+            rowDate = normD;
+          } else if (val.toLowerCase().includes('km')) {
+            const m = val.match(/([\d.]+)/);
+            if (m) {
+              const n = parseFloat(m[1]);
+              if (!isNaN(n) && n >= 0 && n < 2000) {
+                kmVal = Math.max(kmVal || 0, n);
+              }
+            }
+          }
+        }
+        if (rowDate && kmVal === null) {
+          for (const key of Object.keys(cObj)) {
+            if (key === '0' || key === 'sno' || key === 's_no') continue;
+            const val = String(cObj[key] || '').trim();
+            if (val && val !== rowDate && /^\d+(\.\d+)?$/.test(val)) {
+              const n = parseFloat(val);
+              if (!isNaN(n) && n >= 0 && n < 2000) {
+                kmVal = Math.max(kmVal || 0, n);
+              }
+            }
+          }
+        }
+
+        if (rowDate && kmVal !== null && kmVal > 0) {
+          kmByDate[rowDate] = Math.round(kmVal * 10) / 10;
+        } else if (rowDate) {
+          kmByDate[rowDate] = 0;
+        }
+      }
+    });
+  });
+
+  return kmByDate;
+};
+
+/**
+ * Helper to extract geofence logs (timeIn, timeOut, mileage) from TGG report response
+ */
+const parseGeofencesFromTgg = (tggData, vehName) => {
+  if (!tggData || typeof tggData !== 'object') return [];
+
+  let vehTarget = tggData[vehName] || null;
+  if (!vehTarget && vehName) {
+    const targetKey = extractPlateKey(vehName);
+    const targetDigits = String(vehName).replace(/\D/g, '').slice(-4);
+    for (const k of Object.keys(tggData)) {
+      if (extractPlateKey(k) === targetKey || (targetDigits.length === 4 && String(k).replace(/\D/g, '').slice(-4) === targetDigits)) {
+        vehTarget = tggData[k];
+        break;
+      }
+    }
+  }
+
+  const activeContainer = vehTarget || tggData;
+  let geofenceContainer = null;
+  if (activeContainer.Geofences) {
+    geofenceContainer = activeContainer.Geofences[vehName] || activeContainer.Geofences;
+  } else if (tggData.Geofences?.[vehName]) {
+    geofenceContainer = tggData.Geofences[vehName];
+  } else if (tggData.Geofences) {
+    geofenceContainer = tggData.Geofences;
+  }
+
+  if (!geofenceContainer) return [];
+
+  const rawEntries = Array.isArray(geofenceContainer) ? geofenceContainer : Object.values(geofenceContainer);
+
+  return rawEntries.map((entry) => {
+    const c = entry?.c || entry || {};
+    const tIn = c['2']?.t || c.timeIn || c.time_in || '—';
+    const tOut = c['3']?.t || c.timeOut || c.time_out || '—';
+    return {
+      geofence: c['1'] || c.name || c.geofence || 'Campus Main Geofence',
+      timeIn: tIn,
+      latIn: c['2']?.y ?? null,
+      lngIn: c['2']?.x ?? null,
+      timeOut: tOut,
+      latOut: c['3']?.y ?? null,
+      lngOut: c['3']?.x ?? null,
+      duration: c['4'] || c.duration || '—',
+      mileage: c['5'] || c.mileage || '—',
+    };
+  });
+};
+
 module.exports = {
   getTggConfig,
   cleanVehicleName,
   extractPlateKey,
   extractRouteIdFromVehicleName,
+  findMatchingTggVehicle,
   fetchVehiclesListFromTgg,
   fetchReportsFromTgg,
   fetchVehicleMessagesFromTgg,
   registerIncomingAlert,
   getRecentAlerts,
   fetchDailyKilometersFromTgg,
-  parseFuelDayReportFromTgg
+  parseFuelDayReportFromTgg,
+  parseDailyKilometersFromTggReport,
+  parseGeofencesFromTgg
 };
 
