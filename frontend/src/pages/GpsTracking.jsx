@@ -2522,18 +2522,18 @@ export default function GpsTracking() {
 
               return (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-                  <div className="overflow-x-auto sidebar-scrollbar relative">
+                  <div className="overflow-auto max-h-[calc(100vh-100px)] min-h-[550px] sidebar-scrollbar relative">
                     <table 
                       className="w-full text-left border-collapse" 
                       style={{ minWidth: `${304 + nsDates.length * 100}px` }}
                     >
-                      <thead className="sticky top-0 z-30 shadow-sm">
+                      <thead className="sticky top-0 z-30 shadow-sm bg-[#071B45]">
                         {/* Header Row 1: Route, Bus Number, Stay Point, Date Columns */}
                         <tr className="bg-[#071B45] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('route')}
-                            className="px-1.5 py-1.5 sticky top-0 left-0 bg-[#071B45] hover:bg-[#0A2558] z-40 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
+                            className="px-1.5 py-1.5 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-40 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
                             title="Click to sort by Route ID"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2550,7 +2550,7 @@ export default function GpsTracking() {
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('bus')}
-                            className="px-1.5 py-1.5 sticky top-0 left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-40 w-[108px] min-w-[108px] max-w-[108px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            className="px-1.5 py-1.5 sticky left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-40 w-[108px] min-w-[108px] max-w-[108px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
                             title="Click to sort by Bus Number"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2566,7 +2566,7 @@ export default function GpsTracking() {
                           </th>
                           <th 
                             rowSpan={2} 
-                            className="px-2 py-1.5 sticky top-0 left-[176px] bg-[#071B45] z-40 w-[128px] min-w-[128px] max-w-[128px] align-middle border-r border-slate-700 select-none"
+                            className="px-2 py-1.5 sticky left-[176px] bg-[#071B45] z-40 w-[128px] min-w-[128px] max-w-[128px] align-middle border-r border-slate-700 select-none"
                           >
                             <span>Night Stay Point</span>
                           </th>
@@ -2578,7 +2578,7 @@ export default function GpsTracking() {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
 
                             return (
-                              <th key={dateStr} colSpan={2} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[100px] min-w-[100px] sticky top-0 z-30 bg-[#071B45] ${isToday ? 'bg-blue-900' : ''}`}>
+                              <th key={dateStr} colSpan={2} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[100px] min-w-[100px] bg-[#071B45] ${isToday ? 'bg-blue-900' : ''}`}>
                                 <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
                                 <div className="text-[8px] text-blue-200 tracking-normal capitalize font-semibold leading-tight">{isToday ? 'Today' : 'Night Stay'}</div>
                               </th>
@@ -2587,13 +2587,13 @@ export default function GpsTracking() {
                         </tr>
 
                         {/* Header Row 2: OUT / IN Sub-columns */}
-                        <tr className="bg-[#0b2256] text-slate-200 text-[9px] font-bold uppercase tracking-wider border-b border-slate-700 sticky top-[27px] z-30">
+                        <tr className="bg-[#0b2256] text-slate-200 text-[9px] font-bold uppercase tracking-wider border-b border-slate-700">
                           {nsDates.map((dateStr) => {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
                             return (
                               <React.Fragment key={`sub-${dateStr}`}>
-                                <th className={`py-1 text-center border-r border-slate-700/50 w-[50px] min-w-[50px] text-rose-300 ${isToday ? 'bg-blue-900/40' : ''}`}>OUT</th>
-                                <th className={`py-1 text-center border-r border-slate-700/80 w-[50px] min-w-[50px] text-emerald-300 ${isToday ? 'bg-blue-900/40' : ''}`}>IN</th>
+                                <th className={`py-1 text-center border-r border-slate-700/50 w-[50px] min-w-[50px] text-rose-300 ${isToday ? 'bg-blue-900/40' : 'bg-[#0b2256]'}`}>OUT</th>
+                                <th className={`py-1 text-center border-r border-slate-700/80 w-[50px] min-w-[50px] text-emerald-300 ${isToday ? 'bg-blue-900/40' : 'bg-[#0b2256]'}`}>IN</th>
                               </React.Fragment>
                             );
                           })}
@@ -2746,18 +2746,18 @@ export default function GpsTracking() {
 
               return (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-                  <div className="overflow-x-auto sidebar-scrollbar">
+                  <div className="overflow-auto max-h-[calc(100vh-100px)] min-h-[550px] sidebar-scrollbar relative">
                     <table 
                       className="w-full text-left border-collapse"
                       style={{ minWidth: `${180 + displayDates.length * 152 + 28}px` }}
                     >
-                      <thead>
+                      <thead className="sticky top-0 z-30 shadow-sm bg-[#071B45]">
                         {/* Header Row 1: Route, Bus Number, Date Column Groups */}
                         <tr className="bg-[#071B45] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('route')}
-                            className="px-1.5 py-1.5 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-20 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
+                            className="px-1.5 py-1.5 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-40 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
                             title="Click to sort by Route ID"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2774,7 +2774,7 @@ export default function GpsTracking() {
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('bus')}
-                            className="px-1.5 py-1.5 sticky left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-20 w-[112px] min-w-[112px] max-w-[112px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            className="px-1.5 py-1.5 sticky left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-40 w-[112px] min-w-[112px] max-w-[112px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
                             title="Click to sort by Bus Number"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2796,22 +2796,22 @@ export default function GpsTracking() {
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
 
                             return (
-                              <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[152px] min-w-[152px] ${isToday ? 'bg-blue-900' : ''}`}>
+                              <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[152px] min-w-[152px] bg-[#071B45] ${isToday ? 'bg-blue-900' : ''}`}>
                                 <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
                                 <div className="text-[8px] font-medium text-slate-300 uppercase leading-tight">{dayName} {isToday ? '(Today)' : ''}</div>
                               </th>
                             );
                           })}
-                          <th rowSpan={2} className="w-[28px] min-w-[28px] border-l border-slate-700 align-middle"></th>
+                          <th rowSpan={2} className="w-[28px] min-w-[28px] border-l border-slate-700 align-middle bg-[#071B45]"></th>
                         </tr>
 
                         {/* Header Row 2: IN / OUT / KMS Sub-headers under each date */}
                         <tr className="bg-[#0A2558] text-slate-200 text-[9px] uppercase font-extrabold tracking-wider border-b border-slate-700 select-none">
                           {displayDates.map((dateStr) => (
                             <React.Fragment key={'sub_' + dateStr}>
-                              <th className="py-1 text-center border-r border-slate-700/60 text-emerald-300 bg-emerald-950/40 w-[50px] min-w-[50px]">IN</th>
-                              <th className="py-1 text-center border-r border-slate-700/80 text-rose-300 bg-rose-950/40 w-[50px] min-w-[50px]">OUT</th>
-                              <th className="py-1 text-center border-r border-slate-700/80 text-amber-300 bg-amber-950/40 w-[52px] min-w-[52px]">KMS</th>
+                              <th className="py-1 text-center border-r border-slate-700/60 text-emerald-300 bg-[#062446] w-[50px] min-w-[50px]">IN</th>
+                              <th className="py-1 text-center border-r border-slate-700/80 text-rose-300 bg-[#2b0d1e] w-[50px] min-w-[50px]">OUT</th>
+                              <th className="py-1 text-center border-r border-slate-700/80 text-amber-300 bg-[#2d2208] w-[52px] min-w-[52px]">KMS</th>
                             </React.Fragment>
                           ))}
                         </tr>
