@@ -793,37 +793,52 @@ const RouteNetworkAllMap = ({
                         lineJoin: 'round'
                     }).addTo(map);
 
-                    // Draw Start Stage Tooltip and Circle Marker
-                    const startStage = validStages[0];
-                    if (startStage) {
-                        L.circleMarker([startStage.lat, startStage.lng], {
+                    // Draw Start Stage Tooltip and Circle Marker (Bus Starts at Pydah College / Campus)
+                    const startName = campusDest?.name || route.campus?.name || 'Pydah College';
+                    const pydahCollegeCoords = campusDest
+                        ? [campusDest.latitude, campusDest.longitude]
+                        : (snapped.length > 0 ? snapped[snapped.length - 1] : null);
+
+                    if (pydahCollegeCoords) {
+                        L.circleMarker(pydahCollegeCoords, {
                             radius: 4.5,
                             color: routeColor,
                             fillColor: '#ffffff',
                             fillOpacity: 1,
                             weight: 2.2,
                             zIndexOffset: 650
-                        }).addTo(map).bindTooltip(`${route.startPoint || route.stages[0].stageName}`, {
+                        }).addTo(map).bindTooltip(`${startName}`, {
                             permanent: true,
                             direction: 'top',
                             className: 'bg-white text-slate-800 border border-slate-200 shadow-sm px-1.5 py-0.5 rounded text-[9px] font-bold font-sans'
                         });
                     }
 
-                    // Draw End Stage/Campus Tooltip and Circle Marker
-                    if (campusDest) {
-                        L.circleMarker([campusDest.latitude, campusDest.longitude], {
+                    // Resolve distinct End Point Name
+                    const stageFirstName = (route.stages && route.stages.length > 0) ? route.stages[0]?.stageName : null;
+                    let resolvedEndName = route.endPoint;
+                    if (!resolvedEndName || resolvedEndName === startName) {
+                        resolvedEndName = route.startPoint && route.startPoint !== startName ? route.startPoint : null;
+                    }
+                    if (!resolvedEndName) {
+                        resolvedEndName = stageFirstName && stageFirstName !== startName ? stageFirstName : 'Final Destination';
+                    }
+
+                    // Draw End Stage Circle Marker (Final Destination - label hidden initially, shown when bus arrives)
+                    let endMarker = null;
+                    const finalDestCoords = validStages.length > 0
+                        ? [validStages[0].lat, validStages[0].lng]
+                        : (snapped.length > 0 ? snapped[0] : null);
+
+                    if (finalDestCoords) {
+                        endMarker = L.circleMarker(finalDestCoords, {
                             radius: 4.5,
                             color: routeColor,
                             fillColor: '#ffffff',
                             fillOpacity: 1,
                             weight: 2.2,
                             zIndexOffset: 650
-                        }).addTo(map).bindTooltip(`<b>End:</b> ${route.endPoint || campusDest.name}`, {
-                            permanent: true,
-                            direction: 'bottom',
-                            className: 'bg-white text-slate-800 border border-slate-200 shadow-sm px-1.5 py-0.5 rounded text-[9px] font-bold font-sans'
-                        });
+                        }).addTo(map);
                     }
 
                     // Active inner route line
@@ -837,8 +852,7 @@ const RouteNetworkAllMap = ({
                         <div class="p-1 font-sans text-xs">
                             <strong style="color: ${routeColor};">${route.routeName} (${route.routeId})</strong><br/>
                             <span class="text-slate-600">Campus: ${route.campus?.name || '—'}</span><br/>
-                            <span class="text-slate-600">Start: ${route.startPoint || '—'}</span><br/>
-                            <span class="text-slate-600">End: ${route.endPoint || '—'}</span>
+                            <span class="text-slate-600 font-semibold">${startName} ➔ ${resolvedEndName}</span>
                         </div>
                     `);
 
@@ -851,7 +865,7 @@ const RouteNetworkAllMap = ({
                         lineJoin: 'round'
                     }).addTo(map);
 
-                    // Interpolate the reverse path (from final destination -> first stage)
+                    // Interpolate the reverse path (from Pydah College -> Final Destination)
                     const reversePath = snapped.slice().reverse();
                     
                     const interpolate = (coords, steps = 10) => {
@@ -891,7 +905,10 @@ const RouteNetworkAllMap = ({
                             path: animPath,
                             index: 0,
                             polyline: activePolyline,
-                            glow: activeGlow
+                            glow: activeGlow,
+                            endMarker,
+                            endName: resolvedEndName,
+                            destReached: false
                         });
                     }
                 });
@@ -909,16 +926,12 @@ const RouteNetworkAllMap = ({
         const animInterval = setInterval(() => {
             animVehicles.forEach(veh => {
                 const stepSize = Math.max(1, Math.floor(veh.path.length / 250));
-                if (!veh.direction) veh.direction = 1;
 
-                veh.index += stepSize * veh.direction;
-
-                if (veh.index >= veh.path.length - 1) {
-                    veh.index = veh.path.length - 1;
-                    veh.direction = -1; // Reverse & drive BACKWARD along route
-                } else if (veh.index <= 0) {
-                    veh.index = 0;
-                    veh.direction = 1; // Reverse & drive FORWARD along route
+                if (veh.index < veh.path.length - 1) {
+                    veh.index += stepSize;
+                    if (veh.index >= veh.path.length - 1) {
+                        veh.index = veh.path.length - 1;
+                    }
                 }
 
                 const currentPos = veh.path[veh.index];
@@ -927,6 +940,18 @@ const RouteNetworkAllMap = ({
                 const traveledCoords = veh.path.slice(0, veh.index + 1);
                 veh.polyline.setLatLngs(traveledCoords);
                 veh.glow.setLatLngs(traveledCoords);
+
+                // Reveal destination name tooltip when bus reaches the destination and keep bus parked
+                if (veh.index >= veh.path.length - 1 && !veh.destReached) {
+                    veh.destReached = true;
+                    if (veh.endMarker) {
+                        veh.endMarker.bindTooltip(`${veh.endName}`, {
+                            permanent: true,
+                            direction: 'bottom',
+                            className: 'bg-white text-slate-800 border border-slate-200 shadow-sm px-1.5 py-0.5 rounded text-[9px] font-bold font-sans'
+                        }).openTooltip();
+                    }
+                }
             });
         }, 16);
 
@@ -1156,6 +1181,99 @@ const RouteNetworkAllMap = ({
             {/* Right: Map view */}
             <div className="lg:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden h-[500px] lg:h-full relative">
                 <div ref={mapContainerRef} className="w-full h-full z-0" />
+            </div>
+        </div>
+    );
+};
+
+const RouteSkeletonLoader = () => {
+    return (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-pulse">
+            {/* Desktop View Table Skeleton */}
+            <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                    <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-400 font-bold tracking-wider">
+                            <th className="px-4 py-3 w-[28rem]">Route Details</th>
+                            <th className="px-4 py-3">Path (Start → End)</th>
+                            <th className="px-4 py-3">Distance &amp; Time</th>
+                            <th className="px-4 py-3">Stages</th>
+                            <th className="px-4 py-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {[1, 2, 3, 4, 5, 6].map((i) => (
+                            <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-4 py-3.5">
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex items-center gap-2">
+                                            <div className="h-5 w-16 bg-slate-200 rounded-md"></div>
+                                            <div className="h-5 w-44 bg-slate-200 rounded-md"></div>
+                                        </div>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <div className="h-4 w-28 bg-slate-100 rounded"></div>
+                                            <div className="h-4 w-20 bg-slate-100 rounded"></div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td className="px-4 py-3.5">
+                                    <div className="flex items-center gap-2">
+                                        <div className="h-4 w-24 bg-slate-200 rounded"></div>
+                                        <div className="h-3 w-4 bg-slate-200 rounded"></div>
+                                        <div className="h-4 w-24 bg-slate-200 rounded"></div>
+                                    </div>
+                                </td>
+                                <td className="px-4 py-3.5">
+                                    <div className="flex flex-col gap-1.5">
+                                        <div className="h-4 w-16 bg-slate-200 rounded"></div>
+                                        <div className="h-3 w-12 bg-slate-100 rounded"></div>
+                                    </div>
+                                </td>
+                                <td className="px-4 py-3.5">
+                                    <div className="h-6 w-20 bg-blue-50/80 rounded-md border border-blue-100"></div>
+                                </td>
+                                <td className="px-4 py-3.5">
+                                    <div className="flex items-center justify-end gap-2">
+                                        <div className="h-7 w-16 bg-slate-100 rounded-lg"></div>
+                                        <div className="h-7 w-16 bg-slate-100 rounded-lg"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Mobile View Card Skeleton */}
+            <div className="block md:hidden space-y-3 p-3 bg-slate-50/50">
+                {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-2 flex-1">
+                                <div className="flex items-center gap-2">
+                                    <div className="h-5 w-14 bg-slate-200 rounded-md"></div>
+                                    <div className="h-5 w-32 bg-slate-200 rounded-md"></div>
+                                </div>
+                                <div className="flex gap-1.5">
+                                    <div className="h-4 w-20 bg-slate-100 rounded"></div>
+                                    <div className="h-4 w-16 bg-slate-100 rounded"></div>
+                                </div>
+                            </div>
+                            <div className="h-5 w-5 bg-slate-200 rounded-full shrink-0"></div>
+                        </div>
+                        <div className="flex items-center justify-between border-t border-b border-slate-100 py-2">
+                            <div className="h-4 w-36 bg-slate-200 rounded"></div>
+                            <div className="h-4 w-12 bg-slate-200 rounded"></div>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="h-5 w-20 bg-slate-100 rounded-md"></div>
+                            <div className="flex gap-2">
+                                <div className="h-7 w-14 bg-slate-200 rounded-lg"></div>
+                                <div className="h-7 w-14 bg-slate-200 rounded-lg"></div>
+                            </div>
+                        </div>
+                    </div>
+                ))}
             </div>
         </div>
     );
@@ -3573,9 +3691,7 @@ const RouteManagement = () => {
                             removeDraftItem={removeDraftItem}
                         />
                     ) : loading ? (
-                        <div className="flex items-center justify-center py-20">
-                            <Loader size={40} text="Loading route data..." />
-                        </div>
+                        <RouteSkeletonLoader />
                     ) : filteredRoutes.length === 0 ? (
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px] flex flex-col items-center justify-center p-8">
                             <div className="bg-slate-50 p-6 rounded-full mb-4">
@@ -3894,9 +4010,7 @@ const RouteManagement = () => {
             ) : activeTab === 'bus-mapping' ? (
                 <>
                     {loading ? (
-                        <div className="flex items-center justify-center py-20">
-                            <Loader size={40} text="Loading route mapping..." />
-                        </div>
+                        <RouteSkeletonLoader />
                     ) : filteredRoutes.length === 0 ? (
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px] flex flex-col items-center justify-center p-8">
                             <div className="bg-slate-50 p-6 rounded-full mb-4">
