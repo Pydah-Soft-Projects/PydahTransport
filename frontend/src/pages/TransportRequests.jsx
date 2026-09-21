@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { useReactToPrint } from 'react-to-print';
-import { FileText, Trash2, Calendar, Pencil, Users, CheckCircle2, XCircle, User, MapPin, GraduationCap, Clock, Bus, Printer, Ban, CreditCard } from 'lucide-react';
+import { FileText, Trash2, Calendar, Pencil, Users, CheckCircle2, XCircle, User, MapPin, GraduationCap, Clock, Bus, Printer, Ban, CreditCard, List, BarChart2, ChevronRight, ChevronDown } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import TransportAdmitCard from '../components/TransportAdmitCard';
@@ -145,6 +145,8 @@ const TransportRequests = () => {
     const [userTypeFilter, setUserTypeFilter] = useState('student'); // 'student' or 'employee'
     const [sortField, setSortField] = useState('application_number');
     const [sortOrder, setSortOrder] = useState('desc');
+    const [activeMainTab, setActiveMainTab] = useState('list'); // 'list' or 'abstract'
+    const [expandedCollege, setExpandedCollege] = useState(null);
 
     const handleSort = (field) => {
         if (sortField === field) {
@@ -565,7 +567,7 @@ const TransportRequests = () => {
 
     const handleConfirmPrintIdCards = async () => {
         let requestIds = [];
-        
+
         if (idCardPrintMode === 'selected') {
             if (!selectedRequestIds.length) {
                 setMessage({ text: 'No passengers selected for printing.', type: 'error' });
@@ -667,7 +669,7 @@ const TransportRequests = () => {
                     }
                     return prev;
                 });
-                
+
                 // Refresh overall lists/requests
                 fetchRequests();
             } else {
@@ -683,7 +685,7 @@ const TransportRequests = () => {
 
     const fetchRequests = async (isBackground = false) => {
         const cacheKey = `${academicYear}||${routeFilter}||${collegeFilter}||${courseFilter}||${statusFilter}||${searchQuery}`;
-        
+
         if (!isBackground) {
             setLoading(true);
         }
@@ -998,6 +1000,143 @@ const TransportRequests = () => {
 
     const stats = calculateStats();
 
+    const abstractionData = useMemo(() => {
+        if (!requests || requests.length === 0) {
+            return {
+                totalRequests: 0,
+                approvedCount: 0,
+                pendingCount: 0,
+                rejectedCount: 0,
+                cancelledCount: 0,
+                expiredCount: 0,
+                totalPayableRevenue: 0,
+                totalNormalRevenue: 0,
+                totalConcessionsGiven: 0,
+                routeSummary: [],
+                collegeSummary: [],
+                userTypeSummary: { studentCount: 0, studentPayable: 0, employeeCount: 0 }
+            };
+        }
+
+        let approvedCount = 0;
+        let pendingCount = 0;
+        let rejectedCount = 0;
+        let cancelledCount = 0;
+        let expiredCount = 0;
+        let totalPayableRevenue = 0;
+        let totalNormalRevenue = 0;
+
+        const collegeMap = new Map();
+        let studentCount = 0;
+        let studentPayable = 0;
+        let employeeCount = 0;
+
+        requests.forEach(r => {
+            const status = (r.status || '').toLowerCase();
+            const isExp = status === 'expired' || (status === 'approved' && Boolean(r.is_expired));
+
+            if (isExp) expiredCount++;
+            else if (status === 'approved') approvedCount++;
+            else if (status === 'pending') pendingCount++;
+            else if (status === 'rejected') rejectedCount++;
+            else if (status === 'cancelled') cancelledCount++;
+
+            const normal = Number(r.original_fare ?? r.fare ?? 0);
+            const payable = r.user_type === 'employee' ? 0 : Number(r.payable_fare ?? normal);
+
+            if (r.user_type === 'employee') {
+                employeeCount++;
+            } else {
+                studentCount++;
+                studentPayable += payable;
+                totalPayableRevenue += payable;
+                totalNormalRevenue += normal;
+            }
+
+            // College Breakdown
+            const cKey = r.college || 'Other / General';
+            const courseName = r.course || (r.user_type === 'employee' ? 'Employee Transport' : 'General');
+            const yr = Number(r.year_of_study || 1);
+
+            if (!collegeMap.has(cKey)) {
+                collegeMap.set(cKey, {
+                    collegeName: cKey,
+                    total: 0,
+                    approved: 0,
+                    pending: 0,
+                    payableFare: 0,
+                    y1: 0,
+                    y2: 0,
+                    y3: 0,
+                    y4: 0,
+                    coursesMap: new Map()
+                });
+            }
+            const cStat = collegeMap.get(cKey);
+            cStat.total++;
+            if (status === 'approved' && !isExp) cStat.approved++;
+            if (status === 'pending') cStat.pending++;
+            cStat.payableFare += payable;
+            if (r.user_type !== 'employee') {
+                if (yr === 1) cStat.y1++;
+                else if (yr === 2) cStat.y2++;
+                else if (yr === 3) cStat.y3++;
+                else if (yr === 4) cStat.y4++;
+            }
+
+            // Course level breakdown under College
+            if (!cStat.coursesMap.has(courseName)) {
+                cStat.coursesMap.set(courseName, {
+                    courseName: courseName,
+                    total: 0,
+                    approved: 0,
+                    pending: 0,
+                    payableFare: 0,
+                    y1: 0,
+                    y2: 0,
+                    y3: 0,
+                    y4: 0,
+                });
+            }
+            const crsStat = cStat.coursesMap.get(courseName);
+            crsStat.total++;
+            if (status === 'approved' && !isExp) crsStat.approved++;
+            if (status === 'pending') crsStat.pending++;
+            crsStat.payableFare += payable;
+            if (r.user_type !== 'employee') {
+                if (yr === 1) crsStat.y1++;
+                else if (yr === 2) crsStat.y2++;
+                else if (yr === 3) crsStat.y3++;
+                else if (yr === 4) crsStat.y4++;
+            }
+        });
+
+        const collegeSummary = Array.from(collegeMap.values()).map(c => ({
+            ...c,
+            courses: Array.from(c.coursesMap.values()).sort((a, b) => b.total - a.total)
+        })).sort((a, b) => {
+            const isOtherA = a.collegeName.toLowerCase().includes('other');
+            const isOtherB = b.collegeName.toLowerCase().includes('other');
+            if (isOtherA && !isOtherB) return 1;
+            if (!isOtherA && isOtherB) return -1;
+            return b.total - a.total;
+        });
+
+        return {
+            totalRequests: requests.length,
+            approvedCount,
+            pendingCount,
+            rejectedCount,
+            cancelledCount,
+            expiredCount,
+            totalPayableRevenue,
+            totalNormalRevenue,
+            totalConcessionsGiven: Math.max(0, totalNormalRevenue - totalPayableRevenue),
+            collegeSummary,
+            userTypeSummary: { studentCount, studentPayable, employeeCount }
+        };
+    }, [requests]);
+
     // Pagination logic
     const indexOfLastRow = currentPage * rowsPerPage;
     const indexOfFirstRow = indexOfLastRow - rowsPerPage;
@@ -1036,7 +1175,7 @@ const TransportRequests = () => {
     const handleConfirmApprove = async () => {
         const id = approveModal.requestId;
         if (!id) return;
-        
+
         if (approveModal.data?.busesOnRoute?.length > 0 && !approveModal.selectedBusId) {
             setApproveModal(m => ({ ...m, error: 'Please select a bus to assign the passenger to.' }));
             return;
@@ -1201,497 +1340,639 @@ const TransportRequests = () => {
                 </div>
             </div>
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
-                    <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Requests</p>
-                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.total}</p>
-                        <p className="text-[8px] font-semibold text-slate-400 mt-0.5">({stats.students} Stud, {stats.employees} Emp)</p>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
-                        <FileText size={16} />
-                    </div>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
-                    <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Active Approved</p>
-                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.approved}</p>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg bg-emerald-500 text-white flex items-center justify-center shadow-sm shrink-0">
-                        <CheckCircle2 size={16} />
-                    </div>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
-                    <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Expired Passes</p>
-                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.expired}</p>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg bg-rose-500 text-white flex items-center justify-center shadow-sm shrink-0">
-                        <Ban size={16} />
-                    </div>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
-                    <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Pending</p>
-                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.pending}</p>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-sm shrink-0">
-                        <Clock size={16} />
-                    </div>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
-                    <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Rejected</p>
-                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.rejected}</p>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg bg-red-600 text-white flex items-center justify-center shadow-sm shrink-0">
-                        <XCircle size={16} />
-                    </div>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
-                    <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Cancelled</p>
-                        <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.cancelled}</p>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg bg-orange-500 text-white flex items-center justify-center shadow-sm shrink-0">
-                        <Trash2 size={16} />
-                    </div>
-                </div>
-            </div>
-
-            {message.text && (
-                <div className={`mb-6 p-4 rounded-xl border ${message.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-                    {message.text}
-                </div>
-            )}
-
-            <div className="flex w-full flex-wrap items-center gap-2 mb-4 bg-white p-3 rounded-xl shadow-sm border border-slate-200">
-                <div className="flex-1 min-w-[145px]">
-                    <select
-                        value={academicYear}
-                        onChange={(e) => setAcademicYear(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all font-bold text-slate-700 bg-transparent cursor-pointer"
-                    >
-                        <option value="">All Academic Years</option>
-                        {academicYearOptions.map((year) => (
-                            <option key={year} value={year}>{year}</option>
-                        ))}
-                    </select>
-                </div>
-
-                <div className="flex-[2] min-w-[200px] relative">
-                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                    <input
-                        type="text"
-                        placeholder="Search App No, Name, Pin, Adm No, Course, Route..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-8.5 pr-2 py-1.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-xs text-slate-800 placeholder-slate-400 font-medium"
-                    />
-                </div>
-
-                <div className="flex-1 min-w-[120px]">
-                    <select
-                        value={routeFilter}
-                        onChange={(e) => setRouteFilter(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent cursor-pointer"
-                    >
-                        <option value="">All Routes</option>
-                        {routes.map((r) => (
-                            <option key={r._id} value={r.routeId}>{r.routeName} ({r.routeId})</option>
-                        ))}
-                    </select>
-                </div>
-
-                <div className="flex-1 min-w-[120px]">
-                    <select
-                        value={collegeFilter}
-                        onChange={(e) => {
-                            const val = e.target.value;
-                            setCollegeFilter(val);
-                            setCourseFilter('');
-                            fetchCourses(val);
-                        }}
-                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent cursor-pointer"
-                    >
-                        <option value="">All Colleges</option>
-                        {colleges.map((c) => (
-                            <option key={c.id} value={c.name}>{c.name}</option>
-                        ))}
-                    </select>
-                </div>
-
-                <div className="flex-1 min-w-[120px]">
-                    <select
-                        value={courseFilter}
-                        onChange={(e) => setCourseFilter(e.target.value)}
-                        disabled={!collegeFilter}
-                        className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent ${
-                            !collegeFilter ? 'opacity-60 cursor-not-allowed bg-slate-50' : 'cursor-pointer'
+            {/* Main Tabs Navigation: List View vs Report Abstraction */}
+            <div className="flex items-center gap-1.5 mb-4 bg-slate-100 p-1 rounded-xl w-fit border border-slate-200 shadow-2xs">
+                <button
+                    type="button"
+                    onClick={() => setActiveMainTab('list')}
+                    className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeMainTab === 'list'
+                            ? 'bg-blue-900 text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-white hover:text-slate-900'
                         }`}
-                    >
-                        <option value="">
-                            {collegeFilter ? 'All Courses' : 'Select College First'}
-                        </option>
-                        {courses.map((c) => (
-                            <option key={c.id} value={c.name}>{c.name}</option>
-                        ))}
-                    </select>
-                </div>
-
-                <div className="flex-1 min-w-[120px]">
-                    <select
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent cursor-pointer"
-                    >
-                        <option value="">All Status</option>
-                        <option value="pending">Pending</option>
-                        <option value="approved">Approved (all)</option>
-                        <option value="active">Active (not expired)</option>
-                        <option value="expired">Expired</option>
-                        <option value="rejected">Rejected</option>
-                        <option value="cancelled">Cancelled</option>
-                    </select>
-                </div>
-
-                {(routeFilter || collegeFilter || courseFilter || statusFilter || searchQuery) && (
-                    <div className="flex-shrink-0">
-                        <button
-                            onClick={() => {
-                                setRouteFilter('');
-                                setCollegeFilter('');
-                                setCourseFilter('');
-                                setStatusFilter('');
-                                setSearchQuery('');
-                                setCourses([]);
-                            }}
-                            className="text-xs text-red-650 hover:text-red-750 font-bold px-3 py-1.5 border border-red-100 bg-red-50 rounded-lg transition-all cursor-pointer"
-                        >
-                            Reset
-                        </button>
-                    </div>
-                )}
+                >
+                    <List size={14} />
+                    <span>List View</span>
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setActiveMainTab('abstract')}
+                    className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeMainTab === 'abstract'
+                            ? 'bg-blue-900 text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                        }`}
+                >
+                    <BarChart2 size={14} />
+                    <span>Abstract</span>
+                </button>
             </div>
-            {loading ? (
-                <TransportRequestsSkeleton />
-            ) : requests.length === 0 ? (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 text-center text-slate-400 font-semibold text-xs">
-                    No transport requests found{academicYear ? ` for academic year ${academicYear}` : ''}.
+
+            {activeMainTab === 'abstract' ? (
+                /* Report Abstraction View */
+                <div className="space-y-4 mb-6">
+                    {/* Full-width College & Branch Abstraction Table with Accordion Dropdown */}
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
+                        <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <GraduationCap size={18} className="text-blue-900" />
+                                <div>
+                                    <h4 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider">College & Branch Abstraction</h4>
+                                    <p className="text-[11px] text-slate-500">Click any college row to dropdown and view detailed course / branch breakdown</p>
+                                </div>
+                            </div>
+                            <span className="text-xs font-bold bg-blue-50 text-blue-900 border border-blue-200 px-3 py-1 rounded-full">
+                                {abstractionData.collegeSummary.length} Colleges
+                            </span>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr className="bg-slate-100/90 text-[10.5px] text-slate-600 uppercase font-bold tracking-wider border-b border-slate-200">
+                                        <th className="p-3">College / Institution</th>
+                                        <th className="p-3 text-center">Total Applications</th>
+                                        <th className="p-3 text-center text-blue-700">1st Yr</th>
+                                        <th className="p-3 text-center text-blue-700">2nd Yr</th>
+                                        <th className="p-3 text-center text-blue-700">3rd Yr</th>
+                                        <th className="p-3 text-center text-blue-700">4th Yr</th>
+                                        <th className="p-3 text-center text-emerald-700">Approved Active</th>
+                                        <th className="p-3 text-center text-amber-700">Pending Review</th>
+                                        <th className="p-3 text-right">Total Payable Revenue</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-semibold">
+                                    {abstractionData.collegeSummary.map((c) => {
+                                        const isExpanded = expandedCollege === c.collegeName;
+                                        return (
+                                            <React.Fragment key={c.collegeName}>
+                                                <tr
+                                                    onClick={() => setExpandedCollege(prev => prev === c.collegeName ? null : c.collegeName)}
+                                                    className={`hover:bg-blue-50/60 transition-colors cursor-pointer border-b border-slate-100 ${
+                                                        isExpanded ? 'bg-blue-50/50' : ''
+                                                    }`}
+                                                >
+                                                    <td className="p-3">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className={`p-1 rounded-md transition-transform ${isExpanded ? 'bg-blue-100 text-blue-900 rotate-90' : 'bg-slate-100 text-slate-500'}`}>
+                                                                <ChevronRight size={14} />
+                                                            </div>
+                                                            <span className="font-bold text-slate-900 text-xs sm:text-sm">{c.collegeName}</span>
+                                                            <span className="text-[10px] font-extrabold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+                                                                {c.courses.length} {c.courses.length === 1 ? 'Course' : 'Courses'}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-3 text-center font-bold text-slate-800 text-xs sm:text-sm">{c.total}</td>
+                                                    <td className="p-3 text-center text-blue-700 font-bold text-xs">{c.y1}</td>
+                                                    <td className="p-3 text-center text-blue-700 font-bold text-xs">{c.y2}</td>
+                                                    <td className="p-3 text-center text-blue-700 font-bold text-xs">{c.y3}</td>
+                                                    <td className="p-3 text-center text-blue-700 font-bold text-xs">{c.y4}</td>
+                                                    <td className="p-3 text-center text-emerald-700 font-extrabold text-xs sm:text-sm">{c.approved}</td>
+                                                    <td className="p-3 text-center text-amber-700 font-extrabold text-xs sm:text-sm">{c.pending}</td>
+                                                    <td className="p-3 text-right font-black text-slate-900 text-xs sm:text-sm">{formatFare(c.payableFare)}</td>
+                                                </tr>
+
+                                                {/* Dropdown Course Breakdown Table Row */}
+                                                {isExpanded && (
+                                                    <tr className="bg-slate-50/90">
+                                                        <td colSpan={9} className="p-3 sm:p-4 border-b border-slate-200">
+                                                            <div className="bg-white rounded-lg border border-slate-200 shadow-2xs overflow-hidden">
+                                                                <table className="w-full text-left text-xs border-collapse">
+                                                                    <thead>
+                                                                        <tr className="bg-slate-100/90 text-[10px] uppercase text-slate-700 font-bold border-b border-slate-200">
+                                                                            <th className="p-2 pl-4">Course / Branch Name</th>
+                                                                            <th className="p-2 text-center">Applications</th>
+                                                                            <th className="p-2 text-center text-blue-900">1st Year</th>
+                                                                            <th className="p-2 text-center text-blue-900">2nd Year</th>
+                                                                            <th className="p-2 text-center text-blue-900">3rd Year</th>
+                                                                            <th className="p-2 text-center text-blue-900">4th Year</th>
+                                                                            <th className="p-2 text-center text-emerald-700">Approved</th>
+                                                                            <th className="p-2 text-center text-amber-700">Pending</th>
+                                                                            <th className="p-2 text-right pr-4">Course Revenue</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-slate-100 text-xs font-semibold">
+                                                                        {c.courses.map((crs) => (
+                                                                            <tr key={crs.courseName} className="hover:bg-blue-50/30 transition-colors">
+                                                                                <td className="p-2 pl-4 font-bold text-slate-800 flex items-center gap-1.5">
+                                                                                    <span className="text-slate-400 font-bold text-sm">↳</span>
+                                                                                    {crs.courseName}
+                                                                                </td>
+                                                                                <td className="p-2 text-center font-bold text-slate-700">{crs.total}</td>
+                                                                                <td className="p-2 text-center text-blue-800 font-medium">{crs.y1}</td>
+                                                                                <td className="p-2 text-center text-blue-800 font-medium">{crs.y2}</td>
+                                                                                <td className="p-2 text-center text-blue-800 font-medium">{crs.y3}</td>
+                                                                                <td className="p-2 text-center text-blue-800 font-medium">{crs.y4}</td>
+                                                                                <td className="p-2 text-center text-emerald-700 font-bold">{crs.approved}</td>
+                                                                                <td className="p-2 text-center text-amber-700 font-bold">{crs.pending}</td>
+                                                                                <td className="p-2 text-right pr-4 font-bold text-slate-900">{formatFare(crs.payableFare)}</td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             ) : (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    {/* Pagination & Filter Controls */}
-                    <div className="p-3 border-b border-slate-200 bg-slate-50/80 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                        <div className="flex items-center justify-between gap-3 w-full md:w-auto">
-                            {/* User Type Tabs */}
-                            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-xs">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setUserTypeFilter('student');
-                                        setCurrentPage(1);
-                                    }}
-                                    className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'student'
-                                        ? 'bg-blue-900 text-white shadow-xs'
-                                        : 'text-slate-500 hover:bg-slate-50'
-                                        }`}
-                                >
-                                    Students
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setUserTypeFilter('employee');
-                                        setCurrentPage(1);
-                                    }}
-                                    className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'employee'
-                                        ? 'bg-blue-900 text-white shadow-xs'
-                                        : 'text-slate-500 hover:bg-slate-50'
-                                        }`}
-                                >
-                                    Employees
-                                </button>
+                <>
+                    {/* Stats Cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+                        <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Requests</p>
+                                <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.total}</p>
+                                <p className="text-[8px] font-semibold text-slate-400 mt-0.5">({stats.students} Stud, {stats.employees} Emp)</p>
                             </div>
-
-                            {/* Rows per page */}
-                            <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium shrink-0">
-                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Rows:</span>
-                                <select
-                                    value={rowsPerPage}
-                                    onChange={(e) => {
-                                        setRowsPerPage(Number(e.target.value));
-                                        setCurrentPage(1);
-                                    }}
-                                    className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-xs text-slate-700 cursor-pointer"
-                                >
-                                    <option value={10}>10</option>
-                                    <option value={20}>20</option>
-                                    <option value={50}>50</option>
-                                    <option value={100}>100</option>
-                                </select>
+                            <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                                <FileText size={16} />
                             </div>
                         </div>
-
-                        {/* Entry Count & Page Nav */}
-                        <div className="flex items-center justify-between gap-3 w-full md:w-auto text-xs text-slate-600">
-                            <span className="text-[11px] font-medium text-slate-500">
-                                Showing <span className="font-bold text-slate-800">{indexOfFirstRow + 1}–{Math.min(indexOfLastRow, requests.length)}</span> of <span className="font-bold text-slate-800">{requests.length}</span>
-                            </span>
-                            <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-xs p-1">
-                                <button
-                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                    disabled={currentPage === 1}
-                                    className="p-1 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                    title="Previous Page"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                                </button>
-                                <span className="px-2 font-bold text-slate-700 text-[11px]">Page {currentPage} of {totalPages || 1}</span>
-                                <button
-                                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                    disabled={currentPage === totalPages || totalPages === 0}
-                                    className="p-1 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                    title="Next Page"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                                </button>
+                        <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Active Approved</p>
+                                <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.approved}</p>
+                            </div>
+                            <div className="w-8 h-8 rounded-lg bg-emerald-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                                <CheckCircle2 size={16} />
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Expired Passes</p>
+                                <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.expired}</p>
+                            </div>
+                            <div className="w-8 h-8 rounded-lg bg-rose-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                                <Ban size={16} />
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Pending</p>
+                                <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.pending}</p>
+                            </div>
+                            <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                                <Clock size={16} />
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Rejected</p>
+                                <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.rejected}</p>
+                            </div>
+                            <div className="w-8 h-8 rounded-lg bg-red-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                                <XCircle size={16} />
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Cancelled</p>
+                                <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.cancelled}</p>
+                            </div>
+                            <div className="w-8 h-8 rounded-lg bg-orange-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                                <Trash2 size={16} />
                             </div>
                         </div>
                     </div>
-                    {/* Mobile View Card List (< 768px) */}
-                    <div className="block md:hidden divide-y divide-slate-100">
-                        {currentRequests.map((req) => (
-                            <div
-                                key={req.id}
-                                onClick={() => openDetailModal(req)}
-                                className="p-4 space-y-2.5 hover:bg-slate-50/60 transition-colors cursor-pointer"
+
+                    {message.text && (
+                        <div className={`mb-6 p-4 rounded-xl border ${message.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                            {message.text}
+                        </div>
+                    )}
+
+                    <div className="flex w-full flex-wrap items-center gap-2 mb-4 bg-white p-3 rounded-xl shadow-sm border border-slate-200">
+                        <div className="flex-1 min-w-[145px]">
+                            <select
+                                value={academicYear}
+                                onChange={(e) => setAcademicYear(e.target.value)}
+                                className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all font-bold text-slate-700 bg-transparent cursor-pointer"
                             >
-                                <div className="flex items-start justify-between gap-2">
-                                    <div className="flex items-center gap-2 min-w-0" onClick={(e) => e.stopPropagation()}>
-                                        {(req.status || '').toLowerCase() === 'approved' ? (
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedRequestIds.includes(req.id)}
-                                                onChange={(e) => toggleSelectRequest(req, e)}
-                                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                            />
-                                        ) : (
-                                            <input
-                                                type="checkbox"
-                                                disabled
-                                                className="opacity-20 cursor-not-allowed"
-                                            />
-                                        )}
-                                        <span className="font-bold text-indigo-700 font-mono text-xs bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 shrink-0">
-                                            {req.application_number || '—'}
-                                        </span>
-                                    </div>
+                                <option value="">All Academic Years</option>
+                                {academicYearOptions.map((year) => (
+                                    <option key={year} value={year}>{year}</option>
+                                ))}
+                            </select>
+                        </div>
 
-                                    <div className="shrink-0 text-right">
-                                        {isExpiredPass(req) ? (
-                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border border-red-200 bg-red-50 text-red-700">
-                                                Expired
-                                            </span>
-                                        ) : (
-                                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${(req.status || '').toLowerCase() === 'approved' ? 'bg-green-50 border-green-200 text-green-700' :
-                                                (req.status || '').toLowerCase() === 'pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
-                                                (req.status || '').toLowerCase() === 'cancelled' ? 'bg-orange-50 border-orange-200 text-orange-750' :
-                                                    'bg-slate-50 border-slate-200 text-slate-600'
-                                                }`}>
-                                                {statusDisplay(req.status)}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
+                        <div className="flex-[2] min-w-[200px] relative">
+                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            <input
+                                type="text"
+                                placeholder="Search App No, Name, Pin, Adm No, Course, Route..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full pl-8.5 pr-2 py-1.5 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-xs text-slate-800 placeholder-slate-400 font-medium"
+                            />
+                        </div>
 
-                                <div className="flex justify-between items-start gap-2">
-                                    <div className="min-w-0 flex-1">
-                                        <p className="font-bold text-slate-900 text-sm truncate">{req.student_name || req.employee_name}</p>
-                                        <p className="text-xs text-blue-600 font-semibold mt-0.5">
-                                            Adm/Emp: {req.admission_number || req.emp_no}
-                                            {req.pin_no && req.user_type !== 'employee' ? ` • Pin: ${req.pin_no}` : ''}
-                                        </p>
-                                    </div>
-                                    {req.new_id_card_needed && (
-                                        <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200">
-                                            New Card
-                                        </span>
-                                    )}
-                                </div>
+                        <div className="flex-1 min-w-[120px]">
+                            <select
+                                value={routeFilter}
+                                onChange={(e) => setRouteFilter(e.target.value)}
+                                className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent cursor-pointer"
+                            >
+                                <option value="">All Routes</option>
+                                {routes.map((r) => (
+                                    <option key={r._id} value={r.routeId}>{r.routeName} ({r.routeId})</option>
+                                ))}
+                            </select>
+                        </div>
 
-                                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center justify-between text-xs">
-                                    <div>
-                                        <p className="text-[9px] font-bold uppercase text-slate-400">Academic Info</p>
-                                        {req.user_type === 'employee' ? (
-                                            <p className="font-bold text-slate-700">Employee</p>
-                                        ) : (
-                                            <p className="font-bold text-slate-800">{req.course || '—'} (Y{req.year_of_study || '—'})</p>
-                                        )}
-                                    </div>
+                        <div className="flex-1 min-w-[120px]">
+                            <select
+                                value={collegeFilter}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setCollegeFilter(val);
+                                    setCourseFilter('');
+                                    fetchCourses(val);
+                                }}
+                                className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent cursor-pointer"
+                            >
+                                <option value="">All Colleges</option>
+                                {colleges.map((c) => (
+                                    <option key={c.id} value={c.name}>{c.name}</option>
+                                ))}
+                            </select>
+                        </div>
 
-                                    <div className="text-right">
-                                        <p className="text-[9px] font-bold uppercase text-slate-400">Fare</p>
-                                        <FareDisplay request={req} />
-                                    </div>
-                                </div>
+                        <div className="flex-1 min-w-[120px]">
+                            <select
+                                value={courseFilter}
+                                onChange={(e) => setCourseFilter(e.target.value)}
+                                disabled={!collegeFilter}
+                                className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent ${!collegeFilter ? 'opacity-60 cursor-not-allowed bg-slate-50' : 'cursor-pointer'
+                                    }`}
+                            >
+                                <option value="">
+                                    {collegeFilter ? 'All Courses' : 'Select College First'}
+                                </option>
+                                {courses.map((c) => (
+                                    <option key={c.id} value={c.name}>{c.name}</option>
+                                ))}
+                            </select>
+                        </div>
 
-                                {req.effective_expiry_date && req.user_type !== 'employee' && (
-                                    <p className="text-[10px] text-slate-400 font-semibold">
-                                        Effective Expiry: {formatDate(req.effective_expiry_date)}
-                                    </p>
-                                )}
+                        <div className="flex-1 min-w-[120px]">
+                            <select
+                                value={statusFilter}
+                                onChange={(e) => setStatusFilter(e.target.value)}
+                                className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-ellipsis text-slate-700 font-bold bg-transparent cursor-pointer"
+                            >
+                                <option value="">All Status</option>
+                                <option value="pending">Pending</option>
+                                <option value="approved">Approved (all)</option>
+                                <option value="active">Active (not expired)</option>
+                                <option value="expired">Expired</option>
+                                <option value="rejected">Rejected</option>
+                                <option value="cancelled">Cancelled</option>
+                            </select>
+                        </div>
+
+                        {(routeFilter || collegeFilter || courseFilter || statusFilter || searchQuery) && (
+                            <div className="flex-shrink-0">
+                                <button
+                                    onClick={() => {
+                                        setRouteFilter('');
+                                        setCollegeFilter('');
+                                        setCourseFilter('');
+                                        setStatusFilter('');
+                                        setSearchQuery('');
+                                        setCourses([]);
+                                    }}
+                                    className="text-xs text-red-650 hover:text-red-750 font-bold px-3 py-1.5 border border-red-100 bg-red-50 rounded-lg transition-all cursor-pointer"
+                                >
+                                    Reset
+                                </button>
                             </div>
-                        ))}
+                        )}
                     </div>
+                    {loading ? (
+                        <TransportRequestsSkeleton />
+                    ) : requests.length === 0 ? (
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 text-center text-slate-400 font-semibold text-xs">
+                            No transport requests found{academicYear ? ` for academic year ${academicYear}` : ''}.
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                            {/* Pagination & Filter Controls */}
+                            <div className="p-3 border-b border-slate-200 bg-slate-50/80 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                <div className="flex items-center justify-between gap-3 w-full md:w-auto">
+                                    {/* User Type Tabs */}
+                                    <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-xs">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setUserTypeFilter('student');
+                                                setCurrentPage(1);
+                                            }}
+                                            className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'student'
+                                                ? 'bg-blue-900 text-white shadow-xs'
+                                                : 'text-slate-500 hover:bg-slate-50'
+                                                }`}
+                                        >
+                                            Students
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setUserTypeFilter('employee');
+                                                setCurrentPage(1);
+                                            }}
+                                            className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'employee'
+                                                ? 'bg-blue-900 text-white shadow-xs'
+                                                : 'text-slate-500 hover:bg-slate-50'
+                                                }`}
+                                        >
+                                            Employees
+                                        </button>
+                                    </div>
 
-                    {/* Desktop View Table */}
-                    <div className="hidden md:block overflow-x-auto">
-                        <table className="w-full text-left border-collapse min-w-[700px]">
-                            <thead>
-                                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider select-none">
-                                    <th className="px-3 py-2 w-8">
-                                        <input
-                                            type="checkbox"
-                                            checked={
-                                                requests.length > 0 &&
-                                                requests
-                                                    .filter(r => (r.status || '').toLowerCase() === 'approved')
-                                                    .every(r => selectedRequestIds.includes(r.id))
-                                                && requests.some(r => (r.status || '').toLowerCase() === 'approved')
-                                            }
-                                            onChange={handleSelectAll}
-                                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                        />
-                                    </th>
-                                    <th onClick={() => handleSort('pin_no')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Pin Number">
-                                        <div className="flex items-center gap-1">
-                                            <span>Pin Number</span>
-                                            <span className="text-[10px] text-slate-400">{sortField === 'pin_no' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
-                                        </div>
-                                    </th>
-                                    <th onClick={() => handleSort('admission_number')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Adm / Emp Number">
-                                        <div className="flex items-center gap-1">
-                                            <span>Adm Number</span>
-                                            <span className="text-[10px] text-slate-400">{sortField === 'admission_number' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
-                                        </div>
-                                    </th>
-                                    <th onClick={() => handleSort('application_number')} className="px-3 py-2 cursor-pointer hover:bg-slate-100/90 transition-colors bg-blue-50/60 text-indigo-900 font-black border-x border-slate-200/60" title="Click to sort by Application Number">
-                                        <div className="flex items-center gap-1">
-                                            <span>App No.</span>
-                                            <span className="text-xs font-bold text-indigo-600">{sortField === 'application_number' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
-                                        </div>
-                                    </th>
-                                    <th onClick={() => handleSort('name')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Name">
-                                        <div className="flex items-center gap-1">
-                                            <span>Name</span>
-                                            <span className="text-[10px] text-slate-400">{sortField === 'name' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
-                                        </div>
-                                    </th>
-                                    <th className="px-3 py-2">Academic Info</th>
-                                    <th onClick={() => handleSort('fare')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Fare">
-                                        <div className="flex items-center gap-1">
-                                            <span>Fare</span>
-                                            <span className="text-[10px] text-slate-400">{sortField === 'fare' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
-                                        </div>
-                                    </th>
-                                    <th onClick={() => handleSort('status')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Status">
-                                        <div className="flex items-center gap-1">
-                                            <span>Status</span>
-                                            <span className="text-[10px] text-slate-400">{sortField === 'status' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
-                                        </div>
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                                    {/* Rows per page */}
+                                    <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium shrink-0">
+                                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Rows:</span>
+                                        <select
+                                            value={rowsPerPage}
+                                            onChange={(e) => {
+                                                setRowsPerPage(Number(e.target.value));
+                                                setCurrentPage(1);
+                                            }}
+                                            className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-xs text-slate-700 cursor-pointer"
+                                        >
+                                            <option value={10}>10</option>
+                                            <option value={20}>20</option>
+                                            <option value={50}>50</option>
+                                            <option value={100}>100</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Entry Count & Page Nav */}
+                                <div className="flex items-center justify-between gap-3 w-full md:w-auto text-xs text-slate-600">
+                                    <span className="text-[11px] font-medium text-slate-500">
+                                        Showing <span className="font-bold text-slate-800">{indexOfFirstRow + 1}–{Math.min(indexOfLastRow, requests.length)}</span> of <span className="font-bold text-slate-800">{requests.length}</span>
+                                    </span>
+                                    <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-xs p-1">
+                                        <button
+                                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                            disabled={currentPage === 1}
+                                            className="p-1 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                            title="Previous Page"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                                        </button>
+                                        <span className="px-2 font-bold text-slate-700 text-[11px]">Page {currentPage} of {totalPages || 1}</span>
+                                        <button
+                                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                            disabled={currentPage === totalPages || totalPages === 0}
+                                            className="p-1 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                            title="Next Page"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            {/* Mobile View Card List (< 768px) */}
+                            <div className="block md:hidden divide-y divide-slate-100">
                                 {currentRequests.map((req) => (
-                                    <tr
+                                    <div
                                         key={req.id}
                                         onClick={() => openDetailModal(req)}
-                                        className="hover:bg-slate-50/60 transition-colors border-b border-slate-100/60 cursor-pointer text-xs"
+                                        className="p-4 space-y-2.5 hover:bg-slate-50/60 transition-colors cursor-pointer"
                                     >
-                                        <td className="px-3 py-2 w-8" onClick={(e) => e.stopPropagation()}>
-                                            {(req.status || '').toLowerCase() === 'approved' ? (
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedRequestIds.includes(req.id)}
-                                                    onChange={(e) => toggleSelectRequest(req, e)}
-                                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                />
-                                            ) : (
-                                                <input
-                                                    type="checkbox"
-                                                    disabled
-                                                    className="opacity-20 cursor-not-allowed"
-                                                />
-                                            )}
-                                        </td>
-                                        <td className="px-3 py-2 font-semibold text-slate-700 text-xs">
-                                            {req.user_type === 'employee' ? '—' : (req.pin_no || '—')}
-                                        </td>
-                                        <td className="px-3 py-2 font-semibold text-blue-600">{req.admission_number || req.emp_no}</td>
-                                        <td className="px-3 py-2 font-bold text-indigo-700">{req.application_number || '—'}</td>
-                                        <td className="px-3 py-2 font-semibold text-slate-900">
-                                            <div className="flex flex-col gap-0.5">
-                                                <span>{req.student_name || req.employee_name}</span>
-                                                {req.new_id_card_needed && (
-                                                    <span className="w-fit inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8px] font-black uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200 animate-pulse">
-                                                        New Card Needed
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="flex items-center gap-2 min-w-0" onClick={(e) => e.stopPropagation()}>
+                                                {(req.status || '').toLowerCase() === 'approved' ? (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedRequestIds.includes(req.id)}
+                                                        onChange={(e) => toggleSelectRequest(req, e)}
+                                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                    />
+                                                ) : (
+                                                    <input
+                                                        type="checkbox"
+                                                        disabled
+                                                        className="opacity-20 cursor-not-allowed"
+                                                    />
+                                                )}
+                                                <span className="font-bold text-indigo-700 font-mono text-xs bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 shrink-0">
+                                                    {req.application_number || '—'}
+                                                </span>
+                                            </div>
+
+                                            <div className="shrink-0 text-right">
+                                                {isExpiredPass(req) ? (
+                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border border-red-200 bg-red-50 text-red-700">
+                                                        Expired
+                                                    </span>
+                                                ) : (
+                                                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${(req.status || '').toLowerCase() === 'approved' ? 'bg-green-50 border-green-200 text-green-700' :
+                                                        (req.status || '').toLowerCase() === 'pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                                                            (req.status || '').toLowerCase() === 'cancelled' ? 'bg-orange-50 border-orange-200 text-orange-750' :
+                                                                'bg-slate-50 border-slate-200 text-slate-600'
+                                                        }`}>
+                                                        {statusDisplay(req.status)}
                                                     </span>
                                                 )}
                                             </div>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            {req.user_type === 'employee' ? (
-                                                <span className="text-[10px] bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded text-slate-500 font-bold">Employee</span>
-                                            ) : (
-                                                <div className="flex flex-col gap-0.5">
-                                                    <span className="text-[11px] font-bold uppercase text-slate-800 tracking-wide">{req.course || '—'}</span>
-                                                    <div className="flex items-center gap-1 text-[9px] text-slate-400 font-bold uppercase tracking-wider">
-                                                        <span className="bg-blue-50 text-blue-700 px-1 py-0.5 rounded font-black border border-blue-200/50">
-                                                            Y{req.year_of_study || '—'}
-                                                        </span>
-                                                        <span>•</span>
-                                                        <span className="font-semibold text-slate-500">{req.academic_year || '—'}</span>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td className="px-3 py-2 font-semibold text-slate-950">
-                                            <FareDisplay request={req} />
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            {isExpiredPass(req) ? (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border border-red-200 bg-red-50 text-red-700">
-                                                    Expired
-                                                </span>
-                                            ) : (
-                                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${(req.status || '').toLowerCase() === 'approved' ? 'bg-green-50 border-green-200 text-green-700' :
-                                                    (req.status || '').toLowerCase() === 'pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
-                                                    (req.status || '').toLowerCase() === 'cancelled' ? 'bg-orange-50 border-orange-200 text-orange-750' :
-                                                        'bg-slate-50 border-slate-200 text-slate-600'
-                                                    }`}>
-                                                    {statusDisplay(req.status)}
-                                                </span>
-                                            )}
-                                            {req.effective_expiry_date && req.user_type !== 'employee' && (
-                                                <p className="text-[9px] text-slate-400 font-semibold mt-1">
-                                                    Until {formatDate(req.effective_expiry_date)}
-                                                    {req.course_expiry_date ? ` (course Y${req.year_of_study || '?'})` : ''}
+                                        </div>
+
+                                        <div className="flex justify-between items-start gap-2">
+                                            <div className="min-w-0 flex-1">
+                                                <p className="font-bold text-slate-900 text-sm truncate">{req.student_name || req.employee_name}</p>
+                                                <p className="text-xs text-blue-600 font-semibold mt-0.5">
+                                                    Adm/Emp: {req.admission_number || req.emp_no}
+                                                    {req.pin_no && req.user_type !== 'employee' ? ` • Pin: ${req.pin_no}` : ''}
                                                 </p>
+                                            </div>
+                                            {req.new_id_card_needed && (
+                                                <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200">
+                                                    New Card
+                                                </span>
                                             )}
-                                        </td>
-                                    </tr>
+                                        </div>
+
+                                        <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center justify-between text-xs">
+                                            <div>
+                                                <p className="text-[9px] font-bold uppercase text-slate-400">Academic Info</p>
+                                                {req.user_type === 'employee' ? (
+                                                    <p className="font-bold text-slate-700">Employee</p>
+                                                ) : (
+                                                    <p className="font-bold text-slate-800">{req.course || '—'} (Y{req.year_of_study || '—'})</p>
+                                                )}
+                                            </div>
+
+                                            <div className="text-right">
+                                                <p className="text-[9px] font-bold uppercase text-slate-400">Fare</p>
+                                                <FareDisplay request={req} />
+                                            </div>
+                                        </div>
+
+                                        {req.effective_expiry_date && req.user_type !== 'employee' && (
+                                            <p className="text-[10px] text-slate-400 font-semibold">
+                                                Effective Expiry: {formatDate(req.effective_expiry_date)}
+                                            </p>
+                                        )}
+                                    </div>
                                 ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <TransportAdmitCard ref={admitCardRef} passenger={selectedPassPassenger} />
-                </div>
-            )
-            }
+                            </div>
+
+                            {/* Desktop View Table */}
+                            <div className="hidden md:block overflow-x-auto">
+                                <table className="w-full text-left border-collapse min-w-[700px]">
+                                    <thead>
+                                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-wider select-none">
+                                            <th className="px-3 py-2 w-8">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={
+                                                        requests.length > 0 &&
+                                                        requests
+                                                            .filter(r => (r.status || '').toLowerCase() === 'approved')
+                                                            .every(r => selectedRequestIds.includes(r.id))
+                                                        && requests.some(r => (r.status || '').toLowerCase() === 'approved')
+                                                    }
+                                                    onChange={handleSelectAll}
+                                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                />
+                                            </th>
+                                            <th onClick={() => handleSort('pin_no')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Pin Number">
+                                                <div className="flex items-center gap-1">
+                                                    <span>Pin Number</span>
+                                                    <span className="text-[10px] text-slate-400">{sortField === 'pin_no' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                                </div>
+                                            </th>
+                                            <th onClick={() => handleSort('admission_number')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Adm / Emp Number">
+                                                <div className="flex items-center gap-1">
+                                                    <span>Adm Number</span>
+                                                    <span className="text-[10px] text-slate-400">{sortField === 'admission_number' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                                </div>
+                                            </th>
+                                            <th onClick={() => handleSort('application_number')} className="px-3 py-2 cursor-pointer hover:bg-slate-100/90 transition-colors bg-blue-50/60 text-indigo-900 font-black border-x border-slate-200/60" title="Click to sort by Application Number">
+                                                <div className="flex items-center gap-1">
+                                                    <span>App No.</span>
+                                                    <span className="text-xs font-bold text-indigo-600">{sortField === 'application_number' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                                </div>
+                                            </th>
+                                            <th onClick={() => handleSort('name')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Name">
+                                                <div className="flex items-center gap-1">
+                                                    <span>Name</span>
+                                                    <span className="text-[10px] text-slate-400">{sortField === 'name' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                                </div>
+                                            </th>
+                                            <th className="px-3 py-2">Academic Info</th>
+                                            <th onClick={() => handleSort('fare')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Fare">
+                                                <div className="flex items-center gap-1">
+                                                    <span>Fare</span>
+                                                    <span className="text-[10px] text-slate-400">{sortField === 'fare' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                                </div>
+                                            </th>
+                                            <th onClick={() => handleSort('status')} className="px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" title="Click to sort by Status">
+                                                <div className="flex items-center gap-1">
+                                                    <span>Status</span>
+                                                    <span className="text-[10px] text-slate-400">{sortField === 'status' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                                </div>
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                                        {currentRequests.map((req) => (
+                                            <tr
+                                                key={req.id}
+                                                onClick={() => openDetailModal(req)}
+                                                className="hover:bg-slate-50/60 transition-colors border-b border-slate-100/60 cursor-pointer text-xs"
+                                            >
+                                                <td className="px-3 py-2 w-8" onClick={(e) => e.stopPropagation()}>
+                                                    {(req.status || '').toLowerCase() === 'approved' ? (
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedRequestIds.includes(req.id)}
+                                                            onChange={(e) => toggleSelectRequest(req, e)}
+                                                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                        />
+                                                    ) : (
+                                                        <input
+                                                            type="checkbox"
+                                                            disabled
+                                                            className="opacity-20 cursor-not-allowed"
+                                                        />
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-2 font-semibold text-slate-700 text-xs">
+                                                    {req.user_type === 'employee' ? '—' : (req.pin_no || '—')}
+                                                </td>
+                                                <td className="px-3 py-2 font-semibold text-blue-600">{req.admission_number || req.emp_no}</td>
+                                                <td className="px-3 py-2 font-bold text-indigo-700">{req.application_number || '—'}</td>
+                                                <td className="px-3 py-2 font-semibold text-slate-900">
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <span>{req.student_name || req.employee_name}</span>
+                                                        {req.new_id_card_needed && (
+                                                            <span className="w-fit inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8px] font-black uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200 animate-pulse">
+                                                                New Card Needed
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    {req.user_type === 'employee' ? (
+                                                        <span className="text-[10px] bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded text-slate-500 font-bold">Employee</span>
+                                                    ) : (
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <span className="text-[11px] font-bold uppercase text-slate-800 tracking-wide">{req.course || '—'}</span>
+                                                            <div className="flex items-center gap-1 text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                                                                <span className="bg-blue-50 text-blue-700 px-1 py-0.5 rounded font-black border border-blue-200/50">
+                                                                    Y{req.year_of_study || '—'}
+                                                                </span>
+                                                                <span>•</span>
+                                                                <span className="font-semibold text-slate-500">{req.academic_year || '—'}</span>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-2 font-semibold text-slate-950">
+                                                    <FareDisplay request={req} />
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    {isExpiredPass(req) ? (
+                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border border-red-200 bg-red-50 text-red-700">
+                                                            Expired
+                                                        </span>
+                                                    ) : (
+                                                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${(req.status || '').toLowerCase() === 'approved' ? 'bg-green-50 border-green-200 text-green-700' :
+                                                            (req.status || '').toLowerCase() === 'pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                                                                (req.status || '').toLowerCase() === 'cancelled' ? 'bg-orange-50 border-orange-200 text-orange-750' :
+                                                                    'bg-slate-50 border-slate-200 text-slate-600'
+                                                            }`}>
+                                                            {statusDisplay(req.status)}
+                                                        </span>
+                                                    )}
+                                                    {req.effective_expiry_date && req.user_type !== 'employee' && (
+                                                        <p className="text-[9px] text-slate-400 font-semibold mt-1">
+                                                            Until {formatDate(req.effective_expiry_date)}
+                                                            {req.course_expiry_date ? ` (course Y${req.year_of_study || '?'})` : ''}
+                                                        </p>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <TransportAdmitCard ref={admitCardRef} passenger={selectedPassPassenger} />
+                        </div>
+                    )}
+                </>
+            )}
 
             <Modal
                 isOpen={detailModal.open}
@@ -1701,7 +1982,7 @@ const TransportRequests = () => {
             >
                 {detailModal.loading && (
                     <div className="flex items-center gap-2 text-sm text-slate-500 py-2 px-1">
-                        <svg className="animate-spin h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                        <svg className="animate-spin h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" /></svg>
                         Refreshing details…
                     </div>
                 )}
@@ -1720,7 +2001,7 @@ const TransportRequests = () => {
                                 ? 'bg-amber-50 text-amber-700 ring-amber-100'
                                 : statusKey === 'cancelled'
                                     ? 'bg-orange-50 text-orange-700 ring-orange-100'
-                                : 'bg-slate-100 text-slate-600 ring-slate-200';
+                                    : 'bg-slate-100 text-slate-600 ring-slate-200';
 
                     const DetailItem = ({ icon: Icon, label, value }) => (
                         <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
@@ -2011,7 +2292,7 @@ const TransportRequests = () => {
                     <p className="text-xs text-slate-500">
                         Please provide a cancellation reason. The seat for this passenger will be vacated, but the record will be retained in history.
                     </p>
-                    
+
                     <div>
                         <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">
                             Cancellation Reason
@@ -2139,100 +2420,100 @@ const TransportRequests = () => {
                                     className="rounded-xl border border-gray-100 bg-gray-50/60 p-4 flex flex-col gap-3"
                                 >
                                     <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                                    <div className="sm:w-36 flex-shrink-0 space-y-1.5">
-                                        <span className="inline-flex bg-blue-100 text-blue-800 px-3 py-1 rounded-lg text-xs font-bold">
-                                            Year {yearRow.year_of_study}
-                                        </span>
-                                        <p className="text-[11px] text-slate-600 font-medium flex items-center gap-1">
-                                            <Users size={12} className="text-slate-400" />
-                                            {passengerCount} passenger{passengerCount !== 1 ? 's' : ''}
-                                        </p>
-                                        {passengerCount > 0 && (
-                                            <p className="text-[10px] text-slate-500 leading-snug">
-                                                <span className="text-green-700 font-semibold">{activeCount} active</span>
-                                                {expiredCount > 0 && (
-                                                    <> · <span className="text-red-600 font-semibold">{expiredCount} expired</span></>
-                                                )}
+                                        <div className="sm:w-36 flex-shrink-0 space-y-1.5">
+                                            <span className="inline-flex bg-blue-100 text-blue-800 px-3 py-1 rounded-lg text-xs font-bold">
+                                                Year {yearRow.year_of_study}
+                                            </span>
+                                            <p className="text-[11px] text-slate-600 font-medium flex items-center gap-1">
+                                                <Users size={12} className="text-slate-400" />
+                                                {passengerCount} passenger{passengerCount !== 1 ? 's' : ''}
                                             </p>
-                                        )}
-                                    </div>
+                                            {passengerCount > 0 && (
+                                                <p className="text-[10px] text-slate-500 leading-snug">
+                                                    <span className="text-green-700 font-semibold">{activeCount} active</span>
+                                                    {expiredCount > 0 && (
+                                                        <> · <span className="text-red-600 font-semibold">{expiredCount} expired</span></>
+                                                    )}
+                                                </p>
+                                            )}
+                                        </div>
 
-                                    {!isEditing ? (
-                                        <>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Expiry Date</p>
-                                                {hasExpiry ? (
-                                                    <p className={`font-semibold ${yearRow.is_past ? 'text-red-600' : 'text-green-700'}`}>
-                                                        {formatDate(yearRow.expiry_date)}
-                                                        {yearRow.is_past ? ' · Expired' : ''}
-                                                    </p>
-                                                ) : (
-                                                    <p className="text-sm text-gray-400">Not set — semester-based expiry applies</p>
-                                                )}
-                                            </div>
-                                            <div className="flex items-center gap-2 flex-shrink-0">
-                                                {hasExpiry ? (
-                                                    <>
+                                        {!isEditing ? (
+                                            <>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Expiry Date</p>
+                                                    {hasExpiry ? (
+                                                        <p className={`font-semibold ${yearRow.is_past ? 'text-red-600' : 'text-green-700'}`}>
+                                                            {formatDate(yearRow.expiry_date)}
+                                                            {yearRow.is_past ? ' · Expired' : ''}
+                                                        </p>
+                                                    ) : (
+                                                        <p className="text-sm text-gray-400">Not set — semester-based expiry applies</p>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-2 flex-shrink-0">
+                                                    {hasExpiry ? (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => startEditYear(rowKey, yearRow.expiry_date)}
+                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 text-xs font-semibold hover:bg-blue-50"
+                                                            >
+                                                                <Pencil size={14} />
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                disabled={courseExpirySaving === rowKey}
+                                                                onClick={() => handleClearCourseExpiry(yearRow.course_id, yearRow.course_name, yearRow.year_of_study)}
+                                                                className="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs font-semibold hover:bg-red-50 disabled:opacity-50"
+                                                            >
+                                                                Clear
+                                                            </button>
+                                                        </>
+                                                    ) : (
                                                         <button
                                                             type="button"
-                                                            onClick={() => startEditYear(rowKey, yearRow.expiry_date)}
-                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 text-xs font-semibold hover:bg-blue-50"
+                                                            onClick={() => startEditYear(rowKey, null)}
+                                                            className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"
                                                         >
-                                                            <Pencil size={14} />
-                                                            Edit
+                                                            Set Date
                                                         </button>
-                                                        <button
-                                                            type="button"
-                                                            disabled={courseExpirySaving === rowKey}
-                                                            onClick={() => handleClearCourseExpiry(yearRow.course_id, yearRow.course_name, yearRow.year_of_study)}
-                                                            className="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs font-semibold hover:bg-red-50 disabled:opacity-50"
-                                                        >
-                                                            Clear
-                                                        </button>
-                                                    </>
-                                                ) : (
+                                                    )}
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="flex-1 min-w-0">
+                                                    <label className="block text-xs text-slate-500 uppercase font-semibold mb-1">
+                                                        {hasExpiry ? 'New expiry date' : 'Set expiry date'}
+                                                    </label>
+                                                    <input
+                                                        type="date"
+                                                        value={courseExpiryEdits[rowKey] || ''}
+                                                        onChange={(e) => setCourseExpiryEdits((prev) => ({ ...prev, [rowKey]: e.target.value }))}
+                                                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
+                                                    />
+                                                </div>
+                                                <div className="flex items-center gap-2 flex-shrink-0">
                                                     <button
                                                         type="button"
-                                                        onClick={() => startEditYear(rowKey, null)}
-                                                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"
+                                                        disabled={courseExpirySaving === rowKey}
+                                                        onClick={() => handleSaveCourseExpiry(yearRow.course_id, yearRow.course_name, yearRow.year_of_study)}
+                                                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50"
                                                     >
-                                                        Set Date
+                                                        {courseExpirySaving === rowKey ? 'Saving...' : hasExpiry ? 'Update' : 'Save'}
                                                     </button>
-                                                )}
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <div className="flex-1 min-w-0">
-                                                <label className="block text-xs text-slate-500 uppercase font-semibold mb-1">
-                                                    {hasExpiry ? 'New expiry date' : 'Set expiry date'}
-                                                </label>
-                                                <input
-                                                    type="date"
-                                                    value={courseExpiryEdits[rowKey] || ''}
-                                                    onChange={(e) => setCourseExpiryEdits((prev) => ({ ...prev, [rowKey]: e.target.value }))}
-                                                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
-                                                />
-                                            </div>
-                                            <div className="flex items-center gap-2 flex-shrink-0">
-                                                <button
-                                                    type="button"
-                                                    disabled={courseExpirySaving === rowKey}
-                                                    onClick={() => handleSaveCourseExpiry(yearRow.course_id, yearRow.course_name, yearRow.year_of_study)}
-                                                    className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50"
-                                                >
-                                                    {courseExpirySaving === rowKey ? 'Saving...' : hasExpiry ? 'Update' : 'Save'}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => cancelEditYear(rowKey, hasExpiry, yearRow.expiry_date)}
-                                                    className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold hover:bg-white"
-                                                >
-                                                    Cancel
-                                                </button>
-                                            </div>
-                                        </>
-                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => cancelEditYear(rowKey, hasExpiry, yearRow.expiry_date)}
+                                                        className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold hover:bg-white"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             );
@@ -2290,7 +2571,7 @@ const TransportRequests = () => {
                                 {approveModal.data.busesOnRoute && approveModal.data.busesOnRoute.length > 0 ? (
                                     <>
                                         <p className="text-xs font-semibold text-blue-800 mb-2">Select a Bus to Assign:</p>
-                                        <select 
+                                        <select
                                             value={approveModal.selectedBusId}
                                             onChange={(e) => setApproveModal(m => ({ ...m, selectedBusId: e.target.value, error: null }))}
                                             className="w-full text-sm p-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400 bg-white"
@@ -2360,211 +2641,211 @@ const TransportRequests = () => {
                 {idCardApplicationsLoading ? (
                     <Loader text="Loading transport application numbers..." />
                 ) : (
-                <div className="space-y-4">
-                    <div>
-                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                            Print Mode
-                        </label>
-                        <div className="flex gap-6 p-3 bg-slate-50 rounded-xl border border-slate-200/60 mb-2">
-                            <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-                                <input
-                                    type="radio"
-                                    name="idCardPrintMode"
-                                    value="range"
-                                    checked={idCardPrintMode === 'range'}
-                                    onChange={() => setIdCardPrintMode('range')}
-                                    className="cursor-pointer"
-                                />
-                                By Application Range
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                Print Mode
                             </label>
-                            <label className={`inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer ${selectedRequestIds.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}>
-                                <input
-                                    type="radio"
-                                    name="idCardPrintMode"
-                                    value="selected"
-                                    checked={idCardPrintMode === 'selected'}
-                                    onChange={() => {
-                                        if (selectedRequestIds.length > 0) {
-                                            setIdCardPrintMode('selected');
-                                        }
-                                    }}
-                                    disabled={selectedRequestIds.length === 0}
-                                    className="cursor-pointer disabled:cursor-not-allowed"
-                                />
-                                Selected Candidates ({selectedRequestIds.length})
-                            </label>
-                        </div>
-                    </div>
-
-                    {idCardPrintMode === 'selected' ? (
-                        <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 space-y-3">
-                            <p className="text-sm font-semibold text-blue-900">
-                                Will print ID cards for the <strong>{selectedRequestIds.length}</strong> passenger(s) selected from the list.
-                            </p>
-                            <ul className="divide-y divide-blue-100 rounded-lg border border-blue-100 bg-white overflow-hidden max-h-48 overflow-y-auto">
-                                {selectedRequestIds.map((id) => {
-                                    const req = selectedRequestsMap[id] || requests.find(r => r.id === id);
-                                    const name = req?.student_name || req?.employee_name || `ID: ${id}`;
-                                    const appNo = req?.application_number;
-                                    const admNo = req?.admission_number || req?.emp_no;
-                                    return (
-                                        <li key={id} className="flex items-center justify-between px-3 py-2 text-xs">
-                                            <div className="flex items-center gap-2 min-w-0">
-                                                <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-[9px] shrink-0">
-                                                    {(name[0] || '?').toUpperCase()}
-                                                </span>
-                                                <span className="font-semibold text-slate-800 truncate">{name}</span>
-                                            </div>
-                                            <div className="flex items-center gap-2 shrink-0 ml-2">
-                                                {appNo && <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{appNo}</span>}
-                                                {admNo && <span className="text-[10px] text-slate-400 font-medium">{admNo}</span>}
-                                            </div>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        </div>
-                    ) : (
-                        <>
-                            {/* Date Range Filters */}
-                            <div>
-                                <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                    Application Created Date Range
+                            <div className="flex gap-6 p-3 bg-slate-50 rounded-xl border border-slate-200/60 mb-2">
+                                <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="idCardPrintMode"
+                                        value="range"
+                                        checked={idCardPrintMode === 'range'}
+                                        onChange={() => setIdCardPrintMode('range')}
+                                        className="cursor-pointer"
+                                    />
+                                    By Application Range
                                 </label>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-[10px] text-slate-400 mb-1">From Date</label>
-                                        <input
-                                            type="date"
-                                            value={idCardStartDate}
-                                            onChange={(e) => setIdCardStartDate(e.target.value)}
-                                            disabled={idCardPrintLoading}
-                                            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] text-slate-400 mb-1">To Date</label>
-                                        <input
-                                            type="date"
-                                            value={idCardEndDate}
-                                            onChange={(e) => setIdCardEndDate(e.target.value)}
-                                            disabled={idCardPrintLoading}
-                                            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Academic Year, College and Course in single row */}
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                <div>
-                                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                        Academic Year
-                                    </label>
-                                    <select
-                                        value={idCardAcademicYear}
-                                        onChange={(e) => setIdCardAcademicYear(e.target.value)}
-                                        disabled={idCardPrintLoading}
-                                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
-                                    >
-                                        {academicYearOptions.map((year) => (
-                                            <option key={year} value={year}>{year}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                        College Code
-                                    </label>
-                                    <select
-                                        value={idCardCollegeCode}
-                                        onChange={(e) => {
-                                            setIdCardCollegeCode(e.target.value);
-                                            setIdCardCourseCode('');
+                                <label className={`inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer ${selectedRequestIds.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                                    <input
+                                        type="radio"
+                                        name="idCardPrintMode"
+                                        value="selected"
+                                        checked={idCardPrintMode === 'selected'}
+                                        onChange={() => {
+                                            if (selectedRequestIds.length > 0) {
+                                                setIdCardPrintMode('selected');
+                                            }
                                         }}
-                                        disabled={idCardPrintLoading || idCardAllApplications.length === 0}
-                                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
-                                    >
-                                        <option value="">All Colleges</option>
-                                        {idCardCollegeOptions.map((code) => (
-                                            <option key={code} value={code}>{code}</option>
-                                        ))}
-                                    </select>
-                                </div>
+                                        disabled={selectedRequestIds.length === 0}
+                                        className="cursor-pointer disabled:cursor-not-allowed"
+                                    />
+                                    Selected Candidates ({selectedRequestIds.length})
+                                </label>
+                            </div>
+                        </div>
+
+                        {idCardPrintMode === 'selected' ? (
+                            <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 space-y-3">
+                                <p className="text-sm font-semibold text-blue-900">
+                                    Will print ID cards for the <strong>{selectedRequestIds.length}</strong> passenger(s) selected from the list.
+                                </p>
+                                <ul className="divide-y divide-blue-100 rounded-lg border border-blue-100 bg-white overflow-hidden max-h-48 overflow-y-auto">
+                                    {selectedRequestIds.map((id) => {
+                                        const req = selectedRequestsMap[id] || requests.find(r => r.id === id);
+                                        const name = req?.student_name || req?.employee_name || `ID: ${id}`;
+                                        const appNo = req?.application_number;
+                                        const admNo = req?.admission_number || req?.emp_no;
+                                        return (
+                                            <li key={id} className="flex items-center justify-between px-3 py-2 text-xs">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-[9px] shrink-0">
+                                                        {(name[0] || '?').toUpperCase()}
+                                                    </span>
+                                                    <span className="font-semibold text-slate-800 truncate">{name}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2 shrink-0 ml-2">
+                                                    {appNo && <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{appNo}</span>}
+                                                    {admNo && <span className="text-[10px] text-slate-400 font-medium">{admNo}</span>}
+                                                </div>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            </div>
+                        ) : (
+                            <>
+                                {/* Date Range Filters */}
                                 <div>
                                     <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                        Course Code
+                                        Application Created Date Range
                                     </label>
-                                    <select
-                                        value={idCardCourseCode}
-                                        onChange={(e) => setIdCardCourseCode(e.target.value)}
-                                        disabled={idCardPrintLoading || idCardAllApplications.length === 0}
-                                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
-                                    >
-                                        <option value="">All Courses</option>
-                                        {idCardCourseOptions.map((code) => (
-                                            <option key={code} value={code}>{code}</option>
-                                        ))}
-                                    </select>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-[10px] text-slate-400 mb-1">From Date</label>
+                                            <input
+                                                type="date"
+                                                value={idCardStartDate}
+                                                onChange={(e) => setIdCardStartDate(e.target.value)}
+                                                disabled={idCardPrintLoading}
+                                                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] text-slate-400 mb-1">To Date</label>
+                                            <input
+                                                type="date"
+                                                value={idCardEndDate}
+                                                onChange={(e) => setIdCardEndDate(e.target.value)}
+                                                disabled={idCardPrintLoading}
+                                                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
 
-                            {!idCardApplications.length ? (
-                                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
-                                    No approved transport application numbers found for the selected filters ({idCardAcademicYear}).
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {/* Academic Year, College and Course in single row */}
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                     <div>
                                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                            From Transport Application No.
+                                            Academic Year
                                         </label>
                                         <select
-                                            value={idCardFromAppId}
-                                            onChange={(e) => handleIdCardFromChange(e.target.value)}
-                                            disabled={idCardPrintLoading || !idCardApplications.length}
-                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 font-medium"
+                                            value={idCardAcademicYear}
+                                            onChange={(e) => setIdCardAcademicYear(e.target.value)}
+                                            disabled={idCardPrintLoading}
+                                            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
                                         >
-                                            {idCardApplications.map((app) => (
-                                                <option key={`from-${app.id}`} value={app.id}>
-                                                    {app.application_number} — {app.student_name} ({app.college_code || 'UNK'}-{app.course_code || 'GEN'})
-                                                </option>
+                                            {academicYearOptions.map((year) => (
+                                                <option key={year} value={year}>{year}</option>
                                             ))}
                                         </select>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                            To Transport Application No.
+                                            College Code
                                         </label>
                                         <select
-                                            value={idCardToAppId}
-                                            onChange={(e) => setIdCardToAppId(e.target.value)}
-                                            disabled={idCardPrintLoading || !idCardApplications.length}
-                                            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 font-medium"
+                                            value={idCardCollegeCode}
+                                            onChange={(e) => {
+                                                setIdCardCollegeCode(e.target.value);
+                                                setIdCardCourseCode('');
+                                            }}
+                                            disabled={idCardPrintLoading || idCardAllApplications.length === 0}
+                                            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
                                         >
-                                            {idCardToOptions.map((app) => (
-                                                <option key={`to-${app.id}`} value={app.id}>
-                                                    {app.application_number} — {app.student_name} ({app.college_code || 'UNK'}-{app.course_code || 'GEN'})
-                                                </option>
+                                            <option value="">All Colleges</option>
+                                            {idCardCollegeOptions.map((code) => (
+                                                <option key={code} value={code}>{code}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                            Course Code
+                                        </label>
+                                        <select
+                                            value={idCardCourseCode}
+                                            onChange={(e) => setIdCardCourseCode(e.target.value)}
+                                            disabled={idCardPrintLoading || idCardAllApplications.length === 0}
+                                            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 text-slate-700 font-semibold"
+                                        >
+                                            <option value="">All Courses</option>
+                                            {idCardCourseOptions.map((code) => (
+                                                <option key={code} value={code}>{code}</option>
                                             ))}
                                         </select>
                                     </div>
                                 </div>
-                            )}
-                        </>
-                    )}
 
-                    <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
-                        ID cards will be printed in a 6 cards per A4 page layout (front + back layout) to match the official template.
-                    </div>
+                                {!idCardApplications.length ? (
+                                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+                                        No approved transport application numbers found for the selected filters ({idCardAcademicYear}).
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                                From Transport Application No.
+                                            </label>
+                                            <select
+                                                value={idCardFromAppId}
+                                                onChange={(e) => handleIdCardFromChange(e.target.value)}
+                                                disabled={idCardPrintLoading || !idCardApplications.length}
+                                                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 font-medium"
+                                            >
+                                                {idCardApplications.map((app) => (
+                                                    <option key={`from-${app.id}`} value={app.id}>
+                                                        {app.application_number} — {app.student_name} ({app.college_code || 'UNK'}-{app.course_code || 'GEN'})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                                                To Transport Application No.
+                                            </label>
+                                            <select
+                                                value={idCardToAppId}
+                                                onChange={(e) => setIdCardToAppId(e.target.value)}
+                                                disabled={idCardPrintLoading || !idCardApplications.length}
+                                                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-60 font-medium"
+                                            >
+                                                {idCardToOptions.map((app) => (
+                                                    <option key={`to-${app.id}`} value={app.id}>
+                                                        {app.application_number} — {app.student_name} ({app.college_code || 'UNK'}-{app.course_code || 'GEN'})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )}
 
-                    {idCardPrintMode === 'range' && selectedRangePassengers.length > 0 && (
-                        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                            <strong>{selectedRangePassengers.length}</strong> approved passenger{selectedRangePassengers.length === 1 ? '' : 's'} selected for printing.
-                            <span> Will print across {Math.ceil(selectedRangePassengers.length / idCardPerPage)} page{Math.ceil(selectedRangePassengers.length / idCardPerPage) === 1 ? '' : 's'}.</span>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
+                            ID cards will be printed in a 6 cards per A4 page layout (front + back layout) to match the official template.
                         </div>
-                    )}
-                </div>
+
+                        {idCardPrintMode === 'range' && selectedRangePassengers.length > 0 && (
+                            <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                                <strong>{selectedRangePassengers.length}</strong> approved passenger{selectedRangePassengers.length === 1 ? '' : 's'} selected for printing.
+                                <span> Will print across {Math.ceil(selectedRangePassengers.length / idCardPerPage)} page{Math.ceil(selectedRangePassengers.length / idCardPerPage) === 1 ? '' : 's'}.</span>
+                            </div>
+                        )}
+                    </div>
                 )}
 
                 <div className="flex flex-wrap gap-3 mt-6">
@@ -2610,9 +2891,8 @@ const TransportRequests = () => {
 
                     <div className="space-y-3">
                         {/* Abstract Option Card */}
-                        <label className={`flex items-start gap-3.5 p-4 rounded-2xl border-2 transition-all cursor-pointer ${
-                            includeReportAbstract ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 bg-white hover:bg-slate-50'
-                        }`}>
+                        <label className={`flex items-start gap-3.5 p-4 rounded-2xl border-2 transition-all cursor-pointer ${includeReportAbstract ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 bg-white hover:bg-slate-50'
+                            }`}>
                             <input
                                 type="checkbox"
                                 checked={includeReportAbstract}
@@ -2628,9 +2908,8 @@ const TransportRequests = () => {
                         </label>
 
                         {/* Detailed Option Card */}
-                        <label className={`flex items-start gap-3.5 p-4 rounded-2xl border-2 transition-all cursor-pointer ${
-                            includeReportDetailed ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 bg-white hover:bg-slate-50'
-                        }`}>
+                        <label className={`flex items-start gap-3.5 p-4 rounded-2xl border-2 transition-all cursor-pointer ${includeReportDetailed ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 bg-white hover:bg-slate-50'
+                            }`}>
                             <input
                                 type="checkbox"
                                 checked={includeReportDetailed}
