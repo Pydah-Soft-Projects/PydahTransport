@@ -101,6 +101,8 @@ const resolveVehicleRoute = (busNumber, buses, routeMap) => {
 const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBusNumber = null) => {
   if (!Array.isArray(dates) || dates.length === 0) return { success: true, count: 0 };
 
+  const todayStr = new Date().toISOString().split('T')[0];
+
   const allBuses = await Bus.find({ status: 'Active' }).lean();
   let buses = allBuses;
   if (targetBusNumber) {
@@ -114,6 +116,33 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
     });
     buses = filtered.length > 0 ? filtered : [{ busNumber: targetBusNumber, campus: null }];
   }
+
+  // Filter datesToSync: If not forceRefresh, skip past dates where all buses already have COMPLETE non-blank records in DB
+  let datesToSync = dates;
+  if (!forceRefresh) {
+    const existingDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
+    datesToSync = dates.filter(dateStr => {
+      if (dateStr === todayStr) return true; // Always check live data for today
+      for (const bus of buses) {
+        const busPlateKey = extractPlateKey(bus.busNumber);
+        const doc = existingDocs.find(d => d.date === dateStr && (
+          d.busNumber === bus.busNumber ||
+          extractPlateKey(d.busNumber) === busPlateKey ||
+          extractPlateKey(d.tggVehicleName) === busPlateKey
+        ));
+        if (!doc || doc.syncStatus !== 'COMPLETE' || (doc.firstInTime === '—' && doc.lastOutTime === '—')) {
+          return true; // Missing or incomplete record for a bus, sync this date
+        }
+      }
+      return false; // All buses have COMPLETE record for this past date, skip API query
+    });
+  }
+
+  if (datesToSync.length === 0) {
+    console.log(`[GpsSyncService] All requested past dates (${dates.join(', ')}) are already COMPLETE in DB. Skipping TGG API query.`);
+    return { success: true, count: 0 };
+  }
+
   const routes = await Route.find({}).lean();
   const routeMap = {};
   routes.forEach(r => { routeMap[r.routeId] = r; });
@@ -121,9 +150,8 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
   const vehiclesRes = await fetchVehiclesListFromTgg();
   const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
 
-  const dateFromStr = `${dates[0]} 00:00:00`;
-  const dateToStr = `${dates[dates.length - 1]} 23:59:59`;
-  const todayStr = new Date().toISOString().split('T')[0];
+  const dateFromStr = `${datesToSync[0]} 00:00:00`;
+  const dateToStr = `${datesToSync[datesToSync.length - 1]} 23:59:59`;
 
   const BATCH_SIZE = 2;
   let totalSaved = 0;
@@ -150,7 +178,7 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
       const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
 
       const daysMap = {};
-      dates.forEach(d => {
+      datesToSync.forEach(d => {
         daysMap[d] = { firstIn: '—', lastOut: '—', kilometers: 0 };
       });
 
@@ -218,7 +246,7 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
           const { baseUrl, token, username, password } = getTggConfig();
           const msgUrl = `${baseUrl}/messages_api.php?token=${encodeURIComponent(token)}`;
 
-          const dateQueries = dates.map(dateStr => ({
+          const dateQueries = datesToSync.map(dateStr => ({
             start: `${dateStr} 04:00:00`,
             end: `${dateStr} 22:00:00`
           }));
@@ -313,7 +341,7 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
       }
 
       // Upsert into GpsDailyReport MongoDB collection with safe non-destructive update
-      for (const dStr of dates) {
+      for (const dStr of datesToSync) {
         const dData = daysMap[dStr];
         const isLate = dData.firstIn !== '—' && dData.firstIn > '09:00';
         const isToday = (dStr === todayStr);
@@ -392,29 +420,37 @@ const syncFuelDayReportForDates = async (dates, forceRefresh = false, targetBusN
   const vehiclesRes = await fetchVehiclesListFromTgg();
   const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
 
-  const dateFromStr = `${dates[0]} 00:00:00`;
-  const dateToStr = `${dates[dates.length - 1]} 23:59:59`;
-  const todayStr = new Date().toISOString().split('T')[0];
-
-  // Attempt single bulk API call to TGG for Fuel Report if syncing entire fleet (~1.5s)
-  let fleetFuelData = null;
-  try {
-    const fuelRes = await fetchReportsFromTgg({
-      vehicle_name: targetBusNumber ? targetBusNumber : undefined,
-      date_from: dateFromStr,
-      date_to: dateToStr,
-      template: 'Fuel Report',
-      timeoutMs: 8000
+  // Filter datesToSync: If not forceRefresh, skip past dates where all buses already have COMPLETE non-blank records in DB
+  let datesToSync = dates;
+  if (!forceRefresh) {
+    const existingFuelDocs = await GpsFuelReport.find({ date: { $in: dates } }).lean();
+    datesToSync = dates.filter(dateStr => {
+      if (dateStr === todayStr) return true; // Always check live data for today
+      for (const bus of buses) {
+        const busPlateKey = extractPlateKey(bus.busNumber);
+        const doc = existingFuelDocs.find(d => d.date === dateStr && (
+          d.busNumber === bus.busNumber ||
+          extractPlateKey(d.busNumber) === busPlateKey ||
+          extractPlateKey(d.tggVehicleName) === busPlateKey
+        ));
+        if (!doc || doc.syncStatus !== 'COMPLETE') {
+          return true; // Missing or incomplete record for a bus, sync this date
+        }
+      }
+      return false; // All buses have COMPLETE record for this past date, skip API query
     });
-    if (fuelRes.success && fuelRes.data) {
-      fleetFuelData = fuelRes.data;
-    }
-  } catch (e) {
-    console.warn('[GpsSync] Fleet TGG Fuel Report fetch notice:', e.message);
   }
 
+  if (datesToSync.length === 0) {
+    console.log(`[GpsSyncService] All requested past fuel dates (${dates.join(', ')}) are already COMPLETE in DB. Skipping TGG API query.`);
+    return { success: true, count: 0 };
+  }
+
+  const dateFromStr = `${datesToSync[0]} 00:00:00`;
+  const dateToStr = `${datesToSync[datesToSync.length - 1]} 23:59:59`;
+
   // Pre-fetch daily report docs from MongoDB for kilometers to avoid redundant API calls
-  const dailyDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
+  const dailyDocs = await GpsDailyReport.find({ date: { $in: datesToSync } }).lean();
 
   const BATCH_SIZE = 5;
   let totalSaved = 0;
@@ -428,18 +464,16 @@ const syncFuelDayReportForDates = async (dates, forceRefresh = false, targetBusN
       const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
 
       try {
-        let fuelReportData = fleetFuelData;
-        if (!fuelReportData) {
-          const reportRes = await fetchReportsFromTgg({
-            vehicle_name: tggVehicleName,
-            date_from: dateFromStr,
-            date_to: dateToStr,
-            template: 'Fuel Report',
-            timeoutMs: 8000
-          });
-          if (reportRes.success && reportRes.data) {
-            fuelReportData = reportRes.data;
-          }
+        let fuelReportData = null;
+        const reportRes = await fetchReportsFromTgg({
+          vehicle_name: tggVehicleName,
+          date_from: dateFromStr,
+          date_to: dateToStr,
+          template: 'Fuel Report',
+          timeoutMs: 8000
+        });
+        if (reportRes.success && reportRes.data && !reportRes.data.Unitid_err) {
+          fuelReportData = reportRes.data;
         }
 
         let initialFuel = 0;
@@ -456,7 +490,7 @@ const syncFuelDayReportForDates = async (dates, forceRefresh = false, targetBusN
           fuelConsumption = parsedFuel.fuelConsumption || 0;
         }
 
-        for (const dStr of dates) {
+        for (const dStr of datesToSync) {
           const isToday = (dStr === todayStr);
 
           const existingFuel = await GpsFuelReport.findOne({ date: dStr, busNumber: bus.busNumber }).lean();
