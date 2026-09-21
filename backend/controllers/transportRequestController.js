@@ -1289,11 +1289,11 @@ const approveTransportRequest = async (req, res) => {
 
         // Duplicate resolvedAcademicYear block removed; using earlier definition.
 
-        // Fetch student from MySQL for course, branch, batch, year, semester, category
+        // Fetch student from MySQL for college, course, branch, batch, year, semester, category
         let student = null;
         if (admissionNumber) {
             const [studentRows] = await mysqlPool.query(
-                'SELECT course, branch, batch, current_year, current_semester, stud_type FROM students WHERE admission_number = ? OR admission_no = ? LIMIT 1',
+                'SELECT college, course, branch, batch, current_year, current_semester, stud_type FROM students WHERE admission_number = ? OR admission_no = ? LIMIT 1',
                 [admissionNumber, admissionNumber]
             );
             student = studentRows[0] || null;
@@ -1307,7 +1307,7 @@ const approveTransportRequest = async (req, res) => {
             console.error('Error fetching last semester for transport request:', semErr);
         }
 
-        const college = process.env.FEE_DEFAULT_COLLEGE || 'Default';
+        const college = student?.college || context?.collegeName || request?.college || process.env.FEE_DEFAULT_COLLEGE || 'N/A';
         const course = student?.course || 'N/A';
         const branch = student?.branch || 'N/A';
         const batch = student?.batch || 'N/A';
