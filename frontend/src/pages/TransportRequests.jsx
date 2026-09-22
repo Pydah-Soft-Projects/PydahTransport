@@ -2047,8 +2047,9 @@ const TransportRequests = () => {
                     
                     <TransportAdmitCard ref={admitCardRef} passenger={selectedPassPassenger} />
                 </div>
-            )
-            }
+            )}
+            </>
+            )}
 
             <Modal
                 isOpen={detailModal.open}
