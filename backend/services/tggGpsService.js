@@ -81,11 +81,10 @@ const findMatchingTggVehicle = (busOrName, tggVehicles = []) => {
   const busObj = typeof busOrName === 'object' ? busOrName : { busNumber: String(busOrName) };
   const rawBusNumber = busObj.busNumber || busObj.registrationNumber || busObj.name || String(busOrName);
   const cleanInput = String(rawBusNumber).trim();
-  const routeId = busObj.assignedRouteId || extractRouteIdFromVehicleName(cleanInput);
   const targetPlateKey = extractPlateKey(cleanInput); // e.g. "ap05up8071"
 
   // 1. Exact string match
-  const exact = tggVehicles.find(v => String(v.name || '').trim() === cleanInput);
+  const exact = tggVehicles.find(v => String(v.name || '').trim().toLowerCase() === cleanInput.toLowerCase());
   if (exact) return exact;
 
   // 2. Exact plate key match
@@ -94,7 +93,16 @@ const findMatchingTggVehicle = (busOrName, tggVehicles = []) => {
     if (tier1) return tier1;
   }
 
-  // 3. Series + 4-digit number match (ignoring RTO state code e.g. AP05 vs AP39)
+  // 3. Registration Number match (if registrationNumber field exists on busObj)
+  if (busObj.registrationNumber) {
+    const regKey = extractPlateKey(busObj.registrationNumber);
+    if (regKey) {
+      const tierReg = tggVehicles.find(v => extractPlateKey(v.name) === regKey);
+      if (tierReg) return tierReg;
+    }
+  }
+
+  // 4. Series + 4-digit number match (ignoring RTO state code e.g. AP05 vs AP39)
   // e.g. "ap05up8071" -> series+digits "up8071"
   if (targetPlateKey) {
     const seriesDigitMatch = targetPlateKey.match(/([a-z]{1,3}\d{3,4})$/i);
@@ -106,16 +114,6 @@ const findMatchingTggVehicle = (busOrName, tggVehicles = []) => {
       });
       if (tier2) return tier2;
     }
-  }
-
-  // 4. Assigned Route ID match (e.g. assignedRouteId "R21" -> "R21_AP39UP8071")
-  if (routeId) {
-    const cleanRoute = String(routeId).trim().toUpperCase();
-    const tier3 = tggVehicles.find(v => {
-      const vRoute = extractRouteIdFromVehicleName(v.name);
-      return vRoute && vRoute === cleanRoute;
-    });
-    if (tier3) return tier3;
   }
 
   // 5. Last 4 digits match (e.g. "8071")

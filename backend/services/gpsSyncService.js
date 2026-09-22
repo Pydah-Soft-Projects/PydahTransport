@@ -177,7 +177,11 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
       const hasStageCoords = Number.isFinite(stageLat) && Number.isFinite(stageLng) && stageLat !== 0 && stageLng !== 0;
 
       const matchedTgg = findMatchingTggVehicle(bus, tggVehicles);
-      const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
+      if (!matchedTgg) {
+        console.log(`[GpsSync] No matching TGG vehicle found for bus ${bus.busNumber}. Skipping TGG sync.`);
+        return;
+      }
+      const tggVehicleName = matchedTgg.name;
 
       const daysMap = {};
       datesToSync.forEach(d => {
@@ -375,7 +379,11 @@ const syncFuelDayReportForDates = async (dates, forceRefresh = false, targetBusN
     await Promise.all(batch.map(async (bus) => {
       const { routeId, routeName } = resolveVehicleRoute(bus.busNumber, buses, routeMap);
       const matchedTgg = findMatchingTggVehicle(bus, tggVehicles);
-      const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
+      if (!matchedTgg) {
+        console.log(`[GpsSync] No matching TGG vehicle found for bus ${bus.busNumber}. Skipping TGG fuel sync.`);
+        return;
+      }
+      const tggVehicleName = matchedTgg.name;
 
       try {
         let fuelReportData = null;
@@ -515,7 +523,11 @@ const syncNightStayReportForDates = async (dates, forceRefresh = false, targetBu
       const stayRadius = Number(stayPointStage?.radius ?? routeObj?.nightStayPoint?.radius) || 1500;
 
       const matchedTgg = findMatchingTggVehicle(bus, tggVehicles);
-      const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
+      if (!matchedTgg) {
+        console.log(`[GpsSync] No matching TGG vehicle found for bus ${bus.busNumber}. Skipping TGG night stay sync.`);
+        return;
+      }
+      const tggVehicleName = matchedTgg.name;
 
       // Primary Engine: Fetch TGG Daily Report (Geofences + Movement/Stops)
       let reportStayData = {};

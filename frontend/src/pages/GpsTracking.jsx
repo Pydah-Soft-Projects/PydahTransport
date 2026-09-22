@@ -634,6 +634,41 @@ export default function GpsTracking() {
   const [nightStayLoading, setNightStayLoading] = useState(false);
   const [syncingReports, setSyncingReports] = useState(false);
   const [syncingVehicle, setSyncingVehicle] = useState({});
+  const [syncingDate, setSyncingDate] = useState({});
+
+  const handleSyncSingleDate = async (dateStr, e) => {
+    if (e) e.stopPropagation();
+    try {
+      setSyncingDate(prev => ({ ...prev, [dateStr]: true }));
+      const reportType = activePageTab === 'nightstay' ? 'night_stay' : activePageTab === 'fuel' ? 'fuel' : 'day_in_out';
+
+      const res = await apiFetch(`${API_BASE}/gps/sync-reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date_from: dateStr, date_to: dateStr, reportType })
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        const currentFrom = sessionStorage.getItem('gps_fleet_date_from') || fleetDateFrom;
+        const currentTo = sessionStorage.getItem('gps_fleet_date_to') || fleetDateTo;
+        sessionStorage.clear();
+        if (currentFrom) sessionStorage.setItem('gps_fleet_date_from', currentFrom);
+        if (currentTo) sessionStorage.setItem('gps_fleet_date_to', currentTo);
+
+        if (activePageTab === 'nightstay') {
+          await fetchNightStayReportData(currentFrom, currentTo, true);
+        } else if (activePageTab === 'fuel') {
+          await fetchFuelReportData(currentFrom, currentTo, fuelSelectedVehicle, true);
+        } else {
+          await fetchDayReport(currentFrom, currentTo, true);
+        }
+      }
+    } catch (err) {
+      console.error(`Single date sync failed for ${dateStr}:`, err);
+    } finally {
+      setSyncingDate(prev => ({ ...prev, [dateStr]: false }));
+    }
+  };
 
   const handleSyncSingleVehicle = async (busNumber, e) => {
     if (e) e.stopPropagation();
@@ -2600,10 +2635,21 @@ export default function GpsTracking() {
                             const dayNum = dObj.getDate();
                             const monthName = dObj.toLocaleDateString('en-US', { month: 'short' });
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
+                            const isSyncingThisDate = syncingDate[dateStr];
 
                             return (
                               <th key={dateStr} colSpan={2} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[100px] min-w-[100px] bg-[#071B45] ${isToday ? 'bg-blue-900' : ''}`}>
-                                <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
+                                <div className="flex items-center justify-center gap-1 group/dhead">
+                                  <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
+                                  <button
+                                    onClick={(e) => handleSyncSingleDate(dateStr, e)}
+                                    disabled={isSyncingThisDate}
+                                    title={`Sync all bus logs specifically for ${dateStr}`}
+                                    className="p-0.5 text-blue-300 hover:text-white hover:bg-blue-800/80 rounded transition-all shrink-0 cursor-pointer disabled:opacity-40"
+                                  >
+                                    <RefreshCw size={9.5} className={isSyncingThisDate ? "animate-spin text-white" : "opacity-70 group-hover/dhead:opacity-100"} />
+                                  </button>
+                                </div>
                                 <div className="text-[8px] text-blue-200 tracking-normal capitalize font-semibold leading-tight">{isToday ? 'Today' : 'Night Stay'}</div>
                               </th>
                             );
@@ -2818,10 +2864,21 @@ export default function GpsTracking() {
                             const dayNum = dObj.getDate();
                             const monthName = dObj.toLocaleDateString('en-US', { month: 'short' });
                             const isToday = dateStr === new Date().toISOString().split('T')[0];
+                            const isSyncingThisDate = syncingDate[dateStr];
 
                             return (
                               <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[152px] min-w-[152px] bg-[#071B45] ${isToday ? 'bg-blue-900' : ''}`}>
-                                <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
+                                <div className="flex items-center justify-center gap-1 group/dhead">
+                                  <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
+                                  <button
+                                    onClick={(e) => handleSyncSingleDate(dateStr, e)}
+                                    disabled={isSyncingThisDate}
+                                    title={`Sync all bus logs specifically for ${dateStr}`}
+                                    className="p-0.5 text-blue-300 hover:text-white hover:bg-blue-800/80 rounded transition-all shrink-0 cursor-pointer disabled:opacity-40"
+                                  >
+                                    <RefreshCw size={9.5} className={isSyncingThisDate ? "animate-spin text-white" : "opacity-70 group-hover/dhead:opacity-100"} />
+                                  </button>
+                                </div>
                                 <div className="text-[8px] font-medium text-slate-300 uppercase leading-tight">{dayName} {isToday ? '(Today)' : ''}</div>
                               </th>
                             );
