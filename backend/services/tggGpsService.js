@@ -19,6 +19,25 @@ const cleanVehicleName = (name) => {
 };
 
 /**
+ * Calculates Haversine distance in meters between two lat/lng coordinates
+ */
+const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
+  if (!Number.isFinite(lat1) || !Number.isFinite(lon1) || !Number.isFinite(lat2) || !Number.isFinite(lon2)) return Infinity;
+  const R = 6371e3; // metres
+  const phi1 = lat1 * Math.PI / 180;
+  const phi2 = lat2 * Math.PI / 180;
+  const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+  const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+            Math.cos(phi1) * Math.cos(phi2) *
+            Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+};
+
+/**
  * Extract a comparable plate key from TGG vehicle names or local bus numbers.
  * Examples:
  *   R23_AP39UW4611 → ap39uw4611
@@ -1092,6 +1111,118 @@ const parseGeofencesFromTgg = (tggData, vehName) => {
   });
 };
 
+/**
+ * Helper to extract Night Stay arrival (OUT) and departure (IN) times from TGG Report response
+ */
+const parseNightStayFromTggReport = (tggData, vehName, stageLat, stageLng, stayRadius = 1500) => {
+  if (!tggData || typeof tggData !== 'object') return {};
+
+  const daysResult = {}; // { 'YYYY-MM-DD': { firstIn: '07:30', lastOut: '17:15' } }
+
+  // 1. Check Geofences entry/exit
+  const gfLogs = parseGeofencesFromTgg(tggData, vehName);
+  gfLogs.forEach(log => {
+    const inLat = log.latIn;
+    const inLng = log.lngIn;
+    const outLat = log.latOut;
+    const outLng = log.lngOut;
+
+    const hasCoords = Number.isFinite(stageLat) && Number.isFinite(stageLng) && stageLat !== 0 && stageLng !== 0;
+
+    const matchIn = hasCoords && inLat != null && inLng != null && calculateDistanceMeters(stageLat, stageLng, inLat, inLng) <= stayRadius;
+    const matchOut = hasCoords && outLat != null && outLng != null && calculateDistanceMeters(stageLat, stageLng, outLat, outLng) <= stayRadius;
+    const isStayGeofence = log.geofence && (String(log.geofence).toLowerCase().includes('stay') || String(log.geofence).toLowerCase().includes('night'));
+
+    // Evening Arrival at Night Stay Point (OUT Column in UI)
+    if (log.timeIn && log.timeIn !== '—') {
+      const timeParts = String(log.timeIn).trim().split(' ');
+      const dateStr = timeParts[0];
+      const timeStr = timeParts[1]?.substring(0, 5);
+      if (dateStr && timeStr && timeStr >= '15:00') {
+        if (!daysResult[dateStr]) daysResult[dateStr] = { firstIn: '—', lastOut: '—' };
+        if (matchIn || matchOut || isStayGeofence || !hasCoords) {
+          if (daysResult[dateStr].lastOut === '—' || timeStr < daysResult[dateStr].lastOut) {
+            daysResult[dateStr].lastOut = timeStr;
+          }
+        }
+      }
+    }
+
+    // Morning Departure from Night Stay Point (IN Column in UI)
+    if (log.timeOut && log.timeOut !== '—') {
+      const timeParts = String(log.timeOut).trim().split(' ');
+      const dateStr = timeParts[0];
+      const timeStr = timeParts[1]?.substring(0, 5);
+      if (dateStr && timeStr && timeStr >= '04:00' && timeStr <= '11:00') {
+        if (!daysResult[dateStr]) daysResult[dateStr] = { firstIn: '—', lastOut: '—' };
+        if (matchIn || matchOut || isStayGeofence || !hasCoords) {
+          if (daysResult[dateStr].firstIn === '—' || timeStr > daysResult[dateStr].firstIn) {
+            daysResult[dateStr].firstIn = timeStr;
+          }
+        }
+      }
+    }
+  });
+
+  // 2. Also check Stops / Trips / Movement dictionary in tggData if available
+  const extractStops = (obj) => {
+    if (!obj || typeof obj !== 'object') return;
+    const entries = Array.isArray(obj) ? obj : Object.values(obj);
+    entries.forEach(item => {
+      if (!item || typeof item !== 'object') return;
+      const c = item.c || item;
+
+      const depTime = c['2']?.t || c.startTime || c.depTime;
+      const depLat = c['2']?.y ?? c.lat;
+      const depLng = c['2']?.x ?? c.lng;
+
+      const arrTime = c['4']?.t || c.endTime || c.arrTime;
+      const arrLat = c['4']?.y ?? c.lat;
+      const arrLng = c['4']?.x ?? c.lng;
+
+      const hasCoords = Number.isFinite(stageLat) && Number.isFinite(stageLng) && stageLat !== 0 && stageLng !== 0;
+
+      // Morning departure from night stay stage
+      if (depTime && typeof depTime === 'string') {
+        const parts = depTime.trim().split(' ');
+        const dateStr = parts[0];
+        const timeStr = parts[1]?.substring(0, 5);
+        if (dateStr && timeStr && timeStr >= '04:00' && timeStr <= '11:00') {
+          const match = hasCoords && depLat != null && depLng != null && calculateDistanceMeters(stageLat, stageLng, parseFloat(depLat), parseFloat(depLng)) <= stayRadius;
+          if (match || (!hasCoords && c['1'] && String(c['1']).toLowerCase().includes('stay'))) {
+            if (!daysResult[dateStr]) daysResult[dateStr] = { firstIn: '—', lastOut: '—' };
+            if (daysResult[dateStr].firstIn === '—' || timeStr < daysResult[dateStr].firstIn) {
+              daysResult[dateStr].firstIn = timeStr;
+            }
+          }
+        }
+      }
+
+      // Evening arrival at night stay stage
+      if (arrTime && typeof arrTime === 'string') {
+        const parts = arrTime.trim().split(' ');
+        const dateStr = parts[0];
+        const timeStr = parts[1]?.substring(0, 5);
+        if (dateStr && timeStr && timeStr >= '15:00') {
+          const match = hasCoords && arrLat != null && arrLng != null && calculateDistanceMeters(stageLat, stageLng, parseFloat(arrLat), parseFloat(arrLng)) <= stayRadius;
+          if (match || (!hasCoords && c['3'] && String(c['3']).toLowerCase().includes('stay'))) {
+            if (!daysResult[dateStr]) daysResult[dateStr] = { firstIn: '—', lastOut: '—' };
+            if (daysResult[dateStr].lastOut === '—' || timeStr > daysResult[dateStr].lastOut) {
+              daysResult[dateStr].lastOut = timeStr;
+            }
+          }
+        }
+      }
+    });
+  };
+
+  if (tggData.Stops) extractStops(tggData.Stops);
+  if (tggData.Trips) extractStops(tggData.Trips);
+  if (tggData['Movement Report']) extractStops(tggData['Movement Report']);
+
+  return daysResult;
+};
+
 module.exports = {
   getTggConfig,
   cleanVehicleName,
@@ -1106,6 +1237,8 @@ module.exports = {
   fetchDailyKilometersFromTgg,
   parseFuelDayReportFromTgg,
   parseDailyKilometersFromTggReport,
-  parseGeofencesFromTgg
+  parseGeofencesFromTgg,
+  parseNightStayFromTggReport,
+  calculateDistanceMeters
 };
 

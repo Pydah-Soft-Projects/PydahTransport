@@ -14,6 +14,7 @@ const {
   parseFuelDayReportFromTgg,
   parseDailyKilometersFromTggReport,
   parseGeofencesFromTgg,
+  parseNightStayFromTggReport,
   extractPlateKey,
   getTggConfig,
   cleanVehicleName,
@@ -487,6 +488,9 @@ const syncNightStayReportForDates = async (dates, forceRefresh = false, targetBu
   const vehiclesRes = await fetchVehiclesListFromTgg();
   const tggVehicles = (vehiclesRes.success && Array.isArray(vehiclesRes.data)) ? vehiclesRes.data : [];
 
+  const dateFromStr = `${dates[0]} 00:00:00`;
+  const dateToStr = `${dates[dates.length - 1]} 23:59:59`;
+
   const todayStr = new Date().toISOString().split('T')[0];
   const BATCH_SIZE = 3;
   let totalSaved = 0;
@@ -508,17 +512,35 @@ const syncNightStayReportForDates = async (dates, forceRefresh = false, targetBu
       const stayPointName = stayPointStage?.stageName || routeObj?.nightStayPoint?.stageName || 'Night Stay Point';
       const stageLat = Number(stayPointStage?.latitude ?? routeObj?.nightStayPoint?.latitude) || null;
       const stageLng = Number(stayPointStage?.longitude ?? routeObj?.nightStayPoint?.longitude) || null;
-      const stayRadius = Number(stayPointStage?.radius ?? routeObj?.nightStayPoint?.radius) || 500;
+      const stayRadius = Number(stayPointStage?.radius ?? routeObj?.nightStayPoint?.radius) || 1500;
 
       const matchedTgg = findMatchingTggVehicle(bus, tggVehicles);
       const tggVehicleName = matchedTgg?.name || cleanVehicleName(bus.busNumber);
 
+      // Primary Engine: Fetch TGG Daily Report (Geofences + Movement/Stops)
+      let reportStayData = {};
+      try {
+        const reportRes = await fetchReportsFromTgg({
+          vehicle_name: tggVehicleName,
+          date_from: dateFromStr,
+          date_to: dateToStr,
+          template: 'Daily Report',
+          timeoutMs: 15000
+        });
+        if (reportRes.success && reportRes.data && !reportRes.data.Unitid_err) {
+          reportStayData = parseNightStayFromTggReport(reportRes.data, tggVehicleName, stageLat, stageLng, stayRadius);
+        }
+      } catch (err) {
+        console.warn(`[GpsSync] Daily report fetch for night stay failed for ${tggVehicleName}:`, err.message);
+      }
+
       for (const dStr of dates) {
         const isToday = (dStr === todayStr);
-        let firstInTime = '—';
-        let lastOutTime = '—';
+        let firstInTime = reportStayData[dStr]?.firstIn || '—';
+        let lastOutTime = reportStayData[dStr]?.lastOut || '—';
 
-        if (Number.isFinite(stageLat) && Number.isFinite(stageLng) && stageLat !== 0 && stageLng !== 0) {
+        // Secondary Fallback Engine: Scan position history (Messages API) if primary report returned empty
+        if ((firstInTime === '—' || lastOutTime === '—') && Number.isFinite(stageLat) && Number.isFinite(stageLng) && stageLat !== 0 && stageLng !== 0) {
           try {
             const msgRes = await fetchVehicleMessagesFromTgg({
               vehicle_name: tggVehicleName,
@@ -544,15 +566,19 @@ const syncNightStayReportForDates = async (dates, forceRefresh = false, targetBu
 
               if (insideLogs.length > 0) {
                 // Evening Arrival at Night Stay Point (OUT column in UI)
-                const eveLogs = insideLogs.filter(l => l.timeStr >= '15:00');
-                if (eveLogs.length > 0) {
-                  lastOutTime = eveLogs[0].timeStr;
+                if (lastOutTime === '—') {
+                  const eveLogs = insideLogs.filter(l => l.timeStr >= '15:00');
+                  if (eveLogs.length > 0) {
+                    lastOutTime = eveLogs[0].timeStr;
+                  }
                 }
 
                 // Morning Departure from Night Stay Point (IN column in UI)
-                const mornLogs = insideLogs.filter(l => l.timeStr >= '04:00' && l.timeStr <= '11:00');
-                if (mornLogs.length > 0) {
-                  firstInTime = mornLogs[mornLogs.length - 1].timeStr;
+                if (firstInTime === '—') {
+                  const mornLogs = insideLogs.filter(l => l.timeStr >= '04:00' && l.timeStr <= '11:00');
+                  if (mornLogs.length > 0) {
+                    firstInTime = mornLogs[mornLogs.length - 1].timeStr;
+                  }
                 }
               }
             }
