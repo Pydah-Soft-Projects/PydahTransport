@@ -300,6 +300,9 @@ const RaiseBill = () => {
     const [billsPerPage] = useState(10);
 
     const inventoryGroups = getInventoryGroups(items);
+    const activeBusId = Array.isArray(billFormData.busId) ? (billFormData.busId[0] || '') : (billFormData.busId || '');
+    const selectedVehicleObj = buses.find(b => b.busNumber === activeBusId)
+        || otherVehicles.find(o => o.vehicleNumber === activeBusId);
 
     const switchTab = (tab) => {
         setPageTab(tab);
@@ -685,6 +688,8 @@ const RaiseBill = () => {
         busId: billFormData.busId,
         vendorId: billFormData.vendorId,
         billNo: billFormData.billNo,
+        billDate: billFormData.billDate,
+        date: billFormData.billDate,
         adminName,
         taxMode: billFormData.taxMode,
         discountMode: billFormData.discountMode,
@@ -774,7 +779,8 @@ const RaiseBill = () => {
 
         return {
             billNo: billFormData.billNo,
-            date: new Date(),
+            date: billFormData.billDate ? new Date(billFormData.billDate) : new Date(),
+            billDate: billFormData.billDate || '',
             vendorId: selectedVendor || billFormData.vendorId,
             busId: (Array.isArray(billFormData.busId) && billFormData.busId.length > 1)
                 ? { vehicleNumber: vehicleDisplayLabel, busNumber: vehicleDisplayLabel }
@@ -865,16 +871,8 @@ const RaiseBill = () => {
                 queryParams.append('busId', busId);
             }
             const billsUrl = `${API}/inventory/bills?${queryParams.toString()}`;
-            const historyUrl = busId === 'all'
-                ? `${API}/inventory/history`
-                : `${API}/inventory/history/${encodeURIComponent(busId)}`;
-
-            const [billsRes, historyRes] = await Promise.all([
-                apiFetch(billsUrl),
-                apiFetch(historyUrl)
-            ]);
+            const billsRes = await apiFetch(billsUrl);
             const billsData = await billsRes.json();
-            const historyData = await historyRes.json();
 
             if (Array.isArray(billsData)) {
                 setMaintenanceBills(billsData);
@@ -889,7 +887,6 @@ const RaiseBill = () => {
                 setTotalPages(1);
                 setTotalBills(0);
             }
-            setHistory(Array.isArray(historyData) ? historyData : []);
         } catch (error) {
             console.error('Error fetching bills:', error);
             setMaintenanceBills([]);
@@ -906,6 +903,30 @@ const RaiseBill = () => {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pageTab, selectedBusFilter, currentPage]);
+
+    useEffect(() => {
+        if (pageTab !== PAGE_TABS.raise || !activeBusId) return;
+        let isMounted = true;
+        const fetchBusHistory = async () => {
+            setHistoryLoading(true);
+            try {
+                const historyUrl = activeBusId === 'all'
+                    ? `${API}/inventory/history`
+                    : `${API}/inventory/history/${encodeURIComponent(activeBusId)}`;
+                const res = await apiFetch(historyUrl);
+                const data = await res.json();
+                if (isMounted) {
+                    setHistory(Array.isArray(data) ? data : []);
+                }
+            } catch (err) {
+                console.error('Error fetching history for bus:', err);
+            } finally {
+                if (isMounted) setHistoryLoading(false);
+            }
+        };
+        fetchBusHistory();
+        return () => { isMounted = false; };
+    }, [pageTab, activeBusId]);
 
     useEffect(() => {
         if (isEditMode) {
@@ -1148,6 +1169,8 @@ const RaiseBill = () => {
                 printableBill = {
                     ...buildPrintableBillData(),
                     ...lastSavedBill,
+                    date: lastSavedBill.date || billFormData.billDate,
+                    billDate: lastSavedBill.billDate || billFormData.billDate || lastSavedBill.date,
                     wasEdit: isEditing
                 };
             }
@@ -1183,10 +1206,6 @@ const RaiseBill = () => {
     const pageTitle = editingBill?.originalBillNo
         ? `Edit Bill #${editingBill.originalBillNo}`
         : 'Raise Bill';
-
-    const activeBusId = Array.isArray(billFormData.busId) ? (billFormData.busId[0] || '') : (billFormData.busId || '');
-    const selectedVehicleObj = buses.find(b => b.busNumber === activeBusId)
-        || otherVehicles.find(o => o.vehicleNumber === activeBusId);
 
     return (
         <Layout>
@@ -1271,7 +1290,57 @@ const RaiseBill = () => {
                     </div>
 
                     {billsLoading ? (
-                        <div className="py-20 flex justify-center"><Loader text="Fetching bills..." /></div>
+                        <div className="space-y-4 animate-pulse">
+                            {/* Desktop Skeleton Table */}
+                            <div className="hidden md:block border border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                                <div className="bg-slate-50 border-b border-slate-100 p-4 grid grid-cols-6 gap-4">
+                                    <div className="h-3.5 bg-slate-200 rounded col-span-1"></div>
+                                    <div className="h-3.5 bg-slate-200 rounded col-span-1"></div>
+                                    <div className="h-3.5 bg-slate-200 rounded col-span-1"></div>
+                                    <div className="h-3.5 bg-slate-200 rounded col-span-1"></div>
+                                    <div className="h-3.5 bg-slate-200 rounded col-span-1"></div>
+                                    <div className="h-3.5 bg-slate-200 rounded col-span-1 text-right"></div>
+                                </div>
+                                <div className="divide-y divide-slate-100">
+                                    {[1, 2, 3, 4, 5].map((i) => (
+                                        <div key={i} className="p-4 grid grid-cols-6 gap-4 items-center">
+                                            <div className="h-3.5 bg-slate-100 rounded w-24"></div>
+                                            <div className="h-3.5 bg-slate-100 rounded w-16"></div>
+                                            <div className="space-y-1.5">
+                                                <div className="h-3.5 bg-slate-100 rounded w-28"></div>
+                                                <div className="h-2.5 bg-slate-100 rounded w-20"></div>
+                                            </div>
+                                            <div className="h-3.5 bg-slate-100 rounded w-20"></div>
+                                            <div className="h-4 bg-slate-100 rounded w-24"></div>
+                                            <div className="flex justify-end gap-2">
+                                                <div className="h-7 w-7 bg-slate-100 rounded-lg"></div>
+                                                <div className="h-7 w-7 bg-slate-100 rounded-lg"></div>
+                                                <div className="h-7 w-7 bg-slate-100 rounded-lg"></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            {/* Mobile Skeleton Cards */}
+                            <div className="md:hidden space-y-3">
+                                {[1, 2, 3].map((i) => (
+                                    <div key={i} className="p-4 rounded-xl border border-slate-100 bg-white space-y-3 shadow-sm">
+                                        <div className="flex justify-between items-center">
+                                            <div className="h-4 bg-slate-200 rounded w-24"></div>
+                                            <div className="h-4 bg-slate-200 rounded w-16"></div>
+                                        </div>
+                                        <div className="h-3.5 bg-slate-100 rounded w-32"></div>
+                                        <div className="flex justify-between items-center border-t border-slate-100 pt-2">
+                                            <div className="h-4 bg-slate-200 rounded w-20"></div>
+                                            <div className="flex gap-2">
+                                                <div className="h-6 w-6 bg-slate-100 rounded"></div>
+                                                <div className="h-6 w-6 bg-slate-100 rounded"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     ) : groupedBills.length > 0 ? (
                         <>
                             {/* Table view for medium & larger screens */}

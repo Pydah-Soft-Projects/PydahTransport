@@ -51,11 +51,26 @@ const BillPrint = ({ billData, vendor, bus }) => {
     const showUnitPrice = (billData.items || []).some(
         (item) => (item.pricingMode || 'unitRate') !== 'lumpSum'
     );
-    const formattedDate = new Date(billData.date || Date.now()).toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-    });
+    const getFormattedPrintDate = (data) => {
+        const rawDate = data?.billDate || data?.date || data?.createdAt;
+        if (!rawDate) {
+            return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        }
+        if (typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(rawDate)) {
+            const [year, month, day] = rawDate.split('T')[0].split('-');
+            return `${day}/${month}/${year}`;
+        }
+        const d = new Date(rawDate);
+        if (isNaN(d.getTime())) {
+            return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        }
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        return `${day}/${month}/${year}`;
+    };
+
+    const formattedDate = getFormattedPrintDate(billData);
     const getPrintVehicleNumber = () => {
         if (billData.vehicleDisplayLabel) return billData.vehicleDisplayLabel;
         const busIds = billData.busIds || [];

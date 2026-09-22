@@ -837,6 +837,7 @@ const fetchBillPrintData = async (data) => {
                 ...maintenanceBill,
                 items,
                 date: maintenanceBill.date,
+                billDate: maintenanceBill.date,
                 adminName: maintenanceBill.adminName || 'Admin',
                 subtotal: maintenanceBill.subtotal,
                 gstTotal: maintenanceBill.taxTotal,

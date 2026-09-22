@@ -289,6 +289,7 @@ const syncAllocationsForBill = async (bill, { vehicle, vehicleType, previousAllo
                 variantName: line.variantName || '',
                 vendorId: bill.vendorId,
                 billNo: bill.billNo,
+                allocatedDate: bill.date,
                 maintenanceBillId: bill._id,
                 quantity: line.quantity,
                 price: line.pricingMode === 'lumpSum'

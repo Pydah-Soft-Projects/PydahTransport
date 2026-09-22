@@ -130,6 +130,7 @@ const maintenanceBillSchema = new mongoose.Schema({
     timestamps: true
 });
 
+maintenanceBillSchema.index({ date: -1 });
 maintenanceBillSchema.index({ busId: 1, vehicleType: 1, date: -1 });
 maintenanceBillSchema.index({ billNo: 1, busId: 1 });
 
