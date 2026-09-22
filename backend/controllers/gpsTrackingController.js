@@ -1090,7 +1090,8 @@ const fetchDayInOutReport = async (req, res) => {
     existingDbDocs.forEach(d => {
       const pKey = extractPlateKey(d.busNumber) || extractPlateKey(d.tggVehicleName);
       if (pKey) docMap.set(`${d.date}_${pKey}`, d);
-      docMap.set(`${d.date}_${d.busNumber}`, d);
+      if (d.busNumber) docMap.set(`${d.date}_${d.busNumber}`, d);
+      if (d.tggVehicleName) docMap.set(`${d.date}_${d.tggVehicleName}`, d);
     });
 
     const reportRows = buses.map(bus => {
@@ -1100,9 +1101,12 @@ const fetchDayInOutReport = async (req, res) => {
 
       dates.forEach(dateStr => {
         const doc = docMap.get(`${dateStr}_${busPlateKey}`) || docMap.get(`${dateStr}_${bus.busNumber}`);
+        const rawIn = doc?.firstInTime ? String(doc.firstInTime).trim() : null;
+        const rawOut = doc?.lastOutTime ? String(doc.lastOutTime).trim() : null;
+
         daysMap[dateStr] = {
-          firstIn: doc && doc.firstInTime && doc.firstInTime !== '—' ? doc.firstInTime : null,
-          lastOut: doc && doc.lastOutTime && doc.lastOutTime !== '—' ? doc.lastOutTime : null,
+          firstIn: (rawIn && rawIn !== '—' && rawIn !== '-') ? rawIn : null,
+          lastOut: (rawOut && rawOut !== '—' && rawOut !== '-') ? rawOut : null,
           kilometers: doc?.totalKms || 0
         };
       });

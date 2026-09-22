@@ -650,13 +650,19 @@ export default function GpsTracking() {
       });
       const json = await res.json();
       if (res.ok && json.success) {
+        // Clear stale session caches while preserving date range filter selection
+        const currentFrom = sessionStorage.getItem('gps_fleet_date_from') || fromD;
+        const currentTo = sessionStorage.getItem('gps_fleet_date_to') || toD;
         sessionStorage.clear();
+        if (currentFrom) sessionStorage.setItem('gps_fleet_date_from', currentFrom);
+        if (currentTo) sessionStorage.setItem('gps_fleet_date_to', currentTo);
+
         if (activePageTab === 'nightstay') {
-          await fetchNightStayReportData(fromD, toD, false);
+          await fetchNightStayReportData(fromD, toD, true);
         } else if (activePageTab === 'fuel') {
-          await fetchFuelReportData(fromD, toD, fuelSelectedVehicle, false);
+          await fetchFuelReportData(fromD, toD, fuelSelectedVehicle, true);
         } else {
-          await fetchDayReport(fromD, toD, false);
+          await fetchDayReport(fromD, toD, true);
         }
       }
     } catch (err) {
@@ -680,8 +686,13 @@ export default function GpsTracking() {
       });
       const json = await res.json();
       if (res.ok && json.success) {
-        // Clear stale session caches
+        // Clear stale session caches while preserving date range filter selection
+        const currentFrom = sessionStorage.getItem('gps_fleet_date_from') || fromD;
+        const currentTo = sessionStorage.getItem('gps_fleet_date_to') || toD;
         sessionStorage.clear();
+        if (currentFrom) sessionStorage.setItem('gps_fleet_date_from', currentFrom);
+        if (currentTo) sessionStorage.setItem('gps_fleet_date_to', currentTo);
+
         if (activePageTab === 'nightstay') {
           await fetchNightStayReportData(fromD, toD, true);
         } else if (activePageTab === 'fuel') {
