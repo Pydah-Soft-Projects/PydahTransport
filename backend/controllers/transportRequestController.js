@@ -760,11 +760,23 @@ const getTransportRequests = async (req, res) => {
 
         // Build MongoDB query for student transport requests
         let studentMongoQuery = {};
-        if (route_id) studentMongoQuery.route_id = route_id;
-        if (status === 'expired' || status === 'active') {
-            studentMongoQuery.status = 'approved';
+        if (route_id) {
+            const routeNum = Number(route_id);
+            if (!isNaN(routeNum) && Number.isFinite(routeNum)) {
+                studentMongoQuery.route_id = { $in: [route_id, String(route_id), routeNum] };
+            } else {
+                studentMongoQuery.route_id = route_id;
+            }
+        }
+        if (status === 'expired') {
+            studentMongoQuery.status = { $in: ['approved', 'Approved', 'APPROVED', 'expired', 'Expired', 'EXPIRED'] };
+        } else if (status === 'active') {
+            studentMongoQuery.status = { $in: ['approved', 'Approved', 'APPROVED'] };
         } else if (status) {
-            studentMongoQuery.status = status;
+            const statusLower = String(status).toLowerCase();
+            studentMongoQuery.status = {
+                $in: [statusLower, statusLower.charAt(0).toUpperCase() + statusLower.slice(1), String(status).toUpperCase()]
+            };
         }
         if (bus_id !== undefined) {
             if (bus_id === '' || bus_id === 'unassigned') {
@@ -856,21 +868,31 @@ const getTransportRequests = async (req, res) => {
             const admNo = r.admission_number;
             const student = (admNo && studentMap[admNo]) || {};
 
-            const itemCourse = student.course || 'N/A';
-            const itemBranch = student.branch || 'N/A';
-            const itemCollege = student.college || null;
-            const itemPinNo = student.pin_no || 'N/A';
+            const itemCourse = r.course || student.course || 'N/A';
+            const itemBranch = r.branch || student.branch || 'N/A';
+            const itemCollege = r.college || student.college || null;
+            const itemPinNo = r.pin_no || student.pin_no || 'N/A';
             const itemYear = r.year_of_study || student.current_year || 1;
 
-            if (course && itemCourse !== course) continue;
-            if (college && itemCollege !== college) continue;
+            if (course) {
+                const normTarget = String(course).trim().toLowerCase();
+                const normItem = String(itemCourse || '').trim().toLowerCase();
+                if (normItem !== normTarget && !normItem.includes(normTarget) && !normTarget.includes(normItem)) continue;
+            }
+            if (college) {
+                const normTarget = String(college).trim().toLowerCase();
+                const normItem = String(itemCollege || '').trim().toLowerCase();
+                if (normItem !== normTarget && !normItem.includes(normTarget) && !normTarget.includes(normItem)) continue;
+            }
             if (restrictedColleges !== null && (!itemCollege || !restrictedColleges.includes(itemCollege))) continue;
             if (hasCourseRestriction && (!itemCourse || !req.user.courses.includes(itemCourse))) continue;
 
-            const isExpired = r.is_expired ?? false;
+            const rStatus = (r.status || '').toLowerCase();
+            const isExpired = rStatus === 'expired' || Boolean(r.is_expired);
 
-            if (status === 'expired' && (!isExpired || r.status !== 'approved')) continue;
-            if (status === 'active' && (isExpired || r.status !== 'approved')) continue;
+            if (status === 'expired' && (!isExpired || (rStatus !== 'approved' && rStatus !== 'expired'))) continue;
+            if (status === 'active' && (isExpired || rStatus !== 'approved')) continue;
+            if (status && status !== 'active' && status !== 'expired' && rStatus !== String(status).toLowerCase()) continue;
 
             formattedStudentRows.push({
                 ...r,
@@ -891,8 +913,20 @@ const getTransportRequests = async (req, res) => {
 
         // Fetch Employee requests from MongoDB
         const mongoQuery = {};
-        if (route_id) mongoQuery.route_id = route_id;
-        if (status) mongoQuery.status = status;
+        if (route_id) {
+            const routeNum = Number(route_id);
+            if (!isNaN(routeNum) && Number.isFinite(routeNum)) {
+                mongoQuery.route_id = { $in: [route_id, String(route_id), routeNum] };
+            } else {
+                mongoQuery.route_id = route_id;
+            }
+        }
+        if (status) {
+            const statusLower = String(status).toLowerCase();
+            mongoQuery.status = {
+                $in: [statusLower, statusLower.charAt(0).toUpperCase() + statusLower.slice(1), String(status).toUpperCase()]
+            };
+        }
         if (bus_id !== undefined) {
             if (bus_id === '' || bus_id === 'unassigned') {
                 mongoQuery.bus_id = null;

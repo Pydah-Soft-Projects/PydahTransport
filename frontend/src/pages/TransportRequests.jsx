@@ -1031,6 +1031,7 @@ const TransportRequests = () => {
     }, [idCardModalOpen, idCardAcademicYear, idCardStartDate, idCardEndDate]);
 
     useEffect(() => {
+        setLoading(true);
         fetchRequests();
         setCurrentPage(1);
     }, [academicYear, routeFilter, collegeFilter, courseFilter, statusFilter, searchQuery]);
