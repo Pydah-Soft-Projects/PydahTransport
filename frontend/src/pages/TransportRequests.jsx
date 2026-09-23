@@ -130,6 +130,55 @@ const TransportRequestsSkeleton = () => {
     );
 };
 
+const AbstractSkeleton = () => {
+    return (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex flex-col animate-pulse mb-6">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <div className="h-5 w-5 bg-slate-200 rounded-md"></div>
+                    <div className="space-y-1">
+                        <div className="h-4 w-56 bg-slate-200 rounded-lg"></div>
+                        <div className="h-3 w-72 bg-slate-150 rounded"></div>
+                    </div>
+                </div>
+                <div className="h-7 w-24 bg-slate-200 rounded-full"></div>
+            </div>
+            <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr className="bg-slate-100/90 border-b border-slate-200">
+                            <th className="p-3"><div className="h-4 w-44 bg-slate-200 rounded"></div></th>
+                            <th className="p-3"><div className="h-4 w-20 bg-slate-200 rounded mx-auto"></div></th>
+                            <th className="p-3"><div className="h-4 w-12 bg-slate-200 rounded mx-auto"></div></th>
+                            <th className="p-3"><div className="h-4 w-12 bg-slate-200 rounded mx-auto"></div></th>
+                            <th className="p-3"><div className="h-4 w-12 bg-slate-200 rounded mx-auto"></div></th>
+                            <th className="p-3"><div className="h-4 w-12 bg-slate-200 rounded mx-auto"></div></th>
+                            <th className="p-3"><div className="h-4 w-24 bg-slate-200 rounded mx-auto"></div></th>
+                            <th className="p-3"><div className="h-4 w-16 bg-slate-200 rounded mx-auto"></div></th>
+                            <th className="p-3"><div className="h-4 w-16 bg-slate-200 rounded mx-auto"></div></th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {[1, 2, 3, 4, 5, 6].map((i) => (
+                            <tr key={i} className="border-b border-slate-100">
+                                <td className="p-3"><div className="h-4 w-52 bg-slate-200 rounded"></div></td>
+                                <td className="p-3"><div className="h-4 w-12 bg-slate-200 rounded mx-auto"></div></td>
+                                <td className="p-3"><div className="h-4 w-8 bg-slate-200 rounded mx-auto"></div></td>
+                                <td className="p-3"><div className="h-4 w-8 bg-slate-200 rounded mx-auto"></div></td>
+                                <td className="p-3"><div className="h-4 w-8 bg-slate-200 rounded mx-auto"></div></td>
+                                <td className="p-3"><div className="h-4 w-8 bg-slate-200 rounded mx-auto"></div></td>
+                                <td className="p-3"><div className="h-4 w-12 bg-slate-200 rounded mx-auto"></div></td>
+                                <td className="p-3"><div className="h-4 w-8 bg-slate-200 rounded mx-auto"></div></td>
+                                <td className="p-3"><div className="h-4 w-8 bg-slate-200 rounded mx-auto"></div></td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
 const TransportRequests = () => {
     const [requests, setRequests] = useState([]);
     const [expiryMap, setExpiryMap] = useState({});
@@ -1072,15 +1121,19 @@ const TransportRequests = () => {
             }
 
             // College Breakdown
-            const cKey = r.college || 'Other / General';
-            const courseName = r.course || (r.user_type === 'employee' ? 'Employee Transport' : 'General');
+            const isEmp = r.user_type === 'employee';
+            const cKey = isEmp || !r.college || r.college === 'Other / General' ? 'Employees' : r.college;
+            const courseName = r.course || (isEmp ? 'Employee Transport' : 'General');
             const yr = Number(r.year_of_study || 1);
+            const isCanc = status === 'cancelled';
 
             if (!collegeMap.has(cKey)) {
                 collegeMap.set(cKey, {
                     collegeName: cKey,
                     total: 0,
                     approved: 0,
+                    cancelled: 0,
+                    expired: 0,
                     pending: 0,
                     payableFare: 0,
                     y1: 0,
@@ -1093,6 +1146,8 @@ const TransportRequests = () => {
             const cStat = collegeMap.get(cKey);
             cStat.total++;
             if (status === 'approved' && !isExp) cStat.approved++;
+            if (isCanc) cStat.cancelled++;
+            if (isExp) cStat.expired++;
             if (status === 'pending') cStat.pending++;
             cStat.payableFare += payable;
             if (r.user_type !== 'employee') {
@@ -1108,6 +1163,8 @@ const TransportRequests = () => {
                     courseName: courseName,
                     total: 0,
                     approved: 0,
+                    cancelled: 0,
+                    expired: 0,
                     pending: 0,
                     payableFare: 0,
                     y1: 0,
@@ -1119,6 +1176,8 @@ const TransportRequests = () => {
             const crsStat = cStat.coursesMap.get(courseName);
             crsStat.total++;
             if (status === 'approved' && !isExp) crsStat.approved++;
+            if (isCanc) crsStat.cancelled++;
+            if (isExp) crsStat.expired++;
             if (status === 'pending') crsStat.pending++;
             crsStat.payableFare += payable;
             if (r.user_type !== 'employee') {
@@ -1133,8 +1192,8 @@ const TransportRequests = () => {
             ...c,
             courses: Array.from(c.coursesMap.values()).sort((a, b) => b.total - a.total)
         })).sort((a, b) => {
-            const isOtherA = a.collegeName.toLowerCase().includes('other');
-            const isOtherB = b.collegeName.toLowerCase().includes('other');
+            const isOtherA = a.collegeName.toLowerCase().includes('other') || a.collegeName.toLowerCase() === 'employees';
+            const isOtherB = b.collegeName.toLowerCase().includes('other') || b.collegeName.toLowerCase() === 'employees';
             if (isOtherA && !isOtherB) return 1;
             if (!isOtherA && isOtherB) return -1;
             return b.total - a.total;
@@ -1444,6 +1503,9 @@ const TransportRequests = () => {
             </div>
 
             {activeMainTab === 'abstract' ? (
+                loading ? (
+                    <AbstractSkeleton />
+                ) : (
                 /* Report Abstraction View */
                 <div className="space-y-4 mb-6">
                     {/* Full-width College & Branch Abstraction Table with Accordion Dropdown */}
@@ -1471,8 +1533,8 @@ const TransportRequests = () => {
                                         <th className="p-3 text-center text-blue-700">3rd Yr</th>
                                         <th className="p-3 text-center text-blue-700">4th Yr</th>
                                         <th className="p-3 text-center text-emerald-700">Approved Active</th>
-                                        <th className="p-3 text-center text-amber-700">Pending Review</th>
-                                        <th className="p-3 text-right">Total Payable Revenue</th>
+                                        <th className="p-3 text-center text-orange-700">Cancelled</th>
+                                        <th className="p-3 text-center text-rose-700">Expired</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 font-semibold">
@@ -1503,8 +1565,8 @@ const TransportRequests = () => {
                                                     <td className="p-3 text-center text-blue-700 font-bold text-xs">{c.y3}</td>
                                                     <td className="p-3 text-center text-blue-700 font-bold text-xs">{c.y4}</td>
                                                     <td className="p-3 text-center text-emerald-700 font-extrabold text-xs sm:text-sm">{c.approved}</td>
-                                                    <td className="p-3 text-center text-amber-700 font-extrabold text-xs sm:text-sm">{c.pending}</td>
-                                                    <td className="p-3 text-right font-black text-slate-900 text-xs sm:text-sm">{formatFare(c.payableFare)}</td>
+                                                    <td className="p-3 text-center text-orange-700 font-extrabold text-xs sm:text-sm">{c.cancelled}</td>
+                                                    <td className="p-3 text-center text-rose-700 font-extrabold text-xs sm:text-sm">{c.expired}</td>
                                                 </tr>
 
                                                 {/* Dropdown Course Breakdown Table Row */}
@@ -1522,8 +1584,8 @@ const TransportRequests = () => {
                                                                             <th className="p-2 text-center text-blue-900">3rd Year</th>
                                                                             <th className="p-2 text-center text-blue-900">4th Year</th>
                                                                             <th className="p-2 text-center text-emerald-700">Approved</th>
-                                                                            <th className="p-2 text-center text-amber-700">Pending</th>
-                                                                            <th className="p-2 text-right pr-4">Course Revenue</th>
+                                                                            <th className="p-2 text-center text-orange-700">Cancelled</th>
+                                                                            <th className="p-2 text-center text-rose-700">Expired</th>
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody className="divide-y divide-slate-100 text-xs font-semibold">
@@ -1539,8 +1601,8 @@ const TransportRequests = () => {
                                                                                 <td className="p-2 text-center text-blue-800 font-medium">{crs.y3}</td>
                                                                                 <td className="p-2 text-center text-blue-800 font-medium">{crs.y4}</td>
                                                                                 <td className="p-2 text-center text-emerald-700 font-bold">{crs.approved}</td>
-                                                                                <td className="p-2 text-center text-amber-700 font-bold">{crs.pending}</td>
-                                                                                <td className="p-2 text-right pr-4 font-bold text-slate-900">{formatFare(crs.payableFare)}</td>
+                                                                                <td className="p-2 text-center text-orange-700 font-bold">{crs.cancelled}</td>
+                                                                                <td className="p-2 text-center text-rose-700 font-bold">{crs.expired}</td>
                                                                             </tr>
                                                                         ))}
                                                                     </tbody>
@@ -1557,6 +1619,7 @@ const TransportRequests = () => {
                         </div>
                     </div>
                 </div>
+                )
             ) : (
                 <>
                     {/* Stats Cards */}
