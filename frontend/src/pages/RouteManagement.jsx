@@ -31,7 +31,11 @@ import {
     Moon,
     Route,
     RotateCcw,
+    FileText,
+    FileSpreadsheet,
+    Download,
 } from 'lucide-react';
+import ExcelJS from 'exceljs';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -3418,6 +3422,8 @@ const RouteManagement = () => {
         }
     }, [campuses]);
 
+    const [showPrintOptionsModal, setShowPrintOptionsModal] = useState(false);
+
     const handlePrintRoutes = () => {
         if (isPrintingRoutes) return;
         if (filteredRoutes.length === 0) {
@@ -3448,6 +3454,220 @@ const RouteManagement = () => {
         } catch (error) {
             console.error('Error printing routes:', error);
             setSaveMessage({ text: 'Failed to prepare routes print document.', type: 'error' });
+            setIsPrintingRoutes(false);
+        }
+    };
+
+    const handleExportExcelRoutes = async () => {
+        if (isPrintingRoutes) return;
+        if (filteredRoutes.length === 0) {
+            setSaveMessage({ text: 'No routes to export for the current filters.', type: 'error' });
+            return;
+        }
+
+        const sortedRoutes = sortRoutesByRouteId(filteredRoutes);
+        const totalStages = sortedRoutes.reduce((sum, route) => sum + (route.stages?.length || 0), 0);
+
+        const campusLabel = selectedCampusFilter
+            ? (() => {
+                const campus = allowedCampuses.find((c) => String(getCampusId(c)) === String(selectedCampusFilter));
+                return campus ? `${campus.name} (${campus.code})` : 'Selected Campus';
+            })()
+            : 'All Campuses';
+
+        const filterBits = [
+            `Academic Year: ${academicYear}`,
+            `Campus: ${campusLabel}`,
+            searchQuery ? `Search: ${searchQuery}` : null,
+        ].filter(Boolean).join(' · ');
+
+        const printedAt = new Date().toLocaleString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+
+        setIsPrintingRoutes(true);
+        try {
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'Pydah Transport System';
+            workbook.created = new Date();
+
+            const worksheet = workbook.addWorksheet('Routes & Stages');
+
+            // Set column widths
+            worksheet.getColumn(1).width = 10;  // #
+            worksheet.getColumn(2).width = 45;  // Stage Name / Route Header Left
+            worksheet.getColumn(3).width = 30;  // Fare / Route Header Right
+
+            // 1. Title Block (PDF style)
+            const titleRow = worksheet.addRow(['Pydah Transport — Routes & Stages']);
+            titleRow.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF111111' } };
+            titleRow.alignment = { horizontal: 'center', vertical: 'middle' };
+            worksheet.mergeCells('A1:C1');
+            titleRow.height = 30;
+
+            const subTitleRow = worksheet.addRow([filterBits]);
+            subTitleRow.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF222222' } };
+            subTitleRow.alignment = { horizontal: 'center', vertical: 'middle' };
+            worksheet.mergeCells('A2:C2');
+            subTitleRow.height = 20;
+
+            worksheet.addRow([]); // Blank row
+
+            // 2. Summary Table (PDF style)
+            const sumHeader = worksheet.addRow(['TOTAL ROUTES', 'TOTAL STAGES', 'PRINTED ON']);
+            sumHeader.height = 20;
+            sumHeader.eachCell((cell) => {
+                cell.font = { name: 'Arial', size: 8.5, bold: true, color: { argb: 'FF222222' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
+                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                cell.border = {
+                    top: { style: 'thin', color: { argb: 'FF222222' } },
+                    bottom: { style: 'thin', color: { argb: 'FF222222' } },
+                    left: { style: 'thin', color: { argb: 'FF222222' } },
+                    right: { style: 'thin', color: { argb: 'FF222222' } },
+                };
+            });
+
+            const sumValues = worksheet.addRow([sortedRoutes.length, totalStages, printedAt]);
+            sumValues.height = 20;
+            sumValues.eachCell((cell) => {
+                cell.font = { name: 'Arial', size: 9.5 };
+                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                cell.border = {
+                    top: { style: 'thin', color: { argb: 'FF222222' } },
+                    bottom: { style: 'thin', color: { argb: 'FF222222' } },
+                    left: { style: 'thin', color: { argb: 'FF222222' } },
+                    right: { style: 'thin', color: { argb: 'FF222222' } },
+                };
+            });
+
+            worksheet.addRow([]); // Blank row
+
+            // 3. Route Blocks (matching routeSections in PDF)
+            sortedRoutes.forEach((route) => {
+                const stages = Array.isArray(route.stages) ? route.stages : [];
+                const campusName = route.campus?.name || route.campus?.code || route.campus || '—';
+
+                // Route Header Box - Row 1: Title & Points
+                const rHeadTitleRow = worksheet.addRow([
+                    `${route.routeId || '—'} — ${route.routeName || 'Unnamed Route'}`,
+                    '',
+                    `Start: ${route.startPoint || '—'}  |  End: ${route.endPoint || '—'}`
+                ]);
+                rHeadTitleRow.height = 22;
+                worksheet.mergeCells(`A${rHeadTitleRow.number}:B${rHeadTitleRow.number}`);
+                
+                rHeadTitleRow.getCell(1).font = { name: 'Arial', size: 10.5, bold: true, color: { argb: 'FF111111' } };
+                rHeadTitleRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+                
+                rHeadTitleRow.getCell(3).font = { name: 'Arial', size: 8.5, color: { argb: 'FF222222' } };
+                rHeadTitleRow.getCell(3).alignment = { horizontal: 'right', vertical: 'middle' };
+
+                // Route Header Box - Row 2: Sub-meta
+                const rMetaRow = worksheet.addRow([
+                    `Campus: ${campusName}  ·  Zone: ${route.zone || '—'}  ·  ${stages.length} stage${stages.length === 1 ? '' : 's'}`,
+                    '',
+                    ''
+                ]);
+                rMetaRow.height = 18;
+                worksheet.mergeCells(`A${rMetaRow.number}:C${rMetaRow.number}`);
+                rMetaRow.getCell(1).font = { name: 'Arial', size: 8.5, color: { argb: 'FF444444' } };
+                rMetaRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+
+                // Apply header background & border across the block header
+                [rHeadTitleRow, rMetaRow].forEach((r) => {
+                    r.eachCell({ includeEmpty: true }, (cell) => {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
+                        cell.border = {
+                            top: { style: 'thin', color: { argb: 'FF222222' } },
+                            bottom: { style: 'thin', color: { argb: 'FF222222' } },
+                            left: { style: 'thin', color: { argb: 'FF222222' } },
+                            right: { style: 'thin', color: { argb: 'FF222222' } },
+                        };
+                    });
+                });
+
+                // Stage Table Header
+                const tblHeaderRow = worksheet.addRow(['#', 'Stage Name', `Fare (${academicYear})`]);
+                tblHeaderRow.height = 20;
+                tblHeaderRow.eachCell((cell, colIndex) => {
+                    cell.font = { name: 'Arial', size: 8.5, bold: true, color: { argb: 'FF111111' } };
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+                    cell.alignment = { horizontal: colIndex === 2 ? 'left' : 'center', vertical: 'middle' };
+                    cell.border = {
+                        top: { style: 'thin', color: { argb: 'FF222222' } },
+                        bottom: { style: 'thin', color: { argb: 'FF222222' } },
+                        left: { style: 'thin', color: { argb: 'FF222222' } },
+                        right: { style: 'thin', color: { argb: 'FF222222' } },
+                    };
+                });
+
+                // Stage Rows
+                if (stages.length === 0) {
+                    const emptyRow = worksheet.addRow(['-', 'No stages defined', '-']);
+                    emptyRow.height = 18;
+                    emptyRow.eachCell((cell) => {
+                        cell.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF666666' } };
+                        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                        cell.border = {
+                            top: { style: 'thin', color: { argb: 'FF222222' } },
+                            bottom: { style: 'thin', color: { argb: 'FF222222' } },
+                            left: { style: 'thin', color: { argb: 'FF222222' } },
+                            right: { style: 'thin', color: { argb: 'FF222222' } },
+                        };
+                    });
+                } else {
+                    stages.forEach((stage, idx) => {
+                        const fare = Number(resolveStageFareForYear(stage, academicYear) || 0);
+                        const stgRow = worksheet.addRow([idx + 1, stage.stageName || '—', fare]);
+                        stgRow.height = 18;
+                        stgRow.getCell(1).font = { name: 'Arial', size: 9 };
+                        stgRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+                        stgRow.getCell(2).font = { name: 'Arial', size: 9 };
+                        stgRow.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+
+                        stgRow.getCell(3).font = { name: 'Arial', size: 9 };
+                        stgRow.getCell(3).alignment = { horizontal: 'center', vertical: 'middle' };
+                        stgRow.getCell(3).numFmt = '₹#,##0';
+
+                        stgRow.eachCell((cell) => {
+                            cell.border = {
+                                top: { style: 'thin', color: { argb: 'FF222222' } },
+                                bottom: { style: 'thin', color: { argb: 'FF222222' } },
+                                left: { style: 'thin', color: { argb: 'FF222222' } },
+                                right: { style: 'thin', color: { argb: 'FF222222' } },
+                            };
+                        });
+                    });
+                }
+
+                worksheet.addRow([]); // Blank spacing row between route blocks
+            });
+
+            // Footer row (PDF style)
+            const footerRow = worksheet.addRow(['Pydah Transport Management System', '', 'End of report']);
+            footerRow.height = 20;
+            footerRow.getCell(1).font = { name: 'Arial', size: 8.5, color: { argb: 'FF555555' } };
+            footerRow.getCell(3).font = { name: 'Arial', size: 8.5, color: { argb: 'FF555555' } };
+            footerRow.getCell(3).alignment = { horizontal: 'right' };
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const url = window.URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `Routes_Stages_${academicYear}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+            anchor.click();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Error exporting routes to excel:', error);
+            setSaveMessage({ text: 'Failed to generate Excel document.', type: 'error' });
+        } finally {
             setIsPrintingRoutes(false);
         }
     };
@@ -3567,10 +3787,10 @@ const RouteManagement = () => {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={handlePrintRoutes}
+                                        onClick={() => setShowPrintOptionsModal(true)}
                                         disabled={isPrintingRoutes || loading || filteredRoutes.length === 0}
                                         className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
-                                        title="Print all routes with stages (A4)"
+                                        title="Print or export routes"
                                     >
                                         <Printer size={14} className={isPrintingRoutes ? 'animate-pulse' : ''} />
                                         <span>{isPrintingRoutes ? 'Preparing…' : 'Print'}</span>
@@ -3644,10 +3864,10 @@ const RouteManagement = () => {
                                     <div className="hidden lg:flex items-center gap-2 ml-1">
                                         <button
                                             type="button"
-                                            onClick={handlePrintRoutes}
+                                            onClick={() => setShowPrintOptionsModal(true)}
                                             disabled={isPrintingRoutes || loading || filteredRoutes.length === 0}
                                             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                                            title="Print all routes with stages (A4)"
+                                            title="Print or export routes"
                                         >
                                             <Printer size={14} className={isPrintingRoutes ? 'animate-pulse' : ''} />
                                             {isPrintingRoutes ? 'Preparing…' : 'Print Routes'}
@@ -6045,6 +6265,89 @@ const RouteManagement = () => {
                     </div>
                 </div>
             </Modal>
+
+            {/* Print & Export Options Popup Modal */}
+            {showPrintOptionsModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-6 relative overflow-hidden">
+                        {/* Header */}
+                        <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-md">
+                                    <Printer size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-bold text-slate-800">Print / Export Route Network</h3>
+                                    <p className="text-xs text-slate-500 mt-0.5">Select format for {filteredRoutes.length} route(s) ({academicYear})</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowPrintOptionsModal(false)}
+                                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Options */}
+                        <div className="grid grid-cols-1 gap-3 my-5">
+                            {/* PDF Option */}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowPrintOptionsModal(false);
+                                    handlePrintRoutes();
+                                }}
+                                className="flex items-center gap-4 p-4 rounded-xl border border-slate-200 hover:border-blue-500 bg-slate-50/50 hover:bg-blue-50/50 transition-all text-left group cursor-pointer shadow-xs hover:shadow-md"
+                            >
+                                <div className="w-12 h-12 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                                    <FileText size={24} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between">
+                                        <h4 className="text-sm font-bold text-slate-800 group-hover:text-blue-900">PDF Document</h4>
+                                        <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-red-100 text-red-700">Print</span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1">Open A4 print layout with formatted route cards & stage fares</p>
+                                </div>
+                            </button>
+
+                            {/* EXCEL Option */}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowPrintOptionsModal(false);
+                                    handleExportExcelRoutes();
+                                }}
+                                className="flex items-center gap-4 p-4 rounded-xl border border-slate-200 hover:border-emerald-500 bg-slate-50/50 hover:bg-emerald-50/50 transition-all text-left group cursor-pointer shadow-xs hover:shadow-md"
+                            >
+                                <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                                    <FileSpreadsheet size={24} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between">
+                                        <h4 className="text-sm font-bold text-slate-800 group-hover:text-emerald-900">Excel Spreadsheet</h4>
+                                        <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">.XLSX</span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1">Download structured Excel workbook with full routes & stage fare rows</p>
+                                </div>
+                            </button>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex justify-end pt-2 border-t border-slate-100">
+                            <button
+                                type="button"
+                                onClick={() => setShowPrintOptionsModal(false)}
+                                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
         </Layout>
     );
