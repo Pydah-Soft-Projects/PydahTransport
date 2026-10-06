@@ -2250,165 +2250,168 @@ const TransportRequests = () => {
                                 </div>
                             </div>
 
-                            {/* ── Action Buttons Bar ─────────────────────────────── */}
-                            <div className="bg-slate-50/80 p-3 sm:p-4 rounded-2xl border border-slate-200">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Actions</p>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                                    {isPending(req) && (
-                                        <>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleApprove(req.id)}
-                                                disabled={actionLoading !== null}
-                                                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-emerald-600 text-white text-xs sm:text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 shadow-xs transition-colors cursor-pointer"
-                                            >
-                                                <CheckCircle2 size={16} />
-                                                Approve
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleReject(req.id)}
-                                                disabled={actionLoading !== null}
-                                                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white text-amber-700 text-xs sm:text-sm font-bold border border-amber-200 hover:bg-amber-50 disabled:opacity-50 transition-colors cursor-pointer"
-                                            >
-                                                <XCircle size={16} />
-                                                {actionLoading === req.id ? 'Rejecting…' : 'Reject'}
-                                            </button>
-                                        </>
-                                    )}
-                                    {req.status === 'approved' && (
-                                        <>
-                                            <button
-                                                type="button"
-                                                disabled={fetchingPass || fetchingIdCard}
-                                                onClick={() => handlePrintAdmitCardClick(req)}
-                                                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-slate-900 text-white text-xs sm:text-sm font-bold hover:bg-black disabled:opacity-50 shadow-xs transition-colors cursor-pointer"
-                                            >
-                                                <FileText size={16} />
-                                                {fetchingPass ? 'Preparing…' : 'Print Admit Card'}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                disabled={fetchingPass || fetchingIdCard}
-                                                onClick={() => handlePrintIdCardClick(req)}
-                                                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-blue-700 text-white text-xs sm:text-sm font-bold hover:bg-blue-800 disabled:opacity-50 shadow-xs transition-colors cursor-pointer"
-                                            >
-                                                <Printer size={16} />
-                                                {fetchingIdCard ? 'Preparing…' : 'Print ID Card'}
-                                            </button>
-                                            {req.new_id_card_needed && (
+                            {/* ── Action Buttons Bar & Transport Details ─────────────────────────────── */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+                                {/* Left Side: Transport Details (2 Columns data) */}
+                                <div className="md:col-span-2 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Transport Details</p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        {/* Route — full width across the 2 columns */}
+                                        <div className="col-span-1 sm:col-span-2 flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
+                                            <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100 mt-0.5">
+                                                <MapPin size={14} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Route</p>
+                                                <p className="text-xs sm:text-sm font-semibold text-slate-900 mt-0.5 break-words whitespace-normal">
+                                                    {req.route_name || '—'} {req.route_id && <span className="text-slate-400 font-mono text-xs">({req.route_id})</span>}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <DetailItem icon={Bus} label="Stage" value={req.stage_name || '—'} />
+                                        <DetailItem icon={Bus} label="Bus" value={req.bus_id || 'Not assigned'} />
+                                        <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
+                                            <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100">
+                                                <FileText size={14} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Fare</p>
+                                                <p className="text-xs sm:text-sm font-semibold text-slate-900 mt-0.5">Normal: {fareSummary.normal}</p>
+                                                {fareSummary.hasAdjustment && (
+                                                    <p className="text-[11px] font-bold text-emerald-700">
+                                                        {fareSummary.label}: {fareSummary.adjusted}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {!isEmployee && (
+                                            req.effective_expiry_date ? (
+                                                <>
+                                                    <DetailItem icon={Clock} label="Valid Until" value={formatDate(req.effective_expiry_date)} />
+                                                    <DetailItem
+                                                        icon={Clock}
+                                                        label="Pass Status"
+                                                        value={req.is_expired ? 'Expired' : 'Valid'}
+                                                    />
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
+                                                        <div className="p-1.5 rounded-md bg-white text-slate-400 shrink-0 border border-slate-100">
+                                                            <Clock size={14} />
+                                                        </div>
+                                                        <div className="min-w-0 space-y-1">
+                                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Valid Until</p>
+                                                            <div className="h-3.5 w-20 bg-slate-200 rounded animate-pulse"></div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
+                                                        <div className="p-1.5 rounded-md bg-white text-slate-400 shrink-0 border border-slate-100">
+                                                            <Clock size={14} />
+                                                        </div>
+                                                        <div className="min-w-0 space-y-1">
+                                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Pass Status</p>
+                                                            <div className="h-3.5 w-14 bg-slate-200 rounded animate-pulse"></div>
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            )
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Right Side: Actions Section (Small size buttons) */}
+                                <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200 flex flex-col justify-start">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Actions</p>
+                                    <div className="flex flex-col gap-2">
+                                        {isPending(req) && (
+                                            <>
                                                 <button
                                                     type="button"
-                                                    disabled={idCardStatusLoading}
-                                                    onClick={() => handleUpdateIdCardStatus(req.id || req._id, false)}
-                                                    className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold disabled:opacity-50 shadow-xs transition-colors border bg-amber-500 text-white hover:bg-amber-600 border-amber-650 cursor-pointer"
+                                                    onClick={() => handleApprove(req.id)}
+                                                    disabled={actionLoading !== null}
+                                                    className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 shadow-xs transition-colors cursor-pointer"
                                                 >
-                                                    <CreditCard size={16} />
-                                                    {idCardStatusLoading ? 'Updating…' : 'Mark Card Given'}
+                                                    <CheckCircle2 size={14} />
+                                                    Approve
                                                 </button>
-                                            )}
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setCancelModalOpen(true);
-                                                    setCancelReason('');
-                                                }}
-                                                disabled={actionLoading !== null}
-                                                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white text-orange-700 text-xs sm:text-sm font-bold border border-orange-200 hover:bg-orange-50 disabled:opacity-50 transition-colors cursor-pointer"
-                                            >
-                                                <Ban size={16} />
-                                                Cancel Request
-                                            </button>
-                                        </>
-                                    )}
-                                    {statusKey === 'cancelled' && (
-                                        <div className="col-span-full rounded-xl border border-orange-200 bg-orange-50/70 p-3 text-xs text-orange-900">
-                                            <p className="text-[10px] font-black uppercase tracking-wider text-orange-600 mb-1">Cancelled</p>
-                                            <p className="font-semibold leading-snug">{req.cancellation_reason || 'No reason recorded'}</p>
-                                            {req.cancelled_at && (
-                                                <p className="text-[10px] text-orange-700 mt-1">
-                                                    {formatDate(req.cancelled_at)}
-                                                </p>
-                                            )}
-                                        </div>
-                                    )}
-                                    <button
-                                        type="button"
-                                        onClick={() => handleDelete(req.id, req.academic_year || academicYear)}
-                                        disabled={actionLoading !== null}
-                                        className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white text-red-600 text-xs sm:text-sm font-bold border border-red-200 hover:bg-red-50 disabled:opacity-50 transition-colors cursor-pointer"
-                                    >
-                                        <Trash2 size={15} />
-                                        Delete Request
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* ── Transport Details ─────────────────── */}
-                            <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Transport Details</p>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                                    {/* Route — full width so long names never truncate */}
-                                    <div className="col-span-1 sm:col-span-2 md:col-span-3 flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
-                                        <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100 mt-0.5">
-                                            <MapPin size={14} />
-                                        </div>
-                                        <div className="min-w-0">
-                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Route</p>
-                                            <p className="text-xs sm:text-sm font-semibold text-slate-900 mt-0.5 break-words whitespace-normal">
-                                                {req.route_name || '—'} {req.route_id && <span className="text-slate-400 font-mono text-xs">({req.route_id})</span>}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <DetailItem icon={Bus} label="Stage" value={req.stage_name || '—'} />
-                                    <DetailItem icon={Bus} label="Bus" value={req.bus_id || 'Not assigned'} />
-                                    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
-                                        <div className="p-1.5 rounded-md bg-white text-slate-500 shrink-0 border border-slate-100">
-                                            <FileText size={14} />
-                                        </div>
-                                        <div className="min-w-0">
-                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Fare</p>
-                                            <p className="text-xs sm:text-sm font-semibold text-slate-900 mt-0.5">Normal: {fareSummary.normal}</p>
-                                            {fareSummary.hasAdjustment && (
-                                                <p className="text-[11px] font-bold text-emerald-700">
-                                                    {fareSummary.label}: {fareSummary.adjusted}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </div>
-                                    {!isEmployee && (
-                                        req.effective_expiry_date ? (
-                                            <>
-                                                <DetailItem icon={Clock} label="Valid Until" value={formatDate(req.effective_expiry_date)} />
-                                                <DetailItem
-                                                    icon={Clock}
-                                                    label="Pass Status"
-                                                    value={req.is_expired ? 'Expired' : 'Valid'}
-                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleReject(req.id)}
+                                                    disabled={actionLoading !== null}
+                                                    className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-white text-amber-700 text-xs font-bold border border-amber-200 hover:bg-amber-50 disabled:opacity-50 transition-colors cursor-pointer"
+                                                >
+                                                    <XCircle size={14} />
+                                                    {actionLoading === req.id ? 'Rejecting…' : 'Reject'}
+                                                </button>
                                             </>
-                                        ) : (
+                                        )}
+                                        {req.status === 'approved' && (
                                             <>
-                                                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
-                                                    <div className="p-1.5 rounded-md bg-white text-slate-400 shrink-0 border border-slate-100">
-                                                        <Clock size={14} />
-                                                    </div>
-                                                    <div className="min-w-0 space-y-1">
-                                                        <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Valid Until</p>
-                                                        <div className="h-3.5 w-20 bg-slate-200 rounded animate-pulse"></div>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50/80 border border-slate-100 min-w-0">
-                                                    <div className="p-1.5 rounded-md bg-white text-slate-400 shrink-0 border border-slate-100">
-                                                        <Clock size={14} />
-                                                    </div>
-                                                    <div className="min-w-0 space-y-1">
-                                                        <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-none">Pass Status</p>
-                                                        <div className="h-3.5 w-14 bg-slate-200 rounded animate-pulse"></div>
-                                                    </div>
-                                                </div>
+                                                <button
+                                                    type="button"
+                                                    disabled={fetchingPass || fetchingIdCard}
+                                                    onClick={() => handlePrintAdmitCardClick(req)}
+                                                    className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-black disabled:opacity-50 shadow-xs transition-colors cursor-pointer"
+                                                >
+                                                    <FileText size={14} />
+                                                    {fetchingPass ? 'Preparing…' : 'Print Admit Card'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={fetchingPass || fetchingIdCard}
+                                                    onClick={() => handlePrintIdCardClick(req)}
+                                                    className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 disabled:opacity-50 shadow-xs transition-colors cursor-pointer"
+                                                >
+                                                    <Printer size={14} />
+                                                    {fetchingIdCard ? 'Preparing…' : 'Print ID Card'}
+                                                </button>
+                                                {req.new_id_card_needed && (
+                                                    <button
+                                                        type="button"
+                                                        disabled={idCardStatusLoading}
+                                                        onClick={() => handleUpdateIdCardStatus(req.id || req._id, false)}
+                                                        className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-bold disabled:opacity-50 shadow-xs transition-colors border bg-amber-500 text-white hover:bg-amber-600 border-amber-650 cursor-pointer"
+                                                    >
+                                                        <CreditCard size={14} />
+                                                        {idCardStatusLoading ? 'Updating…' : 'Mark Card Given'}
+                                                    </button>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setCancelModalOpen(true);
+                                                        setCancelReason('');
+                                                    }}
+                                                    disabled={actionLoading !== null}
+                                                    className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-white text-orange-700 text-xs font-bold border border-orange-200 hover:bg-orange-50 disabled:opacity-50 transition-colors cursor-pointer"
+                                                >
+                                                    <Ban size={14} />
+                                                    Cancel Request
+                                                </button>
                                             </>
-                                        )
-                                    )}
+                                        )}
+                                        {statusKey === 'cancelled' && (
+                                            <div className="rounded-lg border border-orange-200 bg-orange-50/70 p-2 text-xs text-orange-900">
+                                                <p className="text-[10px] font-black uppercase tracking-wider text-orange-600 mb-0.5">Cancelled</p>
+                                                <p className="font-semibold leading-snug">{req.cancellation_reason || 'No reason recorded'}</p>
+                                                {req.cancelled_at && (
+                                                    <p className="text-[10px] text-orange-700 mt-0.5">
+                                                        {formatDate(req.cancelled_at)}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDelete(req.id, req.academic_year || academicYear)}
+                                            disabled={actionLoading !== null}
+                                            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-white text-red-600 text-xs font-bold border border-red-200 hover:bg-red-50 disabled:opacity-50 transition-colors cursor-pointer"
+                                        >
+                                            <Trash2 size={14} />
+                                            Delete Request
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
