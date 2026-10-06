@@ -118,18 +118,21 @@ const searchEmployees = async (req, res) => {
         }
 
         const employeesCollection = conn.collection('employees');
-        const searchRegex = new RegExp(q, 'i');
+        const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const searchRegex = new RegExp(escapedQ, 'i');
         const employees = await employeesCollection.find({
             $or: [
                 { employee_name: { $regex: searchRegex } },
                 { emp_no: { $regex: searchRegex } }
             ],
-            is_active: true
+            is_active: { $ne: false }
         }).project({
             emp_no: 1,
             employee_name: 1,
             phone_number: 1,
-            email: 1
+            email: 1,
+            department: 1,
+            designation: 1
         }).limit(20).toArray();
 
         res.json(employees);

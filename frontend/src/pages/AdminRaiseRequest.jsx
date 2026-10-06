@@ -184,20 +184,27 @@ const AdminRaiseRequest = () => {
         if (!query) return;
         setLoading(true);
         try {
+            const searchQueryParam = query.trim();
             const endpoint = activeTab === 'new' 
-                ? (userType === 'employee' ? `${API_BASE}/employees/search?q=${encodeURIComponent(searchQuery)}` : `${API_BASE}/students/search?q=${encodeURIComponent(searchQuery)}`)
-                : `${API_BASE}/transport-requests/approved-passengers?q=${encodeURIComponent(searchQuery)}&user_type=${userType}`;
+                ? (userType === 'employee' ? `${API_BASE}/employees/search?q=${encodeURIComponent(searchQueryParam)}` : `${API_BASE}/students/search?q=${encodeURIComponent(searchQueryParam)}`)
+                : `${API_BASE}/transport-requests/approved-passengers?q=${encodeURIComponent(searchQueryParam)}&user_type=${userType}`;
             
             const response = await apiFetch(endpoint);
             const data = await response.json();
+            const results = response.ok && Array.isArray(data) ? data : [];
             
             if (activeTab === 'new') {
-                setStudents(data);
+                setStudents(results);
             } else {
-                setApprovedStudents(data);
+                setApprovedStudents(results);
             }
         } catch (error) {
-            console.error('Error searching students:', error);
+            console.error('Error searching passengers:', error);
+            if (activeTab === 'new') {
+                setStudents([]);
+            } else {
+                setApprovedStudents([]);
+            }
         } finally {
             setLoading(false);
         }
@@ -738,7 +745,9 @@ const AdminRaiseRequest = () => {
                                 {loading ? (
                                     <Loader text="Fetching records..." />
                                 ) : (
-                                    activeTab === 'new' ? 'Search for a student to begin.' : 'Search for an approved passenger.'
+                                    activeTab === 'new' 
+                                        ? (userType === 'employee' ? 'Search for an employee to begin.' : 'Search for a student to begin.') 
+                                        : 'Search for an approved passenger.'
                                 )}
                             </div>
                         )}
@@ -1183,7 +1192,7 @@ const AdminRaiseRequest = () => {
                     ) : (
                         <div className="p-16 text-center text-slate-400 border-2 border-dashed border-slate-100 rounded-2xl bg-slate-50/50">
                             <RefreshCw size={48} className="mx-auto mb-4 opacity-20" />
-                            <p className="font-bold text-slate-500">Pick a student on the left</p>
+                            <p className="font-bold text-slate-500">Pick a {userType === 'employee' ? 'employee' : 'student'} on the left</p>
                             <p className="text-xs text-slate-400 mt-1">We'll load their configuration right here.</p>
                         </div>
                     )}
