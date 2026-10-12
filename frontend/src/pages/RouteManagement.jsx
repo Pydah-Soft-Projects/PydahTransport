@@ -39,6 +39,13 @@ import ExcelJS from 'exceljs';
 
 const API = import.meta.env.VITE_API_URL || '';
 
+// Toggle flag to validate seat capacity during stage and member transfers.
+// Set to false to allow transfers without blocking when bus capacity is exceeded.
+// Can be changed to true in the future or controlled via environment variable VITE_ENABLE_TRANSFER_CAPACITY_VALIDATION.
+// If env is missing or not explicitly 'true', defaults strictly to false.
+const ENABLE_TRANSFER_CAPACITY_VALIDATION =
+    typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_ENABLE_TRANSFER_CAPACITY_VALIDATION === 'true';
+
 const resolveStageFareForYear = (stage, year) => {
     const overrides = Array.isArray(stage.academicYearFares) ? stage.academicYearFares : [];
     const match = overrides.find((item) => item.academicYear === year);
@@ -2540,6 +2547,11 @@ const RouteManagement = () => {
 
     // Validate if destination route can accommodate additional incoming passengers considering live + draft
     const validateNetVacancy = (destinationRouteId, incomingCount) => {
+        // If seat capacity validation is disabled, allow transfer without checking capacity
+        if (!ENABLE_TRANSFER_CAPACITY_VALIDATION) {
+            return { valid: true };
+        }
+
         const destRouteObj = routes.find(r => r.routeId === destinationRouteId);
         if (!destRouteObj) return { valid: false, message: `Destination route ${destinationRouteId} not found.` };
 
@@ -2586,7 +2598,7 @@ const RouteManagement = () => {
 
         const preview = mappingPreview[route.routeId];
         const isOverCapacity = preview?.busCapacityAlerts?.some(alert => alert.isOverCapacity) || false;
-        if (isOverCapacity) {
+        if (ENABLE_TRANSFER_CAPACITY_VALIDATION && isOverCapacity) {
             alert('Cannot add to draft: Proposed assignment exceeds the bus seating capacity limit.');
             return;
         }
@@ -4758,7 +4770,7 @@ const RouteManagement = () => {
                                         !studentTransferData.destinationRouteId || 
                                         !studentTransferData.destinationStageName || 
                                         selectedPassengers.length === 0 ||
-                                        (studentDestBuses.length > 0 && selectedPassengers.length > studentDestBuses.reduce((sum, b) => sum + (b.seatsAvailable || 0), 0))
+                                        (ENABLE_TRANSFER_CAPACITY_VALIDATION && studentDestBuses.length > 0 && selectedPassengers.length > studentDestBuses.reduce((sum, b) => sum + (b.seatsAvailable || 0), 0))
                                     }
                                     className="flex-1 bg-slate-900 hover:bg-black text-white font-bold py-3.5 px-4 rounded-xl disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2 text-xs cursor-pointer active:scale-95"
                                 >
@@ -6134,7 +6146,7 @@ const RouteManagement = () => {
                                         <button
                                             type="button"
                                             onClick={() => handleAddBusAttachToDraft(route)}
-                                            disabled={!draft.busId || isOverCapacity}
+                                            disabled={!draft.busId || (ENABLE_TRANSFER_CAPACITY_VALIDATION && isOverCapacity)}
                                             className="px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-1.5 cursor-pointer"
                                         >
                                             ⚡ Add Attach to Draft
@@ -6142,7 +6154,7 @@ const RouteManagement = () => {
                                         <button
                                             type="button"
                                             onClick={() => handleRouteWiseAttachClick(route)}
-                                            disabled={assigningBusId === route._id || !draft.busId || isOverCapacity}
+                                            disabled={assigningBusId === route._id || !draft.busId || (ENABLE_TRANSFER_CAPACITY_VALIDATION && isOverCapacity)}
                                             className="px-4 py-2.5 rounded-xl text-xs font-bold bg-blue-900 hover:bg-blue-800 text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
                                         >
                                             {assigningBusId === route._id ? 'Saving…' : 'Attach Bus Now'}
