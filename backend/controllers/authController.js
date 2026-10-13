@@ -45,15 +45,19 @@ const loginUser = async (req, res) => {
                     // We need to find the user role by the employee's ID from the HRMS DB
                     const userRole = await UserRole.findOne({ employeeId: employee._id });
 
+                    if (!userRole || !userRole.roles || userRole.roles.length === 0) {
+                        return res.status(403).json({ message: 'User does not have an assigned role in Transport system' });
+                    }
+
                     return res.json({
                         _id: employee._id,
                         username: employee.emp_no,
                         name: employee.employee_name,
-                        roles: userRole ? userRole.roles : ['user'],
-                        permissions: userRole ? userRole.permissions : [],
-                        campuses: userRole ? userRole.campuses : [],
-                        colleges: userRole ? userRole.colleges : [],
-                        courses: userRole ? userRole.courses : [],
+                        roles: userRole.roles,
+                        permissions: userRole.permissions || [],
+                        campuses: userRole.campuses || [],
+                        colleges: userRole.colleges || [],
+                        courses: userRole.courses || [],
                         token: generateToken(employee._id)
                     });
                 }
@@ -82,6 +86,10 @@ const loginUser = async (req, res) => {
                     // The core fix: Look up the Local UserRole based on the Employee Reference pointer!
                     const userRole = await UserRole.findOne({ employeeId: user.employeeRef });
 
+                    if (!userRole || !userRole.roles || userRole.roles.length === 0) {
+                        return res.status(403).json({ message: 'User does not have an assigned role in Transport system' });
+                    }
+
                     // Optional: Update last login natively
                     await usersCollection.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } });
 
@@ -90,11 +98,11 @@ const loginUser = async (req, res) => {
                         _id: user.employeeRef, 
                         username: user.email,
                         name: user.name,
-                        roles: userRole ? userRole.roles : ['user'],
-                        permissions: userRole ? userRole.permissions : [],
-                        campuses: userRole ? userRole.campuses : [],
-                        colleges: userRole ? userRole.colleges : [],
-                        courses: userRole ? userRole.courses : [],
+                        roles: userRole.roles,
+                        permissions: userRole.permissions || [],
+                        campuses: userRole.campuses || [],
+                        colleges: userRole.colleges || [],
+                        courses: userRole.courses || [],
                         token: generateToken(user.employeeRef)
                     });
                 }
@@ -191,15 +199,18 @@ const ssoLogin = async (req, res) => {
 
             if (employee) {
                 const userRole = await UserRole.findOne({ employeeId: employee._id });
+                if (!userRole || !userRole.roles || userRole.roles.length === 0) {
+                    return res.status(403).json({ message: 'User does not have an assigned role in Transport system' });
+                }
                 userPayload = {
                     _id: employee._id,
                     username: employee.emp_no,
                     name: employee.employee_name,
-                    roles: userRole ? userRole.roles : ['user'],
-                    permissions: userRole ? userRole.permissions : [],
-                    campuses: userRole ? userRole.campuses : [],
-                    colleges: userRole ? userRole.colleges : [],
-                    courses: userRole ? userRole.courses : [],
+                    roles: userRole.roles,
+                    permissions: userRole.permissions || [],
+                    campuses: userRole.campuses || [],
+                    colleges: userRole.colleges || [],
+                    courses: userRole.courses || [],
                     isSSO: true,
                     token: generateToken(employee._id)
                 };
