@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { LogOut, ExternalLink, X, Loader2, ShieldCheck } from 'lucide-react';
+import { LogOut, X, Loader2 } from 'lucide-react';
 
 const LogoutConfirmModal = ({
     isOpen,
@@ -11,6 +11,14 @@ const LogoutConfirmModal = ({
     userName = ''
 }) => {
     const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+    const activeIsSSO = Boolean(
+        isSSO ||
+        (typeof window !== 'undefined' && (
+            localStorage.getItem('isSSO') === 'true' ||
+            JSON.parse(localStorage.getItem('adminInfo') || '{}')?.isSSO
+        ))
+    );
 
     useEffect(() => {
         if (!isOpen) {
@@ -67,19 +75,15 @@ const LogoutConfirmModal = ({
                 {/* Header with close button */}
                 <div className="flex items-center justify-between px-6 pt-5 pb-2">
                     <div className="flex items-center gap-3">
-                        <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${
-                            isSSO 
-                                ? 'bg-amber-50 text-amber-600 border border-amber-100 ring-4 ring-amber-50/60'
-                                : 'bg-red-50 text-red-600 border border-red-100 ring-4 ring-red-50/60'
-                        }`}>
-                            {isSSO ? <LogOut size={20} /> : <LogOut size={20} />}
+                        <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm bg-red-50 text-red-600 border border-red-100 ring-4 ring-red-50/60">
+                            <LogOut size={20} />
                         </div>
                         <div>
                             <h3 id="logout-modal-title" className="text-lg font-bold text-slate-900 leading-tight">
                                 Confirm Sign Out
                             </h3>
                             <p className="text-xs text-slate-500 font-medium">
-                                {userName ? `Signed in as ${userName}` : 'End current active session'}
+                                {userName ? `Signed in as ${userName}` : 'Are you sure you want to log out?'}
                             </p>
                         </div>
                     </div>
@@ -95,38 +99,11 @@ const LogoutConfirmModal = ({
                 </div>
 
                 {/* Body Content */}
-                <div className="px-6 py-4 space-y-3.5">
+                <div className="px-6 py-4">
                     <p className="text-sm text-slate-600 leading-relaxed">
                         Are you sure you want to log out of the{' '}
                         <span className="font-semibold text-slate-800">Transport Management Portal</span>?
                     </p>
-
-                    {/* SSO specific prompt */}
-                    {isSSO && (
-                        <div className="rounded-xl p-3.5 bg-gradient-to-br from-amber-50/80 to-orange-50/60 border border-amber-200/70 text-slate-800 text-xs space-y-2">
-                            <div className="flex items-start gap-2.5">
-                                <div className="p-1 bg-amber-100 text-amber-800 rounded-lg shrink-0 mt-0.5">
-                                    <ShieldCheck size={14} />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <span className="font-bold text-amber-950 block">SSO Session Detected</span>
-                                    <span className="text-slate-700 leading-normal block mt-0.5">
-                                        You authenticated via Single Sign-On. When you sign out, your session will be cleared and you will be automatically redirected to the CRM Portal:
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div className="flex items-center justify-between gap-2 px-3 py-2 bg-white/90 rounded-lg border border-amber-200/80 shadow-xs">
-                                <div className="flex items-center gap-1.5 min-w-0 text-amber-900 font-mono text-[11px] font-semibold truncate">
-                                    <ExternalLink size={13} className="shrink-0 text-amber-600" />
-                                    <span className="truncate">{crmUrl}</span>
-                                </div>
-                                <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded-md shrink-0">
-                                    CRM Portal
-                                </span>
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 {/* Footer Buttons */}
@@ -145,20 +122,20 @@ const LogoutConfirmModal = ({
                         onClick={handleConfirmClick}
                         disabled={isLoggingOut}
                         className={`px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all shadow-sm flex items-center gap-2 disabled:opacity-75 ${
-                            isSSO
-                                ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200 focus:ring-4 focus:ring-amber-200'
+                            activeIsSSO
+                                ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-200 focus:ring-4 focus:ring-blue-200'
                                 : 'bg-red-600 hover:bg-red-700 shadow-red-200 focus:ring-4 focus:ring-red-200'
                         }`}
                     >
                         {isLoggingOut ? (
                             <>
                                 <Loader2 size={16} className="animate-spin shrink-0" />
-                                <span>{isSSO ? 'Redirecting to CRM...' : 'Signing Out...'}</span>
+                                <span>{activeIsSSO ? 'Redirecting to CRM...' : 'Logging Out...'}</span>
                             </>
                         ) : (
                             <>
                                 <LogOut size={16} className="shrink-0" />
-                                <span>{isSSO ? 'Yes, Log Out & Return to CRM' : 'Yes, Log Out'}</span>
+                                <span>{activeIsSSO ? 'Return to CRM' : 'Yes, Log Out'}</span>
                             </>
                         )}
                     </button>
