@@ -15,6 +15,12 @@ const {
 const campusService = require('../services/campusService');
 const { resolveStudentExpiries } = require('../utils/expiryResolver');
 
+// Toggle flag to validate seat capacity during bus-route operations.
+// Set to false to allow operations without blocking when bus capacity is exceeded.
+// If process.env.ENABLE_TRANSFER_CAPACITY_VALIDATION is missing or not explicitly 'true', defaults strictly to false.
+const ENABLE_TRANSFER_CAPACITY_VALIDATION =
+    process.env && process.env.ENABLE_TRANSFER_CAPACITY_VALIDATION === 'true';
+
 const LEGACY_CHANGED_BY = 'Existing assignment';
 
 const getChangedByName = (req) =>
@@ -870,28 +876,38 @@ const updateBus = async (req, res) => {
             }
         }
 
-        const routeToCheck = newRouteId !== undefined ? newRouteId : (bus.assignedRouteId || null);
-        if (routeToCheck) {
-            const targetCapacity = req.body.capacity !== undefined ? Number(req.body.capacity) : (bus.capacity || 0);
-            
-            const rawStudents = await TransportRequest.find({ route_id: routeToCheck, status: 'approved' }).lean();
-            await resolveStudentExpiries(rawStudents, mysqlPool);
-            const activeStudentsCount = rawStudents.filter(s => {
-                const isSameYear = (s.academic_year || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027') === (process.env.CURRENT_ACADEMIC_YEAR || '2026-2027');
-                return isSameYear || !s.is_expired;
-            }).length;
+        // Only validate route capacity if:
+        // 1. Capacity validation is enabled via ENABLE_TRANSFER_CAPACITY_VALIDATION
+        // 2. AND the route is actually changing to a new route OR the bus capacity is being explicitly modified
+        if (ENABLE_TRANSFER_CAPACITY_VALIDATION) {
+            const isRouteChanging = newRouteId !== undefined && newRouteId !== previousRouteId && newRouteId !== null;
+            const isCapacityChanging = req.body.capacity !== undefined && Number(req.body.capacity) !== bus.capacity;
 
-            const rawEmployees = await EmployeeTransportRequest.find({ route_id: routeToCheck, status: 'approved' }).lean();
-            const activeEmployeesCount = rawEmployees.filter(e => {
-                const isSameYear = (e.academic_year || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027') === (process.env.CURRENT_ACADEMIC_YEAR || '2026-2027');
-                return isSameYear || e.status === 'approved';
-            }).length;
+            if (isRouteChanging || (isCapacityChanging && bus.assignedRouteId)) {
+                const routeToCheck = isRouteChanging ? newRouteId : bus.assignedRouteId;
+                if (routeToCheck) {
+                    const targetCapacity = req.body.capacity !== undefined ? Number(req.body.capacity) : (bus.capacity || 0);
+                    
+                    const rawStudents = await TransportRequest.find({ route_id: routeToCheck, status: 'approved' }).lean();
+                    await resolveStudentExpiries(rawStudents, mysqlPool);
+                    const activeStudentsCount = rawStudents.filter(s => {
+                        const isSameYear = (s.academic_year || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027') === (process.env.CURRENT_ACADEMIC_YEAR || '2026-2027');
+                        return isSameYear || !s.is_expired;
+                    }).length;
 
-            const totalRoutePassengers = activeStudentsCount + activeEmployeesCount;
-            if (totalRoutePassengers > targetCapacity) {
-                return res.status(400).json({ 
-                    message: `Capacity exceeded: Bus capacity is ${targetCapacity}, but Route has ${totalRoutePassengers} passenger requests.` 
-                });
+                    const rawEmployees = await EmployeeTransportRequest.find({ route_id: routeToCheck, status: 'approved' }).lean();
+                    const activeEmployeesCount = rawEmployees.filter(e => {
+                        const isSameYear = (e.academic_year || process.env.CURRENT_ACADEMIC_YEAR || '2026-2027') === (process.env.CURRENT_ACADEMIC_YEAR || '2026-2027');
+                        return isSameYear || e.status === 'approved';
+                    }).length;
+
+                    const totalRoutePassengers = activeStudentsCount + activeEmployeesCount;
+                    if (totalRoutePassengers > targetCapacity) {
+                        return res.status(400).json({ 
+                            message: `Capacity exceeded: Bus capacity is ${targetCapacity}, but Route has ${totalRoutePassengers} passenger requests.` 
+                        });
+                    }
+                }
             }
         }
 
