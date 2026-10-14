@@ -121,11 +121,7 @@ const LogoutConfirmModal = ({
                         type="button"
                         onClick={handleConfirmClick}
                         disabled={isLoggingOut}
-                        className={`px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all shadow-sm flex items-center gap-2 disabled:opacity-75 ${
-                            activeIsSSO
-                                ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-200 focus:ring-4 focus:ring-blue-200'
-                                : 'bg-red-600 hover:bg-red-700 shadow-red-200 focus:ring-4 focus:ring-red-200'
-                        }`}
+                        className="px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all shadow-sm flex items-center gap-2 bg-red-600 hover:bg-red-700 shadow-red-200 focus:ring-4 focus:ring-red-200 disabled:opacity-75"
                     >
                         {isLoggingOut ? (
                             <>
