@@ -48,7 +48,16 @@ const Login = () => {
             const data = await response.json();
 
             if (response.ok) {
-                localStorage.setItem('adminInfo', JSON.stringify(data));
+                const params = new URLSearchParams(location.search);
+                const crmUrl = params.get('crmUrl') || params.get('returnUrl') || params.get('redirectUrl') || import.meta.env.VITE_CRM_URL || 'https://crm.pydah.edu.in';
+                const sessionData = {
+                    ...data,
+                    isSSO: true,
+                    crmUrl
+                };
+                localStorage.setItem('adminInfo', JSON.stringify(sessionData));
+                localStorage.setItem('isSSO', 'true');
+                localStorage.setItem('crmUrl', crmUrl);
                 navigate('/dashboard');
             } else {
                 setError(data.message || 'SSO Login failed');
@@ -84,7 +93,13 @@ const Login = () => {
             const data = await response.json();
 
             if (response.ok) {
-                localStorage.setItem('adminInfo', JSON.stringify(data));
+                const sessionData = {
+                    ...data,
+                    isSSO: false
+                };
+                localStorage.setItem('adminInfo', JSON.stringify(sessionData));
+                localStorage.removeItem('isSSO');
+                localStorage.removeItem('crmUrl');
                 navigate(nextPath === '/login' ? '/dashboard' : nextPath);
             } else {
                 setError(data.message || 'Login failed');
