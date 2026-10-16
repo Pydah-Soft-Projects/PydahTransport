@@ -35,3 +35,17 @@ export const isAuthenticated = () => {
         return false;
     }
 };
+
+export const isSSOUser = () => {
+    try {
+        const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
+        const isSSO = Boolean(
+            adminInfo.isSSO === true ||
+            adminInfo.isSSO === 'true' ||
+            localStorage.getItem('isSSO') === 'true'
+        );
+        return Boolean(adminInfo.token) && isSSO;
+    } catch {
+        return false;
+    }
+};

@@ -18,16 +18,23 @@ const Login = () => {
     const nextPath = location.state?.next || '/dashboard';
 
     useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const token = params.get('token');
+
+        if (token) {
+            // Incoming SSO login takes priority - clear existing session
+            localStorage.removeItem('adminInfo');
+            localStorage.removeItem('isSSO');
+            localStorage.removeItem('crmUrl');
+            sessionStorage.clear();
+            handleSSOLogin(token);
+            return;
+        }
+
         // Already logged in → skip login form (works after app reopen)
         if (isAuthenticated()) {
             navigate(nextPath === '/login' ? '/dashboard' : nextPath, { replace: true });
             return;
-        }
-
-        const params = new URLSearchParams(location.search);
-        const token = params.get('token');
-        if (token) {
-            handleSSOLogin(token);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location.search]);
@@ -58,6 +65,7 @@ const Login = () => {
                 localStorage.setItem('adminInfo', JSON.stringify(sessionData));
                 localStorage.setItem('isSSO', 'true');
                 localStorage.setItem('crmUrl', crmUrl);
+                window.dispatchEvent(new Event('auth-change'));
                 navigate('/dashboard');
             } else {
                 setError(data.message || 'SSO Login failed');
@@ -100,6 +108,7 @@ const Login = () => {
                 localStorage.setItem('adminInfo', JSON.stringify(sessionData));
                 localStorage.removeItem('isSSO');
                 localStorage.removeItem('crmUrl');
+                window.dispatchEvent(new Event('auth-change'));
                 navigate(nextPath === '/login' ? '/dashboard' : nextPath);
             } else {
                 setError(data.message || 'Login failed');

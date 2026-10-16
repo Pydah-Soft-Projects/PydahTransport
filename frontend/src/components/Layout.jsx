@@ -74,6 +74,7 @@ const Layout = ({ children, title }) => {
         localStorage.removeItem('isSSO');
         localStorage.removeItem('crmUrl');
         sessionStorage.clear();
+        window.dispatchEvent(new Event('auth-change'));
 
         if (isSSO) {
             window.location.href = crmUrl;

@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
 import VerifyAccessRoute from './components/VerifyAccessRoute';
+import PortalSwitcher from './components/PortalSwitcher';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -27,9 +29,23 @@ import InspectionReports from './pages/InspectionReports';
 import './App.css';
 
 function App() {
+  // Clear stale session early when incoming SSO token is detected in URL
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const ssoToken = urlParams.get('token');
+    if (ssoToken) {
+      localStorage.removeItem('adminInfo');
+      localStorage.removeItem('isSSO');
+      localStorage.removeItem('crmUrl');
+      sessionStorage.clear();
+    }
+  }, []);
+
   return (
     <Router>
       <div className="App">
+        {/* Pydah Universal Portal Switcher - Only rendered for SSO authenticated users */}
+        <PortalSwitcher />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
