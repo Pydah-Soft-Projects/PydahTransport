@@ -1,4 +1,13 @@
 {
+  "https://crm.pydah.edu.in": {
+    "scope": "/"
+  },
+  "https://crm.pydah.edu.in/": {
+    "scope": "/"
+  },
+  "https://crm.pydah.edu.in/manifest.json": {
+    "scope": "/"
+  },
   "web_apps": [
     {
       "manifest": "https://crm.pydah.edu.in/manifest.json"
