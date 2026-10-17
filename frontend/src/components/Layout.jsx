@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import DraftFloatingWidget from './DraftFloatingWidget';
+import LogoutConfirmModal from './LogoutConfirmModal';
 import {
     LayoutDashboard,
     Bus,
@@ -46,6 +47,8 @@ const Layout = ({ children, title }) => {
         qr_verification: location.pathname.startsWith('/verify') || location.pathname.startsWith('/inspection-reports'),
     }));
 
+    const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+
     const toggleSidebarCollapse = () => {
         setIsCollapsed((prev) => {
             const next = !prev;
@@ -54,14 +57,27 @@ const Layout = ({ children, title }) => {
         });
     };
 
-    const handleLogout = () => {
+    const handleLogoutClick = () => {
+        setIsLogoutModalOpen(true);
+    };
+
+    const handleConfirmLogout = () => {
         const adminInfo = JSON.parse(localStorage.getItem('adminInfo') || '{}');
-        const isSSO = adminInfo.isSSO;
+        const isSSO = Boolean(
+            adminInfo.isSSO === true ||
+            adminInfo.isSSO === 'true' ||
+            localStorage.getItem('isSSO') === 'true'
+        );
+        const crmUrl = adminInfo.crmUrl || localStorage.getItem('crmUrl') || import.meta.env.VITE_CRM_URL || 'https://crm.pydah.edu.in';
 
         localStorage.removeItem('adminInfo');
+        localStorage.removeItem('isSSO');
+        localStorage.removeItem('crmUrl');
+        sessionStorage.clear();
+        window.dispatchEvent(new Event('auth-change'));
 
         if (isSSO) {
-            window.location.href = import.meta.env.VITE_CRM_URL || 'http://localhost:5173';
+            window.location.href = crmUrl;
         } else {
             navigate('/login');
         }
@@ -389,11 +405,20 @@ const Layout = ({ children, title }) => {
                                 </div>
                             )}
                         </div>
-                        {!isCollapsed && (
+                        {isCollapsed ? (
+                            <button
+                                type="button"
+                                onClick={handleLogoutClick}
+                                title="Logout"
+                                className="p-2 text-slate-400 hover:text-red-400 transition-colors rounded-lg hover:bg-white/10"
+                            >
+                                <LogOut size={18} />
+                            </button>
+                        ) : (
                             <div className="flex flex-col gap-1 pr-1 shrink-0">
                                 <button
                                     type="button"
-                                    onClick={handleLogout}
+                                    onClick={handleLogoutClick}
                                     title="Logout"
                                     className="p-1.5 text-slate-400 hover:text-red-400 transition-colors rounded-lg hover:bg-white/10"
                                 >
@@ -460,7 +485,7 @@ const Layout = ({ children, title }) => {
                         </div>
                         <button
                             type="button"
-                            onClick={handleLogout}
+                            onClick={handleLogoutClick}
                             title="Logout"
                             className="p-2 text-slate-400 hover:text-red-400 transition-colors rounded-lg hover:bg-white/10 shrink-0"
                         >
@@ -488,6 +513,19 @@ const Layout = ({ children, title }) => {
                 </main>
                 <DraftFloatingWidget />
             </div>
+
+            <LogoutConfirmModal
+                isOpen={isLogoutModalOpen}
+                onClose={() => setIsLogoutModalOpen(false)}
+                onConfirm={handleConfirmLogout}
+                isSSO={Boolean(
+                    adminInfo.isSSO === true ||
+                    adminInfo.isSSO === 'true' ||
+                    localStorage.getItem('isSSO') === 'true'
+                )}
+                crmUrl={adminInfo.crmUrl || localStorage.getItem('crmUrl') || import.meta.env.VITE_CRM_URL || 'https://crm.pydah.edu.in'}
+                userName={adminInfo.name || adminInfo.username}
+            />
         </div>
     );
 };

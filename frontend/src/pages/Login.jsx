@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck, AlertCircle, ArrowLeft, RefreshCw, ExternalLink } from 'lucide-react';
 import ForgotPasswordModal from '../components/ForgotPasswordModal';
 import PwaInstallBanner from '../components/PwaInstallBanner';
 import { isAuthenticated } from '../utils/api';
@@ -10,6 +10,14 @@ const Login = () => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    // Directly initialize isSSOProcessing from search params to avoid initial flash of manual login form
+    const [isSSOProcessing, setIsSSOProcessing] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            return Boolean(params.get('token'));
+        }
+        return false;
+    });
     const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const navigate = useNavigate();
@@ -18,22 +26,32 @@ const Login = () => {
     const nextPath = location.state?.next || '/dashboard';
 
     useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const token = params.get('token');
+
+        if (token) {
+            setIsSSOProcessing(true);
+            // Incoming SSO login takes priority - clear existing session
+            localStorage.removeItem('adminInfo');
+            localStorage.removeItem('isSSO');
+            localStorage.removeItem('crmUrl');
+            sessionStorage.clear();
+            handleSSOLogin(token);
+            return;
+        } else {
+            setIsSSOProcessing(false);
+        }
+
         // Already logged in → skip login form (works after app reopen)
         if (isAuthenticated()) {
             navigate(nextPath === '/login' ? '/dashboard' : nextPath, { replace: true });
             return;
         }
-
-        const params = new URLSearchParams(location.search);
-        const token = params.get('token');
-        if (token) {
-            handleSSOLogin(token);
-        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location.search]);
 
     const handleSSOLogin = async (ssoToken) => {
-        setIsLoading(true);
+        setIsSSOProcessing(true);
         setError('');
 
         try {
@@ -48,17 +66,37 @@ const Login = () => {
             const data = await response.json();
 
             if (response.ok) {
-                localStorage.setItem('adminInfo', JSON.stringify(data));
+                const params = new URLSearchParams(location.search);
+                const crmUrl = params.get('crmUrl') || params.get('returnUrl') || params.get('redirectUrl') || import.meta.env.VITE_CRM_URL || 'https://crm.pydah.edu.in';
+                const sessionData = {
+                    ...data,
+                    isSSO: true,
+                    crmUrl
+                };
+                localStorage.setItem('adminInfo', JSON.stringify(sessionData));
+                localStorage.setItem('isSSO', 'true');
+                localStorage.setItem('crmUrl', crmUrl);
+                window.dispatchEvent(new Event('auth-change'));
                 navigate('/dashboard');
             } else {
-                setError(data.message || 'SSO Login failed');
+                setError(data.message || 'SSO authentication failed. Your access token may have expired.');
             }
         } catch (err) {
             console.error('SSO Error:', err);
-            setError('SSO authentication failed. Please try normal login.');
-        } finally {
-            setIsLoading(false);
+            setError('Unable to verify SSO session with the Central Gateway. Please try normal login.');
         }
+    };
+
+    const handleSwitchToNormalLogin = () => {
+        setError('');
+        setIsSSOProcessing(false);
+        navigate('/login', { replace: true });
+    };
+
+    const handleReturnToCrm = () => {
+        const params = new URLSearchParams(location.search);
+        const crmUrl = params.get('crmUrl') || params.get('returnUrl') || params.get('redirectUrl') || import.meta.env.VITE_CRM_URL || 'https://crm.pydah.edu.in';
+        window.location.href = crmUrl;
     };
 
     const handleSubmit = async (e) => {
@@ -84,7 +122,14 @@ const Login = () => {
             const data = await response.json();
 
             if (response.ok) {
-                localStorage.setItem('adminInfo', JSON.stringify(data));
+                const sessionData = {
+                    ...data,
+                    isSSO: false
+                };
+                localStorage.setItem('adminInfo', JSON.stringify(sessionData));
+                localStorage.removeItem('isSSO');
+                localStorage.removeItem('crmUrl');
+                window.dispatchEvent(new Event('auth-change'));
                 navigate(nextPath === '/login' ? '/dashboard' : nextPath);
             } else {
                 setError(data.message || 'Login failed');
@@ -124,89 +169,168 @@ const Login = () => {
                     </svg>
                 </button>
 
-                <div className="text-center mb-8 mt-2">
-                    <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome Back</h1>
-                    <p className="text-slate-500 text-sm font-medium">Sign in to access the transport dashboard</p>
-                </div>
+                {/* ========================================================================= */}
+                {/* 1. DEDICATED SSO AUTHENTICATION & LOADING STATE                           */}
+                {/* ========================================================================= */}
+                {isSSOProcessing ? (
+                    <div className="text-center py-4">
+                        {error ? (
+                            /* SSO Failed State with Action Recovery */
+                            <div>
+                                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-50 text-red-600 mb-4 ring-8 ring-red-50/50">
+                                    <AlertCircle className="w-8 h-8" />
+                                </div>
+                                <h2 className="text-2xl font-bold text-slate-900 mb-2">SSO Sign-In Failed</h2>
+                                <p className="text-slate-600 text-sm mb-6 leading-relaxed">
+                                    {error}
+                                </p>
 
-                {error && (
-                    <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded-md mb-6 text-sm flex items-center">
-                        <span className="mr-2">⚠️</span> {error}
-                    </div>
-                )}
+                                <div className="space-y-3 pt-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleSwitchToNormalLogin}
+                                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-medium py-3 px-4 rounded-xl transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+                                    >
+                                        <ArrowLeft className="w-4 h-4" />
+                                        Continue with Username & Password
+                                    </button>
 
-                <form onSubmit={handleSubmit} className="space-y-6">
-                    <div>
-                        <label className="block text-slate-700 text-sm font-bold mb-2" htmlFor="username">
-                            Username
-                        </label>
-                        <input
-                            type="text"
-                            id="username"
-                            className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white text-slate-800"
-                            placeholder="Enter your admin ID"
-                            value={username}
-                            onChange={(e) => setUsername(e.target.value)}
-                            required
-                        />
+                                    <button
+                                        type="button"
+                                        onClick={handleReturnToCrm}
+                                        className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
+                                    >
+                                        <ExternalLink className="w-4 h-4" />
+                                        Return to Central Portal
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            /* Active SSO Authorizing & Loading Screen */
+                            <div>
+                                <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-blue-700 text-xs font-semibold tracking-wide uppercase mb-6 shadow-sm">
+                                    <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+                                    Single Sign-On (SSO)
+                                </div>
+
+                                {/* Animated Portal Handshake Graphic */}
+                                <div className="relative my-6 flex items-center justify-center">
+                                    <div className="w-24 h-24 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin flex items-center justify-center">
+                                    </div>
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                        <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/30">
+                                            <ShieldCheck className="w-8 h-8 animate-pulse" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <h2 className="text-2xl font-bold text-slate-900 mb-2">Authorizing Access</h2>
+                                <p className="text-slate-500 text-sm font-normal max-w-xs mx-auto leading-relaxed">
+                                    Verifying your credentials with the Pydah Central SSO Gateway...
+                                </p>
+
+                                {/* Animated Progress Indicator */}
+                                <div className="mt-8 bg-slate-100 h-1.5 w-full rounded-full overflow-hidden relative">
+                                    <div className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-blue-500 via-indigo-600 to-blue-500 w-1/2 rounded-full animate-[pulse_1.2s_ease-in-out_infinite] translate-x-1/2"></div>
+                                </div>
+
+                                <p className="text-xs text-slate-400 mt-4 font-medium flex items-center justify-center gap-1.5">
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-500" />
+                                    Setting up secure Transport session...
+                                </p>
+                            </div>
+                        )}
                     </div>
+                ) : (
+                    /* ========================================================================= */
+                    /* 2. STANDARD MANUAL LOGIN (USERNAME / PASSWORD)                            */
+                    /* ========================================================================= */
                     <div>
-                        <div className="flex justify-between items-center mb-2">
-                            <label className="block text-slate-700 text-sm font-bold" htmlFor="password">
-                                Password
-                            </label>
-                            <button
-                                type="button"
-                                onClick={() => setIsForgotPasswordOpen(true)}
-                                className="text-xs text-slate-600 hover:text-slate-900 font-medium hover:underline"
-                            >
-                                Forgot password?
-                            </button>
+                        <div className="text-center mb-8 mt-2">
+                            <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome Back</h1>
+                            <p className="text-slate-500 text-sm font-medium">Sign in to access the transport dashboard</p>
                         </div>
-                        <div className="relative">
-                            <input
-                                type={showPassword ? "text" : "password"}
-                                id="password"
-                                className="w-full pl-4 pr-12 py-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white text-slate-800"
-                                placeholder="••••••••"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                required
-                            />
+
+                        {error && (
+                            <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded-md mb-6 text-sm flex items-center">
+                                <span className="mr-2">⚠️</span> {error}
+                            </div>
+                        )}
+
+                        <form onSubmit={handleSubmit} className="space-y-6">
+                            <div>
+                                <label className="block text-slate-700 text-sm font-bold mb-2" htmlFor="username">
+                                    Username
+                                </label>
+                                <input
+                                    type="text"
+                                    id="username"
+                                    className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white text-slate-800"
+                                    placeholder="Enter your admin ID"
+                                    value={username}
+                                    onChange={(e) => setUsername(e.target.value)}
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="block text-slate-700 text-sm font-bold" htmlFor="password">
+                                        Password
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsForgotPasswordOpen(true)}
+                                        className="text-xs text-slate-600 hover:text-slate-900 font-medium hover:underline"
+                                    >
+                                        Forgot password?
+                                    </button>
+                                </div>
+                                <div className="relative">
+                                    <input
+                                        type={showPassword ? "text" : "password"}
+                                        id="password"
+                                        className="w-full pl-4 pr-12 py-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white text-slate-800"
+                                        placeholder="••••••••"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        required
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
+                                    >
+                                        {showPassword ? (
+                                            <EyeOff className="h-5 w-5" />
+                                        ) : (
+                                            <Eye className="h-5 w-5" />
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
                             <button
-                                type="button"
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
+                                type="submit"
+                                disabled={isLoading}
+                                className={`w-full text-white font-bold py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transform transition-all flex items-center justify-center gap-2 ${isLoading
+                                    ? 'bg-slate-700 cursor-not-allowed'
+                                    : 'bg-slate-900 hover:bg-slate-800 hover:shadow-lg active:scale-95'
+                                    }`}
                             >
-                                {showPassword ? (
-                                    <EyeOff className="h-5 w-5" />
+                                {isLoading ? (
+                                    <>
+                                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Signing In...
+                                    </>
                                 ) : (
-                                    <Eye className="h-5 w-5" />
+                                    'Sign In'
                                 )}
                             </button>
-                        </div>
+                        </form>
                     </div>
-                    <button
-                        type="submit"
-                        disabled={isLoading}
-                        className={`w-full text-white font-bold py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transform transition-all flex items-center justify-center gap-2 ${isLoading
-                            ? 'bg-slate-700 cursor-not-allowed'
-                            : 'bg-slate-900 hover:bg-slate-800 hover:shadow-lg active:scale-95'
-                            }`}
-                    >
-                        {isLoading ? (
-                            <>
-                                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Signing In...
-                            </>
-                        ) : (
-                            'Sign In'
-                        )}
-                    </button>
-                </form>
+                )}
 
                 <div className="mt-8 text-center border-t border-slate-200 pt-6">
                     <p className="text-slate-400 text-xs font-medium">

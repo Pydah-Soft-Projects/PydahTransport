@@ -11,6 +11,12 @@ const {
 } = require('../utils/stageFare');
 const campusService = require('../services/campusService');
 
+// Toggle flag to validate seat capacity during stage and member transfers.
+// Set to false to allow transfers without blocking when bus capacity is exceeded.
+// If process.env.ENABLE_TRANSFER_CAPACITY_VALIDATION is missing or not explicitly 'true', defaults strictly to false.
+const ENABLE_TRANSFER_CAPACITY_VALIDATION =
+    process.env && process.env.ENABLE_TRANSFER_CAPACITY_VALIDATION === 'true';
+
 async function enrichStagesDistanceToDestination(stages, campusId, routeTotalDistance = 0) {
     if (!Array.isArray(stages) || stages.length === 0) return stages;
 
@@ -776,117 +782,120 @@ const batchTransfer = async (req, res) => {
             ? (req.user.employee_name || req.user.name || req.user.username || 'admin')
             : (req.body.performedBy || 'admin');
 
-        // 1. Perform overall capacity re-validation before executing any transfer using exact state simulation
-        const affectedRouteIds = new Set();
-        for (const item of draftQueue) {
-            if (item.sourceRouteId) affectedRouteIds.add(item.sourceRouteId);
-            if (item.destinationRouteId) affectedRouteIds.add(item.destinationRouteId);
-        }
-
-        const routeCapacityErrors = [];
-
-        if (affectedRouteIds.size > 0) {
-            const affectedRoutesList = Array.from(affectedRouteIds);
-            const queryYear = academicYear ? { academic_year: academicYear } : {};
-
-            // Fetch live buses
-            const allBuses = await Bus.find({ status: 'Active' }).lean();
-
-            // Fetch live passengers for affected routes
-            const liveStudents = await TransportRequest.find({
-                route_id: { $in: affectedRoutesList },
-                status: { $in: ['approved', 'pending'] },
-                ...queryYear
-            }, '_id student_name admission_number route_id stage_name status').lean();
-
-            const liveEmployees = await EmployeeTransportRequest.find({
-                route_id: { $in: affectedRoutesList },
-                status: { $in: ['approved', 'pending'] },
-                ...queryYear
-            }, '_id employee_name emp_no route_id stage_name status').lean();
-
-            // Map passenger ID -> { routeId, stageName }
-            const passengerSimMap = new Map();
-            for (const s of liveStudents) {
-                passengerSimMap.set(String(s._id), { routeId: s.route_id, stageName: s.stage_name || '' });
-            }
-            for (const e of liveEmployees) {
-                passengerSimMap.set(String(e._id), { routeId: e.route_id, stageName: e.stage_name || '' });
-            }
-
-            // Map bus ID -> assignedRouteId
-            const busSimMap = new Map();
-            for (const b of allBuses) {
-                busSimMap.set(String(b._id), b.assignedRouteId || null);
-            }
-
-            // Replay draftQueue actions sequentially to determine exact final state
+        // 1. Perform overall capacity re-validation before executing any transfer using exact state simulation (if enabled)
+        if (ENABLE_TRANSFER_CAPACITY_VALIDATION) {
+            const affectedRouteIds = new Set();
             for (const item of draftQueue) {
-                if (item.type === 'bus_attach') {
-                    const targetBus = item.busId ? allBuses.find(b => String(b._id) === String(item.busId)) : allBuses.find(b => b.busNumber === item.busNumber);
-                    if (targetBus) {
-                        busSimMap.set(String(targetBus._id), item.destinationRouteId);
-                    }
-                } else if (item.type === 'bus_detach') {
-                    const targetBus = item.busId ? allBuses.find(b => String(b._id) === String(item.busId)) : allBuses.find(b => b.busNumber === item.busNumber);
-                    if (targetBus) {
-                        busSimMap.set(String(targetBus._id), null);
-                    }
-                } else if (item.type === 'stage') {
-                    const normStageName = (item.stageName || '').trim().toLowerCase();
-                    for (const [pId, pData] of passengerSimMap.entries()) {
-                        if (pData.routeId === item.sourceRouteId && pData.stageName.trim().toLowerCase() === normStageName) {
-                            passengerSimMap.set(pId, { routeId: item.destinationRouteId, stageName: item.stageName });
+                if (item.sourceRouteId) affectedRouteIds.add(item.sourceRouteId);
+                if (item.destinationRouteId) affectedRouteIds.add(item.destinationRouteId);
+            }
+
+            const routeCapacityErrors = [];
+
+            if (affectedRouteIds.size > 0) {
+                const affectedRoutesList = Array.from(affectedRouteIds);
+                const queryYear = academicYear ? { academic_year: academicYear } : {};
+
+                // Fetch live buses
+                const allBuses = await Bus.find({ status: 'Active' }).lean();
+
+                // Fetch live passengers for affected routes
+                const liveStudents = await TransportRequest.find({
+                    route_id: { $in: affectedRoutesList },
+                    status: { $in: ['approved', 'pending'] },
+                    ...queryYear
+                }, '_id student_name admission_number route_id stage_name status').lean();
+
+                const liveEmployees = await EmployeeTransportRequest.find({
+                    route_id: { $in: affectedRoutesList },
+                    status: { $in: ['approved', 'pending'] },
+                    ...queryYear
+                }, '_id employee_name emp_no route_id stage_name status').lean();
+
+                // Map passenger ID -> { routeId, stageName }
+                const passengerSimMap = new Map();
+                for (const s of liveStudents) {
+                    passengerSimMap.set(String(s._id), { routeId: s.route_id, stageName: s.stage_name || '' });
+                }
+                for (const e of liveEmployees) {
+                    passengerSimMap.set(String(e._id), { routeId: e.route_id, stageName: e.stage_name || '' });
+                }
+
+                // Map bus ID -> assignedRouteId
+                const busSimMap = new Map();
+                for (const b of allBuses) {
+                    busSimMap.set(String(b._id), b.assignedRouteId || null);
+                }
+
+                // Replay draftQueue actions sequentially to determine exact final state
+                for (const item of draftQueue) {
+                    if (item.type === 'bus_attach') {
+                        const targetBus = item.busId ? allBuses.find(b => String(b._id) === String(item.busId)) : allBuses.find(b => b.busNumber === item.busNumber);
+                        if (targetBus) {
+                            busSimMap.set(String(targetBus._id), item.destinationRouteId);
                         }
-                    }
-                } else if (item.type === 'passenger') {
-                    if (item.passengers && Array.isArray(item.passengers)) {
-                        for (const p of item.passengers) {
-                            const pId = String(p.id || p._id || p.passengerId);
-                            if (pId) {
-                                passengerSimMap.set(pId, { routeId: item.destinationRouteId, stageName: item.destinationStageName || '' });
+                    } else if (item.type === 'bus_detach') {
+                        const targetBus = item.busId ? allBuses.find(b => String(b._id) === String(item.busId)) : allBuses.find(b => b.busNumber === item.busNumber);
+                        if (targetBus) {
+                            busSimMap.set(String(targetBus._id), null);
+                        }
+                    } else if (item.type === 'stage') {
+                        const normStageName = (item.stageName || '').trim().toLowerCase();
+                        for (const [pId, pData] of passengerSimMap.entries()) {
+                            if (pData.routeId === item.sourceRouteId && pData.stageName.trim().toLowerCase() === normStageName) {
+                                passengerSimMap.set(pId, { routeId: item.destinationRouteId, stageName: item.stageName });
+                            }
+                        }
+                    } else if (item.type === 'passenger') {
+                        if (item.passengers && Array.isArray(item.passengers)) {
+                            for (const p of item.passengers) {
+                                const pId = String(p.id || p._id || p.passengerId);
+                                if (pId) {
+                                    passengerSimMap.set(pId, { routeId: item.destinationRouteId, stageName: item.destinationStageName || '' });
+                                }
                             }
                         }
                     }
                 }
+
+                // Calculate final capacity & passenger count for each affected route
+                for (const routeId of affectedRoutesList) {
+                    const routeObj = await Route.findOne({ routeId });
+                    const routeName = routeObj ? routeObj.routeName : routeId;
+
+                    // Total bus capacity for this route after simulation
+                    let effectiveCapacity = 0;
+                    for (const b of allBuses) {
+                        if (busSimMap.get(String(b._id)) === routeId) {
+                            effectiveCapacity += Number(b.capacity || 0);
+                        }
+                    }
+
+                    // Total passengers for this route after simulation
+                    let projectedPassengers = 0;
+                    for (const pData of passengerSimMap.values()) {
+                        if (pData.routeId === routeId) {
+                            projectedPassengers++;
+                        }
+                    }
+
+                    if (effectiveCapacity > 0 && projectedPassengers > effectiveCapacity) {
+                        const excess = projectedPassengers - effectiveCapacity;
+                        routeCapacityErrors.push(
+                            `Route "${routeName}" (${routeId}) capacity exceeded by ${excess} seat(s)! (Bus Capacity: ${effectiveCapacity}, Projected Passengers: ${projectedPassengers})`
+                        );
+                    }
+                }
             }
 
-            // Calculate final capacity & passenger count for each affected route
-            for (const routeId of affectedRoutesList) {
-                const routeObj = await Route.findOne({ routeId });
-                const routeName = routeObj ? routeObj.routeName : routeId;
-
-                // Total bus capacity for this route after simulation
-                let effectiveCapacity = 0;
-                for (const b of allBuses) {
-                    if (busSimMap.get(String(b._id)) === routeId) {
-                        effectiveCapacity += Number(b.capacity || 0);
-                    }
-                }
-
-                // Total passengers for this route after simulation
-                let projectedPassengers = 0;
-                for (const pData of passengerSimMap.values()) {
-                    if (pData.routeId === routeId) {
-                        projectedPassengers++;
-                    }
-                }
-
-                if (effectiveCapacity > 0 && projectedPassengers > effectiveCapacity) {
-                    const excess = projectedPassengers - effectiveCapacity;
-                    routeCapacityErrors.push(
-                        `Route "${routeName}" (${routeId}) capacity exceeded by ${excess} seat(s)! (Bus Capacity: ${effectiveCapacity}, Projected Passengers: ${projectedPassengers})`
-                    );
-                }
+            if (routeCapacityErrors.length > 0) {
+                return res.status(400).json({
+                    message: `Batch validation failed: ${routeCapacityErrors.join('; ')}`,
+                    errors: routeCapacityErrors
+                });
             }
         }
 
-        if (routeCapacityErrors.length > 0) {
-            return res.status(400).json({
-                message: `Batch validation failed: ${routeCapacityErrors.join('; ')}`,
-                errors: routeCapacityErrors
-            });
-        }
 
         // 2. Execute all transfers in sequence
         let totalStagesTransferred = 0;

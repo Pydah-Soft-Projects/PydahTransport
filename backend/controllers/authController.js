@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Admin = require('../models/Admin');
 const { getEmployeeModel } = require('../models/Employee');
 const { getEmployeeConnection } = require('../config/db'); // Direct connection for 'users' collection
@@ -44,15 +45,19 @@ const loginUser = async (req, res) => {
                     // We need to find the user role by the employee's ID from the HRMS DB
                     const userRole = await UserRole.findOne({ employeeId: employee._id });
 
+                    if (!userRole || !userRole.roles || userRole.roles.length === 0) {
+                        return res.status(403).json({ message: 'User does not have an assigned role in Transport system' });
+                    }
+
                     return res.json({
                         _id: employee._id,
                         username: employee.emp_no,
                         name: employee.employee_name,
-                        roles: userRole ? userRole.roles : ['user'],
-                        permissions: userRole ? userRole.permissions : [],
-                        campuses: userRole ? userRole.campuses : [],
-                        colleges: userRole ? userRole.colleges : [],
-                        courses: userRole ? userRole.courses : [],
+                        roles: userRole.roles,
+                        permissions: userRole.permissions || [],
+                        campuses: userRole.campuses || [],
+                        colleges: userRole.colleges || [],
+                        courses: userRole.courses || [],
                         token: generateToken(employee._id)
                     });
                 }
@@ -81,6 +86,10 @@ const loginUser = async (req, res) => {
                     // The core fix: Look up the Local UserRole based on the Employee Reference pointer!
                     const userRole = await UserRole.findOne({ employeeId: user.employeeRef });
 
+                    if (!userRole || !userRole.roles || userRole.roles.length === 0) {
+                        return res.status(403).json({ message: 'User does not have an assigned role in Transport system' });
+                    }
+
                     // Optional: Update last login natively
                     await usersCollection.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } });
 
@@ -89,11 +98,11 @@ const loginUser = async (req, res) => {
                         _id: user.employeeRef, 
                         username: user.email,
                         name: user.name,
-                        roles: userRole ? userRole.roles : ['user'],
-                        permissions: userRole ? userRole.permissions : [],
-                        campuses: userRole ? userRole.campuses : [],
-                        colleges: userRole ? userRole.colleges : [],
-                        courses: userRole ? userRole.courses : [],
+                        roles: userRole.roles,
+                        permissions: userRole.permissions || [],
+                        campuses: userRole.campuses || [],
+                        colleges: userRole.colleges || [],
+                        courses: userRole.courses || [],
                         token: generateToken(user.employeeRef)
                     });
                 }
@@ -133,35 +142,75 @@ const ssoLogin = async (req, res) => {
         }
 
         // Extract data from CRM response
-        const { userId: crmUserId, role: crmRole } = verifyResult.data;
+        const {
+            userId: crmUserId,
+            employeeId: crmEmployeeId,
+            emp_no: crmEmpNo,
+            username: crmUsername,
+            email: crmEmail,
+            role: crmRole
+        } = verifyResult.data || {};
 
         // 2. Token is valid. Find user in our system.
-        // We use the userId returned by CRM.
+        // We support multiple lookup strategies:
+        // - employeeId from HRMS (directly or via crmUserId)
+        // - userroles._id (if CRM returned UserRole document ID as userId)
+        // - emp_no / username
+        // - legacy Admin collection fallback
         
         // Try Employee (HRMS employees collection)
         const Employee = getEmployeeModel();
         let userPayload = null;
 
         if (Employee) {
-            // First try by ID
-            let employee = await Employee.findById(crmUserId);
-            
-            // If not found by ID, try by emp_no
-            if (!employee) {
-                employee = await Employee.findOne({ emp_no: crmUserId });
+            let employee = null;
+
+            // Strategy 1: Check by direct employeeId if provided
+            if (crmEmployeeId && mongoose.Types.ObjectId.isValid(crmEmployeeId)) {
+                employee = await Employee.findById(crmEmployeeId);
+            }
+
+            // Strategy 2: Check by crmUserId as an Employee ObjectId
+            if (!employee && crmUserId && mongoose.Types.ObjectId.isValid(crmUserId)) {
+                employee = await Employee.findById(crmUserId);
+            }
+
+            // Strategy 3: Check if crmUserId is actually a UserRole._id (Cause A fix)
+            if (!employee && crmUserId && mongoose.Types.ObjectId.isValid(crmUserId)) {
+                const matchedUserRole = await UserRole.findById(crmUserId);
+                if (matchedUserRole && matchedUserRole.employeeId) {
+                    employee = await Employee.findById(matchedUserRole.employeeId);
+                }
+            }
+
+            // Strategy 4: Check by emp_no / username
+            const empNoQuery = crmEmpNo || crmUsername || crmUserId;
+            if (!employee && empNoQuery) {
+                employee = await Employee.findOne({ emp_no: empNoQuery });
+            }
+
+            // Strategy 5: Check by email in UserRole
+            if (!employee && crmEmail) {
+                const userRoleByEmail = await UserRole.findOne({ email: crmEmail });
+                if (userRoleByEmail && userRoleByEmail.employeeId) {
+                    employee = await Employee.findById(userRoleByEmail.employeeId);
+                }
             }
 
             if (employee) {
                 const userRole = await UserRole.findOne({ employeeId: employee._id });
+                if (!userRole || !userRole.roles || userRole.roles.length === 0) {
+                    return res.status(403).json({ message: 'User does not have an assigned role in Transport system' });
+                }
                 userPayload = {
                     _id: employee._id,
                     username: employee.emp_no,
                     name: employee.employee_name,
-                    roles: userRole ? userRole.roles : ['user'],
-                    permissions: userRole ? userRole.permissions : [],
-                    campuses: userRole ? userRole.campuses : [],
-                    colleges: userRole ? userRole.colleges : [],
-                    courses: userRole ? userRole.courses : [],
+                    roles: userRole.roles,
+                    permissions: userRole.permissions || [],
+                    campuses: userRole.campuses || [],
+                    colleges: userRole.colleges || [],
+                    courses: userRole.courses || [],
                     isSSO: true,
                     token: generateToken(employee._id)
                 };
@@ -170,7 +219,17 @@ const ssoLogin = async (req, res) => {
 
         // 3. If not found in Employee DB, try Legacy Admin DB
         if (!userPayload) {
-            const admin = await Admin.findById(crmUserId);
+            let admin = null;
+            if (crmUserId && mongoose.Types.ObjectId.isValid(crmUserId)) {
+                admin = await Admin.findById(crmUserId);
+            }
+            if (!admin && (crmUsername || crmUserId)) {
+                admin = await Admin.findOne({ username: crmUsername || crmUserId });
+            }
+            if (!admin && crmEmail) {
+                admin = await Admin.findOne({ email: crmEmail });
+            }
+
             if (admin) {
                 userPayload = {
                     _id: admin._id,
