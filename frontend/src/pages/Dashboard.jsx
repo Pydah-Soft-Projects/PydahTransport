@@ -16,7 +16,9 @@ import {
     CheckCircle2,
     AlertTriangle,
     XCircle,
-    UserCheck
+    UserCheck,
+    Clock,
+    Calendar
 } from 'lucide-react';
 import { apiFetch, API_BASE } from '../utils/api';
 import { getDefaultAcademicYear, getAcademicYearOptions, getPreviousAcademicYear } from '../utils/academicYear';
@@ -52,31 +54,61 @@ const DashboardSkeleton = () => (
             ))}
         </div>
 
-        {/* Unassigned Bus Staff Card */}
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 mb-4">
-            <div className="flex justify-between items-center mb-3">
-                <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-slate-200 shrink-0" />
-                    <div className="space-y-1.5">
-                        <div className="h-4 bg-slate-300 rounded w-40" />
-                        <div className="h-2.5 bg-slate-200 rounded w-64" />
+        {/* Unassigned Bus Staff & Late Buses Skeleton Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+            {/* Unassigned Staff Skeleton */}
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+                <div className="flex justify-between items-center mb-3">
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-slate-200 shrink-0" />
+                        <div className="space-y-1.5">
+                            <div className="h-4 bg-slate-300 rounded w-36" />
+                            <div className="h-2.5 bg-slate-200 rounded w-48" />
+                        </div>
                     </div>
+                    <div className="h-8 bg-slate-200 rounded-lg w-24 shrink-0" />
                 </div>
-                <div className="h-8 bg-slate-200 rounded-lg w-28 shrink-0" />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                {[1, 2, 3, 4].map((i) => (
-                    <div key={i} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                        <div className="flex justify-between items-center">
-                            <div className="h-3.5 bg-slate-300 rounded w-20" />
-                            <div className="h-3 bg-slate-200 rounded w-16" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                            <div className="flex justify-between items-center">
+                                <div className="h-3.5 bg-slate-300 rounded w-20" />
+                                <div className="h-3 bg-slate-200 rounded w-16" />
+                            </div>
+                            <div className="flex gap-1">
+                                <div className="h-3 bg-slate-200 rounded w-14" />
+                                <div className="h-3 bg-slate-200 rounded w-14" />
+                            </div>
                         </div>
-                        <div className="flex gap-1">
-                            <div className="h-3 bg-slate-200 rounded w-14" />
-                            <div className="h-3 bg-slate-200 rounded w-14" />
+                    ))}
+                </div>
+            </div>
+
+            {/* Late Buses Skeleton */}
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+                <div className="flex justify-between items-center mb-3">
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-slate-200 shrink-0" />
+                        <div className="space-y-1.5">
+                            <div className="h-4 bg-slate-300 rounded w-32" />
+                            <div className="h-2.5 bg-slate-200 rounded w-44" />
                         </div>
                     </div>
-                ))}
+                    <div className="h-8 bg-slate-200 rounded-lg w-24 shrink-0" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                            <div className="flex justify-between items-center">
+                                <div className="h-3.5 bg-slate-300 rounded w-20" />
+                                <div className="h-3 bg-slate-200 rounded w-16" />
+                            </div>
+                            <div className="flex gap-1">
+                                <div className="h-3 bg-slate-200 rounded w-20" />
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
         </div>
 
@@ -148,7 +180,10 @@ const Dashboard = () => {
         totalPassengers: 0,
         routeBreakdown: [],
         stageBreakdown: [],
-        courseBreakdown: []
+        courseBreakdown: [],
+        allBusesList: [],
+        routesList: [],
+        liveLateBuses: []
     });
     const [selectedRouteId, setSelectedRouteId] = useState(null);
     const [academicYear, setAcademicYear] = useState(getDefaultAcademicYear());
@@ -245,14 +280,55 @@ const Dashboard = () => {
                     buses: activeBuses.length,
                     unassignedCount: unassignedList.length,
                     unassignedBuses: unassignedList,
+                    allBusesList: activeBuses,
+                    routesList: Array.isArray(routes) ? routes : [],
                     routes: Array.isArray(routes) ? routes.length : 0,
                     totalDistance: totalDist,
                     totalPassengers: passengerStats.totalPassengers || 0,
                     routeBreakdown: passengerStats.routeBreakdown || [],
                     stageBreakdown: passengerStats.stageBreakdown || [],
-                    courseBreakdown: passengerStats.courseBreakdown || []
+                    courseBreakdown: passengerStats.courseBreakdown || [],
+                    liveLateBuses: []
                 });
                 setSelectedRouteId(null);
+                setLoading(false);
+
+                // Fetch strictly TODAY'S live GPS arrival report asynchronously without slowing down the dashboard
+                const todayStr = new Date().toISOString().split('T')[0];
+                const gpsReportUrl = `${import.meta.env.VITE_API_URL}/gps/day-inout-report?date_from=${todayStr}&date_to=${todayStr}`;
+                apiFetch(gpsReportUrl)
+                    .then(res => res.ok ? res.json() : null)
+                    .then(gpsJson => {
+                        if (gpsJson && Array.isArray(gpsJson.data)) {
+                            const todayLateBuses = [];
+                            gpsJson.data.forEach((b) => {
+                                const todayData = b.days && b.days[todayStr];
+                                if (todayData && todayData.firstIn && todayData.firstIn !== '—') {
+                                    const parts = todayData.firstIn.split(':').map(Number);
+                                    const h = parts[0];
+                                    const m = parts[1];
+                                    // Scheduled arrival is 09:00 AM. Only buses arriving after 09:00 AM today are late
+                                    if (!isNaN(h) && !isNaN(m) && (h > 9 || (h === 9 && m > 0))) {
+                                        const delayMins = (h - 9) * 60 + m;
+                                        todayLateBuses.push({
+                                            _id: `${b.busNumber}-${todayStr}`,
+                                            busNumber: b.busNumber,
+                                            routeId: b.routeId,
+                                            routeName: b.routeName,
+                                            date: todayStr,
+                                            firstIn: todayData.firstIn,
+                                            lateTime: `+${delayMins} mins`,
+                                            stage: `Arrived: ${todayData.firstIn} AM`
+                                        });
+                                    }
+                                }
+                            });
+                            setStats(prev => ({ ...prev, liveLateBuses: todayLateBuses }));
+                        }
+                    })
+                    .catch(gpsErr => {
+                        console.error('Error fetching today GPS late buses:', gpsErr);
+                    });
             } catch (error) {
                 console.error('Error fetching dashboard stats:', error);
             } finally {
@@ -313,6 +389,13 @@ const Dashboard = () => {
 
         fetchRenewalStats();
     }, []);
+
+    const lateBusesList = useMemo(() => {
+        if (stats.liveLateBuses && stats.liveLateBuses.length > 0) {
+            return stats.liveLateBuses;
+        }
+        return [];
+    }, [stats.liveLateBuses]);
 
     const mockDues = {
         total: "2,45,860",
@@ -466,81 +549,162 @@ const Dashboard = () => {
                         </div>
                     </div>
 
-                    {/* UNASSIGNED BUSES CARD SECTION */}
-                    <div className="bg-white rounded-xl p-4 shadow-sm border border-amber-200/90 mb-4 bg-gradient-to-r from-white via-amber-50/20 to-white">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
-                                    <UserCheck size={18} />
-                                </div>
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <h3 className="font-extrabold text-slate-900 text-sm">Unassigned Bus Staff</h3>
-                                        <span className={`text-[10.5px] font-black px-2 py-0.5 rounded-full border ${
-                                            (stats.unassignedCount || 0) > 0 
-                                                ? 'bg-amber-100 text-amber-800 border-amber-300' 
-                                                : 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                        }`}>
-                                            {stats.unassignedCount || 0} Buses
-                                        </span>
+                    {/* UNASSIGNED BUSES & LATE BUSES ROW */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                        {/* UNASSIGNED BUSES CARD (DECREASED WIDTH) */}
+                        <div className="bg-white rounded-xl p-4 shadow-sm border border-amber-200/90 bg-gradient-to-r from-white via-amber-50/20 to-white flex flex-col justify-between">
+                            <div>
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
+                                            <UserCheck size={18} />
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="font-extrabold text-slate-900 text-sm">Unassigned Bus Staff</h3>
+                                                <span className={`text-[10.5px] font-black px-2 py-0.5 rounded-full border ${
+                                                    (stats.unassignedCount || 0) > 0 
+                                                        ? 'bg-amber-100 text-amber-800 border-amber-300' 
+                                                        : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                                }`}>
+                                                    {stats.unassignedCount || 0} Buses
+                                                </span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-500">Buses requiring driver assignment</p>
+                                        </div>
                                     </div>
-                                    <p className="text-[11px] text-slate-500">Buses requiring driver assignment in Vehicle Management</p>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        {stats.unassignedBuses && stats.unassignedBuses.length > 4 && (
+                                            <span
+                                                onClick={() => navigate('/buses?tab=staffMapping&filter=no_driver')}
+                                                className="text-[11px] font-bold text-slate-500 hover:text-blue-600 transition-colors cursor-pointer mr-1"
+                                                title="Click to view all buses with unassigned drivers"
+                                            >
+                                                +{stats.unassignedBuses.length - 4} more
+                                            </span>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate('/buses?tab=staffMapping&filter=no_driver')}
+                                            className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3.5 py-1.5 rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                                        >
+                                            <span>Assign Staff</span>
+                                            <span>&rarr;</span>
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                                {stats.unassignedBuses && stats.unassignedBuses.length > 8 && (
-                                    <span
-                                        onClick={() => navigate('/buses?tab=staffMapping&filter=no_driver')}
-                                        className="text-[11px] font-bold text-slate-500 hover:text-blue-600 transition-colors cursor-pointer mr-1"
-                                        title="Click to view all buses with unassigned drivers"
-                                    >
-                                        +{stats.unassignedBuses.length - 8} more buses
-                                    </span>
+
+                                {stats.unassignedBuses && stats.unassignedBuses.length > 0 ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                        {stats.unassignedBuses.slice(0, 4).map((bus) => (
+                                            <div
+                                                key={bus._id}
+                                                onClick={() => navigate('/buses?tab=staffMapping&filter=no_driver')}
+                                                className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-blue-50/60 hover:border-blue-300 transition-all cursor-pointer flex flex-col justify-between gap-1.5 shadow-2xs group"
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <span className="font-mono font-bold text-xs text-slate-900 group-hover:text-blue-700">{bus.busNumber}</span>
+                                                    <span className="text-[9.5px] font-semibold text-slate-400 truncate max-w-[90px]">{bus.vehicleModel || bus.type || 'Standard'}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    {!bus.driverName && (
+                                                        <span className="text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 rounded">
+                                                            No Driver
+                                                        </span>
+                                                    )}
+                                                    {!bus.attendantName && (
+                                                        <span className="text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded">
+                                                            No Cleaner
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="py-2.5 px-3.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+                                        <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                                        <span>All buses currently have assigned drivers!</span>
+                                    </div>
                                 )}
-                                <button
-                                    type="button"
-                                    onClick={() => navigate('/buses?tab=staffMapping&filter=no_driver')}
-                                    className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3.5 py-1.5 rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
-                                >
-                                    <span>Assign Staff</span>
-                                    <span>&rarr;</span>
-                                </button>
                             </div>
                         </div>
 
-                        {stats.unassignedBuses && stats.unassignedBuses.length > 0 ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                                {stats.unassignedBuses.slice(0, 8).map((bus) => (
-                                    <div
-                                        key={bus._id}
-                                        onClick={() => navigate('/buses?tab=staffMapping&filter=no_driver')}
-                                        className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-blue-50/60 hover:border-blue-300 transition-all cursor-pointer flex flex-col justify-between gap-1.5 shadow-2xs group"
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <span className="font-mono font-bold text-xs text-slate-900 group-hover:text-blue-700">{bus.busNumber}</span>
-                                            <span className="text-[9.5px] font-semibold text-slate-400 truncate max-w-[100px]">{bus.vehicleModel || bus.type || 'Standard'}</span>
+                        {/* LATE BUSES CARD (NEW CARD ON RIGHT SIDE) */}
+                        <div className="bg-white rounded-xl p-4 shadow-sm border border-rose-200/90 bg-gradient-to-r from-white via-rose-50/20 to-white flex flex-col justify-between">
+                            <div>
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="w-9 h-9 rounded-xl bg-rose-500 text-white flex items-center justify-center shadow-xs shrink-0">
+                                            <Clock size={18} />
                                         </div>
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            {!bus.driverName && (
-                                                <span className="text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 rounded">
-                                                    No Driver
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="font-extrabold text-slate-900 text-sm">Late Buses</h3>
+                                                <span className={`text-[10.5px] font-black px-2 py-0.5 rounded-full border ${
+                                                    lateBusesList.length > 0
+                                                        ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                                        : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                                }`}>
+                                                    {lateBusesList.length} Delayed
                                                 </span>
-                                            )}
-                                            {!bus.attendantName && (
-                                                <span className="text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded">
-                                                    No Cleaner
-                                                </span>
-                                            )}
+                                            </div>
+                                            <p className="text-[11px] text-slate-500">Buses running behind scheduled arrival time</p>
                                         </div>
                                     </div>
-                                ))}
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <span className="text-[11px] font-bold text-slate-500 mr-1 flex items-center gap-1.5">
+                                            <Calendar size={13} className="text-slate-400 shrink-0" />
+                                            <span>{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate('/gps-tracking')}
+                                            className="text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 px-3 py-1.5 rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                                        >
+                                            <span>Live Tracking</span>
+                                            <span>&rarr;</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {lateBusesList.length > 0 ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                        {lateBusesList.slice(0, 4).map((bus, idx) => (
+                                            <div
+                                                key={bus._id || idx}
+                                                onClick={() => navigate('/gps-tracking')}
+                                                className="p-2.5 rounded-xl border border-rose-200/80 bg-white hover:bg-rose-50/60 hover:border-rose-300 transition-all cursor-pointer flex flex-col justify-between gap-1.5 shadow-2xs group"
+                                            >
+                                                <div className="flex items-center justify-between gap-1">
+                                                    <span className="font-mono font-bold text-xs text-slate-900 group-hover:text-rose-700">{bus.busNumber}</span>
+                                                    <span className="text-[9.5px] font-extrabold text-rose-700 bg-rose-100/80 border border-rose-300/80 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0">
+                                                        <Clock size={10} className="stroke-[2.5]" />
+                                                        {bus.lateTime}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between text-[10px] text-slate-500 gap-1">
+                                                    <span className="font-medium text-slate-700 truncate max-w-[140px]" title={bus.routeName}>
+                                                        {bus.routeId ? <span className="font-bold text-blue-600 mr-1">[{bus.routeId}]</span> : null}
+                                                        {bus.routeName}
+                                                    </span>
+                                                    {bus.stage && (
+                                                        <span className="text-[9px] text-slate-400 truncate max-w-[85px] shrink-0">
+                                                            {bus.stage}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="py-2.5 px-3.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+                                        <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                                        <span>All buses are running on schedule today!</span>
+                                    </div>
+                                )}
                             </div>
-                        ) : (
-                            <div className="py-2.5 px-3.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
-                                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                                <span>All buses currently have assigned drivers!</span>
-                            </div>
-                        )}
+                        </div>
                     </div>
 
                     {/* MIDDLE SECTION */}

@@ -1059,20 +1059,9 @@ const fetchDayInOutReport = async (req, res) => {
     let existingDbDocs = await GpsDailyReport.find({ date: { $in: dates } }).lean();
 
     const todayStr = new Date().toISOString().split('T')[0];
-    const existingDateBusKeys = new Set(existingDbDocs.map(d => `${d.date}_${extractPlateKey(d.busNumber)}`));
     let needsSync = forceRefresh;
-    if (!needsSync) {
-      for (const bus of buses) {
-        const bKey = extractPlateKey(bus.busNumber);
-        for (const dateStr of dates) {
-          // Sync missing past dates only; avoid re-triggering TGG API sync when past date records already exist in MongoDB
-          if (!existingDateBusKeys.has(`${dateStr}_${bKey}`) && dateStr !== todayStr) {
-            needsSync = true;
-            break;
-          }
-        }
-        if (needsSync) break;
-      }
+    if (!needsSync && existingDbDocs.length === 0) {
+      needsSync = true;
     }
 
     if (needsSync) {

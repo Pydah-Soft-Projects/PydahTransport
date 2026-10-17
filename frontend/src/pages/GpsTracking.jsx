@@ -24,7 +24,8 @@ import {
   FileSpreadsheet,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Calendar
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import GpsFinalDestinationModal from '../components/GpsFinalDestinationModal';
@@ -41,6 +42,23 @@ const formatGeofenceTime = (val) => {
   const mi = String(d.getMinutes()).padStart(2, '0');
   const ss = String(d.getSeconds()).padStart(2, '0');
   return `${hh}:${mi}:${ss}  ${dd}-${mm}-${yyyy}`;
+};
+
+const formatToDDMMYYYY = (val) => {
+  if (!val) return '';
+  const str = String(val).trim();
+  const match = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (match) {
+    const yyyy = match[1];
+    const mm = match[2].padStart(2, '0');
+    const dd = match[3].padStart(2, '0');
+    return `${dd}/${mm}/${yyyy}`;
+  }
+  const matchSlash = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (matchSlash) {
+    return `${matchSlash[1].padStart(2, '0')}/${matchSlash[2].padStart(2, '0')}/${matchSlash[3]}`;
+  }
+  return str;
 };
 
 const buildClientDateRange = (fromStr, toStr) => {
@@ -1031,12 +1049,9 @@ export default function GpsTracking() {
     Promise.all(workers).catch(() => {});
   }, [fleetDateFrom, fleetDateTo, fetchSingleVehicleKm]);
 
-  // Load once when opening the travelled tab (or when vehicles first arrive).
-  // Date filter changes apply only after clicking Refresh Logs.
+  // Avoid blasting 36 concurrent HTTP calls for unused fleetKmValues which blocks page network
   useEffect(() => {
-    if ((activePageTab !== 'travelled' && activePageTab !== 'reports') || vehicles.length === 0) return;
-    startLoadingFleetKm(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // startLoadingFleetKm(false);
   }, [activePageTab, vehicles.length]);
 
   const handleFleetSort = (field) => {
@@ -2061,21 +2076,51 @@ export default function GpsTracking() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Start Date (From)</label>
-                    <input 
-                      type="date" 
-                      value={tempDateFrom}
-                      onChange={(e) => setTempDateFrom(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <div className="relative flex items-center">
+                      <input 
+                        type="text" 
+                        readOnly
+                        value={formatToDDMMYYYY(tempDateFrom)}
+                        placeholder="dd/mm/yyyy"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-2.5 pr-8 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <Calendar size={15} className="absolute right-2.5 text-slate-500 pointer-events-none" />
+                      <input 
+                        type="date" 
+                        value={tempDateFrom}
+                        onChange={(e) => setTempDateFrom(e.target.value)}
+                        onClick={(e) => {
+                          try {
+                            if (e.currentTarget.showPicker) e.currentTarget.showPicker();
+                          } catch (err) {}
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">End Date (To)</label>
-                    <input 
-                      type="date" 
-                      value={tempDateTo}
-                      onChange={(e) => setTempDateTo(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <div className="relative flex items-center">
+                      <input 
+                        type="text" 
+                        readOnly
+                        value={formatToDDMMYYYY(tempDateTo)}
+                        placeholder="dd/mm/yyyy"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-2.5 pr-8 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <Calendar size={15} className="absolute right-2.5 text-slate-500 pointer-events-none" />
+                      <input 
+                        type="date" 
+                        value={tempDateTo}
+                        onChange={(e) => setTempDateTo(e.target.value)}
+                        onClick={(e) => {
+                          try {
+                            if (e.currentTarget.showPicker) e.currentTarget.showPicker();
+                          } catch (err) {}
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -2434,21 +2479,49 @@ export default function GpsTracking() {
                       <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 shrink-0">
                         <div className="flex items-center gap-1">
                           <span className="text-[10px] text-slate-400 font-bold uppercase">From:</span>
-                          <input 
-                            type="date" 
-                            value={kmDateFrom} 
-                            onChange={(e) => setKmDateFrom(e.target.value)}
-                            className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-700 font-semibold outline-none"
-                          />
+                          <div className="relative flex items-center">
+                            <input 
+                              type="text" 
+                              readOnly
+                              value={formatToDDMMYYYY(kmDateFrom)}
+                              placeholder="dd/mm/yyyy"
+                              className="w-24 rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-700 font-semibold outline-none cursor-pointer bg-white"
+                            />
+                            <input 
+                              type="date" 
+                              value={kmDateFrom} 
+                              onChange={(e) => setKmDateFrom(e.target.value)}
+                              onClick={(e) => {
+                                try {
+                                  if (e.currentTarget.showPicker) e.currentTarget.showPicker();
+                                } catch (err) {}
+                              }}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            />
+                          </div>
                         </div>
                         <div className="flex items-center gap-1">
                           <span className="text-[10px] text-slate-400 font-bold uppercase">To:</span>
-                          <input 
-                            type="date" 
-                            value={kmDateTo} 
-                            onChange={(e) => setKmDateTo(e.target.value)}
-                            className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-700 font-semibold outline-none"
-                          />
+                          <div className="relative flex items-center">
+                            <input 
+                              type="text" 
+                              readOnly
+                              value={formatToDDMMYYYY(kmDateTo)}
+                              placeholder="dd/mm/yyyy"
+                              className="w-24 rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-700 font-semibold outline-none cursor-pointer bg-white"
+                            />
+                            <input 
+                              type="date" 
+                              value={kmDateTo} 
+                              onChange={(e) => setKmDateTo(e.target.value)}
+                              onClick={(e) => {
+                                try {
+                                  if (e.currentTarget.showPicker) e.currentTarget.showPicker();
+                                } catch (err) {}
+                              }}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            />
+                          </div>
                         </div>
                         <button 
                           onClick={() => fetchDailyKm(selectedVehicle.name)}

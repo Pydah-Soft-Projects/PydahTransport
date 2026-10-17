@@ -486,9 +486,14 @@ const Fleet = () => {
         }
     };
 
-    const totalCapacity = list.reduce((sum, item) => sum + Number(item.capacity || 0), 0);
-    const totalSeatsFilled = list.reduce((sum, item) => sum + Number(item.seatsFilled || 0), 0);
-    const totalSeatsAvailable = list.reduce((sum, item) => sum + Number(item.seatsAvailable || 0), 0);
+    const activeFleet = React.useMemo(() => {
+        const active = list.filter((item) => item.route && item.bus?.status === 'Active');
+        return active.length > 0 ? active : list;
+    }, [list]);
+
+    const totalCapacity = activeFleet.reduce((sum, item) => sum + Number(item.capacity || 0), 0);
+    const totalSeatsFilled = activeFleet.reduce((sum, item) => sum + Number(item.seatsFilled || 0), 0);
+    const totalSeatsAvailable = Math.max(0, totalCapacity - totalSeatsFilled);
     const fleetOccupancy = totalCapacity > 0
         ? Math.min(100, Math.round((totalSeatsFilled / totalCapacity) * 100))
         : 0;
