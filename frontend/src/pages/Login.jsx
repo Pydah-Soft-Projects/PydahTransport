@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye, EyeOff, ShieldCheck, AlertCircle, ArrowLeft, RefreshCw, ExternalLink } from 'lucide-react';
+import { Eye, EyeOff, AlertCircle, ArrowLeft, ExternalLink } from 'lucide-react';
 import ForgotPasswordModal from '../components/ForgotPasswordModal';
 import PwaInstallBanner from '../components/PwaInstallBanner';
 import { isAuthenticated } from '../utils/api';
@@ -25,6 +25,21 @@ const Login = () => {
 
     const nextPath = location.state?.next || '/dashboard';
 
+    // Preload portal-switcher.js early if an incoming SSO token is present in the URL
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('token')) {
+            const SCRIPT_ID = 'pydah-portal-switcher-cdn';
+            if (!document.getElementById(SCRIPT_ID)) {
+                const script = document.createElement('script');
+                script.id = SCRIPT_ID;
+                script.src = 'https://crm.pydah.edu.in/portal-switcher.js';
+                script.async = true;
+                document.body.appendChild(script);
+            }
+        }
+    }, []);
+
     useEffect(() => {
         const params = new URLSearchParams(location.search);
         const token = params.get('token');
@@ -36,6 +51,17 @@ const Login = () => {
             localStorage.removeItem('isSSO');
             localStorage.removeItem('crmUrl');
             sessionStorage.clear();
+
+            // Ensure portal-switcher.js is loaded so <pydah-sso-loader /> is registered
+            const SCRIPT_ID = 'pydah-portal-switcher-cdn';
+            if (!document.getElementById(SCRIPT_ID)) {
+                const script = document.createElement('script');
+                script.id = SCRIPT_ID;
+                script.src = 'https://crm.pydah.edu.in/portal-switcher.js';
+                script.async = true;
+                document.body.appendChild(script);
+            }
+
             handleSSOLogin(token);
             return;
         } else {
@@ -145,6 +171,10 @@ const Login = () => {
         }
     };
 
+    if (isSSOProcessing && !error) {
+        return <pydah-sso-loader />;
+    }
+
     return (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4 relative overflow-hidden font-inter">
             <PwaInstallBanner variant="overlay" />
@@ -170,76 +200,37 @@ const Login = () => {
                 </button>
 
                 {/* ========================================================================= */}
-                {/* 1. DEDICATED SSO AUTHENTICATION & LOADING STATE                           */}
+                {/* 1. DEDICATED SSO AUTHENTICATION & ERROR STATE                             */}
                 {/* ========================================================================= */}
                 {isSSOProcessing ? (
                     <div className="text-center py-4">
-                        {error ? (
-                            /* SSO Failed State with Action Recovery */
-                            <div>
-                                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-50 text-red-600 mb-4 ring-8 ring-red-50/50">
-                                    <AlertCircle className="w-8 h-8" />
-                                </div>
-                                <h2 className="text-2xl font-bold text-slate-900 mb-2">SSO Sign-In Failed</h2>
-                                <p className="text-slate-600 text-sm mb-6 leading-relaxed">
-                                    {error}
-                                </p>
+                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-50 text-red-600 mb-4 ring-8 ring-red-50/50">
+                            <AlertCircle className="w-8 h-8" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-slate-900 mb-2">SSO Sign-In Failed</h2>
+                        <p className="text-slate-600 text-sm mb-6 leading-relaxed">
+                            {error}
+                        </p>
 
-                                <div className="space-y-3 pt-2">
-                                    <button
-                                        type="button"
-                                        onClick={handleSwitchToNormalLogin}
-                                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-medium py-3 px-4 rounded-xl transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2"
-                                    >
-                                        <ArrowLeft className="w-4 h-4" />
-                                        Continue with Username & Password
-                                    </button>
+                        <div className="space-y-3 pt-2">
+                            <button
+                                type="button"
+                                onClick={handleSwitchToNormalLogin}
+                                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-medium py-3 px-4 rounded-xl transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+                            >
+                                <ArrowLeft className="w-4 h-4" />
+                                Continue with Username & Password
+                            </button>
 
-                                    <button
-                                        type="button"
-                                        onClick={handleReturnToCrm}
-                                        className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
-                                    >
-                                        <ExternalLink className="w-4 h-4" />
-                                        Return to Central Portal
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            /* Active SSO Authorizing & Loading Screen */
-                            <div>
-                                <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-blue-700 text-xs font-semibold tracking-wide uppercase mb-6 shadow-sm">
-                                    <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
-                                    Single Sign-On (SSO)
-                                </div>
-
-                                {/* Animated Portal Handshake Graphic */}
-                                <div className="relative my-6 flex items-center justify-center">
-                                    <div className="w-24 h-24 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin flex items-center justify-center">
-                                    </div>
-                                    <div className="absolute inset-0 flex items-center justify-center">
-                                        <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/30">
-                                            <ShieldCheck className="w-8 h-8 animate-pulse" />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <h2 className="text-2xl font-bold text-slate-900 mb-2">Authorizing Access</h2>
-                                <p className="text-slate-500 text-sm font-normal max-w-xs mx-auto leading-relaxed">
-                                    Verifying your credentials with the Pydah Central SSO Gateway...
-                                </p>
-
-                                {/* Animated Progress Indicator */}
-                                <div className="mt-8 bg-slate-100 h-1.5 w-full rounded-full overflow-hidden relative">
-                                    <div className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-blue-500 via-indigo-600 to-blue-500 w-1/2 rounded-full animate-[pulse_1.2s_ease-in-out_infinite] translate-x-1/2"></div>
-                                </div>
-
-                                <p className="text-xs text-slate-400 mt-4 font-medium flex items-center justify-center gap-1.5">
-                                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-500" />
-                                    Setting up secure Transport session...
-                                </p>
-                            </div>
-                        )}
+                            <button
+                                type="button"
+                                onClick={handleReturnToCrm}
+                                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
+                            >
+                                <ExternalLink className="w-4 h-4" />
+                                Return to Central Portal
+                            </button>
+                        </div>
                     </div>
                 ) : (
                     /* ========================================================================= */

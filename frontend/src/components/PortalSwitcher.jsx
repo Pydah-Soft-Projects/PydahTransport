@@ -54,9 +54,12 @@ export default function PortalSwitcher() {
       });
 
       // Remove the script tag so it doesn't linger for non-SSO sessions
-      const existingScript = document.getElementById(SCRIPT_ID);
-      if (existingScript) {
-        existingScript.remove();
+      const hasSsoToken = typeof window !== 'undefined' && Boolean(new URLSearchParams(window.location.search).get('token'));
+      if (!hasSsoToken) {
+        const existingScript = document.getElementById(SCRIPT_ID);
+        if (existingScript) {
+          existingScript.remove();
+        }
       }
     };
 
