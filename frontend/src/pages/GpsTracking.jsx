@@ -1031,12 +1031,9 @@ export default function GpsTracking() {
     Promise.all(workers).catch(() => {});
   }, [fleetDateFrom, fleetDateTo, fetchSingleVehicleKm]);
 
-  // Load once when opening the travelled tab (or when vehicles first arrive).
-  // Date filter changes apply only after clicking Refresh Logs.
+  // Avoid blasting 36 concurrent HTTP calls for unused fleetKmValues which blocks page network
   useEffect(() => {
-    if ((activePageTab !== 'travelled' && activePageTab !== 'reports') || vehicles.length === 0) return;
-    startLoadingFleetKm(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // startLoadingFleetKm(false);
   }, [activePageTab, vehicles.length]);
 
   const handleFleetSort = (field) => {
