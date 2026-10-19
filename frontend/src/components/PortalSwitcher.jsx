@@ -120,7 +120,7 @@ export default function PortalSwitcher() {
       script.setAttribute('data-current-portal', PORTAL_ID);
       script.setAttribute(
         'data-api-base-url',
-        import.meta.env.VITE_CRM_BACKEND_URL || 'https://pydah-crm-backend.pydah.edu.in'
+        import.meta.env.VITE_CRM_BACKEND_URL || 'https://crm.pydah.edu.in'
       );
       script.setAttribute(
         'data-landing-url',

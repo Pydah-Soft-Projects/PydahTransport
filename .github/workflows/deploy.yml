@@ -32,6 +32,7 @@ jobs:
         env:
           VITE_API_URL: /api
           VITE_CRM_URL: https://crm.pydah.edu.in
+          VITE_CRM_BACKEND_URL: https://crm.pydah.edu.in
         run: |
           # npm ci is faster/reproducible when lockfile is present; falls back to npm install if needed
           if [ -f package-lock.json ]; then
@@ -39,7 +40,7 @@ jobs:
           else
             npm install --prefer-offline --no-audit --no-fund
           fi
-          printf 'VITE_API_URL=%s\nVITE_CRM_URL=%s\n' "${VITE_API_URL}" "${VITE_CRM_URL}" > .env.production
+          printf 'VITE_API_URL=%s\nVITE_CRM_URL=%s\nVITE_CRM_BACKEND_URL=%s\n' "${VITE_API_URL}" "${VITE_CRM_URL}" "${VITE_CRM_BACKEND_URL}" > .env.production
           npm run build
           test -d dist
 
