@@ -65,7 +65,7 @@ app.get('/api', (req, res) => {
     res.json({ message: 'Pydah Transport API is running🎉' });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT;
 
 const startDbs = async () => {
     await connectDB();

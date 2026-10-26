@@ -54,9 +54,12 @@ export default function PortalSwitcher() {
       });
 
       // Remove the script tag so it doesn't linger for non-SSO sessions
-      const existingScript = document.getElementById(SCRIPT_ID);
-      if (existingScript) {
-        existingScript.remove();
+      const hasSsoToken = typeof window !== 'undefined' && Boolean(new URLSearchParams(window.location.search).get('token'));
+      if (!hasSsoToken) {
+        const existingScript = document.getElementById(SCRIPT_ID);
+        if (existingScript) {
+          existingScript.remove();
+        }
       }
     };
 
@@ -117,7 +120,7 @@ export default function PortalSwitcher() {
       script.setAttribute('data-current-portal', PORTAL_ID);
       script.setAttribute(
         'data-api-base-url',
-        import.meta.env.VITE_CRM_BACKEND_URL || 'https://pydah-crm-backend.pydah.edu.in'
+        import.meta.env.VITE_CRM_BACKEND_URL || 'https://crm.pydah.edu.in'
       );
       script.setAttribute(
         'data-landing-url',
