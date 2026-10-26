@@ -83,13 +83,17 @@ function getTranspiledComponent(filePath) {
         return cached.component;
     }
     
+    const backendNodeModules = path.join(__dirname, '../node_modules');
+    const frontendNodeModules = path.join(__dirname, '../../frontend/node_modules');
+
     const result = esbuild.buildSync({
         entryPoints: [filePath],
         bundle: true,
         write: false,
         format: 'cjs',
         platform: 'node',
-        external: ['react', 'react-dom'],
+        nodePaths: [backendNodeModules, frontendNodeModules],
+        external: ['react', 'react-dom', 'qrcode'],
         define: {
             'import.meta.env': 'process.env'
         }
@@ -97,7 +101,7 @@ function getTranspiledComponent(filePath) {
 
     const code = result.outputFiles[0].text;
     const m = new module.constructor();
-    m.paths = module.paths;
+    m.paths = [backendNodeModules, ...module.paths];
     m._compile(code, filePath);
     
     const component = m.exports.default || m.exports;
