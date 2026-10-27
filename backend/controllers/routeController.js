@@ -601,6 +601,12 @@ const transferPassengers = async (req, res) => {
         }
         const newFare = destStage.fare || 0;
 
+        // Find available active buses for destination route
+        const availableBusesForDestRoute = await Bus.find({ assignedRouteId: destinationRouteId, status: { $ne: 'Inactive' } }).select('busNumber').lean();
+        const targetBusId = (req.body.targetBusId && availableBusesForDestRoute.some(b => b.busNumber === req.body.targetBusId))
+            ? req.body.targetBusId
+            : (availableBusesForDestRoute.length > 0 ? availableBusesForDestRoute[0].busNumber : null);
+
         let studentCount = 0;
         let employeeCount = 0;
         const passengersList = [];
@@ -630,7 +636,7 @@ const transferPassengers = async (req, res) => {
                     doc.route_id = destinationRouteId;
                     doc.route_name = destRoute.routeName;
                     doc.stage_name = destinationStageName;
-                    doc.bus_id = null; // Clear old bus allocation
+                    doc.bus_id = targetBusId; // Auto-assign to available bus on destination route
                     if (doc.status === 'approved') {
                         doc.fare = newFare;
                         doc.new_id_card_needed = true; // Mark for reprint
@@ -657,7 +663,7 @@ const transferPassengers = async (req, res) => {
                     doc.route_id = destinationRouteId;
                     doc.route_name = destRoute.routeName;
                     doc.stage_name = destinationStageName;
-                    doc.bus_id = null; // Clear old bus allocation
+                    doc.bus_id = targetBusId; // Auto-assign to available bus on destination route
                     if (doc.status === 'approved') {
                         doc.new_id_card_needed = true; // Mark for reprint
                     }
@@ -690,9 +696,10 @@ const transferPassengers = async (req, res) => {
         }
 
         res.json({
-            message: `Successfully transferred ${studentCount + employeeCount} passenger(s) to route "${destRoute.routeName}" (${destinationRouteId}), stage "${destinationStageName}".`,
+            message: `Successfully transferred ${studentCount + employeeCount} passenger(s) to route "${destRoute.routeName}" (${destinationRouteId}), stage "${destinationStageName}".${targetBusId ? ` Auto-assigned to bus "${targetBusId}".` : ' Note: No active buses assigned to destination route.'}`,
             transferredStudents: studentCount,
-            transferredEmployees: employeeCount
+            transferredEmployees: employeeCount,
+            busAssigned: targetBusId || null
         });
 
         // SMS runs in background after response — never blocks this action
@@ -1015,6 +1022,12 @@ const batchTransfer = async (req, res) => {
 
                 let stCount = 0;
                 let empCount = 0;
+                // Find available active buses for destination route
+                const availableBusesForDestRoute = await Bus.find({ assignedRouteId: destinationRouteId, status: { $ne: 'Inactive' } }).select('busNumber').lean();
+                const targetBusId = (item.targetBusId && availableBusesForDestRoute.some(b => b.busNumber === item.targetBusId))
+                    ? item.targetBusId
+                    : (availableBusesForDestRoute.length > 0 ? availableBusesForDestRoute[0].busNumber : null);
+
                 const passengersList = [];
                 let sourceRouteId = '';
                 let sourceRouteName = '';
@@ -1037,7 +1050,7 @@ const batchTransfer = async (req, res) => {
                             doc.route_id = destinationRouteId;
                             doc.route_name = destRoute.routeName;
                             doc.stage_name = destinationStageName;
-                            doc.bus_id = null;
+                            doc.bus_id = targetBusId; // Auto-assign to available bus on destination route
                             if (doc.status === 'approved') {
                                 doc.fare = newFare;
                                 doc.new_id_card_needed = true;
@@ -1058,7 +1071,7 @@ const batchTransfer = async (req, res) => {
                             doc.route_id = destinationRouteId;
                             doc.route_name = destRoute.routeName;
                             doc.stage_name = destinationStageName;
-                            doc.bus_id = null;
+                            doc.bus_id = targetBusId; // Auto-assign to available bus on destination route
                             if (doc.status === 'approved') {
                                 doc.new_id_card_needed = true;
                             }
@@ -1097,7 +1110,7 @@ const batchTransfer = async (req, res) => {
                     }));
                 }
 
-                executionLogs.push(`Transferred ${stCount + empCount} passenger(s) to ${destRoute.routeName}, stage "${destinationStageName}".`);
+                executionLogs.push(`Transferred ${stCount + empCount} passenger(s) to ${destRoute.routeName}, stage "${destinationStageName}"${targetBusId ? ` (Auto-assigned to Bus ${targetBusId})` : ''}.`);
             } else if (item.type === 'bus_attach') {
                 const { busId, busNumber, destinationRouteId, entryDate } = item;
                 const bus = await Bus.findOne({ $or: [{ _id: busId }, { busNumber: busNumber }] });

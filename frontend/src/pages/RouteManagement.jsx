@@ -2710,6 +2710,8 @@ const RouteManagement = () => {
             return { id: found?._id, name: found?.name, admissionNumber: found?.admissionNumber, type: found?.type, status: found?.status };
         });
 
+        const targetBusId = studentDestBuses.length > 0 ? studentDestBuses[0].busNumber : null;
+
         const newDraftItem = {
             id: `draft-passenger-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             type: 'passenger',
@@ -2719,6 +2721,7 @@ const RouteManagement = () => {
             destinationRouteId,
             destinationRouteName: destRouteObj?.routeName || destinationRouteId,
             destinationStageName,
+            targetBusId,
             passengerCount: incomingCount,
             passengers: selectedObjects,
             createdAt: new Date().toISOString()
@@ -3377,6 +3380,7 @@ const RouteManagement = () => {
                     passengers: passengersToSend,
                     destinationRouteId: studentTransferData.destinationRouteId,
                     destinationStageName: studentTransferData.destinationStageName,
+                    targetBusId: studentDestBuses.length > 0 ? studentDestBuses[0].busNumber : undefined,
                     academicYear
                 })
             });
