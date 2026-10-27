@@ -491,14 +491,34 @@ const Fleet = () => {
         return active.length > 0 ? active : list;
     }, [list]);
 
-    const totalCapacity = activeFleet.reduce((sum, item) => sum + Number(item.capacity || 0), 0);
-    const totalSeatsFilled = activeFleet.reduce((sum, item) => sum + Number(item.seatsFilled || 0), 0);
-    const totalSeatsAvailable = Math.max(0, totalCapacity - totalSeatsFilled);
+    const { totalCapacity, totalSeatsFilled, totalSeatsAvailable } = React.useMemo(() => {
+        let cap = 0;
+        let filled = 0;
+        let vacant = 0;
+
+        for (const item of activeFleet) {
+            const { netChange, netCapacityChange } = getRouteDraftImpact(item.route?.routeId);
+            const busCap = Math.max(0, Number(item.capacity || 0) + netCapacityChange);
+            const busFilled = Math.max(0, Number(item.seatsFilled || 0) + netChange);
+            const busVacant = Math.max(0, busCap - busFilled);
+
+            cap += busCap;
+            filled += busFilled;
+            vacant += busVacant;
+        }
+
+        return {
+            totalCapacity: cap,
+            totalSeatsFilled: filled,
+            totalSeatsAvailable: vacant,
+        };
+    }, [activeFleet, draftQueue]);
+
     const fleetOccupancy = totalCapacity > 0
         ? Math.min(100, Math.round((totalSeatsFilled / totalCapacity) * 100))
         : 0;
     const fleetRemainingPercent = totalCapacity > 0
-        ? Math.max(0, 100 - fleetOccupancy)
+        ? Math.min(100, Math.round((totalSeatsAvailable / totalCapacity) * 100))
         : 100;
 
     return (
