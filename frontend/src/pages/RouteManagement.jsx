@@ -819,7 +819,7 @@ const RouteNetworkAllMap = ({
                             weight: 2.2,
                             zIndexOffset: 650
                         }).addTo(map).bindTooltip(`${startName}`, {
-                            permanent: true,
+                            permanent: false,
                             direction: 'top',
                             className: 'bg-white text-slate-800 border border-slate-200 shadow-sm px-1.5 py-0.5 rounded text-[9px] font-bold font-sans'
                         });
@@ -849,7 +849,15 @@ const RouteNetworkAllMap = ({
                             fillOpacity: 1,
                             weight: 2.2,
                             zIndexOffset: 650
-                        }).addTo(map);
+                        }).addTo(map).bindTooltip(`
+                            <div class="px-2 py-1 font-sans text-xs">
+                                <strong style="color: ${routeColor}; font-weight: 700;">${route.routeId}</strong>: <span class="font-bold text-slate-800">${route.routeName}</span>
+                            </div>
+                        `, {
+                            direction: 'bottom',
+                            permanent: false,
+                            className: 'bg-white text-slate-800 border border-slate-200 shadow-md rounded-lg py-1 px-2 font-sans text-xs'
+                        });
                     }
 
                     // Active inner route line
@@ -865,7 +873,15 @@ const RouteNetworkAllMap = ({
                             <span class="text-slate-600">Campus: ${route.campus?.name || '—'}</span><br/>
                             <span class="text-slate-600 font-semibold">${startName} ➔ ${resolvedEndName}</span>
                         </div>
-                    `);
+                    `).bindTooltip(`
+                        <div class="px-2 py-1 font-sans text-xs">
+                            <strong style="color: ${routeColor}; font-weight: 700;">${route.routeId}</strong>: <span class="font-bold text-slate-800">${route.routeName}</span>
+                        </div>
+                    `, {
+                        sticky: true,
+                        permanent: false,
+                        className: 'bg-white text-slate-800 border border-slate-200 shadow-md rounded-lg py-1 px-2 font-sans text-xs'
+                    });
 
                     // Active outer glow polyline
                     const activeGlow = L.polyline([], {
@@ -898,9 +914,9 @@ const RouteNetworkAllMap = ({
                     if (animPath.length > 1) {
                         const vehicleIcon = L.divIcon({
                             html: `
-                                <div class="relative flex items-center justify-center">
-                                    <span class="absolute inline-flex h-8 w-12 rounded-full opacity-40 animate-ping" style="background: ${routeColor}"></span>
-                                    <div class="relative px-2 py-0.5 rounded-full border-2 border-white shadow-md text-white flex items-center justify-center text-[9px] font-black tracking-wide leading-none" style="background: ${routeColor}">
+                                <div class="relative flex items-center justify-center cursor-pointer group">
+                                    <span class="absolute inline-flex h-8 w-12 rounded-full opacity-40 animate-ping pointer-events-none" style="background: ${routeColor}"></span>
+                                    <div class="relative px-2 py-0.5 rounded-full border-2 border-white shadow-md text-white flex items-center justify-center text-[9px] font-black tracking-wide leading-none transition-transform group-hover:scale-110" style="background: ${routeColor}">
                                         ${route.routeId}
                                     </div>
                                 </div>
@@ -911,6 +927,15 @@ const RouteNetworkAllMap = ({
                         });
 
                         const marker = L.marker(animPath[0], { icon: vehicleIcon, zIndexOffset: 800 }).addTo(map);
+                        marker.bindTooltip(`
+                            <div class="px-2 py-1 font-sans text-xs">
+                                <strong style="color: ${routeColor}; font-weight: 700;">${route.routeId}</strong>: <span class="font-bold text-slate-800">${route.routeName}</span>
+                            </div>
+                        `, {
+                            direction: 'top',
+                            permanent: false,
+                            className: 'bg-white text-slate-800 border border-slate-200 shadow-md rounded-lg py-1 px-2 font-sans text-xs'
+                        });
                         animVehicles.push({
                             marker,
                             path: animPath,
@@ -952,16 +977,9 @@ const RouteNetworkAllMap = ({
                 veh.polyline.setLatLngs(traveledCoords);
                 veh.glow.setLatLngs(traveledCoords);
 
-                // Reveal destination name tooltip when bus reaches the destination and keep bus parked
+                // Keep bus parked when it reaches the destination (do not open permanent tooltip to keep map clear)
                 if (veh.index >= veh.path.length - 1 && !veh.destReached) {
                     veh.destReached = true;
-                    if (veh.endMarker) {
-                        veh.endMarker.bindTooltip(`${veh.endName}`, {
-                            permanent: true,
-                            direction: 'bottom',
-                            className: 'bg-white text-slate-800 border border-slate-200 shadow-sm px-1.5 py-0.5 rounded text-[9px] font-bold font-sans'
-                        }).openTooltip();
-                    }
                 }
             });
         }, 16);
