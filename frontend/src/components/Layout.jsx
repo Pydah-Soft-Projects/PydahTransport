@@ -33,6 +33,7 @@ import {
     Zap,
     Moon,
     Fuel,
+    BarChart2,
 } from 'lucide-react';
 
 const Layout = ({ children, title }) => {
@@ -89,6 +90,7 @@ const Layout = ({ children, title }) => {
         if (!requiredPerm) return true;
         if (adminInfo.role === 'admin') return true;
         if (adminInfo.permissions && adminInfo.permissions.includes(requiredPerm)) return true;
+        if (requiredPerm === 'reports' && adminInfo.permissions && adminInfo.permissions.includes('transport_requests')) return true;
         return false;
     };
 
@@ -138,6 +140,7 @@ const Layout = ({ children, title }) => {
             items: [
                 { path: '/raise-request', label: 'Raise New Request', permission: 'raise_request', icon: <PlusCircle size={20} /> },
                 { path: '/transport-requests', label: 'Passenger Requests', permission: 'transport_requests', icon: <ClipboardList size={20} /> },
+                { path: '/reports', label: 'Reports', permission: 'reports', icon: <BarChart2 size={20} /> },
                 {
                     key: 'qr_verification',
                     label: 'QR Verification',
@@ -205,6 +208,9 @@ const Layout = ({ children, title }) => {
         }
         if (path === '/buses') {
             return location.pathname === '/buses';
+        }
+        if (path === '/reports') {
+            return location.pathname === '/reports' || location.pathname === '/freports' || location.pathname === '/f-reports';
         }
         return location.pathname === path
             || (path !== '/inventory' && path !== '/verify' && location.pathname.startsWith(`${path}/`));

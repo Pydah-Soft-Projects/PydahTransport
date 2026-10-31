@@ -81,6 +81,7 @@ const UserManagement = () => {
             'fleet_passengers',
             'raise_request',
             'transport_requests',
+            'reports',
             'renewals',
             'transport_dues',
             'concessions',
@@ -89,7 +90,8 @@ const UserManagement = () => {
         ],
         cashier: [
             'dashboard',
-            'transport_dues'
+            'transport_dues',
+            'reports'
         ],
         ao: [
             'dashboard',
@@ -97,6 +99,7 @@ const UserManagement = () => {
             'gps_tracking',
             'communications',
             'transport_requests',
+            'reports',
             'transport_dues',
             'attendance',
             'qr_verification'
@@ -110,6 +113,7 @@ const UserManagement = () => {
             'communications',
             'raise_request',
             'transport_requests',
+            'reports',
             'renewals',
             'transport_dues',
             'concessions',
@@ -129,6 +133,7 @@ const UserManagement = () => {
             'communications',
             'raise_request',
             'transport_requests',
+            'reports',
             'renewals',
             'transport_dues',
             'concessions',
@@ -164,6 +169,7 @@ const UserManagement = () => {
         { id: 'communications', label: 'Communications', path: '/communications' },
         { id: 'raise_request', label: 'Raise New Request', path: '/raise-request' },
         { id: 'transport_requests', label: 'Passenger Requests', path: '/transport-requests' },
+        { id: 'reports', label: 'Reports', path: '/reports' },
         { id: 'renewals', label: 'Renewals', path: '/renewals' },
         { id: 'transport_dues', label: 'Transport Dues', path: '/transport-dues' },
         { id: 'concessions', label: 'Concessions', path: '/concessions' },

@@ -34,19 +34,32 @@ const getTransportDues = async (req, res) => {
             $or: [{ isActive: true }, { isActive: { $exists: false } }],
         }).lean();
 
+        // High-performance batch aggregation for paid transactions (replaces sequential per-student queries)
+        const studentIds = studentFees.map((sf) => String(sf.studentId));
+        const paidRows = await Transaction.aggregate([
+            {
+                $match: {
+                    studentId: { $in: studentIds },
+                    feeHead: transportHead._id,
+                    transactionType: 'DEBIT',
+                },
+            },
+            {
+                $group: {
+                    _id: '$studentId',
+                    total: { $sum: '$amount' },
+                },
+            },
+        ]);
+
+        const paidMap = new Map();
+        for (const r of paidRows) {
+            paidMap.set(String(r._id), r.total || 0);
+        }
+
         const dues = [];
         for (const sf of studentFees) {
-            const paidRows = await Transaction.aggregate([
-                {
-                    $match: {
-                        studentId: String(sf.studentId),
-                        feeHead: sf.feeHead,
-                        transactionType: 'DEBIT',
-                    },
-                },
-                { $group: { _id: null, total: { $sum: '$amount' } } },
-            ]);
-            const totalPaid = paidRows[0]?.total ?? 0;
+            const totalPaid = paidMap.get(String(sf.studentId)) || 0;
             const amount = Number(sf.amount) || 0;
             const due = Math.max(0, amount - totalPaid);
 

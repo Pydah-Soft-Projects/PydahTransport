@@ -26,6 +26,7 @@ import Communications from './pages/Communications';
 import Attendance from './pages/Attendance';
 import Settings from './pages/Settings';
 import InspectionReports from './pages/InspectionReports';
+import Reports from './pages/Reports';
 import './App.css';
 
 function App() {
@@ -61,6 +62,10 @@ function App() {
           <Route path="/gps-tracking" element={<ProtectedRoute><GpsTracking /></ProtectedRoute>} />
           <Route path="/communications" element={<ProtectedRoute><Communications /></ProtectedRoute>} />
           <Route path="/transport-requests" element={<ProtectedRoute><TransportRequests /></ProtectedRoute>} />
+          <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+          <Route path="/freports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+          <Route path="/f-reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+
           <Route path="/renewals" element={<ProtectedRoute><Renewals /></ProtectedRoute>} />
           <Route path="/transport-dues" element={<ProtectedRoute><TransportDues /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
