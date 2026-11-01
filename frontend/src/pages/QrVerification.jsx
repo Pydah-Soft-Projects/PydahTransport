@@ -3308,8 +3308,8 @@ const QrVerification = () => {
 };
 
 const OfflineVerifyShell = ({ children, title }) => (
-    <div className="min-h-screen bg-[#EAF3FF] flex flex-col">
-        <header className="bg-[#071B45] text-white px-4 py-3 flex items-center gap-3 shadow-md">
+    <div className="min-h-screen bg-[var(--background)] flex flex-col">
+        <header className="bg-[var(--sidebar)] text-[var(--sidebar-text)] px-4 py-3 flex items-center gap-3 shadow-md">
             <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center">
                 <ShieldCheck size={18} />
             </div>

@@ -541,14 +541,14 @@ const Fleet = () => {
                         />
                     </div>
 
-                    <div className="flex flex-nowrap items-center justify-between gap-1.5 sm:gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-xs w-full lg:w-auto overflow-x-auto no-scrollbar">
+                    <div className="flex flex-nowrap items-center justify-between gap-1.5 sm:gap-2 bg-[var(--background)] p-1.5 rounded-xl border border-slate-200 shadow-xs w-full lg:w-auto overflow-x-auto no-scrollbar">
                         {/* Live / AY Mode Toggle */}
                         <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-xs shrink-0 flex-1 justify-center">
                             <button
                                 type="button"
                                 onClick={() => setOccupancyMode('live')}
                                 className={`flex-1 py-1 px-2 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer text-center ${occupancyMode === 'live'
-                                        ? 'bg-blue-600 text-white shadow-xs'
+                                        ? 'bg-[var(--primary)] text-white shadow-xs'
                                         : 'text-slate-500 hover:bg-slate-50'
                                     }`}
                             >
@@ -558,7 +558,7 @@ const Fleet = () => {
                                 type="button"
                                 onClick={() => setOccupancyMode('academicYear')}
                                 className={`flex-1 py-1 px-2 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer text-center ${occupancyMode === 'academicYear'
-                                        ? 'bg-blue-600 text-white shadow-xs'
+                                        ? 'bg-[var(--primary)] text-white shadow-xs'
                                         : 'text-slate-500 hover:bg-slate-50'
                                     }`}
                             >
@@ -607,7 +607,7 @@ const Fleet = () => {
                             type="button"
                             onClick={openReportModal}
                             disabled={isPrinting}
-                            className="inline-flex items-center justify-center text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-xs border-none whitespace-nowrap shrink-0 flex-1 min-w-[125px] cursor-pointer"
+                            className="inline-flex items-center justify-center text-xs bg-[var(--primary)] text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-[var(--primary-hover)] disabled:opacity-50 transition-all shadow-xs border-none whitespace-nowrap shrink-0 flex-1 min-w-[125px] cursor-pointer"
                         >
                             <Download size={14} className="mr-1 shrink-0" />
                             <span className="truncate">Download Report</span>
@@ -684,7 +684,7 @@ const Fleet = () => {
                         type="button"
                         onClick={() => handleDownloadReport(reportOptions)}
                         disabled={isPrinting || (!reportOptions.abstract && !reportOptions.detailed)}
-                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[var(--primary)] text-white text-sm font-semibold hover:bg-[var(--primary-hover)] disabled:opacity-50 flex items-center justify-center"
                     >
                         {reportLoadingAction === 'pdf' ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Download size={16} className="mr-2" />}
                         PDF
@@ -715,7 +715,7 @@ const Fleet = () => {
                             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Capacity</p>
                             <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{totalCapacity}</p>
                         </div>
-                        <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center shadow-sm shrink-0">
                             <Bus size={16} />
                         </div>
                     </div>
@@ -733,7 +733,7 @@ const Fleet = () => {
                             <p className="text-[9px] font-bold text-blue-600 uppercase tracking-wider">Vacant · {fleetRemainingPercent}%</p>
                             <p className="text-sm font-black text-blue-700 leading-tight mt-0.5">{totalSeatsAvailable}</p>
                         </div>
-                        <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center shadow-sm shrink-0">
                             <Users size={16} />
                         </div>
                     </div>
@@ -788,7 +788,7 @@ const Fleet = () => {
                             ? 'No buses found for the selected campus. Try another campus or add buses in Bus Management.'
                             : 'No buses in the fleet. Add buses and assign routes in Bus Management.'}
                     </p>
-                    <Link to="/buses" className="inline-flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm hover:bg-blue-700 transition-all">
+                    <Link to="/buses" className="inline-flex items-center bg-[var(--primary)] text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm hover:bg-[var(--primary-hover)] transition-all">
                         Go to Bus Management
                         <ArrowRight size={16} className="ml-2" />
                     </Link>

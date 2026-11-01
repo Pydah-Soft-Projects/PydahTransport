@@ -962,7 +962,7 @@ const Renewals = () => {
                             type="button"
                             onClick={() => handleTabChange('abstract')}
                             className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                                activeTab === 'abstract' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                                activeTab === 'abstract' ? 'bg-[var(--primary)] text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
                             }`}
                         >
                             <LayoutGrid size={13} /> Abstract
@@ -971,7 +971,7 @@ const Renewals = () => {
                             type="button"
                             onClick={() => handleTabChange('detailed')}
                             className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                                activeTab === 'detailed' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                                activeTab === 'detailed' ? 'bg-[var(--primary)] text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
                             }`}
                         >
                             <List size={13} /> Detailed
@@ -1685,7 +1685,7 @@ const Renewals = () => {
                                                                     </button>
                                                                     <button
                                                                         onClick={() => handleOpenRenewModal(req)}
-                                                                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow-sm transition-all flex items-center gap-1 shrink-0 cursor-pointer"
+                                                                        className="px-2.5 py-1 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white rounded-lg text-[10px] font-bold shadow-sm transition-all flex items-center gap-1 shrink-0 cursor-pointer"
                                                                     >
                                                                         <RefreshCw size={10} className="animate-spin-slow" />
                                                                         Renew
@@ -1817,7 +1817,7 @@ const Renewals = () => {
                                                     </button>
                                                     <button
                                                         onClick={() => handleOpenRenewModal(req)}
-                                                        className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                                        className="flex-1 py-2 px-3 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                                                     >
                                                         <RefreshCw size={12} className="animate-spin-slow" />
                                                         Renew
@@ -1985,7 +1985,7 @@ const Renewals = () => {
                                     || (feeEligibility && feeEligibility.enabled && !feeEligibility.ok)
                                 }
                                 onClick={handleConfirmRenewal}
-                                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all disabled:opacity-50 flex items-center gap-2"
+                                className="px-5 py-2.5 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white rounded-xl text-xs font-bold shadow-sm transition-all disabled:opacity-50 flex items-center gap-2"
                             >
                                 {renewModal.saving ? 'Renewing...' : 'Confirm Renewal'}
                             </button>
@@ -2093,7 +2093,7 @@ const Renewals = () => {
                                     <button
                                         type="button"
                                         onClick={handleConfirmApprove}
-                                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+                                        className="px-5 py-2.5 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white rounded-xl text-xs font-bold shadow-sm transition-all"
                                     >
                                         Approve Pass Now
                                     </button>

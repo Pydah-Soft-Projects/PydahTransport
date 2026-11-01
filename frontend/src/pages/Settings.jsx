@@ -230,7 +230,7 @@ const Settings = () => {
                         <button
                             type="submit"
                             disabled={saving}
-                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-sm disabled:opacity-50 cursor-pointer"
+                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-sm font-bold shadow-sm disabled:opacity-50 cursor-pointer"
                         >
                             <Save size={15} />
                             {saving ? 'Saving…' : 'Save Settings'}

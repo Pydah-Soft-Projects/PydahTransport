@@ -2659,13 +2659,13 @@ export default function GpsTracking() {
                       className="w-full text-left border-collapse" 
                       style={{ minWidth: `${304 + nsDates.length * 100}px` }}
                     >
-                      <thead className="sticky top-0 z-30 shadow-sm bg-[#071B45]">
+                      <thead className="sticky top-0 z-30 shadow-sm bg-[var(--sidebar)]">
                         {/* Header Row 1: Route, Bus Number, Stay Point, Date Columns */}
-                        <tr className="bg-[#071B45] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
+                        <tr className="bg-[var(--sidebar)] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('route')}
-                            className="px-1.5 py-1.5 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-40 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
+                            className="px-1.5 py-1.5 sticky left-0 bg-[var(--sidebar)] hover:bg-[#0A2558] z-40 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
                             title="Click to sort by Route ID"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2682,7 +2682,7 @@ export default function GpsTracking() {
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('bus')}
-                            className="px-1.5 py-1.5 sticky left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-40 w-[108px] min-w-[108px] max-w-[108px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            className="px-1.5 py-1.5 sticky left-[68px] bg-[var(--sidebar)] hover:bg-[#0A2558] z-40 w-[108px] min-w-[108px] max-w-[108px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
                             title="Click to sort by Bus Number"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2698,7 +2698,7 @@ export default function GpsTracking() {
                           </th>
                           <th 
                             rowSpan={2} 
-                            className="px-2 py-1.5 sticky left-[176px] bg-[#071B45] z-40 w-[128px] min-w-[128px] max-w-[128px] align-middle border-r border-slate-700 select-none"
+                            className="px-2 py-1.5 sticky left-[176px] bg-[var(--sidebar)] z-40 w-[128px] min-w-[128px] max-w-[128px] align-middle border-r border-slate-700 select-none"
                           >
                             <span>Night Stay Point</span>
                           </th>
@@ -2711,7 +2711,7 @@ export default function GpsTracking() {
                             const isSyncingThisDate = syncingDate[dateStr];
 
                             return (
-                              <th key={dateStr} colSpan={2} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[100px] min-w-[100px] bg-[#071B45] ${isToday ? 'bg-blue-900' : ''}`}>
+                              <th key={dateStr} colSpan={2} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[100px] min-w-[100px] bg-[var(--sidebar)] ${isToday ? 'bg-blue-900' : ''}`}>
                                 <div className="flex items-center justify-center gap-1 group/dhead">
                                   <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
                                   <button
@@ -2894,13 +2894,13 @@ export default function GpsTracking() {
                       className="w-full text-left border-collapse"
                       style={{ minWidth: `${180 + displayDates.length * 152 + 28}px` }}
                     >
-                      <thead className="sticky top-0 z-30 shadow-sm bg-[#071B45]">
+                      <thead className="sticky top-0 z-30 shadow-sm bg-[var(--sidebar)]">
                         {/* Header Row 1: Route, Bus Number, Date Column Groups */}
-                        <tr className="bg-[#071B45] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
+                        <tr className="bg-[var(--sidebar)] text-white text-[10px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('route')}
-                            className="px-1.5 py-1.5 sticky left-0 bg-[#071B45] hover:bg-[#0A2558] z-40 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
+                            className="px-1.5 py-1.5 sticky left-0 bg-[var(--sidebar)] hover:bg-[#0A2558] z-40 w-[68px] min-w-[68px] max-w-[68px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none text-center"
                             title="Click to sort by Route ID"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2917,7 +2917,7 @@ export default function GpsTracking() {
                           <th 
                             rowSpan={2} 
                             onClick={() => handleFleetSort('bus')}
-                            className="px-1.5 py-1.5 sticky left-[68px] bg-[#071B45] hover:bg-[#0A2558] z-40 w-[112px] min-w-[112px] max-w-[112px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
+                            className="px-1.5 py-1.5 sticky left-[68px] bg-[var(--sidebar)] hover:bg-[#0A2558] z-40 w-[112px] min-w-[112px] max-w-[112px] align-middle border-r border-slate-700 cursor-pointer transition-colors group select-none"
                             title="Click to sort by Bus Number"
                           >
                             <div className="flex items-center justify-between gap-0.5">
@@ -2940,7 +2940,7 @@ export default function GpsTracking() {
                             const isSyncingThisDate = syncingDate[dateStr];
 
                             return (
-                              <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[152px] min-w-[152px] bg-[#071B45] ${isToday ? 'bg-blue-900' : ''}`}>
+                              <th key={dateStr} colSpan={3} className={`px-1 py-1 text-center border-r border-slate-700/80 w-[152px] min-w-[152px] bg-[var(--sidebar)] ${isToday ? 'bg-blue-900' : ''}`}>
                                 <div className="flex items-center justify-center gap-1 group/dhead">
                                   <div className="text-[10px] font-extrabold text-white leading-tight">{dayNum} {monthName}</div>
                                   <button
@@ -2956,7 +2956,7 @@ export default function GpsTracking() {
                               </th>
                             );
                           })}
-                          <th rowSpan={2} className="w-[28px] min-w-[28px] border-l border-slate-700 align-middle bg-[#071B45]"></th>
+                          <th rowSpan={2} className="w-[28px] min-w-[28px] border-l border-slate-700 align-middle bg-[var(--sidebar)]"></th>
                         </tr>
 
                         {/* Header Row 2: IN / OUT / KMS Sub-headers under each date */}
@@ -3111,7 +3111,7 @@ export default function GpsTracking() {
                                         <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
                                           <table className="w-full text-left">
                                             <thead>
-                                              <tr className="bg-[#071B45] text-white text-[9px] uppercase font-bold tracking-wider">
+                                              <tr className="bg-[var(--sidebar)] text-white text-[9px] uppercase font-bold tracking-wider">
                                                 <th className="px-3 py-1.5">#</th>
                                                 <th className="px-3 py-1.5">Geofence / Location</th>
                                                 <th className="px-3 py-1.5">Time In (Arrival)</th>
@@ -3360,7 +3360,7 @@ export default function GpsTracking() {
                 <div className="overflow-x-auto sidebar-scrollbar">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="bg-[#071B45] text-white text-[11px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
+                      <tr className="bg-[var(--sidebar)] text-white text-[11px] uppercase font-bold tracking-wider select-none border-b border-slate-700">
                         <th
                           onClick={() => handleFuelSort('routeId')}
                           className="px-4 py-3 cursor-pointer hover:bg-[#0c2763] transition-colors"
