@@ -27,5 +27,6 @@ export function useTheme() {
   return { themeVersion };
 }
 
+export { useThemeTokens } from './useThemeTokens';
 export default useTheme;
 

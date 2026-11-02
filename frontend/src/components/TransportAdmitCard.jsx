@@ -268,7 +268,7 @@ const TransportAdmitCard = forwardRef(({ passenger }, ref) => {
                         margin-bottom: 1mm;
                         text-transform: uppercase;
                         flex-shrink: 0;
-                        color: #1e40af;
+                        color: var(--primary, #145A3A);
                         text-align: center;
                         letter-spacing: 0.3mm;
                     }
@@ -302,13 +302,13 @@ const TransportAdmitCard = forwardRef(({ passenger }, ref) => {
                         font-size: 15pt;
                         font-weight: 700;
                         line-height: 1.1;
-                        color: #1e3a8a;
+                        color: var(--primary, #145A3A);
                     }
                     .helpline {
                         font-size: 10pt;
                         font-weight: 700;
                         margin-top: 0.6mm;
-                        color: #1e40af;
+                        color: var(--primary, #145A3A);
                     }
                     .header-right {
                         flex-shrink: 0;
@@ -368,8 +368,8 @@ const TransportAdmitCard = forwardRef(({ passenger }, ref) => {
                     .cell-label {
                         font-weight: 700;
                         width: 30%;
-                        background: #f0f4ff;
-                        color: #1e3a8a;
+                        background: var(--primary-light, #f0f4ff);
+                        color: var(--primary, #145A3A);
                     }
                     .cell-value {
                         font-weight: 500;
@@ -377,12 +377,12 @@ const TransportAdmitCard = forwardRef(({ passenger }, ref) => {
                     }
                     .cell-highlight {
                         font-weight: 700;
-                        color: #1e40af;
+                        color: var(--primary, #145A3A);
                         font-size: 11pt;
                     }
                     .cell-accent {
                         font-weight: 700;
-                        color: #0f766e;
+                        color: var(--accent, #0E8388);
                         font-size: 10.5pt;
                     }
                     .cell-photo {

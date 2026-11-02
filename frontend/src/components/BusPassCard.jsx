@@ -51,7 +51,7 @@ const BusPassCard = forwardRef(({ passenger }, ref) => {
                             flex-direction: column;
                         }
                         .header {
-                            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+                            background: linear-gradient(135deg, var(--primary, #145A3A) 0%, var(--secondary, #287A50) 100%);
                             color: white;
                             padding: 3mm;
                             display: flex;
@@ -129,7 +129,7 @@ const BusPassCard = forwardRef(({ passenger }, ref) => {
                             border-top: 0.1mm solid #e2e8f0;
                         }
                         .bus-id-badge {
-                            background-color: #1e40af;
+                            background-color: var(--primary, #145A3A);
                             color: white;
                             padding: 0.5mm 2mm;
                             border-radius: 3mm;
@@ -140,7 +140,7 @@ const BusPassCard = forwardRef(({ passenger }, ref) => {
                             font-size: 5pt;
                             font-weight: 800;
                             text-transform: uppercase;
-                            color: #1e40af;
+                            color: var(--primary, #145A3A);
                         }
                     `}
                 </style>
@@ -167,7 +167,7 @@ const BusPassCard = forwardRef(({ passenger }, ref) => {
                         <div className="details">
                             <div className="detail-row">
                                 <div className="label">Name</div>
-                                <div className="value" style={{fontSize: '8pt', color: '#1e40af'}}>{name}</div>
+                                <div className="value" style={{fontSize: '8pt', color: 'var(--primary, #145A3A)'}}>{name}</div>
                             </div>
                             
                             {type.toLowerCase() === 'employee' ? (

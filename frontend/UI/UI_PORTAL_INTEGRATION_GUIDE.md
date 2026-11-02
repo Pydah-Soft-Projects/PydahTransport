@@ -9,12 +9,38 @@
 
 ---
 
+## ⚠️ Fundamental Rule: ZERO Local Theme Files
+
+> [!IMPORTANT]
+> **Connected applications MUST NOT store any theme JSON or CSS files in their source code or repositories.**
+> - **DO NOT** download, commit, or copy `theme.json`, `active-theme.json`, or local color palettes into your project.
+> - Connected applications are **100% stateless runtime consumers**.
+> - Theme source of truth is managed exclusively by the centralized Theme Server (`ui-theme.pydah.edu.in`).
+> 
+> ### Why Local Theme Files Are Prohibited:
+> 1. **Version Drift**: If you store a local JSON file, your portal freezes on old colors and will NOT update when new brand themes are published.
+> 2. **Redeployment Overhead**: Whenever brand colors change, you would have to manually update JSON files and rebuild/redeploy every single portal.
+> 3. **Git Merge Conflicts**: Multiple developers editing local theme JSON files triggers merge conflicts across portal repositories.
+> 4. **Runtime Desynchronization**: Other connected portals will be running the new theme while yours remains outdated.
+
+### How Connected Portals Consume Themes (Zero Local State)
+
+```mermaid
+flowchart LR
+    A["Connected Portal<br/>(Admissions / EMS / etc.)"] -->|"1. Runtime Script Link (index.html)"| B["Theme Server<br/>(ui-theme.pydah.edu.in)"]
+    B -->|"2. Injects theme.css (:root)"| A
+    A -->|"3. Styles elements via CSS vars"| C["var(--primary)<br/>var(--background)<br/>var(--sidebar)"]
+    A -->|"4. Reads JS colors from DOM"| D["window.ThemeLoader.getToken('primary')<br/>(No JSON files)"]
+```
+
+---
+
 ## 1. Overview & Strategy
 
 When connecting an existing portal (Vite, Next.js, Create-React-App, Vue, Vanilla HTML) that already has disparate, hardcoded colors scattered across multiple pages, **do not attempt to replace all colors at once**.
 
 Follow this **page-by-page migration process**:
-1. **Load the centralized stylesheet** (takes 2 minutes).
+1. **Load the centralized runtime script** (takes 2 minutes, zero files to download).
 2. **Review the Master Token Dictionary** below to map your existing hardcoded colors.
 3. **Migrate Page 0 (Layout Shell: Sidebar & Navbar)**.
 4. **Migrate Page by Page (Dashboard -> Tables -> Forms -> Modals)**.
@@ -340,9 +366,84 @@ Update inputs, labels, and action buttons:
 
 ---
 
-## 7. Listening to Theme Events in React
+## 7. Consuming Theme Colors in JavaScript (Charts, Canvas, React State)
 
-If your application needs to trigger specific logic (such as re-rendering a Canvas chart or Chart.js component when colors change):
+If your application needs color values in JavaScript (e.g. for **Chart.js, Recharts, Canvas, SVG, PDF generation, or dynamic inline styles**), **DO NOT fetch or save JSON files**.
+
+Use the `window.ThemeLoader` SDK helper or the native DOM API:
+
+### Option A: Read Single Token
+```javascript
+// Using ThemeLoader SDK
+const primaryColor = window.ThemeLoader.getToken('primary'); // e.g. "#145A3A"
+const backgroundColor = window.ThemeLoader.getToken('background'); // e.g. "#F7F9F7"
+
+// Or using standard browser DOM API (zero dependencies)
+const brandPrimary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+```
+
+### Option B: Read All Tokens at Once
+```javascript
+const tokens = window.ThemeLoader.getTokens();
+console.log(tokens.primary);     // "#145A3A"
+console.log(tokens.surface);     // "#FFFFFF"
+console.log(tokens.sidebar);     // "#145A3A"
+console.log(tokens.textPrimary); // "#252B27"
+```
+
+### Option C: React Custom Hook (`useThemeTokens.js`)
+Create this simple hook in your React portal:
+
+```jsx
+import { useState, useEffect } from 'react';
+
+export function useThemeTokens() {
+  const [tokens, setTokens] = useState(() => 
+    typeof window !== 'undefined' && window.ThemeLoader ? window.ThemeLoader.getTokens() : {}
+  );
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      if (window.ThemeLoader) {
+        setTokens(window.ThemeLoader.getTokens());
+      }
+    };
+
+    window.addEventListener('theme:updated', handleUpdate);
+    return () => window.removeEventListener('theme:updated', handleUpdate);
+  }, []);
+
+  return tokens;
+}
+```
+
+#### Example Usage in Chart.js / Recharts Component:
+```jsx
+import { useThemeTokens } from './useThemeTokens';
+import { BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+
+export function AdmissionsChart({ data }) {
+  const { primary, accent, surface, border } = useThemeTokens();
+
+  return (
+    <div style={{ backgroundColor: surface, border: `1px solid ${border}`, padding: '16px', borderRadius: '8px' }}>
+      <BarChart width={500} height={300} data={data}>
+        <XAxis dataKey="name" />
+        <YAxis />
+        <Tooltip />
+        <Bar dataKey="students" fill={primary || '#145A3A'} />
+        <Bar dataKey="enrolled" fill={accent || '#0E8388'} />
+      </BarChart>
+    </div>
+  );
+}
+```
+
+---
+
+## 8. Listening to Theme Events in React
+
+If your application needs to trigger custom logic whenever a theme update is published by the central server:
 
 ```jsx
 import { useEffect } from 'react';
@@ -351,7 +452,7 @@ export default function MyComponent() {
   useEffect(() => {
     const handleThemeChange = (event) => {
       console.log('Central theme updated to version:', event.detail.version);
-      // Re-render chart or update canvas colors here
+      // Re-render chart or canvas when new theme arrives
     };
 
     window.addEventListener('theme:updated', handleThemeChange);
@@ -364,7 +465,7 @@ export default function MyComponent() {
 
 ---
 
-## 8. Offline & Server Outage Resilience
+## 9. Offline & Server Outage Resilience
 
 If the central theme server is down or experiencing temporary network issues:
 - `theme-loader.js` **preserves the last successfully loaded theme** stored in `localStorage`.

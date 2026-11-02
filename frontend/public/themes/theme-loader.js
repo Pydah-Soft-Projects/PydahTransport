@@ -86,6 +86,81 @@
   /**
    * Generates CSS from active theme JSON payload (used as fallback when theme.css is not directly accessible)
    */
+  
+  function rgbToHex(r, g, b) {
+    var clamp = function (v) { return Math.max(0, Math.min(255, Math.round(v))); };
+    var toHex = function (v) { return clamp(v).toString(16).padStart(2, '0'); };
+    return ('#' + toHex(r) + toHex(g) + toHex(b)).toUpperCase();
+  }
+
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    var max = Math.max(r, g, b), min = Math.min(r, g, b);
+    var h, s, l = (max + min) / 2;
+    if (max === min) {
+      h = s = 0;
+    } else {
+      var d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h /= 6;
+    }
+    return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
+  }
+
+  function hslToRgb(h, s, l) {
+    h /= 360; s /= 100; l /= 100;
+    var r, g, b;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      var hue2rgb = function (p, q, t) {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+      };
+      var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      var p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1 / 3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1 / 3);
+    }
+    return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+  }
+
+  function generateShades(baseHex) {
+    if (!baseHex) return {};
+    var rgb = hexToRgb(baseHex);
+    var hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+    var lightnessMap = {
+      50: 96, 100: 92, 200: 84, 300: 72, 400: 60,
+      500: Math.max(25, Math.min(52, hsl.l)),
+      600: 42, 700: 32, 800: 22, 900: 14
+    };
+    var shades = {};
+    for (var weight in lightnessMap) {
+      var targetL = lightnessMap[weight];
+      var sat = hsl.s;
+      if (weight === '50') sat = Math.max(15, sat * 0.45);
+      else if (weight === '100') sat = Math.max(20, sat * 0.65);
+      else if (weight === '200') sat = Math.max(25, sat * 0.85);
+      else if (weight === '900') sat = Math.min(95, sat * 0.95);
+      var shadeRgb = hslToRgb(hsl.h, sat, targetL);
+      shades[weight] = rgbToHex(shadeRgb.r, shadeRgb.g, shadeRgb.b);
+    }
+    return shades;
+  }
+
+  /**
+   * Generates CSS from active theme JSON payload (used as fallback when theme.css is not directly accessible)
+   */
   function generateCSSFromThemeJSON(theme) {
     var c = theme.colors;
     if (!c || !c.brand) return '';
@@ -96,6 +171,9 @@
     var bgRgb = hexToRgb(c.backgrounds ? c.backgrounds.background : '#F7F9F7');
     var surfaceRgb = hexToRgb(c.backgrounds ? c.backgrounds.surface : '#FFFFFF');
 
+    var primaryShades = generateShades(c.brand.primary);
+    var secondaryShades = generateShades(c.brand.secondary || '#287A50');
+
     var css = ':root, :root:root {\n' +
       '  --primary: ' + c.brand.primary + ';\n' +
       '  --primary-hover: ' + (c.brand.primaryHover || c.brand.primary) + ';\n' +
@@ -104,8 +182,16 @@
       '  --secondary: ' + (c.brand.secondary || '#287A50') + ';\n' +
       '  --secondary-rgb: ' + secondaryRgb.r + ', ' + secondaryRgb.g + ', ' + secondaryRgb.b + ';\n' +
       '  --accent: ' + (c.brand.accent || '#0E8388') + ';\n' +
-      '  --accent-rgb: ' + accentRgb.r + ', ' + accentRgb.g + ', ' + accentRgb.b + ';\n' +
-      '  --background: ' + (c.backgrounds ? c.backgrounds.background : '#F7F9F7') + ';\n' +
+      '  --accent-rgb: ' + accentRgb.r + ', ' + accentRgb.g + ', ' + accentRgb.b + ';\n';
+
+    for (var pW in primaryShades) {
+      css += '  --primary-' + pW + ': ' + primaryShades[pW] + ';\n';
+    }
+    for (var sW in secondaryShades) {
+      css += '  --secondary-' + sW + ': ' + secondaryShades[sW] + ';\n';
+    }
+
+    css += '  --background: ' + (c.backgrounds ? c.backgrounds.background : '#F7F9F7') + ';\n' +
       '  --background-rgb: ' + bgRgb.r + ', ' + bgRgb.g + ', ' + bgRgb.b + ';\n' +
       '  --surface: ' + (c.backgrounds ? c.backgrounds.surface : '#FFFFFF') + ';\n' +
       '  --surface-rgb: ' + surfaceRgb.r + ', ' + surfaceRgb.g + ', ' + surfaceRgb.b + ';\n' +
@@ -113,7 +199,7 @@
       '  --sidebar-text: ' + (c.backgrounds ? c.backgrounds.sidebarText : '#FFFFFF') + ';\n' +
       '  --sidebar-muted: ' + (c.backgrounds ? c.backgrounds.sidebarMuted : '#A1CBB7') + ';\n' +
       '  --navbar: ' + (c.backgrounds ? c.backgrounds.navbar : '#FFFFFF') + ';\n' +
-      '  --navbar-border: ' + (c.backgrounds ? (c.backgrounds.navbarBorder || c.borders.border) : '#E5EAE6') + ';\n' +
+      '  --navbar-border: ' + (c.backgrounds ? (c.backgrounds.navbarBorder || (c.borders && c.borders.border)) : '#E5EAE6') + ';\n' +
       '  --text-primary: ' + (c.typography ? c.typography.textPrimary : '#252B27') + ';\n' +
       '  --text-secondary: ' + (c.typography ? c.typography.textSecondary : '#5B645E') + ';\n' +
       '  --text-muted: ' + (c.typography ? c.typography.textMuted : '#8D9790') + ';\n' +
@@ -380,8 +466,6 @@
 
     var xhr = new XMLHttpRequest();
     xhr.open('GET', versionUrl, true);
-    xhr.setRequestHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    xhr.setRequestHeader('Pragma', 'no-cache');
     xhr.timeout = timeoutMs || 3000;
 
     xhr.onload = function () {
@@ -430,24 +514,73 @@
   /**
    * Checks for remote version changes and swaps if updated
    */
+    /**
+   * Checks for remote version changes and swaps if updated
+   */
   function checkAndSyncTheme(force, onComplete) {
     state.lastCheck = new Date();
+    var cleanBase = (state.themeServer || 'https://ui-theme.pydah.edu.in').replace(/\/$/, '');
 
-    // Target: Central Theme Server (Production or configured server)
-    fetchVersionFromUrl(state.themeServer, 3000, function (err, data, resolvedBase) {
+    // 1. Authoritative check: fetch live active theme directly from /api/theme/active
+    var apiUrl = cleanBase + '/api/theme/active?_t=' + Date.now();
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', apiUrl, true);
+    xhr.timeout = 4000;
+
+    xhr.onload = function () {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          var activeData = JSON.parse(xhr.responseText);
+          var activeVersion = activeData.version || '1.0.0';
+          var lastPub = activeData.lastPublished || '';
+
+          if (force || activeVersion !== state.currentVersion || (lastPub && lastPub !== state.lastPublished)) {
+            console.info('[ThemeLoader] Live theme update detected (' + state.currentVersion + ' -> ' + activeVersion + '). Applying...');
+            var compiledCss = generateCSSFromThemeJSON(activeData);
+            if (compiledCss) {
+              state.lastPublished = lastPub;
+              storeAndApplyCSS(compiledCss, activeVersion, onComplete);
+              return;
+            }
+          } else {
+            // Already on latest version
+            if (onComplete) onComplete(null, state.currentVersion);
+            return;
+          }
+        } catch (e) {}
+      }
+
+      // 2. Fallback: if /api/theme/active is unreachable, try static version.json and theme.css
+      fetchVersionAndStylesheetFallback(cleanBase, force, onComplete);
+    };
+
+    xhr.onerror = function () {
+      fetchVersionAndStylesheetFallback(cleanBase, force, onComplete);
+    };
+
+    xhr.ontimeout = function () {
+      fetchVersionAndStylesheetFallback(cleanBase, force, onComplete);
+    };
+
+    try {
+      xhr.send();
+    } catch (e) {
+      fetchVersionAndStylesheetFallback(cleanBase, force, onComplete);
+    }
+  }
+
+  function fetchVersionAndStylesheetFallback(cleanBase, force, onComplete) {
+    fetchVersionFromUrl(cleanBase, 3000, function (err, data, resolvedBase) {
       if (!err && data && data.version) {
         state.consecutiveFailures = 0;
         var remoteVersion = data.version;
         if (force || remoteVersion !== state.currentVersion) {
-          console.log('[ThemeLoader] Syncing theme (' + state.currentVersion + ' -> ' + remoteVersion + ')...');
           applyThemeStylesheet(resolvedBase, remoteVersion, onComplete);
         } else {
           if (onComplete) onComplete(null, state.currentVersion);
         }
         return;
       }
-
-      // If remote server check fails, preserve active cached theme
       injectFallbackCSS();
       if (onComplete) onComplete(err);
     });
@@ -537,6 +670,50 @@
     setServer: function (url) {
       state.themeServer = url;
       checkAndSyncTheme(true);
+    },
+    getToken: function (name) {
+      if (!name || typeof window === 'undefined') return '';
+      var varName = name;
+      if (varName.indexOf('--') !== 0) {
+        varName = '--' + varName.replace(/([A-Z])/g, '-$1').toLowerCase();
+      }
+      try {
+        var val = window.getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+        if (val) return val;
+      } catch (e) {}
+      return '';
+    },
+    getTokens: function () {
+      if (typeof window === 'undefined') return {};
+      var style = window.getComputedStyle(document.documentElement);
+      var tokenKeys = [
+        'primary', 'primary-hover', 'primary-light', 'primary-rgb',
+        'primary-50', 'primary-100', 'primary-200', 'primary-300', 'primary-400',
+        'primary-500', 'primary-600', 'primary-700', 'primary-800', 'primary-900',
+        'secondary', 'secondary-rgb',
+        'secondary-50', 'secondary-100', 'secondary-200', 'secondary-300', 'secondary-400',
+        'secondary-500', 'secondary-600', 'secondary-700', 'secondary-800', 'secondary-900',
+        'accent', 'accent-rgb',
+        'background', 'background-rgb',
+        'surface', 'surface-rgb',
+        'sidebar', 'sidebar-text', 'sidebar-muted',
+        'navbar', 'navbar-border',
+        'text-primary', 'text-secondary', 'text-muted',
+        'border', 'border-strong',
+        'success', 'warning', 'danger', 'info',
+        'success-light', 'warning-light', 'danger-light', 'info-light'
+      ];
+      var result = {};
+      for (var i = 0; i < tokenKeys.length; i++) {
+        var k = tokenKeys[i];
+        var val = style.getPropertyValue('--' + k).trim();
+        if (val) {
+          result[k] = val;
+          var camel = k.replace(/-([a-z0-9])/g, function (g) { return g[1].toUpperCase(); });
+          result[camel] = val;
+        }
+      }
+      return result;
     }
   };
 });
