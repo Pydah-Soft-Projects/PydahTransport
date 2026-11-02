@@ -631,7 +631,7 @@ const Dashboard = () => {
                         </div>
 
                         {/* LATE BUSES CARD (NEW CARD ON RIGHT SIDE) */}
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-rose-200/90 bg-gradient-to-r from-white via-rose-50/20 to-white flex flex-col justify-between">
+                        <div className={`bg-white rounded-xl p-4 shadow-sm border ${lateBusesList.length > 0 ? 'border-rose-200/90 bg-gradient-to-r from-white via-rose-50/20 to-white' : 'border-slate-100'} flex flex-col justify-between`}>
                             <div>
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
                                     <div className="flex items-center gap-2.5">
@@ -641,13 +641,11 @@ const Dashboard = () => {
                                         <div>
                                             <div className="flex items-center gap-2">
                                                 <h3 className="font-extrabold text-slate-900 text-sm">Late Buses</h3>
-                                                <span className={`text-[10.5px] font-black px-2 py-0.5 rounded-full border ${
-                                                    lateBusesList.length > 0
-                                                        ? 'bg-rose-100 text-rose-800 border-rose-300'
-                                                        : 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                                }`}>
-                                                    {lateBusesList.length} Delayed
-                                                </span>
+                                                {lateBusesList.length > 0 && (
+                                                    <span className="text-[10.5px] font-black px-2 py-0.5 rounded-full border bg-rose-100 text-rose-800 border-rose-300">
+                                                        {lateBusesList.length} Delayed
+                                                    </span>
+                                                )}
                                             </div>
                                             <p className="text-[11px] text-slate-500">Buses running behind scheduled arrival time</p>
                                         </div>
@@ -698,10 +696,7 @@ const Dashboard = () => {
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="py-2.5 px-3.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
-                                        <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                                        <span>All buses are running on schedule today!</span>
-                                    </div>
+                                    <div className="min-h-[50px]" />
                                 )}
                             </div>
                         </div>

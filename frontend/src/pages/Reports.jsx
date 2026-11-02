@@ -25,6 +25,7 @@ import Layout from '../components/Layout';
 import { apiFetch, API_BASE } from '../utils/api';
 import { getDefaultAcademicYear, getAcademicYearOptions } from '../utils/academicYear';
 import { printHtmlDocument } from '../utils/printHtml';
+import { filterCampusesForUser, getCampusId, campusIdsMatch } from '../utils/campus';
 
 const formatCurrency = (val) => `₹${Number(val || 0).toLocaleString('en-IN')}`;
 
@@ -89,6 +90,8 @@ const TableSkeleton = () => (
 const Reports = () => {
     const [academicYear, setAcademicYear] = useState(() => getDefaultAcademicYear());
     const academicYearOptions = useMemo(() => getAcademicYearOptions(), []);
+    const [campuses, setCampuses] = useState([]);
+    const [selectedCampus, setSelectedCampus] = useState('');
     const [requests, setRequests] = useState([]);
     const [duesData, setDuesData] = useState({});
     const [routes, setRoutes] = useState([]);
@@ -100,11 +103,53 @@ const Reports = () => {
     const [expandedRoutes, setExpandedRoutes] = useState(new Set());
     const [routeDetailTab, setRouteDetailTab] = useState({}); // { [routeId]: 'stages' | 'students' }
 
+    const adminInfo = useMemo(() => {
+        try {
+            return JSON.parse(localStorage.getItem('adminInfo') || '{}');
+        } catch {
+            return {};
+        }
+    }, []);
+    const userCampuses = adminInfo.campuses || [];
+    const isSuperAdmin = adminInfo.role === 'admin' || (adminInfo.roles && adminInfo.roles.includes('superadmin'));
+
+    const allowedCampuses = useMemo(() => {
+        return filterCampusesForUser(campuses, userCampuses, isSuperAdmin);
+    }, [campuses, userCampuses, isSuperAdmin]);
+
+    useEffect(() => {
+        const fetchCampuses = async () => {
+            try {
+                const res = await apiFetch(`${API_BASE}/campuses`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setCampuses(Array.isArray(data) ? data : []);
+                }
+            } catch (err) {
+                console.error('Error fetching campuses in Reports:', err);
+            }
+        };
+        fetchCampuses();
+    }, []);
+
+    useEffect(() => {
+        if (allowedCampuses.length > 0 && !isSuperAdmin && userCampuses.length === 1) {
+            setSelectedCampus(String(userCampuses[0]));
+        }
+    }, [allowedCampuses, isSuperAdmin, userCampuses]);
+
+    const selectedCampusLabel = useMemo(() => {
+        if (!selectedCampus) return '';
+        const match = allowedCampuses.find((c) => campusIdsMatch(getCampusId(c), selectedCampus));
+        return match ? match.name : '';
+    }, [allowedCampuses, selectedCampus]);
+
     const cacheRef = React.useRef(new Map());
 
     const fetchData = async (forceRefresh = false) => {
-        if (!forceRefresh && cacheRef.current.has(academicYear)) {
-            const cached = cacheRef.current.get(academicYear);
+        const cacheKey = `${academicYear || 'all'}_${selectedCampus || 'all'}`;
+        if (!forceRefresh && cacheRef.current.has(cacheKey)) {
+            const cached = cacheRef.current.get(cacheKey);
             setRequests(cached.reqData);
             setDuesData(cached.duesMap);
             setRoutes(cached.routesList);
@@ -116,11 +161,16 @@ const Reports = () => {
         try {
             const reqParam = new URLSearchParams();
             if (academicYear) reqParam.append('academicYear', academicYear);
+            if (selectedCampus) reqParam.append('campus', selectedCampus);
+
+            const routesParam = new URLSearchParams();
+            if (academicYear) routesParam.append('academicYear', academicYear);
+            if (selectedCampus) routesParam.append('campus', selectedCampus);
 
             const [reqRes, duesRes, routesRes] = await Promise.allSettled([
                 apiFetch(`${API_BASE}/transport-requests?${reqParam.toString()}`),
                 apiFetch(`${API_BASE}/transport-dues?academicYear=${encodeURIComponent(academicYear || '')}`),
-                apiFetch(`${API_BASE}/routes${academicYear ? `?academicYear=${encodeURIComponent(academicYear)}` : ''}`),
+                apiFetch(`${API_BASE}/routes${routesParam.toString() ? `?${routesParam.toString()}` : ''}`),
             ]);
 
             let reqData = [];
@@ -146,7 +196,7 @@ const Reports = () => {
                 routesList = Array.isArray(rJson) ? rJson : [];
             }
 
-            cacheRef.current.set(academicYear, { reqData, duesMap, routesList });
+            cacheRef.current.set(cacheKey, { reqData, duesMap, routesList });
             setRequests(Array.isArray(reqData) ? reqData : []);
             setDuesData(duesMap);
             setRoutes(routesList);
@@ -162,7 +212,7 @@ const Reports = () => {
 
     useEffect(() => {
         fetchData();
-    }, [academicYear]);
+    }, [academicYear, selectedCampus]);
 
     // Aggregate requests route-wise
     const routeReportData = useMemo(() => {
@@ -171,14 +221,26 @@ const Reports = () => {
         const routeMap = new Map();
         const routeMetaMap = new Map();
 
-        routes.forEach((r) => {
+        const effectiveRoutes = selectedCampus
+            ? routes.filter((r) => campusIdsMatch(getCampusId(r.campus), selectedCampus))
+            : routes;
+
+        effectiveRoutes.forEach((r) => {
             const idKey = String(r.routeId || r._id || '').trim();
             if (idKey) routeMetaMap.set(idKey, r);
         });
 
+        const allowedRouteIds = selectedCampus
+            ? new Set(effectiveRoutes.map((r) => String(r.routeId || r._id || '').trim()))
+            : null;
+
         requests.forEach((req) => {
             const rawRouteId = req.route_id || req.routeId || '';
             const routeKey = String(rawRouteId || 'Unassigned').trim();
+
+            if (allowedRouteIds && !allowedRouteIds.has(routeKey)) {
+                return;
+            }
             const meta = routeMetaMap.get(routeKey);
             const routeName = req.route_name || req.routeName || meta?.routeName || (routeKey === 'Unassigned' ? 'Unassigned Route' : `Route ${routeKey}`);
 
@@ -291,7 +353,7 @@ const Reports = () => {
         }));
 
         return list.sort(compareRouteIds);
-    }, [requests, duesData, routes]);
+    }, [requests, duesData, routes, selectedCampus]);
 
     // Filter routes by search query, route dropdown, and fee status
     const filteredRoutes = useMemo(() => {
@@ -386,7 +448,7 @@ const Reports = () => {
             <html>
             <head>
                 <meta charset="utf-8" />
-                <title>Route-Wise Transport Fee Report - ${academicYear || 'All'}</title>
+                <title>Route-Wise Transport Fee Report - ${selectedCampusLabel ? `${selectedCampusLabel} - ` : ''}${academicYear || 'All'}</title>
                 <style>
                     @page { size: landscape; margin: 10mm; }
                     body {
@@ -504,7 +566,7 @@ const Reports = () => {
             <body>
                 <div class="header">
                     <h1>Pydah Educational Institutions</h1>
-                    <h2>Route-Wise Transport Fee Collection Report</h2>
+                    <h2>${selectedCampusLabel ? `${selectedCampusLabel} &bull; ` : ''}Route-Wise Transport Fee Collection Report</h2>
                     <p>Academic Year: ${academicYear || 'All'} · Generated on ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
 
@@ -593,7 +655,7 @@ const Reports = () => {
             </html>
         `;
 
-        printHtmlDocument(html, `Route-Wise-Fee-Report-${academicYear || 'All'}`);
+        printHtmlDocument(html, `Route-Wise-Fee-Report-${selectedCampusLabel ? `${selectedCampusLabel.replace(/\s+/g, '_')}-` : ''}${academicYear || 'All'}`);
     };
 
     // Export Excel with Route Summary, Stage Breakdown, and Student Roster
@@ -716,7 +778,7 @@ const Reports = () => {
             const url = window.URL.createObjectURL(blob);
             const anchor = document.createElement('a');
             anchor.href = url;
-            anchor.download = `Route-Wise-Fee-Collection-Report-${academicYear || 'All'}.xlsx`;
+            anchor.download = `Route-Wise-Fee-Collection-Report-${selectedCampusLabel ? `${selectedCampusLabel.replace(/\s+/g, '_')}-` : ''}${academicYear || 'All'}.xlsx`;
             anchor.click();
             window.URL.revokeObjectURL(url);
         } catch (err) {
@@ -851,8 +913,8 @@ const Reports = () => {
             </div>
 
             {/* Filter Bar */}
-            <div className="flex flex-wrap items-center gap-3 mb-4 bg-white p-3 rounded-xl shadow-xs border border-slate-200">
-                <div className="flex-1 min-w-[200px] relative">
+            <div className="flex items-center gap-2.5 mb-4 bg-white p-3 rounded-xl shadow-xs border border-slate-200 overflow-x-auto no-scrollbar flex-nowrap">
+                <div className="flex-1 min-w-[160px] relative shrink">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                         type="text"
@@ -863,12 +925,33 @@ const Reports = () => {
                     />
                 </div>
 
-                <div className="w-full sm:w-auto min-w-[150px] flex items-center gap-1.5">
+                {allowedCampuses.length > 0 && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                        <MapPin size={14} className="text-slate-400 shrink-0" />
+                        <select
+                            value={selectedCampus}
+                            onChange={(e) => {
+                                setSelectedCampus(e.target.value);
+                                setSelectedRouteFilter('');
+                            }}
+                            className="w-36 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 font-bold text-slate-700 bg-transparent cursor-pointer truncate"
+                        >
+                            <option value="">All Campuses</option>
+                            {allowedCampuses.map((campus) => (
+                                <option key={getCampusId(campus)} value={getCampusId(campus)}>
+                                    {campus.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                <div className="flex items-center gap-1.5 shrink-0">
                     <RouteIcon size={14} className="text-slate-400 shrink-0" />
                     <select
                         value={selectedRouteFilter}
                         onChange={(e) => setSelectedRouteFilter(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all font-bold text-slate-700 bg-transparent cursor-pointer"
+                        className="w-36 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 font-bold text-slate-700 bg-transparent cursor-pointer truncate"
                     >
                         <option value="">All Routes</option>
                         {routeReportData.map((r) => (
@@ -879,12 +962,12 @@ const Reports = () => {
                     </select>
                 </div>
 
-                <div className="w-full sm:w-auto min-w-[140px] flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 shrink-0">
                     <IndianRupee size={14} className="text-slate-400 shrink-0" />
                     <select
                         value={feeStatusFilter}
                         onChange={(e) => setFeeStatusFilter(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all font-bold text-slate-700 bg-transparent cursor-pointer"
+                        className="w-32 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 font-bold text-slate-700 bg-transparent cursor-pointer truncate"
                     >
                         <option value="all">All Fee Status</option>
                         <option value="has_due">Pending Dues Only</option>
@@ -892,12 +975,12 @@ const Reports = () => {
                     </select>
                 </div>
 
-                <div className="w-full sm:w-auto min-w-[150px] flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 shrink-0">
                     <Calendar size={14} className="text-slate-400 shrink-0" />
                     <select
                         value={academicYear}
                         onChange={(e) => setAcademicYear(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition-all font-bold text-slate-700 bg-transparent cursor-pointer"
+                        className="w-28 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 font-bold text-slate-700 bg-transparent cursor-pointer truncate"
                     >
                         <option value="">All Academic Years</option>
                         {academicYearOptions.map((year) => (
@@ -917,7 +1000,9 @@ const Reports = () => {
                     <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
                         {searchQuery
                             ? `No routes match "${searchQuery}".`
-                            : 'There are no transport requests with routes recorded for the selected academic year.'}
+                            : selectedCampus
+                                ? `There are no transport requests recorded for the selected campus (${selectedCampusLabel || 'Selected Campus'}).`
+                                : 'There are no transport requests with routes recorded for the selected academic year.'}
                     </p>
                     {searchQuery && (
                         <button
