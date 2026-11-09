@@ -593,54 +593,85 @@ const parseDailyKilometersFromTggReport = (tggData, vehName) => {
   }
 
   const sections = vehObj || tggData;
-  const distanceReport = sections["Mileage"] || sections["Total KMs Travelled"] || sections["Summary"] || sections["Distance"];
-  if (!distanceReport) return kmByDate;
-
-  const subObjList = Array.isArray(distanceReport) ? [distanceReport] : Object.values(distanceReport);
-  subObjList.forEach(subObj => {
-    const rows = Array.isArray(subObj) ? subObj : (subObj && typeof subObj === 'object' ? Object.values(subObj) : []);
-    rows.forEach(rowItem => {
-      const cObj = rowItem?.c || rowItem;
-      if (cObj && typeof cObj === 'object') {
-        let rowDate = null;
-        let kmVal = null;
-        for (const key of Object.keys(cObj)) {
-          const val = String(cObj[key] || '').trim();
-          const normD = normalizeDateStr(val);
-          if (normD) {
-            rowDate = normD;
-          } else if (val.toLowerCase().includes('km')) {
-            const m = val.match(/([\d.]+)/);
-            if (m) {
-              const n = parseFloat(m[1]);
-              if (!isNaN(n) && n >= 0 && n < 2000) {
-                kmVal = Math.max(kmVal || 0, n);
-              }
-            }
-          }
-        }
-        // Fallback: If no cell explicitly contained "km", search numeric columns excluding column "0" (S.No / Serial Number)
-        if (rowDate && kmVal === null) {
+  const distanceReport = sections["Distance Travelled"] || sections["Distance Traveled"] || sections["Total KMs Travelled"] || sections["Mileage"] || sections["Summary"] || sections["Distance"];
+  if (distanceReport) {
+    const subObjList = Array.isArray(distanceReport) ? [distanceReport] : Object.values(distanceReport);
+    subObjList.forEach(subObj => {
+      const rows = Array.isArray(subObj) ? subObj : (subObj && typeof subObj === 'object' ? Object.values(subObj) : []);
+      rows.forEach(rowItem => {
+        const cObj = rowItem?.c || rowItem;
+        if (cObj && typeof cObj === 'object') {
+          let rowDate = null;
+          let kmVal = null;
           for (const key of Object.keys(cObj)) {
-            if (key === '0' || key === 'sno' || key === 's_no') continue; // skip serial number index
             const val = String(cObj[key] || '').trim();
-            if (val && val !== rowDate && /^\d+(\.\d+)?$/.test(val)) {
-              const n = parseFloat(val);
-              if (!isNaN(n) && n >= 0 && n < 2000) {
-                kmVal = Math.max(kmVal || 0, n);
+            const normD = normalizeDateStr(val);
+            if (normD) {
+              rowDate = normD;
+            } else if (val.toLowerCase().includes('km')) {
+              const m = val.match(/([\d.]+)/);
+              if (m) {
+                const n = parseFloat(m[1]);
+                if (!isNaN(n) && n >= 0 && n < 2000) {
+                  kmVal = Math.max(kmVal || 0, n);
+                }
               }
             }
           }
-        }
+          // Fallback: If no cell explicitly contained "km", search numeric columns excluding column "0" (S.No / Serial Number)
+          if (rowDate && kmVal === null) {
+            for (const key of Object.keys(cObj)) {
+              if (key === '0' || key === 'sno' || key === 's_no') continue; // skip serial number index
+              const val = String(cObj[key] || '').trim();
+              if (val && val !== rowDate && /^\d+(\.\d+)?$/.test(val)) {
+                const n = parseFloat(val);
+                if (!isNaN(n) && n >= 0 && n < 2000) {
+                  kmVal = Math.max(kmVal || 0, n);
+                }
+              }
+            }
+          }
 
-        if (rowDate && kmVal !== null && kmVal > 0) {
-          kmByDate[rowDate] = Math.round(kmVal * 10) / 10;
-        } else if (rowDate) {
-          kmByDate[rowDate] = 0;
+          if (rowDate && kmVal !== null && kmVal > 0) {
+            kmByDate[rowDate] = Math.round(kmVal * 10) / 10;
+          } else if (rowDate && kmByDate[rowDate] === undefined) {
+            kmByDate[rowDate] = 0;
+          }
+        }
+      });
+    });
+  }
+
+  // Fallback: If kmByDate is empty or has 0 for a date, calculate from sections["Trips"]
+  const tripsReport = sections["Trips"];
+  if (tripsReport) {
+    const tripsContainer = tripsReport[vehName] || (typeof tripsReport === 'object' ? Object.values(tripsReport)[0] || tripsReport : tripsReport);
+    const tripRows = Array.isArray(tripsContainer) ? tripsContainer : (tripsContainer && typeof tripsContainer === 'object' ? Object.values(tripsContainer) : []);
+    const tripKmsByDate = {};
+
+    tripRows.forEach(tripItem => {
+      const c = tripItem?.c || tripItem;
+      if (c && typeof c === 'object') {
+        const startTimestamp = c['1']?.t || c['1'] || '';
+        const tripKmStr = c['6'] || '';
+        const normD = normalizeDateStr(startTimestamp);
+        const m = String(tripKmStr).match(/([\d.]+)/);
+        if (normD && m) {
+          const tripKm = parseFloat(m[1]);
+          if (!isNaN(tripKm) && tripKm > 0) {
+            tripKmsByDate[normD] = (tripKmsByDate[normD] || 0) + tripKm;
+          }
         }
       }
     });
-  });
+
+    Object.keys(tripKmsByDate).forEach(d => {
+      const summedKm = Math.round(tripKmsByDate[d] * 10) / 10;
+      if (!kmByDate[d] || kmByDate[d] === 0) {
+        kmByDate[d] = summedKm;
+      }
+    });
+  }
 
   return kmByDate;
 };

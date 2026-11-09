@@ -132,8 +132,8 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
           extractPlateKey(d.busNumber) === busPlateKey ||
           extractPlateKey(d.tggVehicleName) === busPlateKey
         ));
-        if (!doc || doc.syncStatus !== 'COMPLETE' || (doc.firstInTime === '—' && doc.lastOutTime === '—')) {
-          return true; // Missing or incomplete record for a bus, sync this date
+        if (!doc || doc.syncStatus !== 'COMPLETE' || (doc.firstInTime === '—' && doc.lastOutTime === '—') || (doc.totalKms != null && doc.totalKms <= 1 && (doc.firstInTime !== '—' || doc.lastOutTime !== '—'))) {
+          return true; // Missing, incomplete, or corrupted sub-1km record for an active bus, sync this date
         }
       }
       return false; // All buses have COMPLETE record for this past date, skip API query
@@ -223,22 +223,15 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
               }
             }
 
-            if (log.mileage && log.mileage !== '—') {
-              const mMatch = String(log.mileage).match(/([\d.]+)/);
-              if (mMatch) {
-                const mVal = Math.round(parseFloat(mMatch[1]) * 10) / 10;
-                const logDate = normalizeDateStr(log.timeIn || log.timeOut);
-                if (logDate && daysMap[logDate] && mVal > 0) {
-                  daysMap[logDate].kilometers = Math.max(daysMap[logDate].kilometers, mVal);
-                }
-              }
-            }
+            // Note: log.mileage from geofence is only movement inside parking lot (e.g. 0.08 km),
+            // so we do NOT assign it to total vehicle daily kilometers.
           });
 
+          // Extract true daily kilometers from Distance Travelled (or sum of Trips)
           const parsedKms = parseDailyKilometersFromTggReport(tggReport.data, tggVehicleName);
           Object.keys(parsedKms).forEach(dStr => {
-            if (daysMap[dStr] && parsedKms[dStr] > 0) {
-              daysMap[dStr].kilometers = Math.max(daysMap[dStr].kilometers, parsedKms[dStr]);
+            if (daysMap[dStr] !== undefined && parsedKms[dStr] > 0) {
+              daysMap[dStr].kilometers = parsedKms[dStr];
             }
           });
         }
@@ -281,8 +274,8 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
 
         if (dData.kilometers > 0) {
           updateFields.totalKms = dData.kilometers;
-        } else if (!hasValidExistingKm) {
-          updateFields.totalKms = 0;
+        } else if (forceRefresh || !hasValidExistingKm || (existingDoc && existingDoc.totalKms <= 1)) {
+          updateFields.totalKms = dData.kilometers || 0;
         }
 
         await GpsDailyReport.updateOne(
