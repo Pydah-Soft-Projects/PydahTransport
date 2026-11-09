@@ -490,7 +490,7 @@ export default function GpsTracking() {
   const [fleetDateFrom, setFleetDateFrom] = useState(() => {
     return sessionStorage.getItem('gps_fleet_date_from') || (() => {
       const d = new Date();
-      d.setDate(d.getDate() - 4); // Default to last 5 days
+      d.setDate(d.getDate() - 6); // Default to last 7 days
       return d.toISOString().split('T')[0];
     })();
   });
@@ -589,8 +589,6 @@ export default function GpsTracking() {
             if (parsed.dates && parsed.dates.length > 0) {
               setReportDates(parsed.dates);
             }
-            setReportLoading(false);
-            return;
           }
         } catch (e) {}
       }
@@ -781,8 +779,6 @@ export default function GpsTracking() {
             if (parsed.dates && parsed.dates.length > 0) {
               setNightStayDates(parsed.dates);
             }
-            setNightStayLoading(false);
-            return;
           }
         } catch (e) {}
       }

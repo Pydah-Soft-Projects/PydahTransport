@@ -199,7 +199,9 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
           template: 'Daily Report'
         });
 
-        if (tggReport.success && tggReport.data && !tggReport.data.Unitid_err) {
+        let hasTggPayload = false;
+        if (tggReport.success && tggReport.data && !tggReport.data.Unitid_err && !tggReport.data.Error) {
+          hasTggPayload = true;
           const gfLogs = parseGeofencesFromTgg(tggReport.data, tggVehicleName);
 
           gfLogs.forEach(log => {
@@ -248,7 +250,7 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
         const existingDoc = await GpsDailyReport.findOne({ date: dStr, busNumber: bus.busNumber }).lean();
         const hasValidExistingIn = existingDoc && existingDoc.firstInTime && existingDoc.firstInTime !== '—';
         const hasValidExistingOut = existingDoc && existingDoc.lastOutTime && existingDoc.lastOutTime !== '—';
-        const hasValidExistingKm = existingDoc && typeof existingDoc.totalKms === 'number' && existingDoc.totalKms > 0;
+        const hasValidExistingKm = existingDoc && typeof existingDoc.totalKms === 'number' && existingDoc.totalKms > 1;
 
         const updateFields = {
           tggVehicleName,
@@ -262,20 +264,28 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
         if (dData.firstIn && dData.firstIn !== '—') {
           updateFields.firstInTime = dData.firstIn;
           updateFields.isLateArrival = isLate;
-        } else if (!hasValidExistingIn) {
+        } else if (hasValidExistingIn) {
+          updateFields.firstInTime = existingDoc.firstInTime;
+          updateFields.isLateArrival = existingDoc.isLateArrival || false;
+        } else {
           updateFields.firstInTime = '—';
         }
 
         if (dData.lastOut && dData.lastOut !== '—') {
           updateFields.lastOutTime = dData.lastOut;
-        } else if (!hasValidExistingOut) {
+        } else if (hasValidExistingOut) {
+          updateFields.lastOutTime = existingDoc.lastOutTime;
+        } else {
           updateFields.lastOutTime = '—';
         }
 
+        // Never overwrite existing valid kilometers with 0 if API returned blank/error
         if (dData.kilometers > 0) {
           updateFields.totalKms = dData.kilometers;
-        } else if (forceRefresh || !hasValidExistingKm || (existingDoc && existingDoc.totalKms <= 1)) {
-          updateFields.totalKms = dData.kilometers || 0;
+        } else if (hasValidExistingKm) {
+          updateFields.totalKms = existingDoc.totalKms;
+        } else {
+          updateFields.totalKms = 0;
         }
 
         await GpsDailyReport.updateOne(
@@ -288,7 +298,7 @@ const syncDayInOutReportForDates = async (dates, forceRefresh = false, targetBus
     }));
 
     // Delay between batch calls to prevent TGG API rate limits
-    await sleep(250);
+    await sleep(400);
   }
 
   return { success: true, count: totalSaved };
