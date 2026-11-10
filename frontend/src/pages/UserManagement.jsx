@@ -680,7 +680,7 @@ const UserManagement = () => {
                             onClick={() => setActiveTab('users')}
                             className={`py-1.5 sm:py-1 px-5 rounded-lg sm:rounded-full text-xs font-bold transition-all text-center cursor-pointer ${
                                 activeTab === 'users'
-                                    ? 'bg-blue-600 text-white shadow-xs'
+                                    ? 'bg-[var(--primary)] text-white shadow-xs'
                                     : 'text-slate-600 hover:text-slate-900'
                             }`}
                         >
@@ -691,7 +691,7 @@ const UserManagement = () => {
                             onClick={() => setActiveTab('roles')}
                             className={`py-1.5 sm:py-1 px-5 rounded-lg sm:rounded-full text-xs font-bold transition-all text-center cursor-pointer ${
                                 activeTab === 'roles'
-                                    ? 'bg-blue-600 text-white shadow-xs'
+                                    ? 'bg-[var(--primary)] text-white shadow-xs'
                                     : 'text-slate-600 hover:text-slate-900'
                             }`}
                         >
@@ -762,7 +762,7 @@ const UserManagement = () => {
                             <button
                                 type="button"
                                 onClick={openAddAdminModal}
-                                className="w-full sm:w-auto sm:ml-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 sm:py-1.5 rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                className="w-full sm:w-auto sm:ml-auto bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white px-4 py-2 sm:py-1.5 rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                             >
                                 <UserPlus size={14} />
                                 <span>Create New User</span>
@@ -1031,7 +1031,7 @@ const UserManagement = () => {
                         <button
                             type="button"
                             onClick={openCreateRoleModal}
-                            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                            className="w-full sm:w-auto bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                             <Plus size={14} />
                             <span>Create New Role</span>
@@ -1204,7 +1204,7 @@ const UserManagement = () => {
                         </button>
                         <button
                             type="submit"
-                            className="w-full sm:w-auto px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all text-center"
+                            className="w-full sm:w-auto px-8 py-2.5 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white font-bold text-xs rounded-lg shadow-sm transition-all text-center"
                         >
                             {editingRole ? 'Save Changes' : 'Create Role'}
                         </button>
@@ -1555,7 +1555,7 @@ const UserManagement = () => {
                             onClick={saveRole}
                             disabled={!selectedEmployee}
                             className={`w-full sm:w-auto px-6 py-2 text-white font-bold text-xs rounded-lg shadow-sm transition-all text-center ${
-                                !selectedEmployee ? 'bg-slate-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                                !selectedEmployee ? 'bg-slate-300 cursor-not-allowed' : 'bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white'
                             }`}
                         >
                             Create User Access

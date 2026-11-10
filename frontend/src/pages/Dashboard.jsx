@@ -39,7 +39,7 @@ const DashboardSkeleton = () => (
         {/* Top 4 Cards Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between h-[110px]">
+                <div key={i} className="bg-[var(--surface)] rounded-xl p-4 shadow-sm border border-[var(--border)] flex flex-col justify-between h-[110px]">
                     <div className="flex justify-between items-start">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-lg bg-slate-200 shrink-0" />
@@ -115,7 +115,7 @@ const DashboardSkeleton = () => (
         {/* Middle 3 Columns */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
             {[1, 2, 3].map((col) => (
-                <div key={col} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col h-[340px]">
+                <div key={col} className="bg-[var(--surface)] rounded-xl p-4 shadow-sm border border-[var(--border)] flex flex-col h-[340px]">
                     <div className="flex justify-between items-center mb-4">
                         <div className="flex items-center gap-2">
                             <div className="w-4 h-4 bg-slate-200 rounded" />
@@ -143,7 +143,7 @@ const DashboardSkeleton = () => (
         </div>
 
         {/* Renewals Overview Section */}
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+        <div className="bg-[var(--surface)] rounded-xl p-4 shadow-sm border border-[var(--border)]">
             <div className="flex justify-between items-center mb-3">
                 <div className="flex items-center gap-2">
                     <div className="w-4 h-4 bg-slate-200 rounded" />
@@ -410,14 +410,14 @@ const Dashboard = () => {
                     <h2 className="text-xl font-bold text-slate-900 tracking-tight">Dashboard Overview</h2>
                     <p className="text-slate-500 text-xs mt-0.5">Welcome back, Super Admin! Here's what's happening today.</p>
                 </div>
-                <div className="flex items-center gap-1.5 sm:gap-2 bg-[#EAF3FF] p-1.5 rounded-xl border border-slate-200 shadow-sm w-full md:w-auto justify-between sm:justify-start overflow-x-auto no-scrollbar">
+                <div className="flex items-center gap-1.5 sm:gap-2 bg-[var(--background)] p-1.5 rounded-xl border border-slate-200 shadow-sm w-full md:w-auto justify-between sm:justify-start overflow-x-auto no-scrollbar">
                     <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm shrink-0">
                         <button
                             type="button"
                             onClick={() => setOccupancyMode('live')}
                             className={`px-2 sm:px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'live'
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'text-slate-500 hover:bg-slate-50'
+                                ? 'bg-[var(--primary)] text-white shadow-sm'
+                                : 'text-[var(--text-secondary)] hover:bg-black/5'
                                 }`}
                         >
                             Live
@@ -426,8 +426,8 @@ const Dashboard = () => {
                             type="button"
                             onClick={() => setOccupancyMode('academicYear')}
                             className={`px-2 sm:px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${occupancyMode === 'academicYear'
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'text-slate-500 hover:bg-slate-50'
+                                ? 'bg-[var(--primary)] text-white shadow-sm'
+                                : 'text-[var(--text-secondary)] hover:bg-black/5'
                                 }`}
                         >
                             AY
@@ -473,10 +473,10 @@ const Dashboard = () => {
                     {/* TOP CARDS */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                         {/* Total Buses Card */}
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="bg-[var(--surface)] rounded-xl p-4 shadow-sm border border-[var(--border)] flex flex-col justify-between">
                             <div className="flex justify-between items-start mb-2">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm">
+                                    <div className="w-10 h-10 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center shadow-sm">
                                         <Bus size={20} />
                                     </div>
                                     <div>
@@ -492,10 +492,10 @@ const Dashboard = () => {
                         </div>
 
                         {/* Total Routes Card */}
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="bg-[var(--surface)] rounded-xl p-4 shadow-sm border border-[var(--border)] flex flex-col justify-between">
                             <div className="flex justify-between items-start mb-2">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-lg bg-emerald-500 text-white flex items-center justify-center shadow-sm">
+                                    <div className="w-10 h-10 rounded-lg bg-[var(--secondary)] text-white flex items-center justify-center shadow-sm">
                                         <MapIcon size={20} />
                                     </div>
                                     <div>
@@ -511,10 +511,10 @@ const Dashboard = () => {
                         </div>
 
                         {/* Passengers Card */}
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="bg-[var(--surface)] rounded-xl p-4 shadow-sm border border-[var(--border)] flex flex-col justify-between">
                             <div className="flex justify-between items-start">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-lg bg-purple-600 text-white flex items-center justify-center shadow-sm">
+                                    <div className="w-10 h-10 rounded-lg bg-[var(--accent)] text-white flex items-center justify-center shadow-sm">
                                         <Users size={20} />
                                     </div>
                                     <div>
@@ -530,10 +530,10 @@ const Dashboard = () => {
                         </div>
 
                         {/* Transport Dues Card */}
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="bg-[var(--surface)] rounded-xl p-4 shadow-sm border border-[var(--border)] flex flex-col justify-between">
                             <div className="flex justify-between items-start mb-2">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-lg bg-orange-500 text-white flex items-center justify-center shadow-sm">
+                                    <div className="w-10 h-10 rounded-lg bg-[var(--warning)] text-white flex items-center justify-center shadow-sm">
                                         <IndianRupee size={20} />
                                     </div>
                                     <div>
@@ -586,7 +586,7 @@ const Dashboard = () => {
                                         <button
                                             type="button"
                                             onClick={() => navigate('/buses?tab=staffMapping&filter=no_driver')}
-                                            className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3.5 py-1.5 rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                                            className="text-xs font-bold text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] px-3.5 py-1.5 rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
                                         >
                                             <span>Assign Staff</span>
                                             <span>&rarr;</span>
@@ -705,7 +705,7 @@ const Dashboard = () => {
                     {/* MIDDLE SECTION */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
                         {/* Course Wise Section */}
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col h-[45vh] min-h-[320px]">
+                        <div className="bg-[var(--surface)] rounded-xl p-4 shadow-sm border border-[var(--border)] flex flex-col h-[45vh] min-h-[320px]">
                             <div className="flex justify-between items-center mb-3">
                                 <div className="flex items-center gap-2">
                                     <GraduationCap className="text-blue-600" size={16} />
@@ -768,7 +768,7 @@ const Dashboard = () => {
                         </div>
 
                         {/* Route Analytics Section */}
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col h-[45vh] min-h-[320px]">
+                        <div className="bg-[var(--surface)] rounded-xl p-4 shadow-sm border border-[var(--border)] flex flex-col h-[45vh] min-h-[320px]">
                             <div className="flex justify-between items-center mb-3">
                                 <div className="flex items-center gap-2">
                                     <MapIcon className="text-blue-600" size={16} />
@@ -829,7 +829,7 @@ const Dashboard = () => {
                         </div>
 
                         {/* Stage Breakdown Section */}
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col h-[45vh] min-h-[320px]">
+                        <div className="bg-[var(--surface)] rounded-xl p-4 shadow-sm border border-[var(--border)] flex flex-col h-[45vh] min-h-[320px]">
                             <div className="flex justify-between items-center mb-3">
                                 <div className="flex items-center gap-2 min-w-0">
                                     <MapPin className="text-blue-600 shrink-0" size={16} />
@@ -886,7 +886,7 @@ const Dashboard = () => {
                     </div>
 
                     {/* Renewals Overview Section */}
-                    <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+                    <div className="bg-[var(--surface)] rounded-xl p-4 shadow-sm border border-[var(--border)]">
                         <div className="flex justify-between items-center mb-3">
                             <div className="flex items-center gap-2">
                                 <RefreshCw className="text-blue-600" size={16} />

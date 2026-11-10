@@ -58,7 +58,7 @@ const LogoutConfirmModal = ({
 
     return createPortal(
         <div
-            className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
             onClick={(e) => {
                 if (e.target === e.currentTarget && !isLoggingOut) {
                     onClose();
@@ -69,20 +69,24 @@ const LogoutConfirmModal = ({
             aria-labelledby="logout-modal-title"
         >
             <div
-                className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-100 overflow-hidden transform transition-all animate-in zoom-in-95 duration-200"
+                className="rounded-2xl shadow-2xl w-full max-w-md border overflow-hidden transform transition-all animate-in zoom-in-95 duration-200"
+                style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header with close button */}
                 <div className="flex items-center justify-between px-6 pt-5 pb-2">
                     <div className="flex items-center gap-3">
-                        <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm bg-red-50 text-red-600 border border-red-100 ring-4 ring-red-50/60">
+                        <div 
+                            className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm"
+                            style={{ backgroundColor: 'var(--danger-light, #fee2e2)', color: 'var(--danger, #dc2626)' }}
+                        >
                             <LogOut size={20} />
                         </div>
                         <div>
-                            <h3 id="logout-modal-title" className="text-lg font-bold text-slate-900 leading-tight">
+                            <h3 id="logout-modal-title" className="text-lg font-bold leading-tight" style={{ color: 'var(--text-primary)' }}>
                                 Confirm Sign Out
                             </h3>
-                            <p className="text-xs text-slate-500 font-medium">
+                            <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
                                 {userName ? `Signed in as ${userName}` : 'Are you sure you want to log out?'}
                             </p>
                         </div>
@@ -91,7 +95,8 @@ const LogoutConfirmModal = ({
                         type="button"
                         onClick={onClose}
                         disabled={isLoggingOut}
-                        className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors disabled:opacity-50"
+                        className="p-1.5 rounded-xl hover:bg-black/5 transition-colors disabled:opacity-50"
+                        style={{ color: 'var(--text-muted)' }}
                         aria-label="Close dialog"
                     >
                         <X size={18} />
@@ -100,19 +105,20 @@ const LogoutConfirmModal = ({
 
                 {/* Body Content */}
                 <div className="px-6 py-4">
-                    <p className="text-sm text-slate-600 leading-relaxed">
+                    <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                         Are you sure you want to log out of the{' '}
-                        <span className="font-semibold text-slate-800">Transport Management Portal</span>?
+                        <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>Transport Management Portal</span>?
                     </p>
                 </div>
 
                 {/* Footer Buttons */}
-                <div className="px-6 py-4 bg-slate-50/80 border-t border-slate-100 flex items-center justify-end gap-3">
+                <div className="px-6 py-4 border-t flex items-center justify-end gap-3" style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}>
                     <button
                         type="button"
                         onClick={onClose}
                         disabled={isLoggingOut}
-                        className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50 hover:border-slate-300 transition-colors shadow-xs disabled:opacity-50"
+                        className="px-4 py-2.5 rounded-xl border text-sm font-semibold transition-colors shadow-xs disabled:opacity-50 hover:bg-black/5"
+                        style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border-strong)', color: 'var(--text-primary)' }}
                     >
                         Cancel
                     </button>
@@ -121,7 +127,8 @@ const LogoutConfirmModal = ({
                         type="button"
                         onClick={handleConfirmClick}
                         disabled={isLoggingOut}
-                        className="px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all shadow-sm flex items-center gap-2 bg-red-600 hover:bg-red-700 shadow-red-200 focus:ring-4 focus:ring-red-200 disabled:opacity-75"
+                        className="px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-all shadow-sm flex items-center gap-2 focus:ring-4 disabled:opacity-75"
+                        style={{ backgroundColor: 'var(--danger, #dc2626)' }}
                     >
                         {isLoggingOut ? (
                             <>

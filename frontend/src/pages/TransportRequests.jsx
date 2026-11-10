@@ -1461,7 +1461,7 @@ const TransportRequests = () => {
                     <button
                         type="button"
                         onClick={openIdCardModal}
-                        className="flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 sm:py-1.5 rounded-xl sm:rounded-lg bg-blue-900 text-white font-bold sm:font-semibold text-[11px] sm:text-xs hover:bg-blue-800 shadow-xs transition-all active:scale-95 cursor-pointer text-center min-w-0"
+                        className="flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 sm:py-1.5 rounded-xl sm:rounded-lg bg-[var(--primary)] text-white font-bold sm:font-semibold text-[11px] sm:text-xs hover:bg-[var(--primary-hover)] shadow-xs transition-all active:scale-95 cursor-pointer text-center min-w-0"
                     >
                         <Printer size={13} className="shrink-0" />
                         <span className="truncate">Print Cards</span>
@@ -1483,7 +1483,7 @@ const TransportRequests = () => {
                     type="button"
                     onClick={() => setActiveMainTab('list')}
                     className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeMainTab === 'list'
-                            ? 'bg-blue-900 text-white shadow-xs'
+                            ? 'bg-[var(--primary)] text-white shadow-xs'
                             : 'text-slate-600 hover:bg-white hover:text-slate-900'
                         }`}
                 >
@@ -1494,7 +1494,7 @@ const TransportRequests = () => {
                     type="button"
                     onClick={() => setActiveMainTab('abstract')}
                     className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeMainTab === 'abstract'
-                            ? 'bg-blue-900 text-white shadow-xs'
+                            ? 'bg-[var(--primary)] text-white shadow-xs'
                             : 'text-slate-600 hover:bg-white hover:text-slate-900'
                         }`}
                 >
@@ -1631,7 +1631,7 @@ const TransportRequests = () => {
                                 <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{stats.total}</p>
                                 <p className="text-[8px] font-semibold text-slate-400 mt-0.5">({stats.students} Stud, {stats.employees} Emp)</p>
                             </div>
-                            <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                            <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center shadow-sm shrink-0">
                                 <FileText size={16} />
                             </div>
                         </div>
@@ -1815,7 +1815,7 @@ const TransportRequests = () => {
                                                 setCurrentPage(1);
                                             }}
                                             className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'student'
-                                                ? 'bg-blue-900 text-white shadow-xs'
+                                                ? 'bg-[var(--primary)] text-white shadow-xs'
                                                 : 'text-slate-500 hover:bg-slate-50'
                                                 }`}
                                         >
@@ -1828,7 +1828,7 @@ const TransportRequests = () => {
                                                 setCurrentPage(1);
                                             }}
                                             className={`px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${userTypeFilter === 'employee'
-                                                ? 'bg-blue-900 text-white shadow-xs'
+                                                ? 'bg-[var(--primary)] text-white shadow-xs'
                                                 : 'text-slate-500 hover:bg-slate-50'
                                                 }`}
                                         >
@@ -2642,7 +2642,7 @@ const TransportRequests = () => {
                                                         <button
                                                             type="button"
                                                             onClick={() => startEditYear(rowKey, null)}
-                                                            className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"
+                                                            className="px-3 py-1.5 rounded-lg bg-[var(--primary)] text-white text-xs font-semibold hover:bg-[var(--primary-hover)]"
                                                         >
                                                             Set Date
                                                         </button>
@@ -2667,7 +2667,7 @@ const TransportRequests = () => {
                                                         type="button"
                                                         disabled={courseExpirySaving === rowKey}
                                                         onClick={() => handleSaveCourseExpiry(yearRow.course_id, yearRow.course_name, yearRow.year_of_study)}
-                                                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50"
+                                                        className="px-3 py-1.5 rounded-lg bg-[var(--primary)] text-white text-xs font-semibold hover:bg-[var(--primary-hover)] disabled:opacity-50"
                                                     >
                                                         {courseExpirySaving === rowKey ? 'Saving...' : hasExpiry ? 'Update' : 'Save'}
                                                     </button>
@@ -3020,7 +3020,7 @@ const TransportRequests = () => {
                         type="button"
                         onClick={handleConfirmPrintIdCards}
                         disabled={idCardPrintLoading || (idCardPrintMode === 'selected' ? selectedRequestIds.length === 0 : (idCardApplicationsLoading || selectedRangePassengers.length === 0))}
-                        className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex-1 flex items-center justify-center gap-2 bg-[var(--primary)] text-white font-semibold py-3 rounded-xl hover:bg-[var(--primary-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <Printer size={18} />
                         {idCardPrintLoading ? 'Preparing…' : 'Print ID Cards'}
@@ -3111,7 +3111,7 @@ const TransportRequests = () => {
                                 handleDownloadReport(includeReportAbstract, includeReportDetailed);
                             }}
                             disabled={downloadingReport}
-                            className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 shadow-sm disabled:opacity-50"
+                            className="flex-1 py-2.5 rounded-xl bg-[var(--primary)] text-white font-semibold text-xs hover:bg-[var(--primary-hover)] shadow-sm disabled:opacity-50"
                         >
                             {downloadingReport ? 'Preparing…' : 'Generate Report'}
                         </button>

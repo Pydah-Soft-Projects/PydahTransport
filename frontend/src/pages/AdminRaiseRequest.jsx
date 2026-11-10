@@ -996,7 +996,7 @@ const AdminRaiseRequest = () => {
                                                 </p>
                                             </div>
                                             {selectedBusId && (
-                                                <span className="text-[11px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-md shadow-xs">
+                                                <span className="text-[11px] font-black bg-[var(--primary)] text-white px-2 py-0.5 rounded-md shadow-xs">
                                                     Assigned: {selectedBusId}
                                                 </span>
                                             )}
@@ -1087,7 +1087,7 @@ const AdminRaiseRequest = () => {
                                     }
 
                                     return (
-                                        <div className="p-5 bg-blue-600 rounded-2xl shadow-lg shadow-blue-200/50 border border-blue-500 transform transition-all duration-300 animate-in zoom-in-95 space-y-4">
+                                        <div className="p-5 bg-[var(--primary)] rounded-2xl shadow-lg shadow-[rgba(var(--primary-rgb),0.25)] border border-blue-500 transform transition-all duration-300 animate-in zoom-in-95 space-y-4">
                                              <div className="flex justify-between items-center">
                                                  <span className="text-blue-100 text-xs font-bold uppercase tracking-wider">New Adjusted Fare</span>
                                                  <span className={`text-3xl font-black text-white ${hasConcession ? 'line-through opacity-60 text-2xl' : ''}`}>

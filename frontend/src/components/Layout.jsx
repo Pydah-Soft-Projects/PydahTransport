@@ -224,13 +224,13 @@ const Layout = ({ children, title }) => {
     };
 
     const getMenuItemClasses = (active) => {
-        if (active) return 'bg-blue-100 text-blue-700 font-bold shadow-sm';
-        return 'border-transparent text-slate-300 hover:bg-white/10 hover:text-white font-medium';
+        if (active) return 'bg-[var(--primary-light)] text-[var(--primary)] font-bold shadow-sm';
+        return 'border-transparent text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-text)] font-medium';
     };
 
     const getMenuIconClasses = (active) => {
-        if (active) return 'text-blue-700';
-        return 'text-slate-300 group-hover:text-white';
+        if (active) return 'text-[var(--primary)]';
+        return 'text-[var(--sidebar-muted)] group-hover:text-[var(--sidebar-text)]';
     };
 
     const toggleGroup = (key) => {
@@ -240,7 +240,7 @@ const Layout = ({ children, title }) => {
     const renderNavItem = (item, { mobile = false, collapsed = false } = {}) => {
         if (item.children) {
             const groupActive = isGroupActive(item);
-            const expanded = !!openGroups[item.key];
+            const expanded = !openGroups[item.key];
 
             return (
                 <div key={item.key || item.label} className="space-y-1">
@@ -264,13 +264,13 @@ const Layout = ({ children, title }) => {
                                 <span className="truncate text-[11px] flex-1 text-left">{item.label}</span>
                                 <ChevronDown
                                     size={14}
-                                    className={`transition-transform ${expanded ? 'rotate-180' : ''} ${groupActive ? 'text-blue-700' : 'text-slate-400'}`}
+                                    className={`transition-transform ${expanded ? 'rotate-180' : ''} ${groupActive ? 'text-[var(--primary)]' : 'text-[var(--sidebar-muted)]'}`}
                                 />
                             </>
                         )}
                     </button>
                     {expanded && !collapsed && (
-                        <div className="space-y-0.5 ml-6 pl-1 border-l border-slate-700/30">
+                        <div className="space-y-0.5 ml-6 pl-1 border-l border-white/15">
                             {item.children.map((child) => {
                                 const childActive = isPathActive(child.path);
                                 return (
@@ -280,11 +280,11 @@ const Layout = ({ children, title }) => {
                                         onClick={mobile ? () => setIsMobileMenuOpen(false) : undefined}
                                         className={`flex items-center px-3 py-1.5 rounded-lg text-[10px] transition-all ${
                                             childActive
-                                                ? 'bg-blue-100 text-blue-700 font-bold'
-                                                : 'text-slate-400 hover:bg-white/10 hover:text-white'
+                                                ? 'bg-[var(--primary-light)] text-[var(--primary)] font-bold shadow-xs'
+                                                : 'text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-text)]'
                                         }`}
                                     >
-                                        <span className={`mr-2.5 ${childActive ? 'text-blue-700' : 'text-slate-500'}`}>
+                                        <span className={`mr-2.5 ${childActive ? 'text-[var(--primary)]' : 'text-[var(--sidebar-muted)]'}`}>
                                             {React.cloneElement(child.icon, { size: 14 })}
                                         </span>
                                         <span className="truncate">{child.label}</span>
@@ -340,6 +340,7 @@ const Layout = ({ children, title }) => {
         if (basePath === '/communications') return 'Communications';
         if (basePath === '/raise-request') return 'Raise New Request';
         if (basePath === '/transport-requests') return 'Passenger Requests';
+        if (basePath === '/reports') return 'Reports';
         if (basePath === '/renewals') return 'Renewals';
         if (basePath === '/transport-dues') return 'Transport Dues';
         if (basePath === '/concessions') return 'Concessions';
@@ -352,11 +353,14 @@ const Layout = ({ children, title }) => {
     };
 
     return (
-        <div className="flex h-screen bg-[#EAF3FF] font-sans overflow-hidden">
-            <aside className={`${isCollapsed ? 'w-20' : 'w-64'} print:hidden bg-[#071B45] bg-gradient-to-b from-[#0A2558] to-[#051632] shadow-lg hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-visible`}>
+        <div className="flex h-screen font-sans overflow-hidden" style={{ backgroundColor: 'var(--background)' }}>
+            <aside 
+                className={`${isCollapsed ? 'w-20' : 'w-64'} print:hidden shadow-lg hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-visible`}
+                style={{ backgroundColor: 'var(--sidebar)', color: 'var(--sidebar-text)' }}
+            >
                 <button 
                     onClick={toggleSidebarCollapse}
-                    className="absolute -right-3 top-24 bg-white border border-slate-200 rounded-full p-1 shadow-md z-50 hover:bg-slate-50 text-blue-600 cursor-pointer"
+                    className="absolute -right-3 top-24 bg-[var(--surface)] border border-[var(--border)] rounded-full p-1 shadow-md z-50 hover:bg-white/90 text-[var(--primary)] cursor-pointer"
                 >
                     {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
                 </button>
@@ -372,7 +376,7 @@ const Layout = ({ children, title }) => {
                             <h1 className="text-xl font-bold whitespace-nowrap tracking-tight text-white">
                                 TRANSPORT
                             </h1>
-                            <p className="text-[9px] uppercase tracking-[0.1em] text-slate-400 font-medium mt-0.5">
+                            <p className="text-[9px] uppercase tracking-[0.1em] text-[var(--sidebar-muted)] font-medium mt-0.5">
                                 Management System
                             </p>
                         </div>
@@ -383,7 +387,7 @@ const Layout = ({ children, title }) => {
                     {filteredCategories.map((category, idx) => (
                         <div key={idx} className="mb-3.5 last:mb-0">
                             {!isCollapsed && (
-                                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 px-4 mt-2">
+                                <h3 className="text-[10px] font-bold text-[var(--sidebar-muted)] opacity-80 uppercase tracking-widest mb-1 px-4 mt-2">
                                     {category.title}
                                 </h3>
                             )}
@@ -395,9 +399,9 @@ const Layout = ({ children, title }) => {
                 </nav>
 
                 <div className={`p-4 relative z-10 ${isCollapsed ? 'flex justify-center' : ''}`}>
-                    <div className={`flex items-center justify-between ${isCollapsed ? 'flex-col gap-4' : 'gap-3 p-3 bg-slate-800/80'} rounded-2xl transition-all duration-300`}>
+                    <div className={`flex items-center justify-between ${isCollapsed ? 'flex-col gap-4' : 'gap-3 p-3 bg-black/20 border border-white/10'} rounded-2xl transition-all duration-300`}>
                         <div className="flex items-center gap-3 min-w-0">
-                            <div className={`w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0 transition-all duration-300 ${isCollapsed ? 'scale-110' : ''}`}>
+                            <div className={`w-10 h-10 rounded-full bg-[var(--primary-light)] flex items-center justify-center text-[var(--primary)] font-bold text-sm flex-shrink-0 transition-all duration-300 ${isCollapsed ? 'scale-110' : ''}`}>
                                 {(adminInfo.name || adminInfo.username || 'S').charAt(0).toUpperCase()}
                             </div>
                             {!isCollapsed && (
@@ -405,7 +409,7 @@ const Layout = ({ children, title }) => {
                                     <p className="text-[13px] font-bold text-white truncate leading-tight">
                                         {adminInfo.name || adminInfo.username || 'Super Admin'}
                                     </p>
-                                    <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                                    <p className="text-[10px] text-[var(--sidebar-muted)] truncate mt-0.5">
                                         {adminInfo.role === 'admin' ? 'Administrator' : adminInfo.role || 'Administrator'}
                                     </p>
                                 </div>
@@ -416,7 +420,7 @@ const Layout = ({ children, title }) => {
                                 type="button"
                                 onClick={handleLogoutClick}
                                 title="Logout"
-                                className="p-2 text-slate-400 hover:text-red-400 transition-colors rounded-lg hover:bg-white/10"
+                                className="p-2 text-[var(--sidebar-muted)] hover:text-red-400 transition-colors rounded-lg hover:bg-white/10"
                             >
                                 <LogOut size={18} />
                             </button>
@@ -426,7 +430,7 @@ const Layout = ({ children, title }) => {
                                     type="button"
                                     onClick={handleLogoutClick}
                                     title="Logout"
-                                    className="p-1.5 text-slate-400 hover:text-red-400 transition-colors rounded-lg hover:bg-white/10"
+                                    className="p-1.5 text-[var(--sidebar-muted)] hover:text-red-400 transition-colors rounded-lg hover:bg-white/10"
                                 >
                                     <LogOut size={16} />
                                 </button>
@@ -438,12 +442,15 @@ const Layout = ({ children, title }) => {
 
             {isMobileMenuOpen && (
                 <div
-                    className="fixed inset-0 print:hidden bg-slate-900/80 z-[100] md:hidden backdrop-blur-sm"
+                    className="fixed inset-0 print:hidden bg-black/60 z-[100] md:hidden backdrop-blur-sm"
                     onClick={() => setIsMobileMenuOpen(false)}
                 ></div>
             )}
 
-            <aside className={`fixed inset-y-0 left-0 w-64 print:hidden bg-[#071B45] bg-gradient-to-b from-[#0A2558] to-[#051632] shadow-xl flex flex-col z-[110] transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            <aside 
+                className={`fixed inset-y-0 left-0 w-64 print:hidden shadow-xl flex flex-col z-[110] transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                style={{ backgroundColor: 'var(--sidebar)', color: 'var(--sidebar-text)' }}
+            >
                 <div className="min-h-24 flex justify-between items-center px-6 relative z-10">
                     <div className="flex items-center gap-3 min-w-0">
                         <img
@@ -453,10 +460,10 @@ const Layout = ({ children, title }) => {
                         />
                         <div className="min-w-0">
                             <h1 className="text-lg font-bold text-white truncate">TRANSPORT</h1>
-                            <p className="text-[9px] uppercase tracking-[0.1em] text-slate-400 font-medium">Management System</p>
+                            <p className="text-[9px] uppercase tracking-[0.1em] text-[var(--sidebar-muted)] font-medium">Management System</p>
                         </div>
                     </div>
-                    <button type="button" onClick={() => setIsMobileMenuOpen(false)} className="text-slate-400 hover:text-white p-2">
+                    <button type="button" onClick={() => setIsMobileMenuOpen(false)} className="text-[var(--sidebar-muted)] hover:text-white p-2">
                         <X size={24} />
                     </button>
                 </div>
@@ -464,7 +471,7 @@ const Layout = ({ children, title }) => {
                 <nav className="flex-1 px-4 space-y-1 overflow-y-auto sidebar-scrollbar relative z-10 pb-6">
                     {filteredCategories.map((category, idx) => (
                         <div key={idx} className="mb-6 last:mb-0">
-                            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-2 mt-4">
+                            <h3 className="text-[10px] font-bold text-[var(--sidebar-muted)] opacity-80 uppercase tracking-widest mb-2 px-2 mt-4">
                                 {category.title}
                             </h3>
                             <div className="space-y-1.5">
@@ -475,16 +482,16 @@ const Layout = ({ children, title }) => {
                 </nav>
 
                 <div className="p-4 relative z-10">
-                    <div className="flex items-center justify-between gap-3 p-3 bg-slate-800/80 rounded-2xl">
+                    <div className="flex items-center justify-between gap-3 p-3 bg-black/20 border border-white/10 rounded-2xl">
                         <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0">
+                            <div className="w-10 h-10 rounded-full bg-[var(--primary-light)] flex items-center justify-center text-[var(--primary)] font-bold text-sm flex-shrink-0">
                                 {(adminInfo.name || adminInfo.username || 'S').charAt(0).toUpperCase()}
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-[13px] font-bold text-white truncate leading-tight">
                                     {adminInfo.name || adminInfo.username || 'Super Admin'}
                                 </p>
-                                <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                                <p className="text-[10px] text-[var(--sidebar-muted)] truncate mt-0.5">
                                     {adminInfo.role === 'admin' ? 'Administrator' : adminInfo.role || 'Administrator'}
                                 </p>
                             </div>
@@ -493,7 +500,7 @@ const Layout = ({ children, title }) => {
                             type="button"
                             onClick={handleLogoutClick}
                             title="Logout"
-                            className="p-2 text-slate-400 hover:text-red-400 transition-colors rounded-lg hover:bg-white/10 shrink-0"
+                            className="p-2 text-[var(--sidebar-muted)] hover:text-red-400 transition-colors rounded-lg hover:bg-white/10 shrink-0"
                         >
                             <LogOut size={18} />
                         </button>
@@ -501,18 +508,21 @@ const Layout = ({ children, title }) => {
                 </div>
             </aside>
 
-            <div className="flex-1 flex flex-col h-screen overflow-hidden relative bg-[#EAF3FF] w-full">
-                <header className="md:hidden bg-white shadow-sm border-b border-slate-200 h-14 sm:h-16 flex items-center justify-between px-3.5 z-20">
-                    <button type="button" onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-slate-600 rounded-lg hover:bg-slate-100">
+            <div className="flex-1 flex flex-col h-screen overflow-hidden relative w-full" style={{ backgroundColor: 'var(--background)' }}>
+                <header 
+                    className="md:hidden shadow-sm h-14 sm:h-16 flex items-center justify-between px-3.5 z-20"
+                    style={{ backgroundColor: 'var(--navbar)', borderBottom: '1px solid var(--navbar-border, var(--border))' }}
+                >
+                    <button type="button" onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-[var(--text-secondary)] rounded-lg hover:bg-black/5">
                         <Menu size={22} />
                     </button>
-                    <h1 className="text-sm sm:text-base font-bold text-slate-800 truncate px-2 text-center flex-1">
+                    <h1 className="text-sm sm:text-base font-bold text-[var(--text-primary)] truncate px-2 text-center flex-1">
                         {getMobileTitle()}
                     </h1>
                     <div className="w-9"></div>
                 </header>
 
-                <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 scroll-smooth w-full">
+                <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 scroll-smooth w-full" style={{ backgroundColor: 'var(--background)' }}>
                     <div className="w-full mx-auto">
                         {children}
                     </div>

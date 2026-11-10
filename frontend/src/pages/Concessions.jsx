@@ -191,7 +191,7 @@ const Concessions = () => {
                                                                     <div className="absolute top-1 right-1">
                                                                         <span className="flex h-2 w-2">
                                                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                                                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                                                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--primary)]"></span>
                                                                         </span>
                                                                     </div>
                                                                 )}
@@ -304,7 +304,7 @@ const Concessions = () => {
                                                             {isCurrentYear && (
                                                                 <span className="absolute -top-1 -right-1 flex h-2 w-2">
                                                                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--primary)]"></span>
                                                                 </span>
                                                             )}
                                                         </div>
@@ -377,7 +377,7 @@ const Concessions = () => {
                                             onClick={() => setFilters(prev => ({ ...prev, page: p }))}
                                             className={`w-8 h-8 rounded-xl text-xs font-bold transition-all ${
                                                 filters.page === p 
-                                                    ? 'bg-blue-600 text-white shadow-xs' 
+                                                    ? 'bg-[var(--primary)] text-white shadow-xs' 
                                                     : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
                                             }`}
                                         >

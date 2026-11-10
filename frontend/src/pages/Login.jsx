@@ -187,7 +187,7 @@ const Login = () => {
                 <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/30 to-transparent"></div>
             </div>
 
-            <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md relative z-10 border border-slate-200">
+            <div className="p-8 rounded-2xl shadow-2xl w-full max-w-md relative z-10 border" style={{ backgroundColor: "var(--surface)", borderColor: "var(--border)" }}>
                 <button
                     onClick={() => navigate('/')}
                     className="absolute top-4 left-4 text-slate-400 hover:text-slate-800 transition-colors p-2 rounded-full hover:bg-slate-100"
@@ -238,8 +238,8 @@ const Login = () => {
                     /* ========================================================================= */
                     <div>
                         <div className="text-center mb-8 mt-2">
-                            <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome Back</h1>
-                            <p className="text-slate-500 text-sm font-medium">Sign in to access the transport dashboard</p>
+                            <h1 className="text-3xl font-bold mb-2" style={{ color: "var(--text-primary)" }}>Welcome Back</h1>
+                            <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Sign in to access the transport dashboard</p>
                         </div>
 
                         {error && (
@@ -250,13 +250,13 @@ const Login = () => {
 
                         <form onSubmit={handleSubmit} className="space-y-6">
                             <div>
-                                <label className="block text-slate-700 text-sm font-bold mb-2" htmlFor="username">
+                                <label className="block text-sm font-bold mb-2" style={{ color: "var(--text-primary)" }} htmlFor="username">
                                     Username
                                 </label>
                                 <input
                                     type="text"
                                     id="username"
-                                    className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white text-slate-800"
+                                    className="w-full px-4 py-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent transition-all text-[var(--text-primary)] border-[var(--border-strong)] bg-[var(--surface)]"
                                     placeholder="Enter your admin ID"
                                     value={username}
                                     onChange={(e) => setUsername(e.target.value)}
@@ -265,7 +265,7 @@ const Login = () => {
                             </div>
                             <div>
                                 <div className="flex justify-between items-center mb-2">
-                                    <label className="block text-slate-700 text-sm font-bold" htmlFor="password">
+                                    <label className="block text-sm font-bold" style={{ color: "var(--text-primary)" }} htmlFor="password">
                                         Password
                                     </label>
                                     <button
@@ -280,7 +280,7 @@ const Login = () => {
                                     <input
                                         type={showPassword ? "text" : "password"}
                                         id="password"
-                                        className="w-full pl-4 pr-12 py-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white text-slate-800"
+                                        className="w-full pl-4 pr-12 py-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent transition-all text-[var(--text-primary)] border-[var(--border-strong)] bg-[var(--surface)]"
                                         placeholder="••••••••"
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
@@ -304,7 +304,7 @@ const Login = () => {
                                 disabled={isLoading}
                                 className={`w-full text-white font-bold py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transform transition-all flex items-center justify-center gap-2 ${isLoading
                                     ? 'bg-slate-700 cursor-not-allowed'
-                                    : 'bg-slate-900 hover:bg-slate-800 hover:shadow-lg active:scale-95'
+                                    : 'bg-[var(--primary)] hover:bg-[var(--primary-hover)] hover:shadow-lg active:scale-95 text-white'
                                     }`}
                             >
                                 {isLoading ? (

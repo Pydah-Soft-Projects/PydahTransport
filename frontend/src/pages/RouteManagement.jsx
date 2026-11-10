@@ -3814,7 +3814,7 @@ const RouteManagement = () => {
                                 <div className="flex items-center gap-2 w-full lg:hidden">
                                     <button
                                         onClick={() => setIsModalOpen(true)}
-                                        className="flex-1 bg-blue-900 hover:bg-blue-800 text-white py-2 px-3 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                                        className="flex-1 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white py-2 px-3 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                                     >
                                         <Plus size={15} />
                                         <span>Create Route</span>
@@ -3908,7 +3908,7 @@ const RouteManagement = () => {
                                         </button>
                                         <button
                                             onClick={() => setIsModalOpen(true)}
-                                            className="bg-blue-900 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group cursor-pointer"
+                                            className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group cursor-pointer"
                                         >
                                             <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
                                             Create Route
@@ -5179,7 +5179,7 @@ const RouteManagement = () => {
                                             <input type="text" name="zone" value={formData.zone} onChange={handleChange} placeholder="e.g., East, West, North" className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" />
                                         </div>
                                     </div>
-                                    <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mt-4 text-sm">
+                                    <button type="submit" className="w-full bg-[var(--primary)] text-white font-bold py-3 rounded-xl hover:bg-[var(--primary-hover)] transition-colors shadow-lg shadow-blue-200 mt-4 text-sm">
                                         Update Route Details
                                     </button>
                                 </div>
@@ -5624,7 +5624,7 @@ const RouteManagement = () => {
                                                     type="button" 
                                                     onClick={handleSaveStage}
                                                     disabled={isSavingStage}
-                                                    className="w-full bg-blue-900 text-white font-bold py-2.5 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mt-3 text-xs disabled:opacity-50"
+                                                    className="w-full bg-[var(--primary)] text-white font-bold py-2.5 rounded-xl hover:bg-[var(--primary-hover)] transition-colors shadow-lg shadow-blue-200 mt-3 text-xs disabled:opacity-50"
                                                 >
                                                     {isSavingStage ? 'Saving...' : 'Save Stage Details'}
                                                 </button>
@@ -5645,7 +5645,7 @@ const RouteManagement = () => {
                                                     onClick={() => setShowAllStagesOnMap((prev) => !prev)}
                                                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10.5px] font-extrabold transition-all cursor-pointer ${
                                                         showAllStagesOnMap
-                                                            ? 'bg-blue-900 border border-blue-900 text-white shadow-xs'
+                                                            ? 'bg-[var(--primary)] border border-[var(--primary)] text-white shadow-xs'
                                                             : 'bg-transparent text-slate-700 hover:bg-slate-100'
                                                     }`}
                                                     title={showAllStagesOnMap ? 'Focus on selected stage' : 'View full route network on map'}
@@ -5820,7 +5820,7 @@ const RouteManagement = () => {
                                     <input type="text" name="zone" value={formData.zone} onChange={handleChange} placeholder="e.g., East, West, North" className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-semibold" />
                                 </div>
                             </div>
-                            <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mt-6 text-sm">
+                            <button type="submit" className="w-full bg-[var(--primary)] text-white font-bold py-3.5 rounded-xl hover:bg-[var(--primary-hover)] transition-colors shadow-lg shadow-blue-200 mt-6 text-sm">
                                 Create Route Structure
                             </button>
                         </div>
@@ -6177,7 +6177,7 @@ const RouteManagement = () => {
                                             type="button"
                                             onClick={() => handleRouteWiseAttachClick(route)}
                                             disabled={assigningBusId === route._id || !draft.busId || (ENABLE_TRANSFER_CAPACITY_VALIDATION && isOverCapacity)}
-                                            className="px-4 py-2.5 rounded-xl text-xs font-bold bg-blue-900 hover:bg-blue-800 text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                                            className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
                                         >
                                             {assigningBusId === route._id ? 'Saving…' : 'Attach Bus Now'}
                                         </button>
@@ -6214,7 +6214,7 @@ const RouteManagement = () => {
                     <button 
                         type="button" 
                         onClick={() => setIsSuccessModalOpen(false)}
-                        className="w-full bg-blue-900 text-white font-bold py-2.5 rounded-xl hover:bg-blue-800 transition-colors mt-2 text-xs"
+                        className="w-full bg-[var(--primary)] text-white font-bold py-2.5 rounded-xl hover:bg-[var(--primary-hover)] transition-colors mt-2 text-xs"
                     >
                         Dismiss
                     </button>

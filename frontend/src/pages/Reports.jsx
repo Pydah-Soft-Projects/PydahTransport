@@ -478,7 +478,7 @@ const Reports = () => {
                         margin: 4px 0 0 0;
                         font-size: 13px;
                         font-weight: 700;
-                        color: #1e3a8a;
+                        color: var(--primary, #145A3A);
                     }
                     .header p {
                         margin: 3px 0 0 0;
@@ -521,12 +521,12 @@ const Reports = () => {
                         margin-bottom: 16px;
                     }
                     th {
-                        background: #1e3a8a;
+                        background: var(--primary, #145A3A);
                         color: #fff;
                         font-weight: 700;
                         text-transform: uppercase;
                         padding: 6px 8px;
-                        border: 1px solid #1e3a8a;
+                        border: 1px solid var(--primary, #145A3A);
                         font-size: 9px;
                     }
                     td {
@@ -793,7 +793,7 @@ const Reports = () => {
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-3">
                 <div>
                     <div className="flex items-center gap-2">
-                        <RouteIcon className="text-blue-900" size={24} />
+                        <RouteIcon className="text-primary" size={24} />
                         <h2 className="text-xl font-bold text-slate-800 tracking-tight">Route-Wise Fee to be Collected Report</h2>
                     </div>
                     <p className="text-slate-500 text-xs mt-0.5">
@@ -805,7 +805,7 @@ const Reports = () => {
                         type="button"
                         onClick={handlePrintReport}
                         disabled={loading || filteredRoutes.length === 0}
-                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed"
+                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white font-bold text-xs hover:bg-primary-hover shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed"
                     >
                         <FileText size={14} />
                         <span>Print Report</span>
@@ -814,7 +814,7 @@ const Reports = () => {
                         type="button"
                         onClick={handleExportExcel}
                         disabled={loading || filteredRoutes.length === 0}
-                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-900 text-white font-bold text-xs hover:bg-blue-800 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed"
+                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary text-white font-bold text-xs hover:bg-secondary-hover shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-55 disabled:cursor-not-allowed"
                     >
                         <Download size={14} />
                         <span>Export Excel</span>

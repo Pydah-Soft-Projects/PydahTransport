@@ -866,7 +866,7 @@ const BusManagement = () => {
                         {activeTab === TABS.otherVehicles ? (
                             <button
                                 onClick={() => { setIsOtherVehicleMode(true); setFormData(f => ({ ...f, type: 'Car' })); setIsModalOpen(true); }}
-                                className="bg-blue-900 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group cursor-pointer"
+                                className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group cursor-pointer"
                             >
                                 <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
                                 Add New Vehicle
@@ -874,7 +874,7 @@ const BusManagement = () => {
                         ) : (
                             <button
                                 onClick={() => { setIsOtherVehicleMode(false); setIsModalOpen(true); }}
-                                className="bg-blue-900 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group cursor-pointer"
+                                className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 flex items-center group cursor-pointer"
                             >
                                 <Plus className="mr-1.5 group-hover:rotate-90 transition-transform" size={14} />
                                 Add New Bus
@@ -896,7 +896,7 @@ const BusManagement = () => {
                 {activeTab === TABS.otherVehicles ? (
                     <button
                         onClick={() => { setIsOtherVehicleMode(true); setFormData(f => ({ ...f, type: 'Car' })); setIsModalOpen(true); }}
-                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                        className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                     >
                         <Plus size={14} className="shrink-0" />
                         <span className="truncate">Add Vehicle</span>
@@ -904,7 +904,7 @@ const BusManagement = () => {
                 ) : (
                     <button
                         onClick={() => { setIsOtherVehicleMode(false); setIsModalOpen(true); }}
-                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                        className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                     >
                         <Plus size={14} className="shrink-0" />
                         <span className="truncate">Add Bus</span>
@@ -928,7 +928,7 @@ const BusManagement = () => {
                         onClick={() => setActiveTab(TABS.buses)}
                         className={`flex-1 flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer truncate ${
                             activeTab === TABS.buses
-                                ? 'bg-blue-600 text-white shadow-sm'
+                                ? 'bg-[var(--primary)] text-white shadow-sm'
                                 : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                         }`}
                     >
@@ -942,7 +942,7 @@ const BusManagement = () => {
                         onClick={() => setActiveTab(TABS.otherVehicles)}
                         className={`flex-1 flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer truncate ${
                             activeTab === TABS.otherVehicles
-                                ? 'bg-blue-600 text-white shadow-sm'
+                                ? 'bg-[var(--primary)] text-white shadow-sm'
                                 : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                         }`}
                     >
@@ -956,7 +956,7 @@ const BusManagement = () => {
                         onClick={() => setActiveTab(TABS.staffMapping)}
                         className={`flex-1 flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer truncate ${
                             activeTab === TABS.staffMapping
-                                ? 'bg-blue-600 text-white shadow-sm'
+                                ? 'bg-[var(--primary)] text-white shadow-sm'
                                 : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                         }`}
                     >
@@ -1173,7 +1173,7 @@ const BusManagement = () => {
                                                             type="button"
                                                             onClick={() => handleStaffSaveClick(bus)}
                                                             disabled={assigningStaffBusId === bus._id || !hasChanges}
-                                                            className="px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-900 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap"
+                                                            className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap"
                                                         >
                                                             {assigningStaffBusId === bus._id ? 'Saving…' : 'Save'}
                                                         </button>
@@ -1296,13 +1296,13 @@ const BusManagement = () => {
                         <div className="bg-white p-0.5 rounded-lg border border-slate-200 flex items-center shadow-sm">
                             <button
                                 onClick={() => setStaffSubTab('drivers')}
-                                className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${staffSubTab === 'drivers' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                                className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${staffSubTab === 'drivers' ? 'bg-[var(--primary)] text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                             >
                                 DRIVERS ({drivers.length})
                             </button>
                             <button
                                 onClick={() => setStaffSubTab('cleaners')}
-                                className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${staffSubTab === 'cleaners' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                                className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${staffSubTab === 'cleaners' ? 'bg-[var(--primary)] text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                             >
                                 CLEANERS ({cleaners.length})
                             </button>
@@ -1911,7 +1911,7 @@ const BusManagement = () => {
                             </label>
                         </div>
                     )}
-                    <button type="submit" className="w-full bg-blue-900 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mt-4">
+                    <button type="submit" className="w-full bg-[var(--primary)] text-white font-bold py-3.5 rounded-xl hover:bg-[var(--primary-hover)] transition-colors shadow-lg shadow-blue-200 mt-4">
                         {editingId ? (isOtherVehicleMode ? 'Update Vehicle Details' : 'Update Bus Details') : (isOtherVehicleMode ? 'Create Vehicle' : 'Create Bus')}
                     </button>
                 </form>
