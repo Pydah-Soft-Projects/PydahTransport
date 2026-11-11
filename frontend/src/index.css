@@ -187,12 +187,12 @@ button {
 }
 
 .sidebar-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: color-mix(in srgb, var(--sidebar-text) 15%, transparent);
   border-radius: 10px;
 }
 
 .sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: color-mix(in srgb, var(--sidebar-text) 30%, transparent);
 }
 
 @keyframes shimmer {

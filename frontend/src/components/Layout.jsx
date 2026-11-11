@@ -41,12 +41,7 @@ const Layout = ({ children, title }) => {
     const navigate = useNavigate();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(() => localStorage.getItem('sidebar_collapsed') === 'true');
-    const [openGroups, setOpenGroups] = useState(() => ({
-        inventory: location.pathname.startsWith('/inventory'),
-        route_management: location.pathname.startsWith('/routes'),
-        gps_tracking: location.pathname.startsWith('/gps-tracking'),
-        qr_verification: location.pathname.startsWith('/verify') || location.pathname.startsWith('/inspection-reports'),
-    }));
+    const [openGroups, setOpenGroups] = useState({ pathname: location.pathname, values: {} });
 
     const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
@@ -224,23 +219,31 @@ const Layout = ({ children, title }) => {
     };
 
     const getMenuItemClasses = (active) => {
-        if (active) return 'bg-[var(--primary-light)] text-[var(--primary)] font-bold shadow-sm';
-        return 'border-transparent text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-text)] font-medium';
+        if (active) return 'bg-[var(--primary)] text-[var(--sidebar-text)] font-semibold';
+        return 'text-[var(--sidebar-text)] hover:bg-[color-mix(in_srgb,var(--sidebar-text)_10%,transparent)] font-medium';
     };
 
     const getMenuIconClasses = (active) => {
-        if (active) return 'text-[var(--primary)]';
+        if (active) return 'text-[var(--sidebar-text)]';
         return 'text-[var(--sidebar-muted)] group-hover:text-[var(--sidebar-text)]';
     };
 
-    const toggleGroup = (key) => {
-        setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+    const toggleGroup = (key, expanded) => {
+        setOpenGroups((prev) => ({
+            pathname: location.pathname,
+            values: {
+                ...(prev.pathname === location.pathname ? prev.values : {}),
+                [key]: !expanded,
+            },
+        }));
     };
 
     const renderNavItem = (item, { mobile = false, collapsed = false } = {}) => {
         if (item.children) {
             const groupActive = isGroupActive(item);
-            const expanded = !openGroups[item.key];
+            const expanded = openGroups.pathname === location.pathname
+                ? (openGroups.values[item.key] ?? groupActive)
+                : groupActive;
 
             return (
                 <div key={item.key || item.label} className="space-y-1">
@@ -252,16 +255,16 @@ const Layout = ({ children, title }) => {
                                 navigate(item.children[0].path);
                                 return;
                             }
-                            toggleGroup(item.key);
+                            toggleGroup(item.key, expanded);
                         }}
-                        className={`w-full flex items-center ${collapsed ? 'justify-center px-0' : 'px-4'} py-1.5 rounded-xl transition-all duration-200 group relative overflow-hidden ${getMenuItemClasses(groupActive && collapsed)}`}
+                        className={`w-full flex items-center ${collapsed ? 'justify-center px-0' : 'px-4'} py-3 rounded-xl transition-all duration-200 group relative overflow-hidden ${getMenuItemClasses(groupActive && collapsed)}`}
                     >
                         <span className={`${collapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${getMenuIconClasses(groupActive && collapsed)}`}>
                             {item.icon}
                         </span>
                         {!collapsed && (
                             <>
-                                <span className="truncate text-[11px] flex-1 text-left">{item.label}</span>
+                                <span className="truncate text-sm flex-1 text-left">{item.label}</span>
                                 <ChevronDown
                                     size={14}
                                     className={`transition-transform ${expanded ? 'rotate-180' : ''} ${groupActive ? 'text-[var(--primary)]' : 'text-[var(--sidebar-muted)]'}`}
@@ -270,7 +273,7 @@ const Layout = ({ children, title }) => {
                         )}
                     </button>
                     {expanded && !collapsed && (
-                        <div className="space-y-0.5 ml-6 pl-1 border-l border-white/15">
+                        <div className="space-y-0.5 ml-6 pl-1 border-l border-[var(--border)]">
                             {item.children.map((child) => {
                                 const childActive = isPathActive(child.path);
                                 return (
@@ -278,13 +281,13 @@ const Layout = ({ children, title }) => {
                                         key={child.path}
                                         to={child.path}
                                         onClick={mobile ? () => setIsMobileMenuOpen(false) : undefined}
-                                        className={`flex items-center px-3 py-1.5 rounded-lg text-[10px] transition-all ${
+                                        className={`flex items-center px-3 py-2 rounded-lg text-xs transition-all ${
                                             childActive
-                                                ? 'bg-[var(--primary-light)] text-[var(--primary)] font-bold shadow-xs'
-                                                : 'text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-text)]'
+                                                ? 'bg-[var(--primary)] text-[var(--sidebar-text)] font-semibold'
+                                                    : 'text-[var(--sidebar-text)] hover:bg-[color-mix(in_srgb,var(--sidebar-text)_10%,transparent)]'
                                         }`}
                                     >
-                                        <span className={`mr-2.5 ${childActive ? 'text-[var(--primary)]' : 'text-[var(--sidebar-muted)]'}`}>
+                                        <span className={`mr-2.5 ${childActive ? 'text-[var(--sidebar-text)]' : 'text-[var(--sidebar-muted)]'}`}>
                                             {React.cloneElement(child.icon, { size: 14 })}
                                         </span>
                                         <span className="truncate">{child.label}</span>
@@ -304,12 +307,12 @@ const Layout = ({ children, title }) => {
                 to={item.path}
                 title={collapsed ? item.label : ''}
                 onClick={mobile ? () => setIsMobileMenuOpen(false) : undefined}
-                className={`flex items-center ${collapsed ? 'justify-center px-0' : 'px-4'} py-1.5 rounded-xl transition-all duration-200 group relative overflow-hidden ${getMenuItemClasses(active)}`}
+                className={`flex items-center ${collapsed ? 'justify-center px-0' : 'px-4'} py-3 rounded-xl transition-all duration-200 group relative overflow-hidden ${getMenuItemClasses(active)}`}
             >
                 <span className={`${collapsed ? 'mr-0' : 'mr-3'} transition-all duration-200 ${getMenuIconClasses(active)}`}>
                     {item.icon}
                 </span>
-                {!collapsed && <span className="truncate text-[11px] animate-in fade-in slide-in-from-left-2">{item.label}</span>}
+                {!collapsed && <span className="truncate text-sm animate-in fade-in slide-in-from-left-2">{item.label}</span>}
             </Link>
         );
     };
@@ -353,66 +356,69 @@ const Layout = ({ children, title }) => {
     };
 
     return (
-        <div className="flex h-screen font-sans overflow-hidden" style={{ backgroundColor: 'var(--background)' }}>
+        <div className="flex h-screen overflow-hidden" style={{ backgroundColor: 'var(--background)' }}>
             <aside 
-                className={`${isCollapsed ? 'w-20' : 'w-64'} print:hidden shadow-lg hidden md:flex flex-col z-20 transition-all duration-300 relative overflow-visible`}
-                style={{ backgroundColor: 'var(--sidebar)', color: 'var(--sidebar-text)' }}
+                className={`fixed top-0 left-0 bottom-0 ${isCollapsed ? 'w-20' : 'w-72'} print:hidden hidden md:flex flex-col z-40 transition-all duration-300 overflow-visible border-r`}
+                style={{ backgroundColor: 'var(--sidebar)', color: 'var(--sidebar-text)', borderColor: 'var(--border)', fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif" }}
             >
                 <button 
+                    type="button"
                     onClick={toggleSidebarCollapse}
-                    className="absolute -right-3 top-24 bg-[var(--surface)] border border-[var(--border)] rounded-full p-1 shadow-md z-50 hover:bg-white/90 text-[var(--primary)] cursor-pointer"
+                    aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    aria-expanded={!isCollapsed}
+                    className="absolute -right-3 top-[106px] z-50 flex h-6 w-6 items-center justify-center rounded-full border shadow-md text-[var(--primary)]"
+                    style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
                 >
-                    {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+                    {isCollapsed
+                        ? <ChevronRight size={14} strokeWidth={2.5} />
+                        : <ChevronLeft size={14} strokeWidth={2.5} />}
                 </button>
 
-                <div className={`min-h-20 flex items-center ${isCollapsed ? 'justify-center px-3' : 'px-6'} py-5 transition-all duration-300 relative z-10`}>
-                    {isCollapsed ? (
-                        <img
-                            src="/campo-logos/favicon.svg"
-                            alt="Campo"
-                            className="w-8 h-8 rounded-lg shadow-sm flex-shrink-0"
-                        />
-                    ) : (
-                        <div className="flex flex-col min-w-0 animate-in fade-in slide-in-from-left-2">
-                            <img
-                                src="/campo-logos/campo_logo_transparent_hq.png"
-                                alt="Campo"
-                                className="h-7 w-auto object-contain object-left"
-                            />
-                            <span className="text-[11px] text-[var(--sidebar-muted)] font-medium tracking-wide mt-1">
-                                Transport Management
-                            </span>
-                        </div>
+                <div className="flex flex-col items-center justify-center border-b px-3 pt-6 pb-4 text-center" style={{ borderColor: 'var(--border)' }}>
+                    <img
+                        src="/campo-logos/campo_logo_transparent_hq.png"
+                        alt="Campo"
+                        className={`h-8 w-auto object-contain ${isCollapsed ? 'max-w-[52px]' : 'max-w-[144px]'}`}
+                    />
+                    {!isCollapsed && (
+                        <span className="mt-1 text-[11px] font-medium tracking-wide text-[var(--sidebar-muted)]">
+                            Transport Management
+                        </span>
                     )}
                 </div>
 
-                <nav className="flex-1 px-4 space-y-0.5 overflow-y-auto sidebar-scrollbar relative z-10 pb-6">
+                <nav className="sidebar-scrollbar relative z-10 flex-1 space-y-1 overflow-y-auto px-3 pb-6 pt-3">
                     {filteredCategories.map((category, idx) => (
-                        <div key={idx} className="mb-3.5 last:mb-0">
+                        <div key={idx} className="mb-4 last:mb-0">
                             {!isCollapsed && (
-                                <h3 className="text-[10px] font-bold text-[var(--sidebar-muted)] opacity-80 uppercase tracking-widest mb-1 px-4 mt-2">
+                                <h3 className="mb-2 mt-3 px-3 text-[11px] font-bold uppercase tracking-widest text-[var(--sidebar-muted)]">
                                     {category.title}
                                 </h3>
                             )}
-                            <div className="space-y-0.5">
+                            <div className="space-y-1">
                                 {category.items.map((item) => renderNavItem(item, { collapsed: isCollapsed }))}
                             </div>
                         </div>
                     ))}
                 </nav>
 
-                <div className={`p-4 relative z-10 ${isCollapsed ? 'flex justify-center' : ''}`}>
-                    <div className={`flex items-center justify-between ${isCollapsed ? 'flex-col gap-4' : 'gap-3 p-3 bg-black/20 border border-white/10'} rounded-2xl transition-all duration-300`}>
+                <div className={`relative z-10 p-4 ${isCollapsed ? 'flex justify-center' : ''}`}>
+                    <div
+                        className={`flex items-center justify-between ${isCollapsed ? 'flex-col gap-4' : 'gap-3 p-3'} rounded-2xl transition-all duration-300`}
+                        style={!isCollapsed ? {
+                            backgroundColor: 'color-mix(in srgb, var(--sidebar) 75%, var(--text-primary))',
+                        } : undefined}
+                    >
                         <div className="flex items-center gap-3 min-w-0">
-                            <div className={`w-10 h-10 rounded-full bg-[var(--primary-light)] flex items-center justify-center text-[var(--primary)] font-bold text-sm flex-shrink-0 transition-all duration-300 ${isCollapsed ? 'scale-110' : ''}`}>
+                            <div className={`w-11 h-11 rounded-full bg-[var(--surface)] flex items-center justify-center text-[var(--primary)] font-bold text-sm flex-shrink-0 transition-all duration-300 ${isCollapsed ? 'scale-110' : ''}`}>
                                 {(adminInfo.name || adminInfo.username || 'S').charAt(0).toUpperCase()}
                             </div>
                             {!isCollapsed && (
                                 <div className="flex-1 min-w-0 animate-in fade-in duration-300">
-                                    <p className="text-[13px] font-bold text-white truncate leading-tight">
+                                    <p className="text-xs font-bold text-[var(--sidebar-text)] truncate leading-tight uppercase">
                                         {adminInfo.name || adminInfo.username || 'Super Admin'}
                                     </p>
-                                    <p className="text-[10px] text-[var(--sidebar-muted)] truncate mt-0.5">
+                                    <p className="text-xs text-[var(--sidebar-muted)] truncate mt-0.5">
                                         {adminInfo.role === 'admin' ? 'Administrator' : adminInfo.role || 'Administrator'}
                                     </p>
                                 </div>
@@ -423,19 +429,19 @@ const Layout = ({ children, title }) => {
                                 type="button"
                                 onClick={handleLogoutClick}
                                 title="Logout"
-                                className="p-2 text-[var(--sidebar-muted)] hover:text-red-400 transition-colors rounded-lg hover:bg-white/10"
+                                className="p-2 text-[var(--sidebar-muted)] transition-colors rounded-lg hover:bg-[color-mix(in_srgb,var(--sidebar-text)_10%,transparent)] hover:text-[var(--sidebar-text)]"
                             >
                                 <LogOut size={18} />
                             </button>
                         ) : (
-                            <div className="flex flex-col gap-1 pr-1 shrink-0">
+                            <div className="shrink-0">
                                 <button
                                     type="button"
                                     onClick={handleLogoutClick}
                                     title="Logout"
-                                    className="p-1.5 text-[var(--sidebar-muted)] hover:text-red-400 transition-colors rounded-lg hover:bg-white/10"
+                                    className="p-1.5 text-[var(--sidebar-text)] transition-colors rounded-lg hover:bg-[color-mix(in_srgb,var(--sidebar-text)_10%,transparent)]"
                                 >
-                                    <LogOut size={16} />
+                                    <LogOut size={18} strokeWidth={2.25} />
                                 </button>
                             </div>
                         )}
@@ -445,38 +451,39 @@ const Layout = ({ children, title }) => {
 
             {isMobileMenuOpen && (
                 <div
-                    className="fixed inset-0 print:hidden bg-black/60 z-[100] md:hidden backdrop-blur-sm"
+                    className="fixed inset-0 print:hidden z-[100] md:hidden backdrop-blur-sm"
+                    style={{ backgroundColor: 'color-mix(in srgb, var(--sidebar) 75%, transparent)' }}
                     onClick={() => setIsMobileMenuOpen(false)}
                 ></div>
             )}
 
             <aside 
                 className={`fixed inset-y-0 left-0 w-64 print:hidden shadow-xl flex flex-col z-[110] transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
-                style={{ backgroundColor: 'var(--sidebar)', color: 'var(--sidebar-text)' }}
+                style={{ backgroundColor: 'var(--sidebar)', color: 'var(--sidebar-text)', fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif" }}
             >
-                <div className="min-h-20 flex justify-between items-center px-6 py-4 relative z-10">
-                    <div className="flex flex-col min-w-0">
+                <div className="relative z-10 flex flex-col items-center justify-center border-b px-6 pt-6 pb-4 text-center" style={{ borderColor: 'var(--border)' }}>
+                    <div className="flex min-w-0 flex-col items-center">
                         <img
                             src="/campo-logos/campo_logo_transparent_hq.png"
                             alt="Campo"
-                            className="h-7 w-auto object-contain object-left"
+                            className="h-8 w-auto max-w-[144px] object-contain"
                         />
                         <span className="text-[11px] text-[var(--sidebar-muted)] font-medium tracking-wide mt-1">
                             Transport Management
                         </span>
                     </div>
-                    <button type="button" onClick={() => setIsMobileMenuOpen(false)} className="text-[var(--sidebar-muted)] hover:text-white p-2">
+                    <button type="button" onClick={() => setIsMobileMenuOpen(false)} aria-label="Close navigation" className="absolute right-3 top-5 p-2 text-[var(--sidebar-muted)] hover:text-[var(--sidebar-text)]">
                         <X size={24} />
                     </button>
                 </div>
 
-                <nav className="flex-1 px-4 space-y-1 overflow-y-auto sidebar-scrollbar relative z-10 pb-6">
+                <nav className="flex-1 px-3 pt-3 space-y-1 overflow-y-auto sidebar-scrollbar relative z-10 pb-6">
                     {filteredCategories.map((category, idx) => (
-                        <div key={idx} className="mb-6 last:mb-0">
-                            <h3 className="text-[10px] font-bold text-[var(--sidebar-muted)] opacity-80 uppercase tracking-widest mb-2 px-2 mt-4">
+                        <div key={idx} className="mb-4 last:mb-0">
+                            <h3 className="text-[11px] font-bold text-[var(--sidebar-muted)] uppercase tracking-widest mb-2 px-3 mt-3">
                                 {category.title}
                             </h3>
-                            <div className="space-y-1.5">
+                            <div className="space-y-1">
                                 {category.items.map((item) => renderNavItem(item, { mobile: true }))}
                             </div>
                         </div>
@@ -484,16 +491,16 @@ const Layout = ({ children, title }) => {
                 </nav>
 
                 <div className="p-4 relative z-10">
-                    <div className="flex items-center justify-between gap-3 p-3 bg-black/20 border border-white/10 rounded-2xl">
+                    <div className="flex items-center justify-between gap-3 p-3 rounded-2xl" style={{ backgroundColor: 'color-mix(in srgb, var(--sidebar) 75%, var(--text-primary))' }}>
                         <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-10 h-10 rounded-full bg-[var(--primary-light)] flex items-center justify-center text-[var(--primary)] font-bold text-sm flex-shrink-0">
+                            <div className="w-11 h-11 rounded-full bg-[var(--surface)] flex items-center justify-center text-[var(--primary)] font-bold text-sm flex-shrink-0">
                                 {(adminInfo.name || adminInfo.username || 'S').charAt(0).toUpperCase()}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-[13px] font-bold text-white truncate leading-tight">
+                                <p className="text-xs font-bold text-[var(--sidebar-text)] truncate leading-tight">
                                     {adminInfo.name || adminInfo.username || 'Super Admin'}
                                 </p>
-                                <p className="text-[10px] text-[var(--sidebar-muted)] truncate mt-0.5">
+                                <p className="text-xs text-[var(--sidebar-muted)] truncate mt-0.5">
                                     {adminInfo.role === 'admin' ? 'Administrator' : adminInfo.role || 'Administrator'}
                                 </p>
                             </div>
@@ -502,7 +509,7 @@ const Layout = ({ children, title }) => {
                             type="button"
                             onClick={handleLogoutClick}
                             title="Logout"
-                            className="p-2 text-[var(--sidebar-muted)] hover:text-red-400 transition-colors rounded-lg hover:bg-white/10 shrink-0"
+                            className="p-2 text-[var(--sidebar-muted)] transition-colors rounded-lg hover:bg-[color-mix(in_srgb,var(--sidebar-text)_10%,transparent)] hover:text-[var(--sidebar-text)] shrink-0"
                         >
                             <LogOut size={18} />
                         </button>
@@ -510,12 +517,12 @@ const Layout = ({ children, title }) => {
                 </div>
             </aside>
 
-            <div className="flex-1 flex flex-col h-screen overflow-hidden relative w-full" style={{ backgroundColor: 'var(--background)' }}>
+            <div className={`flex-1 flex flex-col h-screen overflow-hidden relative transition-[margin] duration-300 ${isCollapsed ? 'md:ml-20' : 'md:ml-72'}`} style={{ backgroundColor: 'var(--background)' }}>
                 <header 
                     className="md:hidden shadow-sm h-14 sm:h-16 flex items-center justify-between px-3.5 z-20"
                     style={{ backgroundColor: 'var(--navbar)', borderBottom: '1px solid var(--navbar-border, var(--border))' }}
                 >
-                    <button type="button" onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-[var(--text-secondary)] rounded-lg hover:bg-black/5">
+                    <button type="button" onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-[var(--text-secondary)] rounded-lg hover:bg-[color-mix(in_srgb,var(--text-secondary)_5%,transparent)]">
                         <Menu size={22} />
                     </button>
                     <h1 className="text-sm sm:text-base font-bold text-[var(--text-primary)] truncate px-2 text-center flex-1">
