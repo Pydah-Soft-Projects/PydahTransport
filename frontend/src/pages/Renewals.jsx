@@ -204,7 +204,7 @@ const buildToBeRenewedPrintHtml = ({
 </head>
 <body>
   <div class="print-header">
-    <h1>Pydah Transport — To Be Renewed List</h1>
+    <h1>Campo Transport — To Be Renewed List</h1>
     <p class="print-subheader">${escapeHtml(filterBits)}</p>
   </div>
 
@@ -242,7 +242,7 @@ const buildToBeRenewedPrintHtml = ({
   ${detailSections || '<p style="text-align:center;">No passengers pending renewal</p>'}
 
   <div class="footer">
-    <span>Pydah Transport Management System</span>
+    <span>Campo Transport Management System</span>
     <span>End of report</span>
   </div>
 </body>

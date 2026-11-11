@@ -62,7 +62,7 @@ const TransportVerify = () => {
                 <header className="text-center mb-4 sm:mb-6 px-1">
                     <div className="inline-flex items-center justify-center gap-2 text-blue-900 font-bold text-base sm:text-lg">
                         <Bus size={20} className="sm:w-[22px] sm:h-[22px] shrink-0" />
-                        <span className="leading-tight">Pydah Transport Verification</span>
+                        <span className="leading-tight">Campo Transport Verification</span>
                     </div>
                     <p className="text-xs sm:text-sm text-slate-500 mt-1.5">Scan result for bus ID card</p>
                 </header>
@@ -180,7 +180,7 @@ const TransportVerify = () => {
 
                 <footer className="text-center mt-5 sm:mt-6 px-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
                     <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed">
-                        Pydah Group Of Institutions · Transport Office
+                        Campo Transport · Transport Office
                     </p>
                     <p className="mt-3">
                         <Link

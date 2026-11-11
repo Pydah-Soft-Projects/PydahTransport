@@ -772,7 +772,7 @@ export default function Communications() {
                   onChange={(e) => setTemplateForm((p) => ({ ...p, body: e.target.value }))}
                   rows={6}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  placeholder="Dear Parent, {#var#} bus {#var#} on route {#var#} from stage {#var#}. - PYDAH Transport"
+                  placeholder="Dear Parent, {#var#} bus {#var#} on route {#var#} from stage {#var#}. - Campo Transport"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">{PLACEHOLDER_HINT}</p>
               </div>

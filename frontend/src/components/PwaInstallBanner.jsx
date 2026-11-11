@@ -29,7 +29,7 @@ const isDesktopBrowser = () => {
     return window.matchMedia('(min-width: 768px)').matches && !isIos();
 };
 
-const PwaInstallBanner = ({ appName = 'Pydah Transport', variant = 'overlay' }) => {
+const PwaInstallBanner = ({ appName = 'Campo Transport', variant = 'overlay' }) => {
     const [visible, setVisible] = useState(false);
     const [canInstall, setCanInstall] = useState(false);
     const [showIosHint, setShowIosHint] = useState(false);

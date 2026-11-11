@@ -349,7 +349,7 @@ const Layout = ({ children, title }) => {
         if (basePath === '/inventory/raise-bill') return 'Bills';
         if (basePath === '/settings') return 'Settings';
         if (basePath === '/users') return 'User Management';
-        return 'Pydah Transport';
+        return 'Campo Transport';
     };
 
     return (
@@ -365,20 +365,23 @@ const Layout = ({ children, title }) => {
                     {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
                 </button>
 
-                <div className={`min-h-24 flex items-center ${isCollapsed ? 'justify-center px-3' : 'px-6'} py-6 transition-all duration-300 relative z-10`}>
-                    <img
-                        src="/Gemini_Generated_Image_uu0hhduu0hhduu0h.png"
-                        alt="Logo"
-                        className="h-12 w-12 object-cover rounded-full flex-shrink-0 border-2 border-white/20 shadow-sm"
-                    />
-                    {!isCollapsed && (
-                        <div className="ml-4 animate-in fade-in slide-in-from-left-2">
-                            <h1 className="text-xl font-bold whitespace-nowrap tracking-tight text-white">
-                                TRANSPORT
-                            </h1>
-                            <p className="text-[9px] uppercase tracking-[0.1em] text-[var(--sidebar-muted)] font-medium mt-0.5">
-                                Management System
-                            </p>
+                <div className={`min-h-20 flex items-center ${isCollapsed ? 'justify-center px-3' : 'px-6'} py-5 transition-all duration-300 relative z-10`}>
+                    {isCollapsed ? (
+                        <img
+                            src="/campo-logos/favicon.svg"
+                            alt="Campo"
+                            className="w-8 h-8 rounded-lg shadow-sm flex-shrink-0"
+                        />
+                    ) : (
+                        <div className="flex flex-col min-w-0 animate-in fade-in slide-in-from-left-2">
+                            <img
+                                src="/campo-logos/campo_logo_transparent_hq.png"
+                                alt="Campo"
+                                className="h-7 w-auto object-contain object-left"
+                            />
+                            <span className="text-[11px] text-[var(--sidebar-muted)] font-medium tracking-wide mt-1">
+                                Transport Management
+                            </span>
                         </div>
                     )}
                 </div>
@@ -451,17 +454,16 @@ const Layout = ({ children, title }) => {
                 className={`fixed inset-y-0 left-0 w-64 print:hidden shadow-xl flex flex-col z-[110] transform transition-transform duration-300 md:hidden overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
                 style={{ backgroundColor: 'var(--sidebar)', color: 'var(--sidebar-text)' }}
             >
-                <div className="min-h-24 flex justify-between items-center px-6 relative z-10">
-                    <div className="flex items-center gap-3 min-w-0">
+                <div className="min-h-20 flex justify-between items-center px-6 py-4 relative z-10">
+                    <div className="flex flex-col min-w-0">
                         <img
-                            src="/Gemini_Generated_Image_uu0hhduu0hhduu0h.png"
-                            alt="Logo"
-                            className="h-10 w-10 object-cover rounded-full border-2 border-white/20 shadow-sm"
+                            src="/campo-logos/campo_logo_transparent_hq.png"
+                            alt="Campo"
+                            className="h-7 w-auto object-contain object-left"
                         />
-                        <div className="min-w-0">
-                            <h1 className="text-lg font-bold text-white truncate">TRANSPORT</h1>
-                            <p className="text-[9px] uppercase tracking-[0.1em] text-[var(--sidebar-muted)] font-medium">Management System</p>
-                        </div>
+                        <span className="text-[11px] text-[var(--sidebar-muted)] font-medium tracking-wide mt-1">
+                            Transport Management
+                        </span>
                     </div>
                     <button type="button" onClick={() => setIsMobileMenuOpen(false)} className="text-[var(--sidebar-muted)] hover:text-white p-2">
                         <X size={24} />

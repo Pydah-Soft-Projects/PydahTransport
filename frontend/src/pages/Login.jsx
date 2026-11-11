@@ -181,7 +181,7 @@ const Login = () => {
             <div className="absolute inset-0 z-0 bg-slate-950">
                 <img
                     src="/Transport_background.jpg"
-                    alt="Pydah Transport Background"
+                    alt="Campo Transport Background"
                     className="w-full h-full object-cover opacity-80"
                 />
                 <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/30 to-transparent"></div>
@@ -325,7 +325,7 @@ const Login = () => {
 
                 <div className="mt-8 text-center border-t border-slate-200 pt-6">
                     <p className="text-slate-400 text-xs font-medium">
-                        Protected by Pydah Transport Security Systems
+                        Protected by Campo Transport Security Systems
                     </p>
                 </div>
             </div>

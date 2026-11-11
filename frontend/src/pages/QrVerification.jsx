@@ -3314,7 +3314,7 @@ const OfflineVerifyShell = ({ children, title }) => (
                 <ShieldCheck size={18} />
             </div>
             <div className="min-w-0">
-                <p className="text-sm font-bold leading-tight">{title || 'Pydah Transport'}</p>
+                <p className="text-sm font-bold leading-tight">{title || 'Campo Transport'}</p>
                 <p className="text-[10px] text-blue-200 uppercase tracking-wider">Offline Verification</p>
             </div>
         </header>

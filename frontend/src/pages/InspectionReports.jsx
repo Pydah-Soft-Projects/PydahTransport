@@ -731,7 +731,7 @@ const InspectionReports = () => {
                 <div className="hidden print:block space-y-4 font-sans text-slate-800 text-[10px]">
                     {/* Header */}
                     <div className="border-b border-slate-300 pb-2.5 text-center">
-                        <h1 className="text-lg font-black uppercase tracking-wider text-slate-900">PYDAH GROUP OF INSTITUTIONS</h1>
+                        <h1 className="text-lg font-black uppercase tracking-wider text-slate-900">CAMPO TRANSPORT</h1>
                         <h2 className="mt-0.5 text-xs font-extrabold uppercase tracking-wide text-slate-700">INSPECTOR-WISE TRANSPORT ROUTE INSPECTION REPORT</h2>
                         <div className="flex justify-between items-center text-[10px] font-semibold text-slate-600 mt-1.5 px-1">
                             <span>Inspection Date: <strong>{selectedDate}</strong></span>

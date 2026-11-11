@@ -43,7 +43,7 @@ const Home = () => {
             <div className="absolute inset-0 z-0 bg-slate-950">
                 <img
                     src="/Transport_background.jpg"
-                    alt="Pydah Transport Background"
+                    alt="Campo Transport Background"
                     className="w-full h-full object-cover opacity-80"
                 />
                 <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/30 to-transparent"></div>
@@ -51,17 +51,14 @@ const Home = () => {
 
             <nav className="relative z-10 px-6 py-6 md:px-12 flex items-center justify-between animate-in fade-in slide-in-from-top-4 duration-700">
                 <div className="flex items-center gap-3">
-                    <div className="bg-white p-1.5 rounded-xl shadow-lg h-11 w-11 flex items-center justify-center">
-                        <img
-                            src="/Gemini_Generated_Image_uu0hhduu0hhduu0h.png"
-                            alt="Logo"
-                            className="h-8 w-8 object-contain"
-                        />
-                    </div>
-                    <div className="flex flex-col justify-center">
-                        <span className="text-white font-black text-xl tracking-tighter uppercase leading-none">Pydah</span>
-                        <span className="text-blue-500 font-bold text-[10px] uppercase tracking-widest leading-none mt-1">Transport</span>
-                    </div>
+                    <img
+                        src="/campo-logos/campo_logo_transparent_hq.png"
+                        alt="Campo"
+                        className="h-9 w-auto object-contain"
+                    />
+                    <span className="text-blue-400 font-bold text-[11px] uppercase tracking-widest leading-none border-l border-white/20 pl-3 py-1">
+                        Transport
+                    </span>
                 </div>
             </nav>
 
@@ -83,7 +80,7 @@ const Home = () => {
                         </h1>
 
                         <p className="max-w-xl text-lg md:text-xl text-slate-300 font-medium leading-relaxed">
-                            An advanced student transportation management system designed for Pydah&apos;s educational network. Ensure safe, efficient, and precise transit for every student.
+                            An advanced student transportation management system designed for Campo&apos;s educational network. Ensure safe, efficient, and precise transit for every student.
                         </p>
                     </div>
 
@@ -115,7 +112,7 @@ const Home = () => {
             <footer className="relative z-10 py-10 px-6 md:px-12 animate-in fade-in duration-1000 delay-700">
                 <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-t border-white/10 pt-8">
                     <p className="text-slate-500 text-[11px] font-bold tracking-widest uppercase">
-                        © {new Date().getFullYear()} Pydah Educational Institutions
+                        © {new Date().getFullYear()} Campo Transport
                     </p>
                     <div className="flex items-center gap-6">
                         <span className="text-slate-600 text-[10px] font-black uppercase tracking-widest">Logistics Control Center</span>

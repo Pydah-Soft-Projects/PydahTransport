@@ -92,7 +92,7 @@ const BillPrint = ({ billData, vendor, bus }) => {
     return (
         <div id="printable-bill" className="bg-white text-black font-sans max-w-5xl mx-auto p-10 min-h-screen">
             <div className="text-center border-b-2 border-black pb-4 mb-6">
-                <h1 className="text-2xl font-bold uppercase tracking-wide">Pydah Transport</h1>
+                <h1 className="text-2xl font-bold uppercase tracking-wide">Campo Transport</h1>
                 <p className="text-sm font-semibold mt-1">Vehicle Maintenance & Spares Bill</p>
             </div>
 

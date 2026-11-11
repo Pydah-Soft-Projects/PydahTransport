@@ -253,7 +253,7 @@ const buildRoutesPrintHtml = ({
 </head>
 <body>
   <div class="print-header">
-    <h1>Pydah Transport — Routes &amp; Stages</h1>
+    <h1>Campo Transport — Routes &amp; Stages</h1>
     <p class="print-subheader">${escapeHtml(filterBits)}</p>
   </div>
 
@@ -279,7 +279,7 @@ const buildRoutesPrintHtml = ({
   ${routeSections || '<p class="ctr muted">No routes to print</p>'}
 
   <div class="footer">
-    <span>Pydah Transport Management System</span>
+    <span>Campo Transport Management System</span>
     <span>End of report</span>
   </div>
 </body>
@@ -805,7 +805,7 @@ const RouteNetworkAllMap = ({
                     }).addTo(map);
 
                     // Draw Start Stage Tooltip and Circle Marker (Bus Starts at Pydah College / Campus)
-                    const startName = campusDest?.name || route.campus?.name || 'Pydah College';
+                    const startName = campusDest?.name || route.campus?.name || 'Campus';
                     const pydahCollegeCoords = campusDest
                         ? [campusDest.latitude, campusDest.longitude]
                         : (snapped.length > 0 ? snapped[snapped.length - 1] : null);
@@ -3526,7 +3526,7 @@ const RouteManagement = () => {
         setIsPrintingRoutes(true);
         try {
             const workbook = new ExcelJS.Workbook();
-            workbook.creator = 'Pydah Transport System';
+            workbook.creator = 'Campo Transport System';
             workbook.created = new Date();
 
             const worksheet = workbook.addWorksheet('Routes & Stages');
@@ -3537,7 +3537,7 @@ const RouteManagement = () => {
             worksheet.getColumn(3).width = 30;  // Fare / Route Header Right
 
             // 1. Title Block (PDF style)
-            const titleRow = worksheet.addRow(['Pydah Transport — Routes & Stages']);
+            const titleRow = worksheet.addRow(['Campo Transport — Routes & Stages']);
             titleRow.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF111111' } };
             titleRow.alignment = { horizontal: 'center', vertical: 'middle' };
             worksheet.mergeCells('A1:C1');
@@ -3684,7 +3684,7 @@ const RouteManagement = () => {
             });
 
             // Footer row (PDF style)
-            const footerRow = worksheet.addRow(['Pydah Transport Management System', '', 'End of report']);
+            const footerRow = worksheet.addRow(['Campo Transport Management System', '', 'End of report']);
             footerRow.height = 20;
             footerRow.getCell(1).font = { name: 'Arial', size: 8.5, color: { argb: 'FF555555' } };
             footerRow.getCell(3).font = { name: 'Arial', size: 8.5, color: { argb: 'FF555555' } };

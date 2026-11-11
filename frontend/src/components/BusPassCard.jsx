@@ -149,7 +149,7 @@ const BusPassCard = forwardRef(({ passenger }, ref) => {
                     <div className="header">
                         <div>
                             <div className="header-title">BUS PASS</div>
-                            <div className="header-subtitle">Pydah Transport Services</div>
+                            <div className="header-subtitle">Campo Transport Services</div>
                         </div>
                         <div className="type-badge" style={{color: 'white', background: 'rgba(255,255,255,0.2)', padding: '0.5mm 1.5mm', borderRadius: '1mm'}}>
                             {type}

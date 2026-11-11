@@ -440,7 +440,7 @@ export default function GpsTracking() {
 
     worksheet.mergeCells('A1:F1');
     const titleCell = worksheet.getCell('A1');
-    titleCell.value = `Pydah Transport - Fuel Day Report (${fuelDateFrom} to ${fuelDateTo})`;
+    titleCell.value = `Campo Transport - Fuel Day Report (${fuelDateFrom} to ${fuelDateTo})`;
     titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
     titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF071B45' } };
     titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -1088,7 +1088,7 @@ export default function GpsTracking() {
       // Title Banner Row 1
       worksheet.mergeCells(1, 1, 1, totalColCount);
       const titleCell = worksheet.getCell(1, 1);
-      titleCell.value = 'PYDAH EDUCATIONAL INSTITUTIONS — TRANSPORTATION DEPARTMENT';
+      titleCell.value = 'CAMPO TRANSPORT — TRANSPORTATION DEPARTMENT';
       titleCell.font = { name: 'Segoe UI', size: 13, bold: true, color: { argb: 'FFFFFF' } };
       titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '071B45' } };
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };

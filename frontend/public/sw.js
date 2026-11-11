@@ -1,14 +1,15 @@
-/* Pydah Transport app-shell service worker */
-const CACHE = 'pydah-transport-shell-v11';
+/* Campo Transport app-shell service worker */
+const CACHE = 'campo-transport-shell-v12';
 const PRECACHE = [
   '/',
   '/index.html',
   '/verify',
   '/login',
   '/manifest.webmanifest',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/Gemini_Generated_Image_uu0hhduu0hhduu0h.png',
+  '/campo-logos/icon-192.png',
+  '/campo-logos/icon-512.png',
+  '/campo-logos/favicon.svg',
+  '/campo-logos/campo_logo_transparent_hq.png',
 ];
 
 const offlineFallback = () =>
