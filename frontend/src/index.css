@@ -59,6 +59,13 @@
 
 :root {
   font-family: 'Outfit', Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  --sidebar-bg: #1E3150;
+  --sidebar-text: #FFFFFF;
+  --sidebar-muted: #AABBD4;
+  --sidebar-border: rgba(255, 255, 255, 0.12);
+  --border: #E2E8F0;
+  --surface: #FFFFFF;
+  --primary: #2563EB;
   line-height: 1.5;
   font-weight: 400;
 
